@@ -5,7 +5,9 @@ import {
   DOCKER_HOST,
   IDLE_CONTAINER,
   NULL_METRIC_HOUR,
+  PROXMOX_CLUSTER_VERSION,
   PROXMOX_HOST,
+  PROXMOX_STORAGE_VALUES,
   PROXMOX_SUPPORTING_ENTITIES,
   PROXMOX_SUPPORTING_GAP_MINUTES,
   PROXMOX_SUPPORTING_SAMPLES,
@@ -225,7 +227,8 @@ async function seedZfs(pool: Pool): Promise<void> {
 
 const PROXMOX_COLUMNS = `(
   time, host, entity_type, node, entity_id, entity_name, status,
-  cpu, max_cpu, mem, max_mem, disk, max_disk, uptime, vmid, netin, netout
+  cpu, max_cpu, mem, max_mem, disk, max_disk, uptime, vmid, netin, netout,
+  storage_type, storage_content, storage_avail, storage_shared, cluster_version
 )`;
 
 // Anchored to the last second of the previous whole hour, which pins two things the counter
@@ -238,12 +241,17 @@ async function seedProxmoxCounters(pool: Pool): Promise<void> {
      SELECT
        date_trunc('hour', now()) - make_interval(secs => s + 1),
        $1, $2, $3, $4, $5, 'running',
-       0.15 + 0.05 * sin(s / 20.0), 4,
-       2147483648, 4294967296, 10737418240, 53687091200,
+       0.15 + 0.05 * sin(s / 20.0),
+       4 + (s % 3),
+       2147483648 + (s % 48)::bigint * 1048576,
+       4294967296 + (s % 16)::bigint * 1048576,
+       10737418240 + (s % 32)::bigint * 1048576,
+       53687091200 + (s % 24)::bigint * 1048576,
        $6::bigint + ($7::int - 1 - s) * $8::bigint,
        $9::int,
        $10::bigint + ($7::int - 1 - s) * $11::bigint,
-       $12::bigint + ($7::int - 1 - s) * $13::bigint
+       $12::bigint + ($7::int - 1 - s) * $13::bigint,
+       NULL, NULL, NULL, NULL, NULL
      FROM generate_series(0, $7::int - 1) AS s`,
     [
       PROXMOX_HOST,
@@ -263,19 +271,65 @@ async function seedProxmoxCounters(pool: Pool): Promise<void> {
   );
 }
 
-async function seedProxmoxSupporting(pool: Pool): Promise<void> {
-  for (const entity of PROXMOX_SUPPORTING_ENTITIES) {
-    await pool.query(
-      `INSERT INTO proxmox_stats ${PROXMOX_COLUMNS}
-       SELECT
-         now() - make_interval(mins => s * $6::int),
-         $1, $2, $3, $4, $5, 'running',
+const PROXMOX_SUPPORTING_GAUGES = `'running',
          0.2 + 0.05 * sin(s / 8.0), 8,
          4294967296, 17179869184, 21474836480, 107374182400,
          604800 - s * 60,
          NULL,
          2000000 + (($7::int - 1 - s) * 8192)::bigint,
-         1000000 + (($7::int - 1 - s) * 4096)::bigint
+         1000000 + (($7::int - 1 - s) * 4096)::bigint`;
+
+const PROXMOX_STORAGE_GAUGES = `'active',
+         NULL, NULL,
+         NULL, NULL, NULL, NULL,
+         NULL,
+         NULL,
+         NULL, NULL`;
+
+/**
+ * Migration 032 rolls up a column the same way for every row of an entity_type, so each type is
+ * seeded with the NULL pattern its collector produces: storage rows carry storage_avail and no
+ * gauges, everything else the inverse.
+ */
+function proxmoxSupportingShape(entityType: string): { metrics: string; params: unknown[] } {
+  if (entityType === 'storage') {
+    return {
+      metrics: `${PROXMOX_STORAGE_GAUGES},
+         $8::text, $9::text,
+         5497558138880 + (s % 24)::bigint * 1073741824,
+         $10::boolean, NULL`,
+      params: [
+        PROXMOX_STORAGE_VALUES.storageType,
+        PROXMOX_STORAGE_VALUES.storageContent,
+        PROXMOX_STORAGE_VALUES.storageShared,
+      ],
+    };
+  }
+  if (entityType === 'cluster') {
+    return {
+      metrics: `${PROXMOX_SUPPORTING_GAUGES},
+         NULL, NULL, NULL, NULL, $8::int`,
+      params: [PROXMOX_CLUSTER_VERSION],
+    };
+  }
+  return {
+    metrics: `${PROXMOX_SUPPORTING_GAUGES},
+         NULL, NULL, NULL, NULL, NULL`,
+    params: [],
+  };
+}
+
+// Anchored to the previous whole hour for the same reason as the counter guest: seeding back from
+// now() puts every row in the in-progress hour whenever a run starts in the last minute of one, and
+// the storage and cluster probes need a closed `_1h` bucket to compare against.
+async function seedProxmoxSupporting(pool: Pool): Promise<void> {
+  for (const entity of PROXMOX_SUPPORTING_ENTITIES) {
+    const shape = proxmoxSupportingShape(entity.entityType);
+    await pool.query(
+      `INSERT INTO proxmox_stats ${PROXMOX_COLUMNS}
+       SELECT
+         date_trunc('hour', now()) - make_interval(mins => (s + 1) * $6::int),
+         $1, $2, $3, $4, $5, ${shape.metrics}
        FROM generate_series(0, $7::int - 1) AS s`,
       [
         PROXMOX_HOST,
@@ -285,6 +339,7 @@ async function seedProxmoxSupporting(pool: Pool): Promise<void> {
         entity.entityName,
         PROXMOX_SUPPORTING_GAP_MINUTES,
         PROXMOX_SUPPORTING_SAMPLES,
+        ...shape.params,
       ]
     );
   }

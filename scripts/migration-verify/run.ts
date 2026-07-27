@@ -31,11 +31,13 @@ import {
   assertAggregateRegistry,
   assertAggregateTierValues,
   assertCumulativeCounters,
+  assertHourlyAverageViews,
   assertIdleContainerIdentity,
   assertNullMetricDilution,
   assertRollupBackfill,
   assertRowCountsPreserved,
   assertSchema,
+  assertTierColumnCoverage,
   assertWeightedRollup,
   captureRowCounts,
 } from './assertions';
@@ -78,6 +80,7 @@ async function runFresh(): Promise<void> {
 
     await assertSchema(pool, checks);
     await assertAggregateRegistry(pool, checks);
+    await assertTierColumnCoverage(pool, checks);
     checks.report();
   } finally {
     await pool.end();
@@ -132,12 +135,16 @@ async function runUpgrade(): Promise<void> {
     // rows assertIdleContainerIdentity resolves a name from.
     await runStatsRollupBackfill(asDatabaseClient(pool));
 
+    // Registry and column coverage first: they name the views every later assertion queries by
+    // interpolation, so a missing or renamed one reports as a failed check instead of a throw.
+    await assertAggregateRegistry(pool, checks);
+    await assertTierColumnCoverage(pool, checks);
     await assertRollupBackfill(pool, checks);
     await assertWeightedRollup(pool, checks);
     await assertCumulativeCounters(pool, checks);
     await assertNullMetricDilution(pool, checks);
-    await assertAggregateRegistry(pool, checks);
     await assertAggregateTierValues(pool, checks);
+    await assertHourlyAverageViews(pool, checks);
     checks.report();
   } finally {
     await pool.end();

@@ -18,6 +18,15 @@ export class Checks {
   }
 
   equal(name: string, actual: unknown, expected: unknown): void {
+    // Object.is treats NaN as equal to itself, so a Number(missing) on both sides would pass.
+    if (isNaNValue(actual)) {
+      this.record(name, false, `actual is NaN (expected ${format(expected)})`);
+      return;
+    }
+    if (isNaNValue(expected)) {
+      this.record(name, false, `expected is NaN (got ${format(actual)})`);
+      return;
+    }
     const ok = Object.is(actual, expected);
     this.record(name, ok, ok ? '' : `expected ${format(expected)}, got ${format(actual)}`);
   }
@@ -77,6 +86,10 @@ export class Checks {
       );
     }
   }
+}
+
+function isNaNValue(value: unknown): boolean {
+  return typeof value === 'number' && Number.isNaN(value);
 }
 
 function format(value: unknown): string {

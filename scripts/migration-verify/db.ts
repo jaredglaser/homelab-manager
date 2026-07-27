@@ -11,6 +11,9 @@ function baseConfig(): PoolConfig {
     password: process.env.POSTGRES_PASSWORD ?? 'postgres',
     max: 4,
     connectionTimeoutMillis: 10_000,
+    // The fixtures anchor hours with date_trunc, which truncates in the session timezone, and that
+    // has to agree with time_bucket's UTC-epoch alignment.
+    options: '-c timezone=UTC',
   };
 }
 
@@ -23,9 +26,9 @@ export async function recreateDatabase(name: string): Promise<void> {
   try {
     await pool.query(`DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`);
     await pool.query(`CREATE DATABASE ${quoteIdent(name)}`);
-    // A continuous-aggregate refresh logs two lines per chunk, which buries the harness's own
-    // report under thousands of lines when CI dumps the service container log. LOG outranks ERROR
-    // in the log_min_messages scale, so silencing it takes 'fatal'.
+    // A continuous-aggregate refresh logs two lines per chunk and buries the harness report; LOG
+    // outranks ERROR in the log_min_messages scale, so silencing it takes 'fatal'. That also drops
+    // every server ERROR and WARNING here, which assertRollupBackfill's job_errors read replaces.
     await pool.query(`ALTER DATABASE ${quoteIdent(name)} SET log_min_messages = 'fatal'`);
   } finally {
     await pool.end();

@@ -9,8 +9,11 @@ import {
   EXPECTED_HYPERTABLES,
   EXPECTED_TABLES,
   IDLE_CONTAINER,
+  MIN_ROLLUP_DISCRIMINATION,
   NULL_METRIC_HOUR,
+  PROXMOX_CLUSTER_ENTITY,
   PROXMOX_HOST,
+  PROXMOX_STORAGE_ENTITY,
   REMOVED_COLUMNS,
   SPARSE_HOUR,
   ZFS_ENTITIES,
@@ -23,7 +26,6 @@ import {
 } from './fixture';
 
 const RELATIVE_EPSILON = 1e-9;
-const MIN_DISCRIMINATION = 0.5;
 /** uptime is the slowest counter in the fixture; its bucket AVG trails its LAST by ~29.5. */
 const COUNTER_AVG_MIN_SEPARATION = 1;
 
@@ -51,9 +53,22 @@ const EXPECTED_SEGMENTBY: Record<string, string[]> = {
 };
 
 /**
+ * One entity whose buckets get replayed against the tier's source. A tier needs more than one
+ * whenever the NULL pattern varies by group key: a proxmox guest carries cpu/mem/disk and a NULL
+ * storage_avail, a storage row is the inverse, so neither alone reaches every column.
+ */
+export interface TierProbe {
+  /** Values for the tier's `keyColumns`. */
+  key: string[];
+  weightedAverageColumns: string[];
+  lastValueColumns: string[];
+}
+
+/**
  * Registry of continuous-aggregate tiers. `assertAggregateRegistry` enforces that the database's
- * set of continuous aggregates matches this list exactly, and `assertAggregateTierValues` replays
- * each tier's aggregation rules against its source for the probe entity.
+ * set of continuous aggregates matches this list exactly, `assertTierColumnCoverage` enforces that
+ * every column of every tier is claimed by some probe, and `assertAggregateTierValues` replays each
+ * tier's aggregation rules against its source.
  */
 export interface AggregateTier {
   view: string;
@@ -65,38 +80,73 @@ export interface AggregateTier {
   /** `_1m` materializes the bucket mean; `_1h` materializes SUM(metric * sample_count) as `<metric>_sum`. */
   weightedColumnShape: 'mean' | 'weighted_sum';
   keyColumns: string[];
-  /** Values for `keyColumns`, identifying the entity whose buckets get replayed. */
-  probeKey: string[];
-  weightedAverageColumns: string[];
-  lastValueColumns: string[];
+  probes: TierProbe[];
 }
 
 const DOCKER_TIER_KEYS = ['host', 'container_id'];
-const DOCKER_PROBE = [DOCKER_HOST, SPARSE_HOUR.containerId];
-const DOCKER_WEIGHTED = [
-  'cpu_percent',
-  'memory_usage',
-  'memory_percent',
-  'network_rx_bytes_per_sec',
-  'block_io_write_bytes_per_sec',
+const DOCKER_PROBES: TierProbe[] = [
+  {
+    key: [DOCKER_HOST, SPARSE_HOUR.containerId],
+    weightedAverageColumns: [
+      'cpu_percent',
+      'memory_usage',
+      'memory_limit',
+      'memory_percent',
+      'network_rx_bytes_per_sec',
+      'network_tx_bytes_per_sec',
+      'block_io_read_bytes_per_sec',
+      'block_io_write_bytes_per_sec',
+    ],
+    lastValueColumns: ['container_name', 'image'],
+  },
 ];
-const DOCKER_LAST = ['container_name', 'image'];
 
 const ZFS_TIER_KEYS = ['host', 'pool', 'entity'];
-const ZFS_PROBE = [ZFS_HOST, ZFS_POOL, ZFS_ENTITIES[0].entity];
-const ZFS_WEIGHTED = [
-  'capacity_alloc',
-  'read_ops_per_sec',
-  'write_bytes_per_sec',
-  'utilization_percent',
+const ZFS_PROBES: TierProbe[] = [
+  {
+    key: [ZFS_HOST, ZFS_POOL, ZFS_ENTITIES[0].entity],
+    weightedAverageColumns: [
+      'capacity_alloc',
+      'capacity_free',
+      'read_ops_per_sec',
+      'write_ops_per_sec',
+      'read_bytes_per_sec',
+      'write_bytes_per_sec',
+      'utilization_percent',
+    ],
+    lastValueColumns: ['entity_type', 'indent'],
+  },
 ];
-const ZFS_LAST = ['entity_type', 'indent'];
 
 const PROXMOX_TIER_KEYS = ['host', 'entity_type', 'entity_id'];
-const PROXMOX_PROBE = [PROXMOX_HOST, COUNTER_GUEST.entityType, COUNTER_GUEST.entityId];
-/** storage_avail is NULL for every guest row, so it has no weighted average to compare here. */
-const PROXMOX_WEIGHTED = ['cpu', 'mem', 'disk'];
-const PROXMOX_LAST = ['netin', 'netout', 'uptime', 'vmid', 'status'];
+const PROXMOX_PROBES: TierProbe[] = [
+  {
+    key: [PROXMOX_HOST, COUNTER_GUEST.entityType, COUNTER_GUEST.entityId],
+    weightedAverageColumns: ['cpu', 'mem', 'disk'],
+    lastValueColumns: [
+      'node',
+      'entity_name',
+      'status',
+      'max_cpu',
+      'max_mem',
+      'max_disk',
+      'uptime',
+      'vmid',
+      'netin',
+      'netout',
+    ],
+  },
+  {
+    key: [PROXMOX_HOST, PROXMOX_STORAGE_ENTITY.entityType, PROXMOX_STORAGE_ENTITY.entityId],
+    weightedAverageColumns: ['storage_avail'],
+    lastValueColumns: ['storage_type', 'storage_content', 'storage_shared'],
+  },
+  {
+    key: [PROXMOX_HOST, PROXMOX_CLUSTER_ENTITY.entityType, PROXMOX_CLUSTER_ENTITY.entityId],
+    weightedAverageColumns: [],
+    lastValueColumns: ['cluster_version'],
+  },
+];
 
 export const AGGREGATE_TIERS: AggregateTier[] = [
   {
@@ -106,9 +156,7 @@ export const AGGREGATE_TIERS: AggregateTier[] = [
     sourceWeight: '1',
     weightedColumnShape: 'mean',
     keyColumns: DOCKER_TIER_KEYS,
-    probeKey: DOCKER_PROBE,
-    weightedAverageColumns: DOCKER_WEIGHTED,
-    lastValueColumns: DOCKER_LAST,
+    probes: DOCKER_PROBES,
   },
   {
     view: 'docker_stats_1h',
@@ -117,9 +165,7 @@ export const AGGREGATE_TIERS: AggregateTier[] = [
     sourceWeight: 'sample_count',
     weightedColumnShape: 'weighted_sum',
     keyColumns: DOCKER_TIER_KEYS,
-    probeKey: DOCKER_PROBE,
-    weightedAverageColumns: DOCKER_WEIGHTED,
-    lastValueColumns: DOCKER_LAST,
+    probes: DOCKER_PROBES,
   },
   {
     view: 'zfs_stats_1m',
@@ -128,9 +174,7 @@ export const AGGREGATE_TIERS: AggregateTier[] = [
     sourceWeight: '1',
     weightedColumnShape: 'mean',
     keyColumns: ZFS_TIER_KEYS,
-    probeKey: ZFS_PROBE,
-    weightedAverageColumns: ZFS_WEIGHTED,
-    lastValueColumns: ZFS_LAST,
+    probes: ZFS_PROBES,
   },
   {
     view: 'zfs_stats_1h',
@@ -139,9 +183,7 @@ export const AGGREGATE_TIERS: AggregateTier[] = [
     sourceWeight: 'sample_count',
     weightedColumnShape: 'weighted_sum',
     keyColumns: ZFS_TIER_KEYS,
-    probeKey: ZFS_PROBE,
-    weightedAverageColumns: ZFS_WEIGHTED,
-    lastValueColumns: ZFS_LAST,
+    probes: ZFS_PROBES,
   },
   {
     view: 'proxmox_stats_1m',
@@ -150,9 +192,7 @@ export const AGGREGATE_TIERS: AggregateTier[] = [
     sourceWeight: '1',
     weightedColumnShape: 'mean',
     keyColumns: PROXMOX_TIER_KEYS,
-    probeKey: PROXMOX_PROBE,
-    weightedAverageColumns: PROXMOX_WEIGHTED,
-    lastValueColumns: PROXMOX_LAST,
+    probes: PROXMOX_PROBES,
   },
   {
     view: 'proxmox_stats_1h',
@@ -161,11 +201,28 @@ export const AGGREGATE_TIERS: AggregateTier[] = [
     sourceWeight: 'sample_count',
     weightedColumnShape: 'weighted_sum',
     keyColumns: PROXMOX_TIER_KEYS,
-    probeKey: PROXMOX_PROBE,
-    weightedAverageColumns: PROXMOX_WEIGHTED,
-    lastValueColumns: PROXMOX_LAST,
+    probes: PROXMOX_PROBES,
   },
 ];
+
+function viewColumnFor(tier: AggregateTier, column: string): string {
+  return tier.weightedColumnShape === 'weighted_sum' ? `${column}_sum` : column;
+}
+
+function probeLabel(probe: TierProbe): string {
+  return probe.key[probe.key.length - 1];
+}
+
+function keyPredicateFor(tier: AggregateTier): string {
+  return tier.keyColumns.map((column, index) => `${column} = $${index + 1}`).join(' AND ');
+}
+
+function probeCteFor(tier: AggregateTier): string {
+  return `probe AS (
+    SELECT max(time) AS bucket FROM ${tier.view}
+    WHERE ${keyPredicateFor(tier)} AND time < date_trunc('${tier.bucketUnit}', now())
+  )`;
+}
 
 export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
   const tables = await selectColumn<string>(
@@ -356,6 +413,9 @@ export async function assertRollupBackfill(pool: Pool, checks: Checks): Promise<
     checks.equal(`${tier.view} was materialized by the backfill`, rows > 0, true);
   }
 
+  await assertBackfillReachedFullHistory(pool, checks);
+  await assertNoFailedPolicyJobs(pool, checks);
+
   const policies = await pool.query<{ target: string; drop_after: string }>(
     `SELECT
        COALESCE(ca.view_name, j.hypertable_name) AS target,
@@ -388,6 +448,65 @@ export async function assertRollupBackfill(pool: Pool, checks: Checks): Promise<
 }
 
 /**
+ * `refreshWindows` walks the whole history in fixed-size windows, so a bug in its loop bound leaves
+ * recent buckets present and old ones missing. The idle container's 96 samples sit 31 days back,
+ * past every window but the first. Read from `_1h`, which carries no retention policy: the same
+ * buckets in `_1m` are older than the 30-day policy the backfill has just installed, and a
+ * scheduler run could drop them mid-assertion.
+ */
+async function assertBackfillReachedFullHistory(pool: Pool, checks: Checks): Promise<void> {
+  const row = await selectRow<{ hourly_samples: string | null; oldest_age_days: string | null }>(
+    pool,
+    `SELECT
+       sum(sample_count) AS hourly_samples,
+       EXTRACT(EPOCH FROM (now() - min(time))) / 86400 AS oldest_age_days
+     FROM docker_stats_1h WHERE host = $1 AND container_id = $2`,
+    [DOCKER_HOST, IDLE_CONTAINER.id]
+  );
+
+  checks.equal(
+    'the backfill rolled up every idle-container sample from 31 days back',
+    Number(row?.hourly_samples),
+    IDLE_CONTAINER.samples
+  );
+  checks.equal(
+    'docker_stats_1h reaches past the raw retention window',
+    Number(row?.oldest_age_days) > IDLE_CONTAINER.newestAgeDays,
+    true
+  );
+}
+
+/**
+ * The verification databases run at `log_min_messages = 'fatal'`, which hides the server-side ERROR
+ * a failed background job leaves behind, so the harness has to read the job status itself. Scoped
+ * to the two policies the rollup assertions depend on; compression is excluded because it competes
+ * with retention for the same chunks and a loss there says nothing about the aggregate definitions.
+ */
+async function assertNoFailedPolicyJobs(pool: Pool, checks: Checks): Promise<void> {
+  const available = await selectRow<{ present: boolean }>(
+    pool,
+    `SELECT to_regclass('timescaledb_information.job_stats') IS NOT NULL AS present`
+  );
+  if (available?.present !== true) {
+    checks.record('background job status is readable', false, 'job_stats view is missing');
+    return;
+  }
+
+  const failed = await selectColumn<string>(
+    pool,
+    `SELECT j.proc_name || ' on ' || COALESCE(ca.view_name, j.hypertable_name, 'unknown')
+     FROM timescaledb_information.job_stats s
+     JOIN timescaledb_information.jobs j ON j.job_id = s.job_id
+     LEFT JOIN timescaledb_information.continuous_aggregates ca
+       ON ca.materialization_hypertable_schema = j.hypertable_schema
+      AND ca.materialization_hypertable_name = j.hypertable_name
+     WHERE s.last_run_status = 'Failed'
+       AND j.proc_name IN ('policy_retention', 'policy_refresh_continuous_aggregate')`
+  );
+  checks.equal('no retention or refresh job has failed', failed.join(', ') || 'none', 'none');
+}
+
+/**
  * The sparse hour holds 59 minutes of 60 samples plus one minute of 12, so `docker_stats_1h_avg`
  * lands on the raw average only if the hourly tier weighted each minute by its sample count. An
  * equal-weighted AVG() over the per-minute averages misses it by about 1.06 points.
@@ -407,16 +526,15 @@ export async function assertWeightedRollup(pool: Pool, checks: Checks): Promise<
     params
   );
   checks.equal('sparse hour row count', Number(raw?.raw_count), expectedRows);
-  checks.closeTo('raw average matches the fixture', Number(raw?.raw_avg), sparseHourRawAverage(), 1e-9);
-  checks.differsBy(
-    'fixture discriminates weighted from naive rollups',
-    sparseHourNaiveAverage(),
+  checks.closeTo(
+    'raw average matches the fixture',
+    Number(raw?.raw_avg),
     sparseHourRawAverage(),
-    MIN_DISCRIMINATION
+    1e-9
   );
 
   const rolled = await selectRow<{
-    hourly_cpu: string | null;
+    hourly_cpu: unknown;
     hourly_samples: string | null;
     minute_buckets: string;
     min_minute_samples: string | null;
@@ -438,7 +556,11 @@ export async function assertWeightedRollup(pool: Pool, checks: Checks): Promise<
     params
   );
 
-  checks.equal('docker_stats_1m holds one bucket per fixture minute', Number(rolled?.minute_buckets), 60);
+  checks.equal(
+    'docker_stats_1m holds one bucket per fixture minute',
+    Number(rolled?.minute_buckets),
+    60
+  );
   checks.equal(
     'docker_stats_1m keeps the short minute sample count',
     Number(rolled?.min_minute_samples),
@@ -456,7 +578,11 @@ export async function assertWeightedRollup(pool: Pool, checks: Checks): Promise<
   );
 
   if (rolled?.hourly_cpu == null) {
-    checks.record('docker_stats_1h_avg holds the sparse hour bucket', false, 'cpu_percent is NULL or the bucket is missing');
+    checks.record(
+      'docker_stats_1h_avg holds the sparse hour bucket',
+      false,
+      'cpu_percent is NULL or the bucket is missing'
+    );
     return;
   }
   const hourlyCpu = Number(rolled.hourly_cpu);
@@ -470,7 +596,7 @@ export async function assertWeightedRollup(pool: Pool, checks: Checks): Promise<
     'docker_stats_1h_avg.cpu_percent is not the equal-weighted average of the minute averages',
     hourlyCpu,
     sparseHourNaiveAverage(),
-    MIN_DISCRIMINATION
+    MIN_ROLLUP_DISCRIMINATION
   );
 }
 
@@ -634,7 +760,7 @@ export async function assertNullMetricDilution(pool: Pool, checks: Checks): Prom
     'the diluted hourly average is not the populated average',
     hourlyCpu,
     nullMetricRawAverage(),
-    MIN_DISCRIMINATION
+    MIN_ROLLUP_DISCRIMINATION
   );
 
   const rawMemoryAvg = Number(row.raw_memory_avg);
@@ -659,116 +785,212 @@ export async function assertAggregateRegistry(pool: Pool, checks: Checks): Promi
 }
 
 /**
- * Replays each tier's aggregation rules against its own source for the probe entity: the weighted
- * average or weighted sum, the last-value columns, and the sample_count that the hourly tier
- * divides by. The bucket comes from the view itself, excluding the in-progress one, so a tier that
- * materialized nothing fails on a missing bucket rather than comparing NULL against NULL.
+ * Every column of every tier has to be claimed by some probe. Without this the registry's column
+ * lists are a hand-picked subset, and a metric added to an aggregate, renamed, or sourced from the
+ * wrong column reaches production with nothing replaying it.
+ */
+export async function assertTierColumnCoverage(pool: Pool, checks: Checks): Promise<void> {
+  for (const tier of AGGREGATE_TIERS) {
+    const columns = await selectColumn<string>(
+      pool,
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = $1`,
+      [tier.view]
+    );
+
+    const claimed = new Set<string>(['time', 'sample_count', ...tier.keyColumns]);
+    for (const probe of tier.probes) {
+      for (const column of probe.weightedAverageColumns) {
+        claimed.add(viewColumnFor(tier, column));
+      }
+      for (const column of probe.lastValueColumns) {
+        claimed.add(column);
+      }
+    }
+
+    checks.sameSet(`every ${tier.view} column is claimed by a tier probe`, columns, [...claimed]);
+  }
+}
+
+/**
+ * `resolveStatsTier` reads `<source>_1h_avg`, not the hourly aggregate itself, so the division and
+ * the `::double precision` cast that view adds sit on the app's hot path. The cast exists to keep
+ * `AVG(bigint)`'s numeric off the wire, where node-postgres hands it back as a string, so the type
+ * matters as much as the value: `Number()` on both sides would coerce that regression away.
+ */
+export async function assertHourlyAverageViews(pool: Pool, checks: Checks): Promise<void> {
+  for (const tier of AGGREGATE_TIERS) {
+    if (tier.weightedColumnShape !== 'weighted_sum') continue;
+    const avgView = `${tier.view}_avg`;
+
+    const available = await selectRow<{ present: boolean }>(
+      pool,
+      'SELECT to_regclass($1::text) IS NOT NULL AS present',
+      [avgView]
+    );
+    checks.equal(`${avgView} exists`, available?.present, true);
+    if (available?.present !== true) continue;
+
+    const probeCte = probeCteFor(tier);
+    const where = `${keyPredicateFor(tier)} AND time = probe.bucket`;
+
+    for (const probe of tier.probes) {
+      for (const column of probe.weightedAverageColumns) {
+        const row = await selectRow<{ view_value: unknown; expected: string | null }>(
+          pool,
+          `WITH ${probeCte}
+           SELECT
+             (SELECT ${column} FROM ${avgView}, probe WHERE ${where}) AS view_value,
+             (SELECT ${column}_sum / NULLIF(sample_count, 0) FROM ${tier.view}, probe
+              WHERE ${where}) AS expected`,
+          probe.key
+        );
+
+        const label = `${avgView}.${column} [${probeLabel(probe)}]`;
+        if (row?.view_value == null || row.expected == null) {
+          checks.record(
+            `${label} and its aggregate expectation are both populated`,
+            false,
+            `view=${row?.view_value} aggregate=${row?.expected}`
+          );
+          continue;
+        }
+        checks.equal(`${label} arrives as a JS number, not numeric text`, typeof row.view_value, 'number');
+        const expected = Number(row.expected);
+        checks.closeTo(
+          `${label} divides the weighted sum by sample_count`,
+          Number(row.view_value),
+          expected,
+          toleranceFor(expected)
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Replays each tier's aggregation rules against its own source for every probe entity: the weighted
+ * average or weighted sum, the last-value columns, and the sample_count the hourly tier divides by.
+ * The bucket comes from the view itself, excluding the in-progress one, so a tier that materialized
+ * nothing fails on a missing bucket rather than comparing NULL against NULL.
  */
 export async function assertAggregateTierValues(pool: Pool, checks: Checks): Promise<void> {
   for (const tier of AGGREGATE_TIERS) {
-    const keyPredicate = tier.keyColumns.map((column, index) => `${column} = $${index + 1}`).join(' AND ');
-    const bucketWidth = `INTERVAL '1 ${tier.bucketUnit}'`;
-    const probeCte = `probe AS (
-      SELECT max(time) AS bucket FROM ${tier.view}
-      WHERE ${keyPredicate} AND time < date_trunc('${tier.bucketUnit}', now())
-    )`;
-    const sourceFrom = `${tier.sourceTable}, probe`;
-    const sourceWhere = `${keyPredicate} AND time >= probe.bucket AND time < probe.bucket + ${bucketWidth}`;
-    const viewFrom = `${tier.view}, probe`;
-    const viewWhere = `${keyPredicate} AND time = probe.bucket`;
+    for (const probe of tier.probes) {
+      await assertTierProbe(pool, checks, tier, probe);
+    }
+  }
+}
 
-    const probe = await selectRow<{ bucket: Date | null }>(
-      pool,
-      `WITH ${probeCte} SELECT bucket FROM probe`,
-      tier.probeKey
+async function assertTierProbe(
+  pool: Pool,
+  checks: Checks,
+  tier: AggregateTier,
+  probe: TierProbe
+): Promise<void> {
+  const keyPredicate = keyPredicateFor(tier);
+  const probeCte = probeCteFor(tier);
+  const bucketWidth = `INTERVAL '1 ${tier.bucketUnit}'`;
+  const sourceFrom = `${tier.sourceTable}, probe`;
+  const sourceWhere = `${keyPredicate} AND time >= probe.bucket AND time < probe.bucket + ${bucketWidth}`;
+  const viewFrom = `${tier.view}, probe`;
+  const viewWhere = `${keyPredicate} AND time = probe.bucket`;
+  const suffix = `[${probeLabel(probe)}]`;
+
+  const found = await selectRow<{ bucket: Date | null }>(
+    pool,
+    `WITH ${probeCte} SELECT bucket FROM probe`,
+    probe.key
+  );
+  if (found?.bucket == null) {
+    checks.record(
+      `${tier.view} materialized a closed bucket for ${probeLabel(probe)}`,
+      false,
+      'the view holds no bucket for the probe entity'
     );
-    if (probe?.bucket == null) {
+    return;
+  }
+
+  const counts = await selectRow<{ view_value: string | null; expected: string | null }>(
+    pool,
+    `WITH ${probeCte}
+     SELECT
+       (SELECT sample_count FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
+       (SELECT sum(${tier.sourceWeight}) FROM ${sourceFrom} WHERE ${sourceWhere}) AS expected`,
+    probe.key
+  );
+  if (counts?.view_value == null || counts.expected == null) {
+    checks.record(
+      `${tier.view}.sample_count ${suffix} and its source total are both populated`,
+      false,
+      `view=${counts?.view_value} source=${counts?.expected}`
+    );
+  } else {
+    checks.equal(
+      `${tier.view}.sample_count ${suffix} totals the source weights`,
+      Number(counts.view_value),
+      Number(counts.expected)
+    );
+  }
+
+  const weightedSum = tier.weightedColumnShape === 'weighted_sum';
+  for (const column of probe.weightedAverageColumns) {
+    const viewColumn = viewColumnFor(tier, column);
+    const divisor = weightedSum ? '' : ' / NULLIF(sum(weight), 0)';
+    const row = await selectRow<{ view_value: string | null; expected: string | null }>(
+      pool,
+      `WITH ${probeCte},
+       source_rows AS (
+         SELECT ${column} AS value, ${tier.sourceWeight} AS weight
+         FROM ${sourceFrom} WHERE ${sourceWhere} AND ${column} IS NOT NULL
+       )
+       SELECT
+         (SELECT ${viewColumn} FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
+         (SELECT sum(value * weight)${divisor} FROM source_rows) AS expected`,
+      probe.key
+    );
+
+    const label = `${tier.view}.${viewColumn} ${suffix}`;
+    if (row?.view_value == null || row.expected == null) {
       checks.record(
-        `${tier.view} materialized a closed bucket for the probe entity`,
+        `${label} and its source expectation are both populated`,
         false,
-        'the view holds no bucket for the probe entity'
+        `view=${row?.view_value} source=${row?.expected}`
       );
       continue;
     }
+    const expected = Number(row.expected);
+    checks.closeTo(
+      weightedSum
+        ? `${label} is the sample-count weighted sum of its source`
+        : `${label} is the bucket mean of its source`,
+      Number(row.view_value),
+      expected,
+      toleranceFor(expected)
+    );
+  }
 
-    const counts = await selectRow<{ view_value: string | null; expected: string | null }>(
+  for (const column of probe.lastValueColumns) {
+    const row = await selectRow<{ view_value: string | null; expected: string | null }>(
       pool,
       `WITH ${probeCte}
        SELECT
-         (SELECT sample_count FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
-         (SELECT sum(${tier.sourceWeight}) FROM ${sourceFrom} WHERE ${sourceWhere}) AS expected`,
-      tier.probeKey
-    );
-    const expectedWeight = Number(counts?.expected);
-    checks.equal(
-      `${tier.view}.sample_count totals the source weights`,
-      Number(counts?.view_value),
-      expectedWeight
+         (SELECT ${column}::text FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
+         (SELECT ${column}::text FROM ${sourceFrom} WHERE ${sourceWhere}
+          ORDER BY time DESC LIMIT 1) AS expected`,
+      probe.key
     );
 
-    for (const column of tier.weightedAverageColumns) {
-      const weightedSum = tier.weightedColumnShape === 'weighted_sum';
-      const viewColumn = weightedSum ? `${column}_sum` : column;
-      const divisor = weightedSum ? '' : ' / NULLIF(sum(weight), 0)';
-      const row = await selectRow<{ view_value: string | null; expected: string | null }>(
-        pool,
-        `WITH ${probeCte},
-         source_rows AS (
-           SELECT ${column} AS value, ${tier.sourceWeight} AS weight
-           FROM ${sourceFrom} WHERE ${sourceWhere} AND ${column} IS NOT NULL
-         )
-         SELECT
-           (SELECT ${viewColumn} FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
-           (SELECT sum(value * weight)${divisor} FROM source_rows) AS expected`,
-        tier.probeKey
+    const label = `${tier.view}.${column} ${suffix}`;
+    if (row?.view_value == null || row.expected == null) {
+      checks.record(
+        `${label} and its source expectation are both populated`,
+        false,
+        `view=${row?.view_value} source=${row?.expected}`
       );
-
-      const label = `${tier.view}.${viewColumn}`;
-      if (row?.view_value == null || row.expected == null) {
-        checks.record(
-          `${label} and its source expectation are both populated`,
-          false,
-          `view=${row?.view_value} source=${row?.expected}`
-        );
-        continue;
-      }
-      const expected = Number(row.expected);
-      checks.closeTo(
-        weightedSum
-          ? `${label} is the sample-count weighted sum of its source`
-          : `${label} is the bucket mean of its source`,
-        Number(row.view_value),
-        expected,
-        toleranceFor(expected)
-      );
+      continue;
     }
-
-    for (const column of tier.lastValueColumns) {
-      const row = await selectRow<{ view_value: string | null; expected: string | null }>(
-        pool,
-        `WITH ${probeCte}
-         SELECT
-           (SELECT ${column}::text FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
-           (SELECT ${column}::text FROM ${sourceFrom} WHERE ${sourceWhere}
-            ORDER BY time DESC LIMIT 1) AS expected`,
-        tier.probeKey
-      );
-
-      const label = `${tier.view}.${column}`;
-      if (row?.view_value == null || row.expected == null) {
-        checks.record(
-          `${label} and its source expectation are both populated`,
-          false,
-          `view=${row?.view_value} source=${row?.expected}`
-        );
-        continue;
-      }
-      checks.equal(
-        `${label} carries the bucket LAST value`,
-        row.view_value,
-        row.expected
-      );
-    }
+    checks.equal(`${label} carries the bucket LAST value`, row.view_value, row.expected);
   }
 }
 
