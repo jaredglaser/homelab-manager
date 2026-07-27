@@ -39,6 +39,24 @@ export const SPARSE_HOUR = {
   shortCpuPercent: 90,
 };
 
+/**
+ * One hour where `cpu_percent` is NULL for `nullMinutes` whole minutes and populated for the
+ * rest, with every minute carrying the same sample count. `_1h` sums `metric * sample_count`
+ * (NULL minutes contribute nothing) over `SUM(sample_count)` (which still counts them), so the
+ * hourly average comes out scaled by the populated fraction. Every other metric stays populated,
+ * which keeps the dilution measurable per column instead of per row.
+ */
+export const NULL_METRIC_HOUR = {
+  containerId: 'ci-container-null-metric',
+  containerName: 'ci-null-metric-agent',
+  image: 'ghcr.io/example/gap:1.2.0',
+  hoursAgo: 3,
+  minutes: 60,
+  samplesPerMinute: 60,
+  nullMinutes: 30,
+  cpuPercent: 40,
+};
+
 export const ZFS_ENTITIES = [
   { entity: 'ci-tank', entityType: 'pool', indent: 0 },
   { entity: 'mirror-0', entityType: 'vdev', indent: 2 },
@@ -127,4 +145,13 @@ export function sparseHourNaiveAverage(): number {
   const total =
     SPARSE_HOUR.fullMinutes * SPARSE_HOUR.fullCpuPercent + SPARSE_HOUR.shortCpuPercent;
   return total / (SPARSE_HOUR.fullMinutes + 1);
+}
+
+export function nullMetricRawAverage(): number {
+  return NULL_METRIC_HOUR.cpuPercent;
+}
+
+export function nullMetricDilutedAverage(): number {
+  const populated = NULL_METRIC_HOUR.minutes - NULL_METRIC_HOUR.nullMinutes;
+  return (NULL_METRIC_HOUR.cpuPercent * populated) / NULL_METRIC_HOUR.minutes;
 }

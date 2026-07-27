@@ -4,6 +4,7 @@ import {
   COUNTER_GUEST,
   DOCKER_HOST,
   IDLE_CONTAINER,
+  NULL_METRIC_HOUR,
   PROXMOX_HOST,
   PROXMOX_SUPPORTING_ENTITIES,
   PROXMOX_SUPPORTING_GAP_MINUTES,
@@ -37,6 +38,7 @@ export async function seed(pool: Pool): Promise<void> {
   await seedDockerActive(pool);
   await seedDockerIdle(pool);
   await seedDockerSparseHour(pool);
+  await seedDockerNullMetricHour(pool);
   await seedZfs(pool);
   await seedProxmoxCounters(pool);
   await seedProxmoxSupporting(pool);
@@ -144,6 +146,35 @@ async function seedDockerSparseHour(pool: Pool): Promise<void> {
   );
 }
 
+async function seedDockerNullMetricHour(pool: Pool): Promise<void> {
+  for (const [fromMinute, toMinute, cpu] of [
+    [0, NULL_METRIC_HOUR.nullMinutes - 1, null],
+    [NULL_METRIC_HOUR.nullMinutes, NULL_METRIC_HOUR.minutes - 1, NULL_METRIC_HOUR.cpuPercent],
+  ] as const) {
+    await pool.query(
+      `INSERT INTO docker_stats ${DOCKER_COLUMNS}
+       SELECT
+         date_trunc('hour', now()) - make_interval(hours => $5::int)
+           + make_interval(mins => m, secs => s),
+         $1, $2, $3, $4,
+         $6::double precision,
+         ${DOCKER_METRICS}
+       FROM generate_series($7::int, $8::int) AS m, generate_series(0, $9::int - 1) AS s`,
+      [
+        DOCKER_HOST,
+        NULL_METRIC_HOUR.containerId,
+        NULL_METRIC_HOUR.containerName,
+        NULL_METRIC_HOUR.image,
+        NULL_METRIC_HOUR.hoursAgo,
+        cpu,
+        fromMinute,
+        toMinute,
+        NULL_METRIC_HOUR.samplesPerMinute,
+      ]
+    );
+  }
+}
+
 const ZFS_COLUMNS = `(
   time, host, pool, entity, entity_type, indent,
   capacity_alloc, capacity_free,
@@ -197,13 +228,15 @@ const PROXMOX_COLUMNS = `(
   cpu, max_cpu, mem, max_mem, disk, max_disk, uptime, vmid, netin, netout
 )`;
 
-// Anchored to the last second of the previous whole minute: seeding up to now() leaves the newest
-// bucket holding only the seconds elapsed past it, and under 4 samples its AVG converges on its LAST.
+// Anchored to the last second of the previous whole hour, which pins two things the counter
+// assertions read: the newest minute bucket is whole (seeding up to now() leaves it holding only
+// the seconds elapsed past it, and under 4 samples its AVG converges on its LAST), and every row
+// falls inside one already-closed hour bucket, which is the only kind `_1h` materializes.
 async function seedProxmoxCounters(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO proxmox_stats ${PROXMOX_COLUMNS}
      SELECT
-       date_trunc('minute', now()) - make_interval(secs => s + 1),
+       date_trunc('hour', now()) - make_interval(secs => s + 1),
        $1, $2, $3, $4, $5, 'running',
        0.15 + 0.05 * sin(s / 20.0), 4,
        2147483648, 4294967296, 10737418240, 53687091200,

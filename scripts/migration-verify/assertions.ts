@@ -9,16 +9,53 @@ import {
   EXPECTED_HYPERTABLES,
   EXPECTED_TABLES,
   IDLE_CONTAINER,
+  NULL_METRIC_HOUR,
   PROXMOX_HOST,
   REMOVED_COLUMNS,
   SPARSE_HOUR,
+  ZFS_ENTITIES,
   ZFS_HOST,
+  ZFS_POOL,
+  nullMetricDilutedAverage,
+  nullMetricRawAverage,
   sparseHourNaiveAverage,
   sparseHourRawAverage,
 } from './fixture';
 
-const WEIGHTED_EPSILON = 1e-9;
+const RELATIVE_EPSILON = 1e-9;
 const MIN_DISCRIMINATION = 0.5;
+/** uptime is the slowest counter in the fixture; its bucket AVG trails its LAST by ~29.5. */
+const COUNTER_AVG_MIN_SEPARATION = 1;
+
+const ROLLUP_SOURCES = ['docker_stats', 'zfs_stats', 'proxmox_stats'];
+
+/**
+ * The hour a single-hour docker fixture occupies, read from the rows themselves: an assertion that
+ * recomputed `date_trunc('hour', now()) - N hours` would miss the bucket whenever the run crosses
+ * an hour boundary after seeding.
+ */
+const FIXTURE_HOUR_CTE = `bounds AS (
+  SELECT date_trunc('hour', min(time)) AS lo
+  FROM docker_stats WHERE host = $1 AND container_id = $2
+)`;
+
+/**
+ * Scaffolding: substitutes the number a regressed aggregate would report so every value check
+ * below can be watched to fail in CI. Set MIGRATION_VERIFY_SIMULATE_REGRESSION=true to arm it.
+ */
+const SIMULATE_REGRESSION = process.env.MIGRATION_VERIFY_SIMULATE_REGRESSION === 'true';
+
+function observed(actual: number, regression: number): number {
+  return SIMULATE_REGRESSION ? regression : actual;
+}
+
+function observedText(actual: string | null, regression: string): string | null {
+  return SIMULATE_REGRESSION ? regression : actual;
+}
+
+function toleranceFor(expected: number): number {
+  return Math.max(1e-9, Math.abs(expected) * RELATIVE_EPSILON);
+}
 
 const EXPECTED_SEGMENTBY: Record<string, string[]> = {
   docker_stats: ['host', 'container_id'],
@@ -28,73 +65,119 @@ const EXPECTED_SEGMENTBY: Record<string, string[]> = {
 };
 
 /**
- * Registry of continuous-aggregate tiers. `assertAggregateTiers` enforces that
- * the database's set of continuous aggregates matches this list exactly.
+ * Registry of continuous-aggregate tiers. `assertAggregateRegistry` enforces that the database's
+ * set of continuous aggregates matches this list exactly, and `assertAggregateTierValues` replays
+ * each tier's aggregation rules against its source for the probe entity.
  */
 export interface AggregateTier {
   view: string;
   sourceTable: string;
-  timeColumn: string;
-  sampleCountColumn: string;
+  /** Doubles as the bucket width and as the boundary that excludes the in-progress bucket. */
+  bucketUnit: 'minute' | 'hour';
+  /** Weight a source row carries in its bucket: raw rows count once, `_1m` rows carry sample_count. */
+  sourceWeight: string;
+  /** `_1m` materializes the bucket mean; `_1h` materializes SUM(metric * sample_count) as `<metric>_sum`. */
+  weightedColumnShape: 'mean' | 'weighted_sum';
+  keyColumns: string[];
+  /** Values for `keyColumns`, identifying the entity whose buckets get replayed. */
+  probeKey: string[];
   weightedAverageColumns: string[];
   lastValueColumns: string[];
 }
 
-/**
- * Both column lists are empty on every tier: the generic checks below filter the
- * source on `container_id` or `entity_id`, truncate the bucket bound to the hour,
- * and read one column name from both view and source, none of which holds for a
- * minute tier, a zfs tier, or the hourly tiers' `<metric>_sum` columns. The
- * aggregates are also created `WITH NO DATA`, so the harness sees them unpopulated.
- */
+const DOCKER_TIER_KEYS = ['host', 'container_id'];
+const DOCKER_PROBE = [DOCKER_HOST, SPARSE_HOUR.containerId];
+const DOCKER_WEIGHTED = [
+  'cpu_percent',
+  'memory_usage',
+  'memory_percent',
+  'network_rx_bytes_per_sec',
+  'block_io_write_bytes_per_sec',
+];
+const DOCKER_LAST = ['container_name', 'image'];
+
+const ZFS_TIER_KEYS = ['host', 'pool', 'entity'];
+const ZFS_PROBE = [ZFS_HOST, ZFS_POOL, ZFS_ENTITIES[0].entity];
+const ZFS_WEIGHTED = [
+  'capacity_alloc',
+  'read_ops_per_sec',
+  'write_bytes_per_sec',
+  'utilization_percent',
+];
+const ZFS_LAST = ['entity_type', 'indent'];
+
+const PROXMOX_TIER_KEYS = ['host', 'entity_type', 'entity_id'];
+const PROXMOX_PROBE = [PROXMOX_HOST, COUNTER_GUEST.entityType, COUNTER_GUEST.entityId];
+/** storage_avail is NULL for every guest row, so it has no weighted average to compare here. */
+const PROXMOX_WEIGHTED = ['cpu', 'mem', 'disk'];
+const PROXMOX_LAST = ['netin', 'netout', 'uptime', 'vmid', 'status'];
+
 export const AGGREGATE_TIERS: AggregateTier[] = [
   {
     view: 'docker_stats_1m',
     sourceTable: 'docker_stats',
-    timeColumn: 'time',
-    sampleCountColumn: 'sample_count',
-    weightedAverageColumns: [],
-    lastValueColumns: [],
+    bucketUnit: 'minute',
+    sourceWeight: '1',
+    weightedColumnShape: 'mean',
+    keyColumns: DOCKER_TIER_KEYS,
+    probeKey: DOCKER_PROBE,
+    weightedAverageColumns: DOCKER_WEIGHTED,
+    lastValueColumns: DOCKER_LAST,
   },
   {
     view: 'docker_stats_1h',
     sourceTable: 'docker_stats_1m',
-    timeColumn: 'time',
-    sampleCountColumn: 'sample_count',
-    weightedAverageColumns: [],
-    lastValueColumns: [],
+    bucketUnit: 'hour',
+    sourceWeight: 'sample_count',
+    weightedColumnShape: 'weighted_sum',
+    keyColumns: DOCKER_TIER_KEYS,
+    probeKey: DOCKER_PROBE,
+    weightedAverageColumns: DOCKER_WEIGHTED,
+    lastValueColumns: DOCKER_LAST,
   },
   {
     view: 'zfs_stats_1m',
     sourceTable: 'zfs_stats',
-    timeColumn: 'time',
-    sampleCountColumn: 'sample_count',
-    weightedAverageColumns: [],
-    lastValueColumns: [],
+    bucketUnit: 'minute',
+    sourceWeight: '1',
+    weightedColumnShape: 'mean',
+    keyColumns: ZFS_TIER_KEYS,
+    probeKey: ZFS_PROBE,
+    weightedAverageColumns: ZFS_WEIGHTED,
+    lastValueColumns: ZFS_LAST,
   },
   {
     view: 'zfs_stats_1h',
     sourceTable: 'zfs_stats_1m',
-    timeColumn: 'time',
-    sampleCountColumn: 'sample_count',
-    weightedAverageColumns: [],
-    lastValueColumns: [],
+    bucketUnit: 'hour',
+    sourceWeight: 'sample_count',
+    weightedColumnShape: 'weighted_sum',
+    keyColumns: ZFS_TIER_KEYS,
+    probeKey: ZFS_PROBE,
+    weightedAverageColumns: ZFS_WEIGHTED,
+    lastValueColumns: ZFS_LAST,
   },
   {
     view: 'proxmox_stats_1m',
     sourceTable: 'proxmox_stats',
-    timeColumn: 'time',
-    sampleCountColumn: 'sample_count',
-    weightedAverageColumns: [],
-    lastValueColumns: [],
+    bucketUnit: 'minute',
+    sourceWeight: '1',
+    weightedColumnShape: 'mean',
+    keyColumns: PROXMOX_TIER_KEYS,
+    probeKey: PROXMOX_PROBE,
+    weightedAverageColumns: PROXMOX_WEIGHTED,
+    lastValueColumns: PROXMOX_LAST,
   },
   {
     view: 'proxmox_stats_1h',
     sourceTable: 'proxmox_stats_1m',
-    timeColumn: 'time',
-    sampleCountColumn: 'sample_count',
-    weightedAverageColumns: [],
-    lastValueColumns: [],
+    bucketUnit: 'hour',
+    sourceWeight: 'sample_count',
+    weightedColumnShape: 'weighted_sum',
+    keyColumns: PROXMOX_TIER_KEYS,
+    probeKey: PROXMOX_PROBE,
+    weightedAverageColumns: PROXMOX_WEIGHTED,
+    lastValueColumns: PROXMOX_LAST,
   },
 ];
 
@@ -205,7 +288,12 @@ export interface RowCountSnapshot {
 
 export async function captureRowCounts(pool: Pool): Promise<RowCountSnapshot> {
   const snapshot: RowCountSnapshot = {};
-  const dockerContainers = [ACTIVE_CONTAINER.id, IDLE_CONTAINER.id, SPARSE_HOUR.containerId];
+  const dockerContainers = [
+    ACTIVE_CONTAINER.id,
+    IDLE_CONTAINER.id,
+    SPARSE_HOUR.containerId,
+    NULL_METRIC_HOUR.containerId,
+  ];
   for (const containerId of dockerContainers) {
     snapshot[`docker_stats/${containerId}`] = await count(
       pool,
@@ -273,82 +361,141 @@ export async function assertIdleContainerIdentity(pool: Pool, checks: Checks): P
 }
 
 /**
- * The sparse hour holds 59 minutes of 60 samples plus one minute of 12. A
- * sample-count weighted rollup reproduces the raw average exactly; an
- * equal-weighted AVG() of per-minute averages is off by about 1.06 points.
+ * `runStatsRollupBackfill` swallows a per-source failure and only skips that source's retention,
+ * so an empty view or a missing policy is how a failed refresh surfaces.
+ */
+export async function assertRollupBackfill(pool: Pool, checks: Checks): Promise<void> {
+  for (const tier of AGGREGATE_TIERS) {
+    const rows = await count(pool, `SELECT count(*) FROM ${tier.view}`);
+    checks.equal(`${tier.view} was materialized by the backfill`, rows > 0, true);
+  }
+
+  const policies = await pool.query<{ target: string; drop_after: string }>(
+    `SELECT
+       COALESCE(ca.view_name, j.hypertable_name) AS target,
+       CASE
+         WHEN (j.config->>'drop_after')::interval = INTERVAL '24 hours' THEN '24 hours'
+         WHEN (j.config->>'drop_after')::interval = INTERVAL '30 days' THEN '30 days'
+         ELSE COALESCE(j.config->>'drop_after', 'unset')
+       END AS drop_after
+     FROM timescaledb_information.jobs j
+     LEFT JOIN timescaledb_information.continuous_aggregates ca
+       ON ca.materialization_hypertable_schema = j.hypertable_schema
+      AND ca.materialization_hypertable_name = j.hypertable_name
+     WHERE j.proc_name = 'policy_retention'`
+  );
+  const dropAfter = new Map(policies.rows.map(row => [row.target, row.drop_after]));
+
+  for (const source of ROLLUP_SOURCES) {
+    checks.equal(
+      `${source} raw rows are dropped after 24 hours`,
+      observedText(dropAfter.get(source) ?? 'none', 'none'),
+      '24 hours'
+    );
+    checks.equal(
+      `${source}_1m rows are dropped after 30 days`,
+      observedText(dropAfter.get(`${source}_1m`) ?? 'none', 'none'),
+      '30 days'
+    );
+    checks.equal(`${source}_1h keeps its rows forever`, dropAfter.has(`${source}_1h`), false);
+  }
+}
+
+/**
+ * The sparse hour holds 59 minutes of 60 samples plus one minute of 12, so `docker_stats_1h_avg`
+ * lands on the raw average only if the hourly tier weighted each minute by its sample count. An
+ * equal-weighted AVG() over the per-minute averages misses it by about 1.06 points.
  */
 export async function assertWeightedRollup(pool: Pool, checks: Checks): Promise<void> {
-  const row = await selectRow<{
-    raw_count: string;
-    raw_avg: string;
-    weighted_avg: string;
-    naive_avg: string;
-    minute_count: string;
-    min_samples: string;
-    max_samples: string;
-  }>(
-    pool,
-    `WITH window_bounds AS (
-       SELECT date_trunc('hour', min(time)) AS lo
-       FROM docker_stats WHERE host = $1 AND container_id = $2
-     ),
-     rows_in_window AS (
-       SELECT time, cpu_percent
-       FROM docker_stats, window_bounds
-       WHERE host = $1 AND container_id = $2
-         AND time >= window_bounds.lo
-         AND time < window_bounds.lo + INTERVAL '1 hour'
-     ),
-     per_minute AS (
-       SELECT date_trunc('minute', time) AS bucket,
-              avg(cpu_percent) AS avg_cpu,
-              count(*) AS sample_count
-       FROM rows_in_window
-       GROUP BY 1
-     )
-     SELECT
-       (SELECT count(*) FROM rows_in_window) AS raw_count,
-       (SELECT avg(cpu_percent) FROM rows_in_window) AS raw_avg,
-       (SELECT sum(avg_cpu * sample_count) / sum(sample_count) FROM per_minute) AS weighted_avg,
-       (SELECT avg(avg_cpu) FROM per_minute) AS naive_avg,
-       (SELECT count(*) FROM per_minute) AS minute_count,
-       (SELECT min(sample_count) FROM per_minute) AS min_samples,
-       (SELECT max(sample_count) FROM per_minute) AS max_samples`,
-    [DOCKER_HOST, SPARSE_HOUR.containerId]
-  );
-
   const expectedRows =
     SPARSE_HOUR.fullMinutes * SPARSE_HOUR.fullSamplesPerMinute + SPARSE_HOUR.shortSamples;
-  checks.equal('sparse hour row count', Number(row?.raw_count), expectedRows);
-  checks.equal('sparse hour spans 60 minute buckets', Number(row?.minute_count), 60);
-  checks.equal('sparse hour has a short bucket', Number(row?.min_samples), SPARSE_HOUR.shortSamples);
-  checks.equal(
-    'sparse hour has full buckets',
-    Number(row?.max_samples),
-    SPARSE_HOUR.fullSamplesPerMinute
+  const params = [DOCKER_HOST, SPARSE_HOUR.containerId];
+
+  const raw = await selectRow<{ raw_count: string; raw_avg: string | null }>(
+    pool,
+    `WITH ${FIXTURE_HOUR_CTE}
+     SELECT count(*) AS raw_count, avg(cpu_percent) AS raw_avg
+     FROM docker_stats, bounds
+     WHERE host = $1 AND container_id = $2
+       AND time >= bounds.lo AND time < bounds.lo + INTERVAL '1 hour'`,
+    params
   );
-
-  const rawAvg = Number(row?.raw_avg);
-  const weighted = Number(row?.weighted_avg);
-  const naive = Number(row?.naive_avg);
-
-  checks.closeTo('raw average matches the fixture', rawAvg, sparseHourRawAverage(), 1e-9);
-  checks.closeTo('weighted rollup equals the raw average', weighted, rawAvg, WEIGHTED_EPSILON);
-  checks.closeTo('naive rollup matches the fixture', naive, sparseHourNaiveAverage(), 1e-9);
+  checks.equal('sparse hour row count', Number(raw?.raw_count), expectedRows);
+  checks.closeTo('raw average matches the fixture', Number(raw?.raw_avg), sparseHourRawAverage(), 1e-9);
   checks.differsBy(
     'fixture discriminates weighted from naive rollups',
-    naive,
-    rawAvg,
+    sparseHourNaiveAverage(),
+    sparseHourRawAverage(),
+    MIN_DISCRIMINATION
+  );
+
+  const rolled = await selectRow<{
+    hourly_cpu: string | null;
+    hourly_samples: string | null;
+    minute_buckets: string;
+    min_minute_samples: string | null;
+    max_minute_samples: string | null;
+  }>(
+    pool,
+    `WITH ${FIXTURE_HOUR_CTE}
+     SELECT
+       (SELECT cpu_percent FROM docker_stats_1h_avg, bounds
+        WHERE host = $1 AND container_id = $2 AND time = bounds.lo) AS hourly_cpu,
+       (SELECT sample_count FROM docker_stats_1h_avg, bounds
+        WHERE host = $1 AND container_id = $2 AND time = bounds.lo) AS hourly_samples,
+       (SELECT count(*) FROM docker_stats_1m
+        WHERE host = $1 AND container_id = $2) AS minute_buckets,
+       (SELECT min(sample_count) FROM docker_stats_1m
+        WHERE host = $1 AND container_id = $2) AS min_minute_samples,
+       (SELECT max(sample_count) FROM docker_stats_1m
+        WHERE host = $1 AND container_id = $2) AS max_minute_samples`,
+    params
+  );
+
+  checks.equal('docker_stats_1m holds one bucket per fixture minute', Number(rolled?.minute_buckets), 60);
+  checks.equal(
+    'docker_stats_1m keeps the short minute sample count',
+    Number(rolled?.min_minute_samples),
+    SPARSE_HOUR.shortSamples
+  );
+  checks.equal(
+    'docker_stats_1m keeps the full minute sample count',
+    Number(rolled?.max_minute_samples),
+    SPARSE_HOUR.fullSamplesPerMinute
+  );
+  checks.equal(
+    'docker_stats_1h_avg.sample_count totals the raw rows',
+    Number(rolled?.hourly_samples),
+    expectedRows
+  );
+
+  if (rolled?.hourly_cpu == null) {
+    checks.record('docker_stats_1h_avg holds the sparse hour bucket', false, 'cpu_percent is NULL or the bucket is missing');
+    return;
+  }
+  const hourlyCpu = observed(Number(rolled.hourly_cpu), sparseHourNaiveAverage());
+  checks.closeTo(
+    'docker_stats_1h_avg.cpu_percent equals the raw average',
+    hourlyCpu,
+    sparseHourRawAverage(),
+    toleranceFor(sparseHourRawAverage())
+  );
+  checks.differsBy(
+    'docker_stats_1h_avg.cpu_percent is not the equal-weighted average of the minute averages',
+    hourlyCpu,
+    sparseHourNaiveAverage(),
     MIN_DISCRIMINATION
   );
 }
 
 /**
- * Proxmox reports netin/netout/uptime as cumulative totals with no delta
- * applied downstream, so a bucket must carry its LAST value. The mean of a
- * monotonic counter is the bucket midpoint: plausible-looking and wrong.
+ * Proxmox reports netin/netout/uptime as cumulative totals with no delta applied downstream, so
+ * `proxmox_stats_1m` has to carry each bucket's LAST value. The mean of a monotonic counter is the
+ * bucket midpoint: plausible-looking and wrong.
  */
 export async function assertCumulativeCounters(pool: Pool, checks: Checks): Promise<void> {
+  const params = [PROXMOX_HOST, COUNTER_GUEST.entityId, COUNTER_GUEST.entityType];
+
   for (const column of ['netin', 'netout', 'uptime']) {
     const violations = await count(
       pool,
@@ -359,60 +506,161 @@ export async function assertCumulativeCounters(pool: Pool, checks: Checks): Prom
          WHERE host = $1 AND entity_id = $2 AND entity_type = $3
        ) ordered
        WHERE previous IS NOT NULL AND value < previous`,
-      [PROXMOX_HOST, COUNTER_GUEST.entityId, COUNTER_GUEST.entityType]
+      params
     );
     checks.equal(`proxmox_stats.${column} is monotonically increasing`, violations, 0);
 
     const row = await selectRow<{
-      last_value: string;
-      avg_value: string;
-      max_value: string;
+      tier_value: string | null;
+      raw_last: string | null;
+      raw_avg: string | null;
       bucket_samples: string;
     }>(
       pool,
-      `WITH bucketed AS (
-         SELECT date_trunc('minute', time) AS bucket, time, ${column} AS value
-         FROM proxmox_stats
+      `WITH probe AS (
+         SELECT max(time) AS bucket FROM proxmox_stats_1m
          WHERE host = $1 AND entity_id = $2 AND entity_type = $3
+           AND time < date_trunc('minute', now())
        ),
-       newest_bucket AS (SELECT max(bucket) AS bucket FROM bucketed)
+       raw_bucket AS (
+         SELECT time, ${column} AS value
+         FROM proxmox_stats, probe
+         WHERE host = $1 AND entity_id = $2 AND entity_type = $3
+           AND time >= probe.bucket AND time < probe.bucket + INTERVAL '1 minute'
+       )
        SELECT
-         (SELECT value FROM bucketed, newest_bucket
-          WHERE bucketed.bucket = newest_bucket.bucket
-          ORDER BY time DESC LIMIT 1) AS last_value,
-         (SELECT avg(value) FROM bucketed, newest_bucket
-          WHERE bucketed.bucket = newest_bucket.bucket) AS avg_value,
-         (SELECT max(value) FROM bucketed, newest_bucket
-          WHERE bucketed.bucket = newest_bucket.bucket) AS max_value,
-         (SELECT count(*) FROM bucketed, newest_bucket
-          WHERE bucketed.bucket = newest_bucket.bucket) AS bucket_samples`,
-      [PROXMOX_HOST, COUNTER_GUEST.entityId, COUNTER_GUEST.entityType]
+         (SELECT ${column} FROM proxmox_stats_1m, probe
+          WHERE host = $1 AND entity_id = $2 AND entity_type = $3
+            AND time = probe.bucket) AS tier_value,
+         (SELECT value FROM raw_bucket ORDER BY time DESC LIMIT 1) AS raw_last,
+         (SELECT avg(value) FROM raw_bucket) AS raw_avg,
+         (SELECT count(*) FROM raw_bucket) AS bucket_samples`,
+      params
     );
 
-    const lastValue = Number(row?.last_value);
-    const avgValue = Number(row?.avg_value);
-    const maxValue = Number(row?.max_value);
     checks.equal(
-      `${column} newest bucket is a whole minute of samples`,
+      `${column} probe bucket is a whole minute of samples`,
       Number(row?.bucket_samples),
       COUNTER_BUCKET_SAMPLES
     );
-    checks.equal(`${column} bucket LAST equals bucket MAX`, lastValue, maxValue);
+    if (row?.tier_value == null || row.raw_last == null || row.raw_avg == null) {
+      checks.record(
+        `proxmox_stats_1m holds a ${column} bucket to compare`,
+        false,
+        `tier=${row?.tier_value} raw_last=${row?.raw_last} raw_avg=${row?.raw_avg}`
+      );
+      continue;
+    }
+
+    const rawAvg = Number(row.raw_avg);
+    const tierValue = observed(Number(row.tier_value), rawAvg);
+    checks.equal(
+      `proxmox_stats_1m.${column} carries the bucket LAST value`,
+      tierValue,
+      Number(row.raw_last)
+    );
     checks.differsBy(
-      `${column} bucket AVG is not the counter value`,
-      avgValue,
-      lastValue,
-      Math.abs(lastValue) * 1e-6 + 1
+      `proxmox_stats_1m.${column} is not the bucket average`,
+      tierValue,
+      rawAvg,
+      COUNTER_AVG_MIN_SEPARATION
     );
   }
 }
 
 /**
- * Enforces that the database's continuous aggregates and `AGGREGATE_TIERS` stay
- * in step, then applies the weighted-average and last-value rules to every
- * registered tier.
+ * Measures the NULL dilution that migration 030 documents as a known limitation: a metric NULL for
+ * only part of an hour is scaled by the populated fraction, while a metric present on every row is
+ * unaffected. Kept as a boundary marker, since no collector writes that state.
  */
-export async function assertAggregateTiers(pool: Pool, checks: Checks): Promise<void> {
+export async function assertNullMetricDilution(pool: Pool, checks: Checks): Promise<void> {
+  const populatedMinutes = NULL_METRIC_HOUR.minutes - NULL_METRIC_HOUR.nullMinutes;
+  const row = await selectRow<{
+    minute_buckets: string;
+    null_minutes: string;
+    null_minute_samples: string | null;
+    hourly_cpu: string | null;
+    hourly_memory: string | null;
+    raw_cpu_avg: string | null;
+    raw_memory_avg: string | null;
+  }>(
+    pool,
+    `WITH ${FIXTURE_HOUR_CTE}
+     SELECT
+       (SELECT count(*) FROM docker_stats_1m
+        WHERE host = $1 AND container_id = $2) AS minute_buckets,
+       (SELECT count(*) FROM docker_stats_1m
+        WHERE host = $1 AND container_id = $2 AND cpu_percent IS NULL) AS null_minutes,
+       (SELECT sum(sample_count) FROM docker_stats_1m
+        WHERE host = $1 AND container_id = $2 AND cpu_percent IS NULL) AS null_minute_samples,
+       (SELECT cpu_percent FROM docker_stats_1h_avg, bounds
+        WHERE host = $1 AND container_id = $2 AND time = bounds.lo) AS hourly_cpu,
+       (SELECT memory_percent FROM docker_stats_1h_avg, bounds
+        WHERE host = $1 AND container_id = $2 AND time = bounds.lo) AS hourly_memory,
+       (SELECT avg(cpu_percent) FROM docker_stats, bounds
+        WHERE host = $1 AND container_id = $2
+          AND time >= bounds.lo AND time < bounds.lo + INTERVAL '1 hour') AS raw_cpu_avg,
+       (SELECT avg(memory_percent) FROM docker_stats, bounds
+        WHERE host = $1 AND container_id = $2
+          AND time >= bounds.lo AND time < bounds.lo + INTERVAL '1 hour') AS raw_memory_avg`,
+    [DOCKER_HOST, NULL_METRIC_HOUR.containerId]
+  );
+
+  checks.equal(
+    'null-metric hour spans every fixture minute',
+    Number(row?.minute_buckets),
+    NULL_METRIC_HOUR.minutes
+  );
+  checks.equal(
+    'docker_stats_1m leaves the unpopulated minutes NULL',
+    Number(row?.null_minutes),
+    NULL_METRIC_HOUR.nullMinutes
+  );
+  checks.equal(
+    'docker_stats_1m still counts the samples behind a NULL metric',
+    Number(row?.null_minute_samples),
+    NULL_METRIC_HOUR.nullMinutes * NULL_METRIC_HOUR.samplesPerMinute
+  );
+  checks.closeTo(
+    'raw average over the populated rows matches the fixture',
+    Number(row?.raw_cpu_avg),
+    nullMetricRawAverage(),
+    1e-9
+  );
+
+  if (row?.hourly_cpu == null || row.hourly_memory == null || row.raw_memory_avg == null) {
+    checks.record(
+      'docker_stats_1h_avg holds the null-metric hour',
+      false,
+      `cpu=${row?.hourly_cpu} memory=${row?.hourly_memory} raw_memory=${row?.raw_memory_avg}`
+    );
+    return;
+  }
+
+  const hourlyCpu = observed(Number(row.hourly_cpu), nullMetricRawAverage());
+  checks.closeTo(
+    `docker_stats_1h_avg.cpu_percent is diluted to ${populatedMinutes}/${NULL_METRIC_HOUR.minutes} of the populated average`,
+    hourlyCpu,
+    nullMetricDilutedAverage(),
+    toleranceFor(nullMetricDilutedAverage())
+  );
+  checks.differsBy(
+    'the diluted hourly average is not the populated average',
+    hourlyCpu,
+    nullMetricRawAverage(),
+    MIN_DISCRIMINATION
+  );
+
+  const rawMemoryAvg = Number(row.raw_memory_avg);
+  checks.closeTo(
+    'a metric populated on every row is undiluted in the same hour',
+    observed(Number(row.hourly_memory), rawMemoryAvg * 1.5 + 1),
+    rawMemoryAvg,
+    toleranceFor(rawMemoryAvg)
+  );
+}
+
+export async function assertAggregateRegistry(pool: Pool, checks: Checks): Promise<void> {
   const views = await selectColumn<string>(
     pool,
     'SELECT view_name FROM timescaledb_information.continuous_aggregates'
@@ -422,52 +670,117 @@ export async function assertAggregateTiers(pool: Pool, checks: Checks): Promise<
     views,
     AGGREGATE_TIERS.map(tier => tier.view)
   );
+}
 
+/**
+ * Replays each tier's aggregation rules against its own source for the probe entity: the weighted
+ * average or weighted sum, the last-value columns, and the sample_count that the hourly tier
+ * divides by. The bucket comes from the view itself, excluding the in-progress one, so a tier that
+ * materialized nothing fails on a missing bucket rather than comparing NULL against NULL.
+ */
+export async function assertAggregateTierValues(pool: Pool, checks: Checks): Promise<void> {
   for (const tier of AGGREGATE_TIERS) {
+    const keyPredicate = tier.keyColumns.map((column, index) => `${column} = $${index + 1}`).join(' AND ');
+    const bucketWidth = `INTERVAL '1 ${tier.bucketUnit}'`;
+    const probeCte = `probe AS (
+      SELECT max(time) AS bucket FROM ${tier.view}
+      WHERE ${keyPredicate} AND time < date_trunc('${tier.bucketUnit}', now())
+    )`;
+    const sourceFrom = `${tier.sourceTable}, probe`;
+    const sourceWhere = `${keyPredicate} AND time >= probe.bucket AND time < probe.bucket + ${bucketWidth}`;
+    const viewFrom = `${tier.view}, probe`;
+    const viewWhere = `${keyPredicate} AND time = probe.bucket`;
+
+    const probe = await selectRow<{ bucket: Date | null }>(
+      pool,
+      `WITH ${probeCte} SELECT bucket FROM probe`,
+      tier.probeKey
+    );
+    if (probe?.bucket == null) {
+      checks.record(
+        `${tier.view} materialized a closed bucket for the probe entity`,
+        false,
+        'the view holds no bucket for the probe entity'
+      );
+      continue;
+    }
+
+    const counts = await selectRow<{ view_value: string | null; expected: string | null }>(
+      pool,
+      `WITH ${probeCte}
+       SELECT
+         (SELECT sample_count FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
+         (SELECT sum(${tier.sourceWeight}) FROM ${sourceFrom} WHERE ${sourceWhere}) AS expected`,
+      tier.probeKey
+    );
+    const expectedWeight = Number(counts?.expected);
+    checks.equal(
+      `${tier.view}.sample_count totals the source weights`,
+      observed(Number(counts?.view_value), expectedWeight + 1),
+      expectedWeight
+    );
+
     for (const column of tier.weightedAverageColumns) {
-      const row = await selectRow<{ tier_value: string; raw_value: string }>(
+      const weightedSum = tier.weightedColumnShape === 'weighted_sum';
+      const viewColumn = weightedSum ? `${column}_sum` : column;
+      const divisor = weightedSum ? '' : ' / NULLIF(sum(weight), 0)';
+      const row = await selectRow<{ view_value: string | null; expected: string | null }>(
         pool,
-        `WITH bounds AS (
-           SELECT date_trunc('hour', min(time)) AS lo
-           FROM ${tier.sourceTable} WHERE host = $1 AND container_id = $2
+        `WITH ${probeCte},
+         source_rows AS (
+           SELECT ${column} AS value, ${tier.sourceWeight} AS weight
+           FROM ${sourceFrom} WHERE ${sourceWhere} AND ${column} IS NOT NULL
          )
          SELECT
-           (SELECT ${column} FROM ${tier.view}, bounds
-            WHERE ${tier.timeColumn} = bounds.lo LIMIT 1) AS tier_value,
-           (SELECT avg(${column}) FROM ${tier.sourceTable}, bounds
-            WHERE host = $1 AND container_id = $2
-              AND time >= bounds.lo AND time < bounds.lo + INTERVAL '1 hour') AS raw_value`,
-        [DOCKER_HOST, SPARSE_HOUR.containerId]
+           (SELECT ${viewColumn} FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
+           (SELECT sum(value * weight)${divisor} FROM source_rows) AS expected`,
+        tier.probeKey
       );
+
+      const label = `${tier.view}.${viewColumn}`;
+      if (row?.view_value == null || row.expected == null) {
+        checks.record(
+          `${label} and its source expectation are both populated`,
+          false,
+          `view=${row?.view_value} source=${row?.expected}`
+        );
+        continue;
+      }
+      const expected = Number(row.expected);
       checks.closeTo(
-        `${tier.view}.${column} is sample-count weighted`,
-        Number(row?.tier_value),
-        Number(row?.raw_value),
-        WEIGHTED_EPSILON
+        weightedSum
+          ? `${label} is the sample-count weighted sum of its source`
+          : `${label} is the bucket mean of its source`,
+        observed(Number(row.view_value), expected * 1.5 + 1),
+        expected,
+        toleranceFor(expected)
       );
     }
 
     for (const column of tier.lastValueColumns) {
-      const row = await selectRow<{ tier_value: string; raw_last: string }>(
+      const row = await selectRow<{ view_value: string | null; expected: string | null }>(
         pool,
-        `WITH bounds AS (
-           SELECT date_trunc('hour', max(time)) AS lo
-           FROM ${tier.sourceTable} WHERE host = $1 AND entity_id = $2
-         )
+        `WITH ${probeCte}
          SELECT
-           (SELECT ${column} FROM ${tier.view}, bounds
-            WHERE ${tier.timeColumn} = bounds.lo LIMIT 1) AS tier_value,
-           (SELECT ${column} FROM ${tier.sourceTable}, bounds
-            WHERE host = $1 AND entity_id = $2
-              AND time >= bounds.lo AND time < bounds.lo + INTERVAL '1 hour'
-            ORDER BY time DESC LIMIT 1) AS raw_last
-        `,
-        [PROXMOX_HOST, COUNTER_GUEST.entityId]
+           (SELECT ${column}::text FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
+           (SELECT ${column}::text FROM ${sourceFrom} WHERE ${sourceWhere}
+            ORDER BY time DESC LIMIT 1) AS expected`,
+        tier.probeKey
       );
+
+      const label = `${tier.view}.${column}`;
+      if (row?.view_value == null || row.expected == null) {
+        checks.record(
+          `${label} and its source expectation are both populated`,
+          false,
+          `view=${row?.view_value} source=${row?.expected}`
+        );
+        continue;
+      }
       checks.equal(
-        `${tier.view}.${column} carries the bucket LAST value`,
-        Number(row?.tier_value),
-        Number(row?.raw_last)
+        `${label} carries the bucket LAST value`,
+        observedText(row.view_value, 'simulated-regression'),
+        row.expected
       );
     }
   }

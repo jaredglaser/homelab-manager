@@ -4,8 +4,8 @@
  *
  * Scenarios:
  *   fresh       apply every migration to an empty database, assert the schema
- *   upgrade     apply the merge-base migrations, seed data, apply the rest,
- *               assert nothing was lost and the aggregation rules still hold
+ *   upgrade     apply the merge-base migrations, seed data, apply the rest, run the rollup
+ *               backfill, assert nothing was lost and the aggregation rules still hold
  *   idempotent  apply the full set twice, assert the second run applies nothing
  *
  * The idempotent scenario relies on the migration ledger, so it cannot observe
@@ -26,10 +26,14 @@ import { pathToFileURL } from 'node:url';
 import type { Pool } from 'pg';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import { runMigrations } from '@/lib/database/migrate';
+import { runStatsRollupBackfill } from '@/lib/database/stats-rollup-backfill';
 import {
-  assertAggregateTiers,
+  assertAggregateRegistry,
+  assertAggregateTierValues,
   assertCumulativeCounters,
   assertIdleContainerIdentity,
+  assertNullMetricDilution,
+  assertRollupBackfill,
   assertRowCountsPreserved,
   assertSchema,
   assertWeightedRollup,
@@ -73,7 +77,7 @@ async function runFresh(): Promise<void> {
     checks.sameSet('every migration file was applied', applied, migrationFiles(REPO_ROOT));
 
     await assertSchema(pool, checks);
-    await assertAggregateTiers(pool, checks);
+    await assertAggregateRegistry(pool, checks);
     checks.report();
   } finally {
     await pool.end();
@@ -122,9 +126,18 @@ async function runUpgrade(): Promise<void> {
 
     await assertSchema(pool, checks);
     await assertIdleContainerIdentity(pool, checks);
+
+    // Both of the above read state the backfill changes: it adds the retention policies that
+    // assertSchema requires the migrations not to add, and raw retention covers the 31-day-old
+    // rows assertIdleContainerIdentity resolves a name from.
+    await runStatsRollupBackfill(asDatabaseClient(pool));
+
+    await assertRollupBackfill(pool, checks);
     await assertWeightedRollup(pool, checks);
     await assertCumulativeCounters(pool, checks);
-    await assertAggregateTiers(pool, checks);
+    await assertNullMetricDilution(pool, checks);
+    await assertAggregateRegistry(pool, checks);
+    await assertAggregateTierValues(pool, checks);
     checks.report();
   } finally {
     await pool.end();
