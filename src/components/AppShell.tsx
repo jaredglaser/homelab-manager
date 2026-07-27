@@ -13,18 +13,8 @@ import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useDockerSettings } from '@/hooks/useSettings'
 import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
 import { queryClient } from '@/lib/query-client'
-import { IS_DEMO_MODE } from '@/lib/constants/demo'
 import { useAuth } from '@/hooks/useAuth'
 import { Spinner } from '@/components/ui/spinner';
-
-if (IS_DEMO_MODE && typeof window !== 'undefined') {
-  // Use .then() instead of top-level await to avoid circular dependency deadlock.
-  // The main chunk imports install-demo, which statically imports back from the main
-  // chunk (for mock generators). TLA pauses main mid-evaluation, causing deadlock.
-  // This is safe because EventSource connections are created in useEffect (deferred),
-  // and MockEventSource._start uses setTimeout(50ms) - both fire after .then() resolves.
-  import('@/lib/mock/install-demo').then(({ installDemo }) => installDemo()).catch((err) => console.error('Failed to install demo mode:', err))
-}
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { loading, user, authEnabled } = useAuth()

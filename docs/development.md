@@ -217,6 +217,32 @@ bun run test:coverage:all   # Run tests in both with coverage thresholds
 
 Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).
 
+### End-to-End (Playwright + MSW)
+
+E2e tests cover what unit tests cannot: real layout, streaming SSE, the service
+worker, charts, and multi-step navigation with live data. They run against static
+production builds served over [MSW](https://mswjs.io) - the same in-browser mock
+backend that powers demo mode - so there is no database or backend to stand up.
+
+```bash
+bun run test:e2e        # Build the demo + app targets, then run Playwright
+bun run test:e2e:run    # Run against an already-built e2e-build/ (faster iteration)
+bun run e2e:build       # Just build + stage both static targets under e2e-build/
+bun run test:e2e:ui     # Playwright UI mode
+```
+
+Two targets share the handlers in `src/lib/mock`: `demo` (the `VITE_DEMO_MODE`
+build, smoke-tested) and `app` (the real non-demo build with `VITE_ENABLE_MSW`,
+deep flows). Specs live in `e2e/`; `*.demo.e2e.ts` run on `demo`, all other
+`*.e2e.ts` on `app`. The `.e2e.ts` suffix is deliberate: `bun test` collects
+`*.spec.ts`, and Playwright's `test()` throws when bun's runner loads it. Tests
+reshape individual responses per scenario with `overrideServerFn` (see
+`e2e/fixtures.ts`). The flow inventory is in
+[playwright-test-plan.md](playwright-test-plan.md).
+
+Playwright's browser must be available; in a fresh checkout run
+`bunx playwright install chromium` first.
+
 ## Type Checking
 
 ```bash

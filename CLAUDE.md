@@ -57,7 +57,19 @@ bun run test:coverage:agent   # Agent tests + coverage enforcement
 bun run typecheck:all         # Typecheck both
 bun run test:all              # Run tests in both (no coverage)
 bun run test:coverage:all     # Run tests in both with coverage enforcement
+
+# End-to-end (Playwright + MSW)
+bun run test:e2e              # Build demo + app targets, then run Playwright
+bun run test:e2e:run          # Run Playwright against already-built targets (e2e-build/)
+bun run e2e:build             # Build + stage both static targets under e2e-build/
+bun run test:e2e:ui           # Playwright UI mode
 ```
+
+E2e runs against static production builds served over MSW (not a dev server), so
+loaders/auth/SSE are intercepted before first render. Specs live in `e2e/`;
+`*.demo.e2e.ts` run on the demo build, all other `*.e2e.ts` on the app build
+(the suffix keeps `bun test` from collecting Playwright specs).
+Plan and flow inventory: `docs/playwright-test-plan.md`.
 
 ## Critical Rules
 
@@ -151,7 +163,7 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 - **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. shadcn design tokens (`--background`, `--card`, `--popover`, `--muted`, `--accent`, `--level1-3`, `--chart-bg`, `--success`, `--warning`, `--info`, `--tooltip`, etc.) defined in `App.css` as literal color values: dark scheme in `:root`, light overrides in `[data-color-scheme="light"]`. Dark mode keys off the `data-color-scheme` attribute (`@custom-variant dark`), owned by `useColorMode`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
 - **Settings**: Jotai atoms synced via SSE (`/api/settings`). Domain-scoped hooks (`useDockerSettings`, `useZfsSettings`, `useProxmoxSettings`, `useGeneralSettings`) provide optimistic setters and subscribe via `selectAtom` so each consumer only re-renders when its own slice changes. `useSettings()` remains as a composite wrapper for the settings page. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
 - **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `ContainerInventoryCollector`); it never connects to Docker directly. Agent auth uses per-host Ed25519 keypair JWTs: the web app generates the keypair at enrollment, stores the private JWK encrypted (JWE, master key from `MASTER_KEY_FILE`/`MASTER_KEY`), and returns the public JWK for the operator to install in the agent as `AGENT_TRUSTED_PUBKEY` (or via `AGENT_TRUSTED_PUBKEY_FILE`).
-- **Demo mode**: `VITE_DEMO_MODE=true` swaps server functions via Vite aliases and patches `EventSource`. Zero changes to routes/hooks/components. Mock entities defined in `src/lib/mock/entities.ts`.
+- **Demo mode / MSW mocks**: `VITE_DEMO_MODE=true` runs the app against an in-browser [MSW](https://mswjs.io) mock backend instead of a real server. A service worker intercepts the actual network calls: TanStack Start server-function RPCs (`/_serverFn/*`, answered with the real seroval `{result,error,context}` envelope + `x-tss-serialized` header so the client deserializes them - a bare value resolves to `undefined`) and SSE endpoints (`/api/*`, answered with streaming `text/event-stream`). No route/hook/component changes; mock data lives in `src/lib/mock/` (handlers in `handlers/` wire `functions/*` + `generators/*`; entities in `entities.ts`). MSW starts in the custom client entry (`src/client.tsx`) before `hydrateRoot`, which is the only point early enough to intercept route loaders. Gated by `IS_MOCK_ENABLED` (`src/lib/constants/mock.ts`): on for demo, or when `VITE_ENABLE_MSW=true` (the Playwright app target). The same handlers back both demo and e2e. `vite.config.ts` installs `serverFns.generateFunctionId` (from `src/lib/server-fn-id.ts`) for the demo and MSW builds only, so those targets keep ids the handler can decode; a production build keeps TanStack's opaque ids so RPC URLs never decode back to a source path.
 - **Worker**: Collectors extend `BaseCollector` (AsyncDisposable, exponential backoff). Entry point uses `AsyncDisposableStack` for cleanup.
 - **Entity IDs**: Docker=`host/container_id`, ZFS=`host/pool/vdev/disk` (hierarchy via indent: 0=pool, 2=vdev, 4+=disk), Proxmox=varies by type.
 

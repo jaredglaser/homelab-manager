@@ -1,10 +1,11 @@
-import { defineConfig, createLogger } from 'vite'
+import { defineConfig, createLogger, loadEnv } from 'vite'
 import { devtools } from '@tanstack/devtools-vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import { nitro } from 'nitro/vite'
 import tailwindcss from '@tailwindcss/vite'
+import { encodeFunctionId } from './src/lib/server-fn-id'
 
 const logger = createLogger()
 const customLogger = {
@@ -19,72 +20,87 @@ const customLogger = {
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
-const isDemoMode = process.env.VITE_DEMO_MODE === 'true'
 
 function buildAliases(): Record<string, string> {
-  const aliases: Record<string, string> = {}
-  // Demo aliases must be registered before the generic '@' prefix so Vite matches them first
-  if (isDemoMode) {
-    aliases['@/data/docker/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/docker.functions.ts', import.meta.url))
-    aliases['@/data/zfs/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/zfs.functions.ts', import.meta.url))
-    aliases['@/data/proxmox/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/proxmox.functions.ts', import.meta.url))
-    aliases['@/data/settings/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/settings.functions.ts', import.meta.url))
-    aliases['@/data/stacks/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/stacks.functions.tsx', import.meta.url))
-    aliases['@/data/auth.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/auth.functions.ts', import.meta.url))
+  // Demo and e2e modes no longer swap server-function modules at build time;
+  // MSW intercepts the real RPC/SSE network calls instead (see src/lib/mock).
+  return {
+    '@': fileURLToPath(new URL('./src', import.meta.url)),
   }
-  aliases['@'] = fileURLToPath(new URL('./src', import.meta.url))
-  return aliases
 }
 
-export default defineConfig({
-  customLogger,
-  base: process.env.VITE_BASE_PATH || '/',
-  resolve: {
-    alias: buildAliases(),
-  },
-  plugins: [
-    isDev && devtools(),
-    nitro({ serverDir: 'server', features: { websocket: true } }),
-    tailwindcss(),
-    tanstackStart({
-      spa: {
-        enabled: true,
-      },
-      importProtection: {
-        behavior: 'error',
-      },
-    }),
-    viteReact(),
-  ],
-  ssr: {
-    external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
-  },
-  optimizeDeps: {
-    exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams', '@tanstack/start-server-core'],
-  },
-  preview: {
-    host: true,
-  },
-  server: {
-    // Allow host.docker.internal so the Playwright MCP browser (in Docker) can reach the dev server
-    allowedHosts: ['host.docker.internal'],
-    watch: {
-      ignored: ['**/public/icons/**'],
+export default defineConfig(({ mode }) => {
+  // Not process.env: the app reads these through import.meta.env, and Vite never
+  // copies .env values into process.env, so the two sides would disagree.
+  const env = loadEnv(mode, process.cwd(), '')
+
+  // Demo and Playwright targets only; a production build keeps TanStack's opaque
+  // ids so RPC URLs do not decode back to a source path and export name.
+  const isMockBuild = env.VITE_DEMO_MODE === 'true' || env.VITE_ENABLE_MSW === 'true'
+
+  return {
+    customLogger,
+    base: env.VITE_BASE_PATH || '/',
+    resolve: {
+      alias: buildAliases(),
     },
-    warmup: {
-      clientFiles: ['./src/routes/index.tsx', './src/routes/__root.tsx'],
-    },
-  },
-  build: {
-    rolldownOptions: {
+    plugins: [
+      isDev && devtools(),
+      nitro({ serverDir: 'server', features: { websocket: true } }),
+      tailwindcss(),
+      tanstackStart({
+        spa: {
+          enabled: true,
+        },
+        importProtection: {
+          behavior: 'error',
+        },
+        ...(isMockBuild
+          ? {
+              serverFns: {
+                generateFunctionId: ({ filename, functionName }: { filename: string; functionName: string }) =>
+                  encodeFunctionId(filename, functionName),
+              },
+            }
+          : {}),
+      }),
+      viteReact(),
+    ],
+    ssr: {
       external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
-      onwarn(warning, warn) {
-        // Suppress "use client" directive warnings from MUI and other libraries
-        if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {
-          return
-        }
-        warn(warning)
+    },
+    optimizeDeps: {
+      exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams', '@tanstack/start-server-core'],
+      // Pre-bundle MSW so demo/e2e mode does not trigger a mid-session dep
+      // re-optimization (which invalidates in-flight module hashes and 404s
+      // already-loaded dynamic imports). MSW is lazy-loaded, so without this Vite
+      // only discovers it after the first navigation.
+      include: ['msw', 'msw/browser'],
+    },
+    preview: {
+      host: true,
+    },
+    server: {
+      // Allow host.docker.internal so the Playwright MCP browser (in Docker) can reach the dev server
+      allowedHosts: ['host.docker.internal'],
+      watch: {
+        ignored: ['**/public/icons/**'],
+      },
+      warmup: {
+        clientFiles: ['./src/routes/index.tsx', './src/routes/__root.tsx'],
       },
     },
-  },
+    build: {
+      rolldownOptions: {
+        external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
+        onwarn(warning, warn) {
+          // Suppress "use client" directive warnings from MUI and other libraries
+          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {
+            return
+          }
+          warn(warning)
+        },
+      },
+    },
+  }
 })
