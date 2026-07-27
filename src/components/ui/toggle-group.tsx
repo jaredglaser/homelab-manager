@@ -22,7 +22,7 @@ function ToggleGroupItem({ className, ...props }: Readonly<TogglePrimitive.Props
     <TogglePrimitive
       data-slot="toggle-group-item"
       className={cn(
-        'inline-flex items-center justify-center gap-1 border border-foreground/15 px-2.5 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors outline-none first:rounded-l-lg last:rounded-r-lg not-first:-ml-px hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[pressed]:bg-primary/15 data-[pressed]:text-primary data-[pressed]:border-primary/40 data-[pressed]:z-10',
+        'inline-flex min-h-11 items-center justify-center gap-1 border border-foreground/15 px-3 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors outline-none first:rounded-l-lg last:rounded-r-lg not-first:-ml-px hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[pressed]:bg-primary/15 data-[pressed]:text-primary data-[pressed]:border-primary/40 data-[pressed]:z-10 lg:min-h-0 lg:px-2.5',
         className,
       )}
       {...props}

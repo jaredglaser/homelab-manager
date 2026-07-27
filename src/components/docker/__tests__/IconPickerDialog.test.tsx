@@ -1,5 +1,6 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import * as useMediaQueryModule from '@/hooks/useMediaQuery';
 
 mock.module('@/lib/utils/icon-resolver', () => ({
   AVAILABLE_ICONS: ['nginx', 'redis', 'postgres', 'docker'],
@@ -126,5 +127,47 @@ describe('IconPickerDialog', () => {
     expect(onSelect).toHaveBeenCalledWith(null);
 
     await waitFor(() => { expect(onClose).toHaveBeenCalledTimes(1); });
+  });
+
+  it('sizes the dialog to fit narrow viewports with a wider cap from sm: up', () => {
+    render(<IconPickerDialog {...defaultProps} />);
+    const dialogContent = document.querySelector('[data-slot="dialog-content"]');
+    expect(dialogContent!.className).toContain('w-[calc(100%-32px)]');
+    expect(dialogContent!.className).toContain('sm:w-[720px]');
+    expect(dialogContent!.className).toContain('sm:max-w-[calc(100%-64px)]');
+  });
+
+  it('lets the footer wrap and keeps Cancel and Apply grouped together so they stay reachable when it does', () => {
+    render(<IconPickerDialog {...defaultProps} />);
+    const footer = screen.getByText('Use auto-detected').closest('[data-slot="dialog-footer"]');
+    expect(footer!.className).toContain('flex-wrap');
+
+    const cancelButton = screen.getByText('Cancel');
+    const applyButton = screen.getByText('Apply');
+    expect(cancelButton.closest('div')).toBe(applyButton.closest('div'));
+  });
+
+  it('applies the tap-target utility to close, cancel, and apply on touch devices', () => {
+    const isTouchSpy = spyOn(useMediaQueryModule, 'useIsTouch').mockReturnValue(true);
+    try {
+      render(<IconPickerDialog {...defaultProps} />);
+      expect(screen.getByLabelText('Close').className).toContain('tap-target');
+      expect(screen.getByText('Cancel').className).toContain('tap-target');
+      expect(screen.getByText('Apply').className).toContain('tap-target');
+      expect(screen.getByText('Use auto-detected').className).toContain('tap-target');
+    } finally {
+      isTouchSpy.mockRestore();
+    }
+  });
+
+  it('omits the tap-target utility on non-touch devices', () => {
+    const isTouchSpy = spyOn(useMediaQueryModule, 'useIsTouch').mockReturnValue(false);
+    try {
+      render(<IconPickerDialog {...defaultProps} />);
+      expect(screen.getByLabelText('Close').className).not.toContain('tap-target');
+      expect(screen.getByText('Apply').className).not.toContain('tap-target');
+    } finally {
+      isTouchSpy.mockRestore();
+    }
   });
 });

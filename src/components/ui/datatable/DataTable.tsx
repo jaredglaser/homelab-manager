@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useRef, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -26,6 +26,13 @@ export interface MetricGroup {
   columnIds: [string, ...string[]];
   icon?: ReactNode;
 }
+
+/**
+ * Lets a nested DataTable follow its parent's metric-group selection. A detail-panel
+ * subtable shares the parent's columns but owns no toolbar, so without this its
+ * columns stay all-visible on mobile and stop lining up with the parent header.
+ */
+const MetricGroupContext = createContext<{ metricGroups: MetricGroup[]; activeIndex: number } | null>(null);
 
 type ExpansionControl =
   | { expandedState?: never; onExpandedChange?: never }
@@ -82,26 +89,40 @@ const VIRTUALIZATION_THRESHOLD = 150;
 /** Viewport width at which sparklines become visible (matches the min-[1428px] CSS breakpoint). */
 export const SPARKLINE_MIN_WIDTH = 1428;
 
+/** Grid weight the name column gets on mobile, relative to 1fr for every other column. */
+const MOBILE_NAME_COLUMN_WEIGHT = 2;
+
 /**
  * Build a CSS grid-template-columns string from visible TanStack Table columns.
  * Uses column meta.flex if available (name column: 'minmax(200px, 1fr)').
  * Metric columns store two sizes in meta: sizeFull (with sparklines) and sizeCompact
  * (without). containerWidth selects between them so the column stays tight regardless
  * of whether sparklines are enabled in settings.
+ *
+ * On mobile every track goes proportional instead. The fixed px sizes total more
+ * than a phone viewport even after the metric-group toggle hides all but one
+ * group (200 name + 2x115 metric = 430px against a 375px screen), so the table
+ * would horizontally scroll no matter which group was selected.
  */
 function buildGridTemplate<TRow>(
   columns: ReturnType<ReturnType<typeof useReactTable<TRow>>['getVisibleLeafColumns']>,
   containerWidth: number,
   sparklineEnabled: boolean,
+  isMobile: boolean,
 ): string {
   const sparklinesVisible = containerWidth >= SPARKLINE_MIN_WIDTH && sparklineEnabled;
   return columns
     .map((col) => {
       const meta = col.columnDef.meta as {
         flex?: string;
+        mobileFlex?: string;
         sizeCompact?: number;
         sizeFull?: number;
       } | undefined;
+      if (isMobile) {
+        if (meta?.mobileFlex) return meta.mobileFlex;
+        return meta?.flex ? `minmax(0, ${MOBILE_NAME_COLUMN_WEIGHT}fr)` : 'minmax(0, 1fr)';
+      }
       if (meta?.flex) return meta.flex;
       if (meta?.sizeCompact !== undefined && meta?.sizeFull !== undefined) {
         return `${sparklinesVisible ? meta.sizeFull : meta.sizeCompact}px`;
@@ -149,6 +170,12 @@ export function DataTable<TRow>({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [internalExpanded, setInternalExpanded] = useState<ExpandedState>({});
   const { general: { showSparklines } } = useGeneralSettings();
+  const inheritedMetricGroups = useContext(MetricGroupContext);
+  const ownsMetricGroups = metricGroups != null && metricGroups.length > 0;
+  const effectiveMetricGroups = ownsMetricGroups ? metricGroups : inheritedMetricGroups?.metricGroups;
+  const effectiveGroupIndex = ownsMetricGroups
+    ? activeMetricGroupIndex
+    : (inheritedMetricGroups?.activeIndex ?? 0);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -173,15 +200,15 @@ export function DataTable<TRow>({
    * the active group are hidden when on mobile with metric groups defined.
    */
   const effectiveColumnVisibility = useMemo<VisibilityState>(() => {
-    if (!isMobile || !metricGroups || metricGroups.length === 0) {
+    if (!isMobile || !effectiveMetricGroups || effectiveMetricGroups.length === 0) {
       return columnVisibility;
     }
 
-    const activeGroup = metricGroups[activeMetricGroupIndex] ?? metricGroups[0];
+    const activeGroup = effectiveMetricGroups[effectiveGroupIndex] ?? effectiveMetricGroups[0];
     const activeIds = new Set(activeGroup.columnIds);
 
     const hiddenColumns: VisibilityState = {};
-    for (const group of metricGroups) {
+    for (const group of effectiveMetricGroups) {
       for (const colId of group.columnIds) {
         if (!activeIds.has(colId)) {
           hiddenColumns[colId] = false;
@@ -190,7 +217,7 @@ export function DataTable<TRow>({
     }
 
     return { ...columnVisibility, ...hiddenColumns };
-  }, [isMobile, metricGroups, activeMetricGroupIndex, columnVisibility]);
+  }, [isMobile, effectiveMetricGroups, effectiveGroupIndex, columnVisibility]);
 
   const expanded = controlledExpanded ?? internalExpanded;
   const setExpanded = useCallback(
@@ -233,7 +260,7 @@ export function DataTable<TRow>({
   const { rows } = table.getRowModel();
   const isVirtualized = rows.length > VIRTUALIZATION_THRESHOLD;
   const visibleColumns = table.getVisibleLeafColumns();
-  const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns, containerWidth, showSparklines), [visibleColumns, containerWidth, showSparklines]);
+  const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns, containerWidth, showSparklines, isMobile), [visibleColumns, containerWidth, showSparklines, isMobile]);
 
   const defaultEstimateSize = useCallback(() => DEFAULT_ROW_HEIGHT, []);
 
@@ -247,6 +274,11 @@ export function DataTable<TRow>({
 
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
+
+  const metricGroupValue = useMemo(
+    () => (ownsMetricGroups ? { metricGroups: metricGroups!, activeIndex: activeMetricGroupIndex } : null),
+    [ownsMetricGroups, metricGroups, activeMetricGroupIndex],
+  );
 
   const toolbar = (
     <DataTableToolbar
@@ -270,7 +302,7 @@ export function DataTable<TRow>({
     );
   }
 
-  return (
+  const body = (
     <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
       {toolbar}
 
@@ -279,6 +311,7 @@ export function DataTable<TRow>({
         {/* Sticky header: inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div
+            data-slot="datatable-header"
             className="grid border-b border-(--border) bg-(--background) sticky top-0 z-10"
             style={{ gridTemplateColumns: gridTemplate }}
           >
@@ -286,9 +319,9 @@ export function DataTable<TRow>({
               headerGroup.headers.map((header) => (
                 <div
                   key={header.id}
-                  className={`px-3 py-2 font-semibold text-sm whitespace-nowrap select-none ${
-                    header.column.getCanSort() ? 'cursor-pointer hover:bg-(--accent)' : ''
-                  }`}
+                  className={`min-w-0 overflow-hidden py-2 font-semibold text-sm whitespace-nowrap select-none ${
+                    isMobile ? 'px-2 text-xs' : 'px-3'
+                  } ${header.column.getCanSort() ? 'cursor-pointer hover:bg-(--accent)' : ''}`}
                   onClick={header.column.getToggleSortingHandler()}
                   role={header.column.getCanSort() ? 'button' : undefined}
                   tabIndex={header.column.getCanSort() ? 0 : undefined}
@@ -346,6 +379,7 @@ export function DataTable<TRow>({
                     rowClassName={rowClassName}
                     rowAttributes={rowAttributes}
                     hasDetailPanel={hasDetailPanel}
+                    isMobile={isMobile}
                   />
                   {hasDetailPanel && (() => {
                     const panel = renderDetailPanel(row.original);
@@ -374,6 +408,7 @@ export function DataTable<TRow>({
                     rowClassName={rowClassName}
                     rowAttributes={rowAttributes}
                     hasDetailPanel={hasDetailPanel}
+                    isMobile={isMobile}
                   />
                   {hasDetailPanel && (() => {
                     const panel = renderDetailPanel(row.original);
@@ -396,6 +431,9 @@ export function DataTable<TRow>({
       </div>
     </div>
   );
+
+  if (!metricGroupValue) return body;
+  return <MetricGroupContext value={metricGroupValue}>{body}</MetricGroupContext>;
 }
 
 interface DataTableRowProps<TRow> {
@@ -404,9 +442,10 @@ interface DataTableRowProps<TRow> {
   rowClassName?: (row: TRow) => string;
   rowAttributes?: (row: TRow) => Record<`data-${string}` | `aria-${string}`, string>;
   hasDetailPanel?: boolean;
+  isMobile?: boolean;
 }
 
-function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, hasDetailPanel }: Readonly<DataTableRowProps<TRow>>) {
+function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, hasDetailPanel, isMobile }: Readonly<DataTableRowProps<TRow>>) {
   const customClass = rowClassName?.(row.original) ?? '';
   const extraAttributes = rowAttributes?.(row.original) ?? {};
   const canExpand = row.getCanExpand() || hasDetailPanel;
@@ -422,7 +461,10 @@ function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, ha
       {...extraAttributes}
     >
       {row.getVisibleCells().map((cell) => (
-        <div key={cell.id} className="px-3 py-2">
+        // min-w-0 + overflow-hidden: without them a grid item's automatic minimum
+        // size is its content's min-content width, so a long name widens the track
+        // instead of letting the `truncate` inside the cell take effect.
+        <div key={cell.id} className={`min-w-0 overflow-hidden py-2 ${isMobile ? 'px-2' : 'px-3'}`}>
           {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </div>
       ))}

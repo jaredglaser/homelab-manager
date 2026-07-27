@@ -1,5 +1,6 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
+import * as useMediaQueryModule from '@/hooks/useMediaQuery';
 import IconGrid from '../IconGrid';
 
 let origGetBCR: typeof HTMLElement.prototype.getBoundingClientRect;
@@ -125,9 +126,9 @@ describe('IconGrid', () => {
     expect(img.className).toContain('visible');
   });
 
-  it('chunks icons into rows of 7 columns', () => {
+  it('chunks icons into rows of 7 columns by default (before the container is measured)', () => {
     const eight = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-    render(
+    const { container } = render(
       <IconGrid
         filteredIcons={eight}
         currentIcon={null}
@@ -137,6 +138,120 @@ describe('IconGrid', () => {
     );
     for (const slug of eight) {
       expect(screen.getByAltText(slug)).toBeDefined();
+    }
+    const grid = container.querySelector('[style*="grid-template-columns"]') as HTMLElement;
+    expect(grid.style.gridTemplateColumns).toBe('repeat(7, minmax(0, 1fr))');
+  });
+
+  it('derives a narrower column count from the measured container width', () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    globalThis.ResizeObserver = class MockResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        resizeCallback = cb;
+      }
+      observe() {
+        if (resizeCallback) {
+          resizeCallback(
+            [{ contentRect: { width: 300 } } as unknown as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          );
+        }
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+
+    try {
+      const eight = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const { container } = render(
+        <IconGrid
+          filteredIcons={eight}
+          currentIcon={null}
+          onSelect={() => {}}
+          emptyMessage=""
+        />,
+      );
+      for (const slug of eight) {
+        expect(screen.getByAltText(slug)).toBeDefined();
+      }
+      const grid = container.querySelector('[style*="grid-template-columns"]') as HTMLElement;
+      expect(grid.style.gridTemplateColumns).toBe('repeat(4, minmax(0, 1fr))');
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
+  });
+
+  it('applies the tap-target utility on touch devices', () => {
+    const isTouchSpy = spyOn(useMediaQueryModule, 'useIsTouch').mockReturnValue(true);
+    try {
+      render(
+        <IconGrid
+          filteredIcons={['nginx']}
+          currentIcon={null}
+          onSelect={() => {}}
+          emptyMessage=""
+        />,
+      );
+      const btn = screen.getByAltText('nginx').closest('button');
+      expect(btn!.className).toContain('tap-target');
+    } finally {
+      isTouchSpy.mockRestore();
+    }
+  });
+
+  it('omits the tap-target utility on non-touch devices', () => {
+    const isTouchSpy = spyOn(useMediaQueryModule, 'useIsTouch').mockReturnValue(false);
+    try {
+      render(
+        <IconGrid
+          filteredIcons={['nginx']}
+          currentIcon={null}
+          onSelect={() => {}}
+          emptyMessage=""
+        />,
+      );
+      const btn = screen.getByAltText('nginx').closest('button');
+      expect(btn!.className).not.toContain('tap-target');
+    } finally {
+      isTouchSpy.mockRestore();
+    }
+  });
+
+  it('clamps the column count to a minimum of 3 at very narrow widths', () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    globalThis.ResizeObserver = class MockResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        resizeCallback = cb;
+      }
+      observe() {
+        if (resizeCallback) {
+          resizeCallback(
+            [{ contentRect: { width: 120 } } as unknown as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          );
+        }
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+
+    try {
+      const { container } = render(
+        <IconGrid
+          filteredIcons={['a', 'b', 'c']}
+          currentIcon={null}
+          onSelect={() => {}}
+          emptyMessage=""
+        />,
+      );
+      const grid = container.querySelector('[style*="grid-template-columns"]') as HTMLElement;
+      expect(grid.style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))');
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
     }
   });
 });

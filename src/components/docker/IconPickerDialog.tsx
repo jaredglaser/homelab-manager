@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Search, X } from 'lucide-react';
 import { AVAILABLE_ICONS } from '@/lib/utils/icon-resolver';
 import { SELECTION_FEEDBACK_MS } from '@/lib/constants/ui-timing';
+import { useIsTouch } from '@/hooks/useMediaQuery';
+import { cn } from '@/lib/utils/cn';
 import IconGrid from '@/components/docker/IconGrid';
 
 interface IconPickerDialogProps {
@@ -25,6 +27,7 @@ export default function IconPickerDialog({
   const [search, setSearch] = useState('');
   const [pendingIcon, setPendingIcon] = useState<string | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const isTouch = useIsTouch();
 
   useEffect(() => {
     if (open) {
@@ -72,12 +75,18 @@ export default function IconPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
-      <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-(--popover) w-[720px] max-w-[calc(100%-64px)] max-h-[600px] p-0">
+      <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-(--popover) w-[calc(100%-32px)] max-w-[calc(100%-32px)] sm:w-[720px] sm:max-w-[calc(100%-64px)] max-h-[600px] p-0">
         <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-(--border) shrink-0 bg-(--popover)">
           <h2 className="text-sm font-semibold">
             Select Icon for {containerName}
           </h2>
-          <Button variant="ghost" size="icon-sm" onClick={handleClose} aria-label="Close">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleClose}
+            aria-label="Close"
+            className={cn(isTouch && 'tap-target')}
+          >
             <X size={18} />
           </Button>
         </div>
@@ -118,26 +127,33 @@ export default function IconPickerDialog({
           />
         </div>
 
-        <DialogFooter className="px-5 py-3 border-t border-(--border) bg-(--popover)">
+        <DialogFooter className="flex-wrap justify-between px-5 py-3 border-t border-(--border) bg-(--popover)">
           <Button
             size="sm"
             variant="ghost"
             onClick={handleAutoDetect}
-            className="mr-auto text-xs text-(--muted-foreground)"
+            className={cn('text-xs text-(--muted-foreground)', isTouch && 'tap-target')}
           >
             Use auto-detected
           </Button>
-          <Button size="sm" variant="outline" onClick={handleClose} className="text-xs">
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleApply}
-            disabled={!pendingIcon}
-            className="text-xs"
-          >
-            Apply
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleClose}
+              className={cn('text-xs', isTouch && 'tap-target')}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleApply}
+              disabled={!pendingIcon}
+              className={cn('text-xs', isTouch && 'tap-target')}
+            >
+              Apply
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

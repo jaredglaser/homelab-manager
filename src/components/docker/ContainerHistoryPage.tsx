@@ -36,11 +36,11 @@ export default function ContainerHistoryPage({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="border-b border-(--border) bg-(--level1) px-6 py-3 select-none shrink-0">
+      <div className="border-b border-(--border) bg-(--level1) px-3 py-3 select-none shrink-0 lg:px-6">
         <MetricCheckboxes selected={selectedMetrics} onChange={handleMetricsChange} />
       </div>
 
-      <div className="overflow-y-auto flex-1 min-h-0 themed-scrollbar px-6 py-4">
+      <div className="overflow-y-auto flex-1 min-h-0 themed-scrollbar px-3 py-4 lg:px-6">
         {isChartDataEmpty ? (
           <div className="flex items-center justify-center h-64 text-(--muted-foreground)">
             <p>No data available for this time range.</p>

@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
@@ -113,5 +113,80 @@ describe('ContainerModal', () => {
     renderModal({ inventory: { ...sampleInventory, state: 'exited' } });
     const terminalBtn = screen.getByText('Terminal').closest('button') as HTMLButtonElement;
     expect(terminalBtn.disabled).toBe(true);
+  });
+
+  it('sizes the dialog full-bleed by default, constrained to the desktop card at lg', () => {
+    renderModal();
+    const content = document.querySelector('[data-slot="dialog-content"]') as HTMLElement;
+    expect(content.className).toContain('w-full');
+    expect(content.className).toContain('h-full');
+    expect(content.className).toContain('rounded-none');
+    expect(content.className).toContain('lg:w-[calc(100%-64px)]');
+    expect(content.className).toContain('lg:h-[calc(100vh-80px)]');
+    expect(content.className).toContain('lg:rounded-lg');
+  });
+});
+
+// beforeEach rather than beforeAll: a sibling test file can replace matchMedia
+// mid-run, and reinstalling per test keeps these assertions independent of order.
+function installMatchMedia(matches: (query: string) => boolean) {
+  const originalMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: matches(query),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }),
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: originalMatchMedia,
+    });
+  });
+}
+
+describe('ContainerModal below the lg breakpoint', () => {
+  installMatchMedia((query) => query === '(max-width: 1023px)');
+
+  it('keeps the close button reachable next to the identity row instead of the crowded actions row', () => {
+    const onClose = mock(() => {});
+    renderModal({ onClose });
+    fireEvent.click(screen.getByLabelText('Close modal'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('still switches tabs once the header stacks into rows', () => {
+    renderModal();
+    fireEvent.click(screen.getByText('History'));
+    expect(screen.getByTestId('history-page')).toBeDefined();
+  });
+
+  it('keeps the word wrap toggle reachable', () => {
+    renderModal();
+    expect(screen.getByLabelText('Toggle word wrap')).toBeDefined();
+  });
+});
+
+describe('ContainerModal on touch devices', () => {
+  installMatchMedia((query) => query === '(hover: none), (pointer: coarse)');
+
+  it('expands the close button hit area via tap-target without changing its painted size', () => {
+    renderModal();
+    expect(screen.getByLabelText('Close modal').className).toContain('tap-target');
+  });
+
+  it('expands the tab pills hit area via tap-target', () => {
+    renderModal();
+    const logsTab = screen.getByText('Logs').closest('button') as HTMLButtonElement;
+    expect(logsTab.className).toContain('tap-target');
   });
 });
