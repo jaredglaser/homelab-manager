@@ -1,0 +1,118 @@
+name: E2E Auth
+
+# Real-server lane: runs the actual Nitro build against a real Pocket ID and
+# TimescaleDB so the session cookie (Max-Age, __Host-/Secure, single-name read)
+# is verified in a real browser. The MSW lane in ci.yml cannot: it serves a
+# static client bundle with an in-browser mock backend and no server to emit
+# HttpOnly Set-Cookie.
+#
+# Deliberately not part of CI and not a release gate. Its realistic failure mode
+# is the Pocket ID image or its admin API changing, not this app regressing, and
+# that must not block a merge or a publish. Run it manually before merging a
+# change to src/lib/auth or the lane's own scripts.
+#
+# Scheduled runs only ever fire on the default branch, so workflow_dispatch is
+# the only way to exercise the lane on a branch. Pick the branch in the Actions
+# UI, or: gh workflow run e2e-auth.yml --ref <branch>
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-auth:
+    name: E2E Auth (Playwright + Pocket ID)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    # Both images are pinned, not floating (`:v2`, `:latest-pg16`). A nightly
+    # lane that pulls a moving tag reports provider drift as an app failure on a
+    # commit that changed nothing. When a bump breaks the run, the diff between
+    # the pinned version and the new one is the bug report.
+    #
+    # Known good: pocket-id v2.5.0, timescaledb 2.28.3-pg16.
+    services:
+      postgres:
+        image: timescale/timescaledb:2.28.3-pg16
+        env:
+          POSTGRES_DB: homelab_test
+          POSTGRES_USER: homelab
+          POSTGRES_PASSWORD: homelab
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U homelab"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      pocket-id:
+        image: ghcr.io/pocket-id/pocket-id:v2.5.0
+        env:
+          APP_URL: http://localhost:1411
+          # Throwaway values for an ephemeral CI instance; not real secrets.
+          ENCRYPTION_KEY: e2e-pocket-id-encryption-key-not-a-secret
+          STATIC_API_KEY: e2e-pocket-id-static-api-key-not-a-secret
+          DISABLE_RATE_LIMITING: "true"
+          ANALYTICS_DISABLED: "true"
+        ports:
+          - 1411:1411
+        options: >-
+          --health-cmd "wget --spider -q http://localhost:1411/healthz || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+          --health-start-period 20s
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - name: Install Playwright browser
+        run: bunx playwright install --with-deps chromium
+
+      - name: Generate a throwaway master key
+        run: echo "MASTER_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - name: Run auth e2e tests
+        run: bun run test:e2e:auth
+        env:
+          CI: '1'
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: '5432'
+          POSTGRES_DB: homelab_test
+          POSTGRES_USER: homelab
+          POSTGRES_PASSWORD: homelab
+          POSTGRES_SSL: 'false'
+          POCKET_ID_URL: http://localhost:1411
+          POCKET_ID_API_KEY: e2e-pocket-id-static-api-key-not-a-secret
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-auth
+          path: playwright-report/
+          retention-days: 14

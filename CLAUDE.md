@@ -63,6 +63,7 @@ bun run test:e2e              # Build demo + app targets, then run Playwright
 bun run test:e2e:run          # Run Playwright against already-built targets (e2e-build/)
 bun run e2e:build             # Build + stage both static targets under e2e-build/
 bun run test:e2e:ui           # Playwright UI mode
+bun run test:e2e:auth         # Real-server auth lane (needs Pocket ID + Postgres)
 ```
 
 E2e runs against static production builds served over MSW (not a dev server), so
@@ -73,6 +74,12 @@ Playwright test only when it needs something Happy-DOM cannot do (real layout, t
 service worker, streaming end to end, canvas, the virtualizer, cross-tab, scroll);
 everything else belongs in `bun test`. Selection rule and authoring conventions:
 `docs/development.md`. Flow inventory: issue #384.
+
+A second lane (`playwright.auth.config.ts`, `bun run test:e2e:auth`) boots the real
+Nitro build against a real Pocket ID and TimescaleDB to cover the session cookie,
+which MSW cannot emit. It runs nightly (`.github/workflows/e2e-auth.yml`) with
+pinned service images, gates nothing, and is meant to be triggered by hand on
+branches touching `src/lib/auth`.
 
 ## Critical Rules
 

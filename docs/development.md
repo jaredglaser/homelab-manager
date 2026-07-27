@@ -255,6 +255,45 @@ The flow inventory, including what is covered and what is still open, lives in
 Playwright's browser must be available; in a fresh checkout run
 `bunx playwright install chromium` first.
 
+### End-to-End (real server + Pocket ID)
+
+A second, separate lane covers the one thing MSW structurally cannot: the session
+cookie the server actually sets. MSW serves a static client bundle and fakes auth
+through a `getSession` override, and a service worker cannot emit an `HttpOnly`
+`Set-Cookie`; Happy-DOM cannot either, since `Set-Cookie` is a forbidden response
+header. So this lane boots the real Nitro build against a real Pocket ID and a
+throwaway TimescaleDB.
+
+```bash
+bun run test:e2e:auth       # Build the real app, generate certs, seed Pocket ID, run
+bun run test:e2e:auth:run   # Run against an already-built/seeded e2e-build/
+```
+
+It needs Pocket ID and Postgres reachable (`POCKET_ID_URL`, `POCKET_ID_API_KEY`,
+`POSTGRES_*`) before it starts. `playwright.auth.config.ts` is a separate config
+from `playwright.config.ts` on purpose: Playwright starts every `webServer` entry
+in a config regardless of which project is selected, so a merged config would make
+the MSW lane require these containers too. Its two projects run the same app under
+`OIDC_REDIRECT_URI=http` (`auth-http`, port 3201, plain `session`) and `=https`
+(`auth-https`, port 3202 behind a TLS proxy, `__Host-session` + `Secure`), which is
+what the cookie name keys off.
+
+The attribute strings themselves are already covered by
+`src/lib/auth/__tests__/session-cookie.test.ts`. What this lane adds is that a real
+browser *accepts and stores* the `__Host-` cookie (a malformed one is dropped
+silently, so asserting the header string is not proof) and that the full handshake
+against a real IdP produces a session that authenticates the next request.
+
+It runs nightly via `.github/workflows/e2e-auth.yml`, not in CI, and gates nothing.
+Its realistic failure mode is provider drift rather than an app regression, which
+should not block a merge or a release. Both service images are pinned; bump them
+deliberately. Run it by hand on a branch that touches `src/lib/auth` or the lane's
+own scripts:
+
+```bash
+gh workflow run e2e-auth.yml --ref <branch>
+```
+
 ## Type Checking
 
 ```bash
