@@ -23,6 +23,10 @@ export async function recreateDatabase(name: string): Promise<void> {
   try {
     await pool.query(`DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`);
     await pool.query(`CREATE DATABASE ${quoteIdent(name)}`);
+    // A continuous-aggregate refresh logs two lines per chunk, which buries the harness's own
+    // report under thousands of lines when CI dumps the service container log. LOG outranks ERROR
+    // in the log_min_messages scale, so silencing it takes 'fatal'.
+    await pool.query(`ALTER DATABASE ${quoteIdent(name)} SET log_min_messages = 'fatal'`);
   } finally {
     await pool.end();
   }
