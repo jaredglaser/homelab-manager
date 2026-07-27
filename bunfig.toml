@@ -4,7 +4,6 @@ timeout = 2000
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [
   "src/data/*/functions.tsx",
-  "src/lib/server-functions/",
   "src/components/settings/ManagedHostsCardConnected.tsx",
   # Custom client entry: browser-only bootstrap, exercised by the e2e suite.
   "src/client.tsx",
