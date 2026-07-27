@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import TapTooltip from '@/components/ui/tap-tooltip'
 import { useAtomValue } from 'jotai'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
 
@@ -45,16 +45,12 @@ export function UpdateIndicator({ expectedInterval }: { expectedInterval: number
     : 'No data yet'
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <div
-            className="relative inline-flex items-center justify-center w-2 h-2"
-            role="status"
-            aria-label={tooltipTitle}
-            tabIndex={0}
-          />
-        }
+    <TapTooltip content={tooltipTitle}>
+      <div
+        className="relative inline-flex items-center justify-center w-2 h-2"
+        role="status"
+        aria-label={tooltipTitle}
+        tabIndex={0}
       >
         <div
           ref={dotRef}
@@ -64,8 +60,7 @@ export function UpdateIndicator({ expectedInterval }: { expectedInterval: number
           ref={pingRef}
           className="absolute w-2 h-2 bg-green-500 rounded-full opacity-0"
         />
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{tooltipTitle}</TooltipContent>
-    </Tooltip>
+      </div>
+    </TapTooltip>
   )
 }

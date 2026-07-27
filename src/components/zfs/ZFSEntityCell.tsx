@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import TapTooltip from '@/components/ui/tap-tooltip';
 import { ChevronRight, Server } from 'lucide-react';
 
 interface ZFSEntityCellProps {
@@ -27,7 +27,12 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
   const isBold = entityType === 'host' || entityType === 'pool';
 
   const chipEl = badge ? (
-    <Badge variant="secondary">{badge.label}</Badge>
+    <Badge
+      variant="secondary"
+      aria-label={badge.tooltip ? `${badge.label}: ${badge.tooltip}` : undefined}
+    >
+      {badge.label}
+    </Badge>
   ) : null;
 
   return (
@@ -44,10 +49,9 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
       {entityType === 'host' && <Server size={18} />}
       <span className={`truncate ${isBold ? 'font-bold' : 'text-sm'}`}>{name}</span>
       {badge?.tooltip ? (
-        <Tooltip>
-          <TooltipTrigger render={chipEl!} />
-          <TooltipContent side="bottom">{badge.tooltip}</TooltipContent>
-        </Tooltip>
+        <TapTooltip content={badge.tooltip} className="inline-flex tap-target">
+          {chipEl}
+        </TapTooltip>
       ) : (
         chipEl
       )}

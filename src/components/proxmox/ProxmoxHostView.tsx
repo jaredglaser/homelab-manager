@@ -90,20 +90,22 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               aria-controls={`proxmox-host-panel-${node.node}`}
               onClick={() => toggleProxmoxHostExpanded(node.node)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
-              className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
+              className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
                 nodeIdx > 0 ? 'border-t border-(--border)' : ''
               } ${hostExpanded ? 'bg-(--accent)' : 'bg-(--level2)'}`}
             >
-              <ChevronRight
-                size={18}
-                className={`transition-transform duration-200 shrink-0 ${hostExpanded ? 'rotate-90' : ''}`}
-              />
-              <Server size={18} className="shrink-0" />
-              <span className="font-bold">{node.node}</span>
-              <Badge variant={node.status === 'online' ? 'success' : 'destructive'}>
-                {node.status}
-              </Badge>
-              <div className="ml-auto flex items-center gap-4 text-sm tabular-nums">
+              <div className="flex items-center gap-3 min-w-0">
+                <ChevronRight
+                  size={18}
+                  className={`transition-transform duration-200 shrink-0 ${hostExpanded ? 'rotate-90' : ''}`}
+                />
+                <Server size={18} className="shrink-0" />
+                <span className="font-bold truncate">{node.node}</span>
+                <Badge variant={node.status === 'online' ? 'success' : 'destructive'}>
+                  {node.status}
+                </Badge>
+              </div>
+              <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-sm tabular-nums">
                 <span>CPU: {cpuPercent}%</span>
                 <span>Mem: {memPercent}%</span>
                 <span>Disk: {diskPercent}%</span>

@@ -8,6 +8,7 @@ import type { ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
 import { useGeneralSettings, useZfsSettings } from '@/hooks/useSettings';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 import PoolSubTable from '@/components/zfs/subtables/PoolSubTable';
 import { buildHostRow } from '@/components/zfs/utils/zfs-row-builders';
@@ -36,6 +37,9 @@ export interface ZFSTableRow {
   /** Tree children */
   children?: ZFSTableRow[];
 }
+
+/** Leaves room for the stacked speed charts below without the table collapsing. */
+const MOBILE_TABLE_MAX_HEIGHT = 480;
 
 const METRIC_GROUPS: MetricGroup[] = [
   { label: 'Capacity', columnIds: ['capacity'] },
@@ -83,6 +87,7 @@ export default function ZFSPoolsTable({
     zfs,
   } = useZfsSettings();
   const { general } = useGeneralSettings();
+  const isMobile = useIsMobile();
 
   const hostHierarchy = useMemo<ZFSHostHierarchy>(() => {
     const rows = Array.from(latestByEntity.values());
@@ -258,7 +263,7 @@ export default function ZFSPoolsTable({
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 w-full">
+    <div className={isMobile ? 'w-full' : 'flex flex-col flex-1 min-h-0 w-full'}>
       <StaleDataAlert isStale={isStale} />
       <DataTable
         data={tableData}
@@ -270,6 +275,9 @@ export default function ZFSPoolsTable({
         metricGroups={METRIC_GROUPS}
         rowClassName={rowClassName}
         enableSorting={false}
+        // Mobile stacks the speed charts one per row, and a squeezed flex share
+        // here still paints its rows at full size, overlapping them.
+        maxHeight={isMobile ? MOBILE_TABLE_MAX_HEIGHT : undefined}
       />
     </div>
   );
