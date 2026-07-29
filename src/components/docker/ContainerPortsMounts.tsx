@@ -118,7 +118,6 @@ function MountRow({ mount }: { mount: ContainerMount }) {
         type="button"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
-        aria-label={fullMapping}
         className="text-left"
       >
         {row}
