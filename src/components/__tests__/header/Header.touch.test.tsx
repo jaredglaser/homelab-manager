@@ -123,6 +123,17 @@ describe('Header on a touch device above the compact breakpoint', () => {
     expect(dockerTab.getAttribute('aria-expanded')).toBe('true')
   })
 
+  it('closes an open submenu on an outside press', () => {
+    renderHeader()
+    const dockerTab = screen.getByRole('tab', { name: /docker/i })
+    fireEvent.click(dockerTab)
+    expect(dockerTab.getAttribute('aria-expanded')).toBe('true')
+
+    fireEvent.click(document.body)
+
+    expect(dockerTab.getAttribute('aria-expanded')).toBe('false')
+  })
+
   it('leaves a route without a submenu unexpanded on tap', () => {
     renderHeader()
     const zfsTab = screen.getByRole('tab', { name: /zfs/i })

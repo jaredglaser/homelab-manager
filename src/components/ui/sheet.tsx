@@ -43,9 +43,10 @@ type SheetContentProps = ComponentProps<typeof DialogPrimitive.Popup> &
 function SheetContent({ className, children, side, ...props }: SheetContentProps) {
   return (
     <DialogPrimitive.Portal>
+      {/* min-h-dvh is needed for Safari on iOS since it mispaints a fixed backdrop as the URL bar retracts */}
       <DialogPrimitive.Backdrop
         data-slot="sheet-backdrop"
-        className="fixed inset-0 z-50 bg-black/50 transition-opacity duration-200 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0"
+        className="fixed inset-0 z-50 min-h-dvh bg-black/50 transition-opacity duration-200 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 supports-[-webkit-touch-callout:none]:absolute"
       />
       <DialogPrimitive.Popup
         data-slot="sheet-content"
