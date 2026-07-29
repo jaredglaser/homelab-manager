@@ -20,9 +20,9 @@ const sheetVariants = cva(
   {
     variants: {
       side: {
-        left: 'inset-y-0 left-0 h-full w-[min(20rem,85vw)] border-r border-border data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full',
+        left: 'inset-y-0 left-0 h-dvh w-[min(20rem,85vw)] border-r border-border data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full',
         right:
-          'inset-y-0 right-0 h-full w-[min(20rem,85vw)] border-l border-border data-[starting-style]:translate-x-full data-[ending-style]:translate-x-full',
+          'inset-y-0 right-0 h-dvh w-[min(20rem,85vw)] border-l border-border data-[starting-style]:translate-x-full data-[ending-style]:translate-x-full',
         bottom:
           'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl border-t border-border data-[starting-style]:translate-y-full data-[ending-style]:translate-y-full',
       },
