@@ -79,6 +79,9 @@ function renderHeader() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
+  // Seeded, not fetched: downstream the header derives which routes own a menu
+  // from this data, so an unresolved query renders every tab menu-less.
+  qc.setQueryData(['managed-host-names'], ['tank'])
   return render(
     <QueryClientProvider client={qc}>
       <Header user={{ id: 1, email: 'alice@example.com', name: 'Alice', role: 'admin' }} />
