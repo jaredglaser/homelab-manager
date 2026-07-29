@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { LogOut, Server, CircleUser } from 'lucide-react'
 import { Popover } from '@base-ui/react/popover'
 import { Button } from '@/components/ui/button'
-import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { MANAGED_HOST_NAMES_QUERY_KEY, STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { listManagedHostNames, listStacks } from '@/data/stacks/functions'
 import { getIconUrl } from '@/lib/utils/icon-resolver'
 import { SETTINGS_SECTIONS } from '@/components/header/nav-config'
@@ -12,9 +12,45 @@ import type { MenuRouteKey } from '@/components/header/nav-config'
 
 export const NavMenuCloseContext = createContext<() => void>(() => {})
 
-const MENU_ITEM_CLASSES =
+export const MENU_ITEM_CLASSES =
   'flex items-center gap-2 min-h-11 px-3 py-2 text-sm no-underline text-inherit ' +
   'hover:bg-accent transition-colors'
+
+function useStackSummaries() {
+  return useQuery({
+    queryKey: STACKS_QUERY_KEY,
+    queryFn: () => listStacks(),
+    staleTime: 30_000,
+  })
+}
+
+function useDockerHostNames() {
+  return useQuery({
+    queryKey: MANAGED_HOST_NAMES_QUERY_KEY,
+    queryFn: () => listManagedHostNames(),
+    staleTime: 60_000,
+  })
+}
+
+export function shouldRenderMenu(entryCount: number): boolean {
+  return entryCount > 0
+}
+
+/**
+ * Which nav routes get a dropdown. Menu content renders only for routes in this
+ * set, so the content components below never see an empty entry list, and a row
+ * with nothing to list stays a plain link instead of expanding into nothing.
+ */
+export function useMenuRoutes(): ReadonlySet<MenuRouteKey> {
+  const { data: stacks } = useStackSummaries()
+  const { data: hosts } = useDockerHostNames()
+
+  const routes = new Set<MenuRouteKey>()
+  if (shouldRenderMenu(hosts?.length ?? 0)) routes.add('/docker')
+  if (shouldRenderMenu(stacks?.length ?? 0)) routes.add('/stacks')
+  if (shouldRenderMenu(SETTINGS_SECTIONS.length)) routes.add('/settings')
+  return routes
+}
 
 export function SettingsMenuContent() {
   const close = useContext(NavMenuCloseContext)
@@ -42,23 +78,9 @@ export function SettingsMenuContent() {
 
 export function StacksMenuContent() {
   const close = useContext(NavMenuCloseContext)
-  const { data: stacks, isLoading, isError } = useQuery({
-    queryKey: STACKS_QUERY_KEY,
-    queryFn: () => listStacks(),
-    staleTime: 30_000,
-  })
+  const { data: stacks } = useStackSummaries()
 
-  if (isLoading) {
-    return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
-  }
-  if (isError) {
-    return <div className="px-3 py-2 text-sm text-destructive">Failed to load stacks</div>
-  }
-  if (!stacks?.length) {
-    return <div className="px-3 py-2 text-sm opacity-60">No stacks</div>
-  }
-
-  const sorted = [...stacks].sort((a, b) => a.name.localeCompare(b.name))
+  const sorted = [...(stacks ?? [])].sort((a, b) => a.name.localeCompare(b.name))
 
   return (
     <div className="max-h-[60vh] overflow-y-auto themed-scrollbar" role="none">
@@ -91,25 +113,11 @@ export function StacksMenuContent() {
 
 export function DockerHostsMenuContent() {
   const close = useContext(NavMenuCloseContext)
-  const { data: hosts, isLoading, isError } = useQuery({
-    queryKey: ['managed-host-names'],
-    queryFn: () => listManagedHostNames(),
-    staleTime: 60_000,
-  })
-
-  if (isLoading) {
-    return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
-  }
-  if (isError) {
-    return <div className="px-3 py-2 text-sm text-destructive">Failed to load hosts</div>
-  }
-  if (!hosts?.length) {
-    return <div className="px-3 py-2 text-sm opacity-60">No hosts</div>
-  }
+  const { data: hosts } = useDockerHostNames()
 
   return (
     <div role="none">
-      {hosts.map((host) => (
+      {(hosts ?? []).map((host) => (
         <Link
           key={host}
           to="/docker"

@@ -10,10 +10,12 @@ import {
   NAV_ITEMS,
   type RouteKey,
   type MenuRouteKey,
+  type MenuNavItem,
   handlePrefetch,
+  menuRouteFor,
 } from '@/components/header/nav-config'
 import { useCurrentTab, useMenuController } from '@/components/header/useMenuController'
-import { AccountMenu, MenuContentFor, NavMenuCloseContext } from '@/components/header/menus'
+import { AccountMenu, MenuContentFor, NavMenuCloseContext, useMenuRoutes } from '@/components/header/menus'
 import { DemoBanner } from '@/components/header/DemoBanner'
 import MobileNav from '@/components/header/MobileNav'
 import { useIsCompactNav, useIsTouch } from '@/hooks/useMediaQuery'
@@ -29,6 +31,7 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
   const controller = useMenuController()
   const isCompactNav = useIsCompactNav()
   const isTouch = useIsTouch()
+  const menuRoutes = useMenuRoutes()
   const [anchors, setAnchors] = useState<Partial<Record<MenuRouteKey, HTMLElement>>>({})
 
   // One stable setter per route, so React never re-runs a ref callback just
@@ -51,10 +54,12 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
   }, [])
 
   return (
-    <header className="sticky top-0 z-50 px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 pointer-events-none sm:px-4 sm:pt-3">
+    <header className="sticky top-0 z-50 px-2 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 pointer-events-none sm:px-4">
+      {/* Fixed height, not padding: a 44px touch target and a 36px tab trigger
+          would otherwise give the bar a different height per breakpoint. */}
       <nav
         aria-label="Main navigation"
-        className="flex items-center min-w-0 rounded-2xl px-1.5 py-1 pointer-events-auto backdrop-blur-xl bg-card/75 border border-border/30 shadow-[0_8px_32px_rgba(0,0,0,0.1)] sm:px-3"
+        className="flex h-12 items-center min-w-0 rounded-2xl px-1.5 pointer-events-auto backdrop-blur-xl bg-card/75 border border-border/30 shadow-[0_8px_32px_rgba(0,0,0,0.1)] sm:px-3"
       >
         {isCompactNav ? (
           <MobileNav />
@@ -63,6 +68,7 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
             <TabsList aria-label="Main navigation">
               {NAV_ITEMS.map((item) => {
                 const { Icon } = item
+                const menuRoute = menuRouteFor(item, menuRoutes)
                 return (
                   <TabsTrigger
                     key={item.to}
@@ -70,36 +76,36 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
                     ref={refSetters[item.to as MenuRouteKey]}
                     nativeButton={false}
                     render={<Link to={item.to} />}
-                    aria-haspopup={item.hasMenu ? 'menu' : undefined}
-                    aria-expanded={item.hasMenu ? controller.openId === item.to : undefined}
-                    aria-controls={item.hasMenu ? `nav-menu-${item.to.slice(1)}` : undefined}
+                    aria-haspopup={menuRoute ? 'menu' : undefined}
+                    aria-expanded={menuRoute ? controller.openId === menuRoute : undefined}
+                    aria-controls={menuRoute ? `nav-menu-${menuRoute.slice(1)}` : undefined}
                     onMouseEnter={() => {
                       if (isTouch) return
                       handlePrefetch(item.to)
-                      if (item.hasMenu) controller.requestOpen(item.to)
+                      if (menuRoute) controller.requestOpen(menuRoute)
                     }}
                     onMouseLeave={() => {
                       if (isTouch) return
-                      if (item.hasMenu) controller.requestClose()
+                      if (menuRoute) controller.requestClose()
                     }}
                     onFocus={() => {
                       if (isTouch) return
                       handlePrefetch(item.to)
-                      if (item.hasMenu) controller.requestOpen(item.to)
+                      if (menuRoute) controller.requestOpen(menuRoute)
                     }}
                     onBlur={() => {
                       if (isTouch) return
-                      if (item.hasMenu) controller.requestClose()
+                      if (menuRoute) controller.requestClose()
                     }}
                     // A touch device never fires the hover that opens these menus, so
                     // the tap that navigates to the route opens the menu as well.
                     onClick={() => {
                       if (!isTouch) return
                       handlePrefetch(item.to)
-                      if (item.hasMenu) controller.requestOpen(item.to)
+                      if (menuRoute) controller.requestOpen(menuRoute)
                     }}
                     onKeyDown={(e: React.KeyboardEvent) => {
-                      if (e.key === 'Escape' && item.hasMenu) controller.closeNow()
+                      if (e.key === 'Escape' && menuRoute) controller.closeNow()
                     }}
                     className="py-2 uppercase"
                   >
@@ -108,7 +114,7 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
                       : <Icon size={18} />}
                     <span className="inline-flex items-center gap-1 ml-1.5">
                       {item.label}
-                      {item.hasMenu && <ChevronDown size={14} className="opacity-60" />}
+                      {menuRoute && <ChevronDown size={14} className="opacity-60" />}
                     </span>
                   </TabsTrigger>
                 )
@@ -123,7 +129,7 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
         </div>
       </nav>
 
-      {!isCompactNav && NAV_ITEMS.filter((i) => i.hasMenu).map((item) => {
+      {!isCompactNav && NAV_ITEMS.filter((i): i is MenuNavItem => i.hasMenu && menuRoutes.has(i.to)).map((item) => {
         const anchor = anchors[item.to]
         return (
           <Popover.Root

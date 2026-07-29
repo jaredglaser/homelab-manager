@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MANAGED_HOST_NAMES_QUERY_KEY, STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
 mock.module('@tanstack/react-router', () => ({
   Link: ({ children, to, hash, onClick, ...rest }: {
@@ -54,13 +55,23 @@ mock.module('@/lib/constants/demo', () => ({ IS_DEMO_MODE: false }))
 
 const Header = (await import('@/components/header/Header')).default
 
-function createWrapper() {
+// Hosts seeded by default: a route with nothing to list gets no dropdown, so
+// without the seed no tab here would open a menu at all.
+function createWrapper(hosts: string[] = ['tank', 'nas']) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
+  qc.setQueryData(MANAGED_HOST_NAMES_QUERY_KEY, hosts)
+  qc.setQueryData(STACKS_QUERY_KEY, [])
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   }
+}
+
+function findDockerTab() {
+  const tab = screen.getAllByRole('tab').find((t) => t.textContent?.includes('Docker'))
+  expect(tab).not.toBeUndefined()
+  return tab!
 }
 
 describe('Header', () => {
@@ -77,10 +88,8 @@ describe('Header', () => {
     render(<Header />, { wrapper: createWrapper() })
     // MUI Tabs sets aria-selected="true" on the currently selected Tab button.
     // The Docker tab text is inside a span inside the button; query by role.
-    const tabs = screen.getAllByRole('tab')
-    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
-    expect(dockerTab).not.toBeNull()
-    expect(dockerTab?.getAttribute('aria-selected')).toBe('true')
+    const dockerTab = findDockerTab()
+    expect(dockerTab.getAttribute('aria-selected')).toBe('true')
   })
 
   it('does not render the demo banner when IS_DEMO_MODE is false', () => {
@@ -96,16 +105,29 @@ describe('Header', () => {
     expect(screen.getByRole('button', { name: 'Account menu' })).not.toBeNull()
   })
 
+  it('advertises a dropdown on a tab with something to list', () => {
+    render(<Header />, { wrapper: createWrapper(['tank']) })
+    expect(findDockerTab().getAttribute('aria-haspopup')).toBe('menu')
+  })
+
+  it('leaves a tab with nothing to list a plain link', () => {
+    render(<Header />, { wrapper: createWrapper([]) })
+    const dockerTab = findDockerTab()
+    expect(dockerTab.getAttribute('aria-haspopup')).toBeNull()
+
+    fireEvent.mouseEnter(dockerTab)
+
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
   it('closes the open menu when Escape is pressed on a menu tab', () => {
     render(<Header />, { wrapper: createWrapper() })
-    const tabs = screen.getAllByRole('tab')
-    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
-    expect(dockerTab).not.toBeNull()
-    fireEvent.mouseEnter(dockerTab!)
+    const dockerTab = findDockerTab()
+    fireEvent.mouseEnter(dockerTab)
     // Assert the menu is actually open before pressing Escape, so the test
     // verifies the open → close transition rather than passing vacuously.
     expect(screen.getByRole('menu')).not.toBeNull()
-    fireEvent.keyDown(dockerTab!, { key: 'Escape' })
+    fireEvent.keyDown(dockerTab, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
@@ -145,33 +167,27 @@ describe('Header', () => {
 
     it('closes the open menu when mouse leaves a menu tab', () => {
       render(<Header />, { wrapper: createWrapper() })
-      const tabs = screen.getAllByRole('tab')
-      const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
-      expect(dockerTab).not.toBeNull()
-      fireEvent.mouseEnter(dockerTab!)
+      const dockerTab = findDockerTab()
+      fireEvent.mouseEnter(dockerTab)
       expect(screen.getByRole('menu')).not.toBeNull()
-      fireEvent.mouseLeave(dockerTab!)
+      fireEvent.mouseLeave(dockerTab)
       act(() => { flushTimers() })
       expect(screen.queryByRole('menu')).toBeNull()
     })
 
     it('opens the menu when a menu tab receives focus', () => {
       render(<Header />, { wrapper: createWrapper() })
-      const tabs = screen.getAllByRole('tab')
-      const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
-      expect(dockerTab).not.toBeNull()
-      fireEvent.focus(dockerTab!)
+      const dockerTab = findDockerTab()
+      fireEvent.focus(dockerTab)
       expect(screen.getByRole('menu')).not.toBeNull()
     })
 
     it('closes the open menu when a menu tab loses focus', () => {
       render(<Header />, { wrapper: createWrapper() })
-      const tabs = screen.getAllByRole('tab')
-      const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
-      expect(dockerTab).not.toBeNull()
-      fireEvent.focus(dockerTab!)
+      const dockerTab = findDockerTab()
+      fireEvent.focus(dockerTab)
       expect(screen.getByRole('menu')).not.toBeNull()
-      fireEvent.blur(dockerTab!)
+      fireEvent.blur(dockerTab)
       act(() => { flushTimers() })
       expect(screen.queryByRole('menu')).toBeNull()
     })

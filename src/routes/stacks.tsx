@@ -4,15 +4,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { listStacks, listManagedHostNames } from '@/data/stacks/functions'
 import { useStackStatus } from '@/hooks/useStackStatus'
 import { StackListContext, StackStatusContext } from '@/components/stacks/stacks-context'
-import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { STACKS_QUERY_KEY, MANAGED_HOST_NAMES_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/stacks')({
   ssr: false,
   component: StacksLayout,
 })
-
-const HOST_NAMES_QUERY_KEY = ['managed-host-names']
 
 function StacksLayout() {
   const queryClient = useQueryClient()
@@ -23,7 +21,7 @@ function StacksLayout() {
   })
 
   const { data: hosts, isLoading: hostsLoading, error: hostsError } = useQuery({
-    queryKey: HOST_NAMES_QUERY_KEY,
+    queryKey: MANAGED_HOST_NAMES_QUERY_KEY,
     queryFn: () => listManagedHostNames(),
   })
 

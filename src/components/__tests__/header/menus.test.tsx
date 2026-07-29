@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, renderHook, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MANAGED_HOST_NAMES_QUERY_KEY, STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import type { StackSummary } from '@/types/stacks'
 import type { MenuRouteKey } from '@/components/header/nav-config'
 
@@ -63,6 +64,8 @@ const {
   StacksMenuContent,
   DockerHostsMenuContent,
   MenuContentFor,
+  shouldRenderMenu,
+  useMenuRoutes,
 } = await import('@/components/header/menus')
 
 function createWrapper() {
@@ -71,6 +74,19 @@ function createWrapper() {
   })
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  }
+}
+
+function stackSummary(name: string, icon: string | null = null): StackSummary {
+  return {
+    name,
+    host: 'server1',
+    icon,
+    syncStatus: 'unknown',
+    deployMode: 'auto',
+    lastDeployAt: null,
+    lastDeployStatus: null,
+    containerCount: 0,
   }
 }
 
@@ -122,31 +138,9 @@ describe('SettingsMenuContent', () => {
 })
 
 describe('StacksMenuContent', () => {
-  it('shows loading state', () => {
-    mockListStacks.mockImplementation(() => new Promise(() => {}))
-    render(<StacksMenuContent />, { wrapper: createWrapper() })
-    expect(screen.getByText('Loading…')).not.toBeNull()
-  })
-
-  it('shows error state', async () => {
-    mockListStacks.mockImplementation(() => Promise.reject(new Error('fail')))
-    const { findByText } = render(<StacksMenuContent />, { wrapper: createWrapper() })
-    expect(await findByText('Failed to load stacks')).not.toBeNull()
-  })
-
-  it('shows empty state when no stacks', async () => {
-    mockListStacks.mockImplementation(() => Promise.resolve([]))
-    const { findByText } = render(<StacksMenuContent />, { wrapper: createWrapper() })
-    expect(await findByText('No stacks')).not.toBeNull()
-  })
-
   it('renders stacks sorted by name', async () => {
     mockListStacks.mockImplementation(() =>
-      Promise.resolve([
-        { name: 'zabbix', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-        { name: 'authentik', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-      ]),
+      Promise.resolve([stackSummary('zabbix'), stackSummary('authentik'), stackSummary('plex')]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
@@ -163,10 +157,7 @@ describe('StacksMenuContent', () => {
 
   it('renders <img> for stacks with icon and <span> placeholder for stacks with null icon', async () => {
     mockListStacks.mockImplementation(() =>
-      Promise.resolve([
-        { name: 'nginx', host: 'server1', icon: 'nginx', syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-      ]),
+      Promise.resolve([stackSummary('nginx', 'nginx'), stackSummary('plex')]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
@@ -188,9 +179,7 @@ describe('StacksMenuContent', () => {
 
   it('calls close context when a stack link is clicked', async () => {
     const closeSpy = mock(() => {})
-    mockListStacks.mockImplementation(() =>
-      Promise.resolve([{ name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 }]),
-    )
+    mockListStacks.mockImplementation(() => Promise.resolve([stackSummary('plex')]))
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
       <QueryClientProvider client={qc}>
@@ -205,11 +194,7 @@ describe('StacksMenuContent', () => {
   })
 
   it('renders links with the stack name resolved in the href', async () => {
-    mockListStacks.mockImplementation(() =>
-      Promise.resolve([
-        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-      ]),
-    )
+    mockListStacks.mockImplementation(() => Promise.resolve([stackSummary('plex')]))
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
       <QueryClientProvider client={qc}>
@@ -222,24 +207,6 @@ describe('StacksMenuContent', () => {
 })
 
 describe('DockerHostsMenuContent', () => {
-  it('shows loading state', () => {
-    mockListManagedHostNames.mockImplementation(() => new Promise(() => {}))
-    render(<DockerHostsMenuContent />, { wrapper: createWrapper() })
-    expect(screen.getByText('Loading…')).not.toBeNull()
-  })
-
-  it('shows error state', async () => {
-    mockListManagedHostNames.mockImplementation(() => Promise.reject(new Error('fail')))
-    const { findByText } = render(<DockerHostsMenuContent />, { wrapper: createWrapper() })
-    expect(await findByText('Failed to load hosts')).not.toBeNull()
-  })
-
-  it('shows empty state when no hosts', async () => {
-    mockListManagedHostNames.mockImplementation(() => Promise.resolve([]))
-    const { findByText } = render(<DockerHostsMenuContent />, { wrapper: createWrapper() })
-    expect(await findByText('No hosts')).not.toBeNull()
-  })
-
   it('renders host names', async () => {
     mockListManagedHostNames.mockImplementation(() =>
       Promise.resolve(['server1', 'server2']),
@@ -293,16 +260,16 @@ describe('MenuContentFor', () => {
     expect(screen.getByText('General')).not.toBeNull()
   })
 
-  it('renders StacksMenuContent for /stacks', () => {
-    mockListStacks.mockImplementation(() => new Promise(() => {}))
-    render(<MenuContentFor to="/stacks" />, { wrapper: createWrapper() })
-    expect(screen.getByText('Loading…')).not.toBeNull()
+  it('renders StacksMenuContent for /stacks', async () => {
+    mockListStacks.mockImplementation(() => Promise.resolve([stackSummary('plex')]))
+    const { findByText } = render(<MenuContentFor to="/stacks" />, { wrapper: createWrapper() })
+    expect(await findByText('plex')).not.toBeNull()
   })
 
-  it('renders DockerHostsMenuContent for /docker', () => {
-    mockListManagedHostNames.mockImplementation(() => new Promise(() => {}))
-    render(<MenuContentFor to="/docker" />, { wrapper: createWrapper() })
-    expect(screen.getByText('Loading…')).not.toBeNull()
+  it('renders DockerHostsMenuContent for /docker', async () => {
+    mockListManagedHostNames.mockImplementation(() => Promise.resolve(['server1']))
+    const { findByText } = render(<MenuContentFor to="/docker" />, { wrapper: createWrapper() })
+    expect(await findByText('server1')).not.toBeNull()
   })
 
   it('renders nothing for an unknown route key', () => {
@@ -312,5 +279,42 @@ describe('MenuContentFor', () => {
       { wrapper: createWrapper() },
     )
     expect(container.firstChild).toBeNull()
+  })
+})
+
+describe('shouldRenderMenu', () => {
+  it('withholds the menu only from a route with nothing to list', () => {
+    expect(shouldRenderMenu(0)).toBe(false)
+    expect(shouldRenderMenu(1)).toBe(true)
+  })
+})
+
+describe('useMenuRoutes', () => {
+  function renderMenuRoutes(stacks: StackSummary[], hosts: string[]) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(STACKS_QUERY_KEY, stacks)
+    queryClient.setQueryData(MANAGED_HOST_NAMES_QUERY_KEY, hosts)
+    return renderHook(() => useMenuRoutes(), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    })
+  }
+
+  it('always includes /settings, whose sections are fixed', () => {
+    const { result } = renderMenuRoutes([], [])
+    expect(result.current.has('/settings')).toBe(true)
+  })
+
+  it('excludes routes with nothing to list', () => {
+    const { result } = renderMenuRoutes([], [])
+    expect(result.current.has('/stacks')).toBe(false)
+    expect(result.current.has('/docker')).toBe(false)
+  })
+
+  it('includes routes down to a single entry', () => {
+    const { result } = renderMenuRoutes([stackSummary('plex')], ['server1'])
+    expect(result.current.has('/stacks')).toBe(true)
+    expect(result.current.has('/docker')).toBe(true)
   })
 })
