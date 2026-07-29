@@ -38,7 +38,8 @@ export interface ZFSTableRow {
   children?: ZFSTableRow[];
 }
 
-/** Leaves room for the stacked speed charts below without the table collapsing. */
+/** Caps the table so the stacked speed charts below get room; a flex share instead
+ *  still paints rows at full size and overlaps them. */
 const MOBILE_TABLE_MAX_HEIGHT = 480;
 
 const METRIC_GROUPS: MetricGroup[] = [
@@ -275,8 +276,6 @@ export default function ZFSPoolsTable({
         metricGroups={METRIC_GROUPS}
         rowClassName={rowClassName}
         enableSorting={false}
-        // Mobile stacks the speed charts one per row, and a squeezed flex share
-        // here still paints its rows at full size, overlapping them.
         maxHeight={isMobile ? MOBILE_TABLE_MAX_HEIGHT : undefined}
       />
     </div>

@@ -115,11 +115,7 @@ function MobileNavItem({
   )
 }
 
-/**
- * Header navigation below the `md` breakpoint. The desktop tab bar opens its
- * submenus on hover, which a touch device can never trigger, so the drawer
- * turns each one into a tap-expandable section instead.
- */
+/** Header navigation below the `md` breakpoint, not the `lg` one the rest of the mobile layout uses. */
 export default function MobileNav() {
   const [open, setOpen] = useState(false)
   const currentTab = useCurrentTab()

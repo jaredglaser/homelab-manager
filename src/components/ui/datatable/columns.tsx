@@ -119,7 +119,6 @@ export function statusColumn<TRow>(opts: {
   getValue: (row: TRow) => string;
   getColor: (row: TRow) => 'success' | 'default' | 'warning' | 'error';
   size?: number;
-  /** Grid track for the mobile proportional layout (default: equal weight with metric columns) */
   mobileFlex?: string;
 }): ColumnDef<TRow, unknown> {
   return {
@@ -145,7 +144,6 @@ export function progressColumn<TRow>(opts: {
   getValue: (row: TRow) => number;
   getLabel: (row: TRow) => string;
   size?: number;
-  /** Grid track for the mobile proportional layout (default: equal weight with metric columns) */
   mobileFlex?: string;
 }): ColumnDef<TRow, unknown> {
   return {

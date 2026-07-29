@@ -8,15 +8,9 @@ import { useIsTouch } from '@/hooks/useMediaQuery'
 import type { ProxmoxUpdateInterval } from '@/hooks/useSettings'
 
 /**
- * Base UI's Tooltip only opens for mouse/pen pointer types, so a tap on a touch
- * device never reveals it. Controlling Root's `open` prop from a tap does not
- * open the popup either: Root only shows content for the trigger it tracked
- * through its own hover/focus/press interactions. So touch gets an entirely
- * separate, manually positioned popup (mirroring ui/tap-tooltip's approach)
- * instead of trying to drive Root's controlled `open`. It can't reuse
- * ui/tap-tooltip directly: that wraps its trigger in a span, and
- * ToggleGroupItem's rounded-corner classes are first/last-child selectors
- * that depend on staying a direct DOM sibling of the other item.
+ * Touch popup mirroring ui/tap-tooltip, which this cannot reuse directly: it wraps its
+ * trigger in a span, and ToggleGroupItem's rounded-corner classes are first/last-child
+ * selectors that need it to stay a direct sibling of the other item.
  */
 function useTapPopup() {
   const isTouch = useIsTouch()

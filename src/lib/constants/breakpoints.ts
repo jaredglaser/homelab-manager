@@ -1,9 +1,4 @@
-/**
- * Viewport widths shared between CSS (Tailwind's default `sm`/`md`/`lg` screens)
- * and the JS that has to make the same decision. Keep these in sync with the
- * Tailwind prefix used alongside them: a hook reporting `lg` while the markup
- * switches at `md` produces a band where the two disagree.
- */
+/** Tailwind's default screen widths, duplicated for the JS that makes the same decision. */
 export const BREAKPOINTS = {
   sm: 640,
   md: 768,
@@ -13,10 +8,10 @@ export const BREAKPOINTS = {
 
 export type BreakpointName = keyof typeof BREAKPOINTS;
 
-/** Below this, layouts switch to their single-column touch variants (Tailwind `lg:`). */
+/** Pairs with the `lg:` Tailwind prefix in the markup it switches alongside. */
 export const MOBILE_BREAKPOINT = BREAKPOINTS.lg;
 
-/** Below this, the header collapses its tab bar into the drawer (Tailwind `md:`). */
+/** Pairs with the `md:` Tailwind prefix in the markup it switches alongside. */
 export const NAV_BREAKPOINT = BREAKPOINTS.md;
 
 /** Minimum comfortable touch target, per WCAG 2.2 target-size (minimum). */

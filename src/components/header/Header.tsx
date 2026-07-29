@@ -99,8 +99,6 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
                       if (isTouch) return
                       if (menuRoute) controller.requestClose()
                     }}
-                    // A touch device never fires the hover that opens these menus, so
-                    // the tap that navigates to the route opens the menu as well.
                     onClick={() => {
                       if (!isTouch) return
                       handlePrefetch(item.to)
@@ -137,8 +135,6 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
           <Popover.Root
             key={item.to}
             open={controller.openId === item.to && Boolean(anchor)}
-            // Without this the popup has no way to close on an outside press,
-            // which is the only dismissal gesture a touch device has here.
             onOpenChange={(next) => { if (!next) controller.closeNow() }}
             modal={false}
           >

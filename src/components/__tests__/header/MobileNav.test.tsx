@@ -45,8 +45,6 @@ mock.module('@/lib/utils/icon-resolver', () => ({
 
 const MobileNav = (await import('@/components/header/MobileNav')).default
 
-// Seeded, not fetched: disclosure buttons depend on the entry count, which has to
-// be settled before the drawer's first render.
 function stackSummary(name: string): StackSummary {
   return {
     name,

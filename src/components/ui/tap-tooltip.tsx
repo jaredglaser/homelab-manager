@@ -13,12 +13,10 @@ const DEFAULT_CONTENT_CLASSES =
   'rounded-lg px-2 py-1 text-[0.6875rem] font-medium text-tooltip-foreground bg-tooltip/92 max-w-75 break-words';
 
 /**
- * Tooltip that also reveals on tap. Base UI's Tooltip only opens for mouse/pen
- * pointer types (`useHoverReferenceInteraction`'s `mouseOnly: true`), so content
- * that lives only in a tooltip is unreachable on touch without this. Positions
- * via getBoundingClientRect into a body portal, because a Popper-style tooltip
- * is misplaced inside DataTable rows and Dialog headers by their nested scroll
- * container and transform contexts.
+ * Base UI's Tooltip only opens for mouse/pen pointer types, so tooltip-only content is
+ * unreachable on touch. Positions itself into a body portal instead of using a Popper,
+ * which lands wrong inside the nested scroll and transform contexts of DataTable rows
+ * and Dialog headers.
  */
 export default function TapTooltip({ content, children, className, contentClassName }: Readonly<TapTooltipProps>) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -45,8 +43,8 @@ export default function TapTooltip({ content, children, className, contentClassN
 
   useEffect(() => {
     if (!isTouch || pos === null) return;
-    // pointerdown fires before the tap's own click that reopens/toggles here, so an
-    // outside tap can dismiss without racing this element's own toggle.
+    // pointerdown, not click: it fires before the tap's own click, so dismissing does
+    // not race this element's toggle.
     function dismissIfOutside(e: PointerEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) hide();
     }

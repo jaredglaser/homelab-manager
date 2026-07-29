@@ -4,21 +4,12 @@ import { createStore, Provider } from 'jotai';
 import ZFSPoolsTable from '@/components/zfs/ZFSPoolsTable';
 import type { ZFSStatsRow } from '@/types/zfs';
 
-// Expanding a vdev persists the change via updateSetting, a createServerFn that
-// requires the TanStack Start server runtime. Stub it so the expand click under
-// test doesn't hit that unrelated failure path.
+// Expanding a vdev persists through updateSetting, a createServerFn that needs the
+// TanStack Start server runtime.
 mock.module('@/data/settings/functions', () => ({
   updateSetting: mock(() => Promise.resolve()),
 }));
 
-/**
- * Regression coverage for the ZFS subtable nesting: PoolSubTable, VdevDiskSubTable,
- * and DiskSubTable (src/components/zfs/subtables/) each render a further-nested
- * DataTable without declaring their own `metricGroups`, relying entirely on the
- * MetricGroupContext the top-level ZFSPoolsTable DataTable provides. This locks in
- * that the inherited mobile column filter reaches all the way down to the disk
- * level, three DataTable layers below the one that owns the metric groups.
- */
 function makeRow(overrides: Partial<ZFSStatsRow>): ZFSStatsRow {
   return {
     time: Date.now(),
@@ -113,18 +104,15 @@ describe('ZFSPoolsTable nested metric group inheritance on mobile', () => {
         </Provider>,
       );
 
-      // Host ("nas01") and its single pool ("tank") auto-expand (isZfsHostExpanded /
-      // isPoolExpanded both default to expanded when there is only one of them).
+      // A lone host and a lone pool default to expanded; vdevs do not.
       expect(screen.getByText('nas01')).not.toBeNull();
       expect(screen.getByText('tank')).not.toBeNull();
       expect(screen.getByText('mirror-0')).not.toBeNull();
 
-      // Vdevs default to collapsed; expand mirror-0 to mount its DiskSubTable.
       fireEvent.click(screen.getByText('mirror-0').closest('[role="button"]')!);
       expect(screen.getByText('sda')).not.toBeNull();
 
-      // Capacity is the default active metric group -> only "name" + "capacity"
-      // should be visible columns on a disk row, out of the 7 the full column set defines.
+      // Capacity is the default group: name + capacity, out of the 7 defined columns.
       const diskRow = screen.getByText('sda').closest('.group') as HTMLElement;
       expect(diskRow.children.length).toBe(2);
     } finally {
@@ -150,8 +138,6 @@ describe('ZFSPoolsTable nested metric group inheritance on mobile', () => {
       fireEvent.click(screen.getByText('mirror-0').closest('[role="button"]')!);
       expect(screen.getByText('sda')).not.toBeNull();
 
-      // Switch the parent's active group to "Throughput" (3 columns: readBytes,
-      // writeBytes, utilization) via its toolbar toggle.
       fireEvent.click(screen.getByRole('button', { name: 'Throughput' }));
 
       const diskRow = screen.getByText('sda').closest('.group') as HTMLElement;

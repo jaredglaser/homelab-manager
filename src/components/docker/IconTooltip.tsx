@@ -6,7 +6,6 @@ interface IconTooltipProps {
   children: ReactNode;
 }
 
-/** Single-line label for an icon-only button. */
 export default function IconTooltip({ label, children }: Readonly<IconTooltipProps>) {
   return (
     <TapTooltip

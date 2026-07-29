@@ -55,8 +55,7 @@ mock.module('@/lib/constants/demo', () => ({ IS_DEMO_MODE: false }))
 
 const Header = (await import('@/components/header/Header')).default
 
-// Hosts seeded by default: a route with nothing to list gets no dropdown, so
-// without the seed no tab here would open a menu at all.
+// Hosts have to be seeded: a route with nothing to list renders no dropdown at all.
 function createWrapper(hosts: string[] = ['tank', 'nas']) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

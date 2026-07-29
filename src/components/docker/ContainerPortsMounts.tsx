@@ -88,8 +88,6 @@ function MountRow({ mount }: { mount: ContainerMount }) {
 
   useEffect(() => {
     if (!isTouch || !expanded) return;
-    // Mirrors IconTooltip's dismiss pattern: pointerdown precedes this row's own
-    // toggle click, so an outside tap can collapse without racing a re-expand.
     function dismissIfOutside(e: PointerEvent) {
       if (buttonRef.current && !buttonRef.current.contains(e.target as Node)) setExpanded(false);
     }

@@ -36,11 +36,7 @@ export function shouldRenderMenu(entryCount: number): boolean {
   return entryCount > 0
 }
 
-/**
- * Which nav routes get a dropdown. Menu content renders only for routes in this
- * set, so the content components below never see an empty entry list, and a row
- * with nothing to list stays a plain link instead of expanding into nothing.
- */
+/** A route absent from this set stays a plain link, so menu content never renders an empty list. */
 export function useMenuRoutes(): ReadonlySet<MenuRouteKey> {
   const { data: stacks } = useStackSummaries()
   const { data: hosts } = useDockerHostNames()

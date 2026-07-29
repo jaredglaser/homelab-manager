@@ -1,7 +1,6 @@
 /** Query key for the stacks list. Defined here to avoid circular imports between route and components. */
 export const STACKS_QUERY_KEY = ['stacks-list'] as const;
 
-/** Query key for the names of every managed host. */
 export const MANAGED_HOST_NAMES_QUERY_KEY = ['managed-host-names'] as const;
 
 /** Query key for live stack container status (SSE-backed). */

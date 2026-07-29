@@ -12,8 +12,7 @@ import type { SettingsSectionId } from '@/lib/constants/settings-sections'
 
 export type { SettingsSectionId }
 
-// The drawer header reproduces this box structure so its hamburger lands on the bar's
-// by construction; copying the resulting coordinates would desync on the next change.
+// Shared with the drawer header so its hamburger lands on the same spot as the bar's.
 export const HEADER_INSET_CLASSES =
   'px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2'
 
@@ -36,9 +35,8 @@ export type MenuNavItem = {
   Icon: React.ComponentType<IconProps>
   hasMenu: true
   /**
-   * Drawer-only row pointing at the route itself. Needed only where the menu
-   * entries navigate somewhere else; Docker and Settings entries are anchors on
-   * the parent page, so any of them already lands there.
+   * Drawer-only row pointing at the route itself. Set it only where the menu entries
+   * navigate elsewhere: Docker and Settings entries are anchors on the parent page.
    */
   selfEntryLabel?: string
 }

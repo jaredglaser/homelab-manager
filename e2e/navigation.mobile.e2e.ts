@@ -27,8 +27,6 @@ test('the drawer exposes submenus that desktop opens on hover', async ({ page })
   await expect(page.getByRole('menuitem', { name: 'Managed Hosts' })).toBeVisible();
 });
 
-// Route bodies are widened by their tables and are covered by the per-route
-// mobile specs; this only pins the shell chrome, which every route inherits.
 test('the header fits the viewport on every route', async ({ page }) => {
   for (const path of ['/docker', '/stacks', '/zfs', '/proxmox', '/settings']) {
     await page.goto(path);

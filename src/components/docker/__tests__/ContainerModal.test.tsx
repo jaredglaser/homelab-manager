@@ -127,8 +127,6 @@ describe('ContainerModal', () => {
   });
 });
 
-// beforeEach rather than beforeAll: a sibling test file can replace matchMedia
-// mid-run, and reinstalling per test keeps these assertions independent of order.
 function installMatchMedia(matches: (query: string) => boolean) {
   const originalMatchMedia = window.matchMedia;
 

@@ -78,13 +78,6 @@ const ICON_CELL_MIN_WIDTH = 64;
 const ICON_GRID_GAP = 8;
 const ICON_ROW_HEIGHT = 76;
 
-/**
- * Number of columns the grid can fit is derived from the measured container
- * width and clamped to [ICON_MIN_COLS, ICON_MAX_COLS]. The same value drives
- * both the CSS `gridTemplateColumns` and the `iconRows` chunking below, so the
- * two can never disagree the way a hardcoded `grid-cols-7` class paired with
- * a separate constant could.
- */
 function computeIconCols(containerWidth: number): number {
   if (containerWidth <= 0) return ICON_MAX_COLS;
   const cols = Math.floor((containerWidth + ICON_GRID_GAP) / (ICON_CELL_MIN_WIDTH + ICON_GRID_GAP));
