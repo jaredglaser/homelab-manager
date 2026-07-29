@@ -5,12 +5,18 @@ import { Button } from '@/components/ui/button'
 import {
   Sheet,
   SheetBody,
+  SheetClose,
   SheetContent,
-  SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
-import { NAV_ITEMS, handlePrefetch, menuRouteFor } from '@/components/header/nav-config'
+import {
+  HEADER_INSET_CLASSES,
+  NAV_ITEMS,
+  NAV_ROW_CLASSES,
+  handlePrefetch,
+  menuRouteFor,
+} from '@/components/header/nav-config'
 import type { MenuRouteKey, NavItem } from '@/components/header/nav-config'
 import { useCurrentTab } from '@/components/header/useMenuController'
 import {
@@ -23,6 +29,10 @@ import {
 const NAV_LINK_CLASSES =
   'flex flex-1 items-center gap-3 min-h-12 px-4 text-sm font-medium uppercase ' +
   'tracking-[0.02857em] no-underline text-inherit'
+
+const routeLabelClasses = (hasRoute: boolean) =>
+  'ml-1 truncate text-sm font-medium uppercase tracking-[0.02857em] ' +
+  (hasRoute ? 'text-foreground' : 'text-muted-foreground')
 
 function MobileNavItem({
   item,
@@ -134,19 +144,32 @@ export default function MobileNav() {
       >
         <Menu size={22} />
       </Button>
-      <span
-        className={`ml-1 truncate text-sm font-medium uppercase tracking-[0.02857em] ${
-          currentLabel ? 'text-primary' : 'text-muted-foreground'
-        }`}
-      >
+      <span className={routeLabelClasses(Boolean(currentLabel))}>
         {currentLabel ?? 'Homelab Manager'}
       </span>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" aria-label="Main navigation">
-          <SheetHeader>
-            <SheetTitle>Homelab Manager</SheetTitle>
-          </SheetHeader>
+        <SheetContent side="left" className="border-r-0 shadow-none">
+          <SheetTitle className="sr-only">Main navigation</SheetTitle>
+          <div className={HEADER_INSET_CLASSES}>
+            <div className={`${NAV_ROW_CLASSES} border-transparent`}>
+              <SheetClose
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-11 text-foreground"
+                    aria-label="Close navigation menu"
+                  />
+                }
+              >
+                <Menu size={22} />
+              </SheetClose>
+              <span aria-hidden className={routeLabelClasses(Boolean(currentLabel))}>
+                {currentLabel ?? 'Homelab Manager'}
+              </span>
+            </div>
+          </div>
           <SheetBody>
             <nav aria-label="Main navigation">
               {NAV_ITEMS.map((item) => (

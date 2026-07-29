@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MANAGED_HOST_NAMES_QUERY_KEY, STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import type { StackSummary } from '@/types/stacks'
@@ -195,5 +195,32 @@ describe('MobileNav', () => {
     fireEvent.click(hostLink)
 
     await waitFor(() => expect(screen.queryByRole('menuitem', { name: /nas/i })).toBeNull())
+  })
+
+  it('closes the drawer from the header close button', async () => {
+    await openDrawer()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close navigation menu' }))
+
+    await waitFor(() => expect(screen.queryByRole('link', { name: /zfs/i })).toBeNull())
+  })
+
+  it('repeats the current route label in the drawer header', async () => {
+    await openDrawer()
+    const headerRow = screen.getByRole('button', { name: 'Close navigation menu' }).parentElement
+
+    expect(within(headerRow!).getByText('Docker').getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('names the drawer for assistive tech, not for the current route', async () => {
+    await openDrawer()
+    expect(screen.getByRole('dialog', { name: 'Main navigation' })).not.toBeNull()
+  })
+
+  it('gives the close button a 44px touch target', async () => {
+    await openDrawer()
+    expect(
+      screen.getByRole('button', { name: 'Close navigation menu' }).className,
+    ).toContain('size-11')
   })
 })

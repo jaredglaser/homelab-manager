@@ -12,6 +12,14 @@ import type { SettingsSectionId } from '@/lib/constants/settings-sections'
 
 export type { SettingsSectionId }
 
+// The drawer header reproduces this box structure so its hamburger lands on the bar's
+// by construction; copying the resulting coordinates would desync on the next change.
+export const HEADER_INSET_CLASSES =
+  'px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2'
+
+export const NAV_ROW_CLASSES =
+  'flex h-12 items-center min-w-0 rounded-2xl px-3 border'
+
 export type MenuRouteKey = '/docker' | '/stacks' | '/settings'
 export type RouteKey = MenuRouteKey | '/zfs' | '/proxmox'
 

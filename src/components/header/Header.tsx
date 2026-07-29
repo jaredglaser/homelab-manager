@@ -7,7 +7,9 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { IS_DEMO_MODE } from '@/lib/constants/demo'
 import type { AuthUser } from '@/lib/auth/types'
 import {
+  HEADER_INSET_CLASSES,
   NAV_ITEMS,
+  NAV_ROW_CLASSES,
   type RouteKey,
   type MenuRouteKey,
   type MenuNavItem,
@@ -54,12 +56,12 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
   }, [])
 
   return (
-    <header className="sticky top-0 z-50 px-2 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 pointer-events-none sm:px-4">
+    <header className={`sticky top-0 z-50 pointer-events-none ${HEADER_INSET_CLASSES}`}>
       {/* Fixed height, not padding: a 44px touch target and a 36px tab trigger
           would otherwise give the bar a different height per breakpoint. */}
       <nav
         aria-label="Main navigation"
-        className="flex h-12 items-center min-w-0 rounded-2xl px-1.5 pointer-events-auto backdrop-blur-xl bg-card/75 border border-border/30 shadow-[0_8px_32px_rgba(0,0,0,0.1)] sm:px-3"
+        className={`${NAV_ROW_CLASSES} pointer-events-auto backdrop-blur-xl bg-card/75 border-border/30 shadow-[0_8px_32px_rgba(0,0,0,0.1)]`}
       >
         {isCompactNav ? (
           <MobileNav />
@@ -123,7 +125,7 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
           </Tabs>
         )}
 
-        <div className="ml-auto shrink-0 pl-2 border-l border-border/30 flex items-center gap-1 sm:pl-3">
+        <div className="ml-auto shrink-0 pl-3 border-l border-border/30 flex items-center gap-1">
           {!IS_DEMO_MODE && user && <AccountMenu />}
           <ModeToggle />
         </div>
