@@ -31,16 +31,20 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
   const isTouch = useIsTouch()
   const [anchors, setAnchors] = useState<Partial<Record<MenuRouteKey, HTMLElement>>>({})
 
-  // Stable callback refs keyed by route, so each Tab keeps the same setter
-  // across renders. The null (unmount) case is ignored because these Tab
-  // elements are persistent; anchors only need to be set once on mount.
+  // One stable setter per route, so React never re-runs a ref callback just
+  // because its identity changed.
   const refSetters = useMemo(() => {
     const setters: Partial<Record<MenuRouteKey, (el: HTMLElement | null) => void>> = {}
     for (const item of NAV_ITEMS) {
       if (!item.hasMenu) continue
       setters[item.to] = (el) => {
-        if (!el) return
-        setAnchors((prev) => (prev[item.to] === el ? prev : { ...prev, [item.to]: el }))
+        setAnchors((prev) => {
+          if ((prev[item.to] ?? null) === el) return prev
+          const next = { ...prev }
+          if (el) next[item.to] = el
+          else delete next[item.to]
+          return next
+        })
       }
     }
     return setters
