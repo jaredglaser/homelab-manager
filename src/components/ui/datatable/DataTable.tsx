@@ -275,9 +275,13 @@ export function DataTable<TRow>({
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
 
+  // Passes the ancestor's value through rather than null, so the provider can wrap
+  // every path: wrapping only sometimes would remount the ref'd container.
   const metricGroupValue = useMemo(
-    () => (ownsMetricGroups ? { metricGroups: metricGroups!, activeIndex: activeMetricGroupIndex } : null),
-    [ownsMetricGroups, metricGroups, activeMetricGroupIndex],
+    () => (ownsMetricGroups
+      ? { metricGroups: metricGroups!, activeIndex: activeMetricGroupIndex }
+      : inheritedMetricGroups),
+    [ownsMetricGroups, metricGroups, activeMetricGroupIndex, inheritedMetricGroups],
   );
 
   const toolbar = (
@@ -293,12 +297,14 @@ export function DataTable<TRow>({
 
   if (rows.length === 0) {
     return (
-      <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
-        {toolbar}
-        <div className="flex items-center justify-center flex-1 text-(--muted-foreground) py-12">
-          No data
+      <MetricGroupContext value={metricGroupValue}>
+        <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
+          {toolbar}
+          <div className="flex items-center justify-center flex-1 text-(--muted-foreground) py-12">
+            No data
+          </div>
         </div>
-      </div>
+      </MetricGroupContext>
     );
   }
 
@@ -457,7 +463,13 @@ function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, ha
       className={`group grid border-t border-(--border) hover:bg-(--row-hover-tint) hover:shadow-[inset_0_0_0_1px_var(--row-hover-ring)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
       style={{ gridTemplateColumns: gridTemplate }}
       onClick={canExpand ? () => row.toggleExpanded() : undefined}
-      onKeyDown={canExpand ? (e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.toggleExpanded(); } } : undefined}
+      onKeyDown={canExpand ? (e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          row.toggleExpanded();
+        }
+      } : undefined}
       {...extraAttributes}
     >
       {row.getVisibleCells().map((cell) => (

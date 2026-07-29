@@ -833,3 +833,60 @@ describe('DataTable', () => {
     });
   });
 });
+
+describe('DataTable container observation', () => {
+  function mockTrackingResizeObserver() {
+    const original = globalThis.ResizeObserver;
+    const observed: Element[] = [];
+    globalThis.ResizeObserver = class MockResizeObserver {
+      observe(el: Element) {
+        observed.push(el);
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    return { observed, restore: () => { globalThis.ResizeObserver = original; } };
+  }
+
+  const groups = [
+    { label: 'CPU', columnIds: ['value'] as [string, ...string[]] },
+  ];
+
+  // Asserts across every observed element, not just the container: the
+  // virtualizer registers a ResizeObserver of its own on the scroll element.
+  it('leaves no observed element detached after rows replace the empty state', () => {
+    const { observed, restore } = mockTrackingResizeObserver();
+    try {
+      const { rerender } = render(
+        <DataTable data={[]} columns={columns} getRowId={(row: TestRow) => row.id} metricGroups={groups} />,
+      );
+
+      rerender(
+        <DataTable data={testData} columns={columns} getRowId={(row: TestRow) => row.id} metricGroups={groups} />,
+      );
+
+      expect(observed.length).toBeGreaterThan(0);
+      expect(observed.filter((el) => !el.isConnected)).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it('leaves no observed element detached after rows drain away', () => {
+    const { observed, restore } = mockTrackingResizeObserver();
+    try {
+      const { rerender } = render(
+        <DataTable data={testData} columns={columns} getRowId={(row: TestRow) => row.id} metricGroups={groups} />,
+      );
+
+      rerender(
+        <DataTable data={[]} columns={columns} getRowId={(row: TestRow) => row.id} metricGroups={groups} />,
+      );
+
+      expect(observed.length).toBeGreaterThan(0);
+      expect(observed.filter((el) => !el.isConnected)).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+});
