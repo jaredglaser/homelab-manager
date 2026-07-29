@@ -47,7 +47,7 @@ function TapPopup({ pos, children }: Readonly<{ pos: { x: number; y: number } | 
   if (pos === null) return null
   return createPortal(
     <div
-      className="fixed z-[9999] -translate-x-1/2 -translate-y-[calc(100%+6px)] rounded-lg px-2 py-1 bg-tooltip/92 text-tooltip-foreground max-w-75 break-words"
+      className="fixed z-[9999] pointer-events-none -translate-x-1/2 -translate-y-[calc(100%+6px)] rounded-lg px-2 py-1 bg-tooltip/92 text-tooltip-foreground max-w-75 break-words"
       style={{ left: pos.x, top: pos.y }}
       role="tooltip"
     >
@@ -60,10 +60,10 @@ function TapPopup({ pos, children }: Readonly<{ pos: { x: number; y: number } | 
 export function IntervalToggle({
   interval,
   onIntervalChange
-}: {
+}: Readonly<{
   interval: ProxmoxUpdateInterval
   onIntervalChange: (interval: ProxmoxUpdateInterval) => void
-}) {
+}>) {
   const fastPopup = useTapPopup()
   const relaxedPopup = useTapPopup()
 

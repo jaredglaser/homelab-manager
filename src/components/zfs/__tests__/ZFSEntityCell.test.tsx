@@ -45,7 +45,7 @@ describe('ZFSEntityCell', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
-  it('exposes the tooltip text to screen readers via aria-label regardless of hover state', () => {
+  it('exposes the tooltip text to screen readers regardless of hover state', () => {
     setTouch(false);
     render(
       <ZFSEntityCell
@@ -55,7 +55,7 @@ describe('ZFSEntityCell', () => {
         badge={{ label: 'single disk', tooltip: 'sda' }}
       />,
     );
-    expect(screen.getByLabelText('single disk: sda')).not.toBeNull();
+    expect(screen.getByText('single disk').textContent).toContain('sda');
   });
 
   it('reveals the disk name on tap when the primary input is touch', () => {

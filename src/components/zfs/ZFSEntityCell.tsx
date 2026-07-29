@@ -26,12 +26,12 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
 }: Readonly<ZFSEntityCellProps>) {
   const isBold = entityType === 'host' || entityType === 'pool';
 
+  // Badge renders a bare span, where browsers drop aria-label: naming a generic
+  // role is prohibited. The tooltip text has to reach assistive tech as content.
   const chipEl = badge ? (
-    <Badge
-      variant="secondary"
-      aria-label={badge.tooltip ? `${badge.label}: ${badge.tooltip}` : undefined}
-    >
+    <Badge variant="secondary">
       {badge.label}
+      {badge.tooltip && <span className="sr-only">: {badge.tooltip}</span>}
     </Badge>
   ) : null;
 

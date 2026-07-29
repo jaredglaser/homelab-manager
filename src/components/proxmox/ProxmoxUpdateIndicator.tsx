@@ -45,7 +45,7 @@ export function UpdateIndicator({ expectedInterval }: { expectedInterval: number
     : 'No data yet'
 
   return (
-    <TapTooltip content={tooltipTitle}>
+    <TapTooltip content={tooltipTitle} className="inline-flex tap-target">
       <div
         className="relative inline-flex items-center justify-center w-2 h-2"
         role="status"
