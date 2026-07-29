@@ -11,7 +11,8 @@ test('the drawer navigates between sections', async ({ page }) => {
   await page.goto('/docker');
 
   await page.getByRole('button', { name: 'Open navigation menu' }).click();
-  await page.getByRole('link', { name: 'Stacks' }).click();
+  await page.getByRole('button', { name: 'Stacks' }).click();
+  await page.getByRole('menuitem', { name: 'All stacks' }).click();
 
   await expect(page).toHaveURL(/\/stacks$/);
   await expect(page.getByText('Stacks Overview')).toBeVisible();
@@ -22,7 +23,7 @@ test('the drawer exposes submenus that desktop opens on hover', async ({ page })
   await page.goto('/stacks');
 
   await page.getByRole('button', { name: 'Open navigation menu' }).click();
-  await page.getByRole('button', { name: /expand settings menu/i }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
 
   await expect(page.getByRole('menuitem', { name: 'Managed Hosts' })).toBeVisible();
 });
