@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 
 interface StepperProps {
   steps: readonly string[];
@@ -13,42 +14,53 @@ interface StepperProps {
  * presentational; step state lives in the caller.
  */
 function Stepper({ steps, activeStep, className }: Readonly<StepperProps>) {
+  const isMobile = useIsMobile();
+
   return (
-    <div data-slot="stepper" className={cn('flex w-full', className)}>
-      {steps.map((label, index) => {
-        const isCompleted = index < activeStep;
-        const isActive = index === activeStep;
-        return (
-          <div key={label} className="relative flex flex-1 flex-col items-center gap-2 px-2">
-            {index > 0 && (
-              <div
-                aria-hidden
-                className="absolute top-3 right-1/2 left-[calc(-50%+20px)] mr-5 h-px bg-border"
-              />
-            )}
-            <span
-              data-slot="stepper-indicator"
-              className={cn(
-                'z-10 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium',
-                isActive || isCompleted
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-foreground/30 text-background',
+    <div data-slot="stepper" className={cn('flex flex-col gap-2 w-full', className)}>
+      <div className="flex w-full">
+        {steps.map((label, index) => {
+          const isCompleted = index < activeStep;
+          const isActive = index === activeStep;
+          return (
+            <div key={label} className="relative flex flex-1 flex-col items-center gap-2 px-2">
+              {index > 0 && (
+                <div
+                  aria-hidden
+                  className="absolute top-3 right-1/2 left-[calc(-50%+20px)] mr-5 h-px bg-border"
+                />
               )}
-            >
-              {isCompleted ? <Check className="size-3.5" strokeWidth={3} /> : index + 1}
-            </span>
-            <span
-              data-slot="stepper-label"
-              className={cn(
-                'text-center text-sm',
-                isActive ? 'font-medium text-foreground' : 'text-muted-foreground',
+              <span
+                data-slot="stepper-indicator"
+                className={cn(
+                  'z-10 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium',
+                  isActive || isCompleted
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-foreground/30 text-background',
+                )}
+              >
+                {isCompleted ? <Check className="size-3.5" strokeWidth={3} /> : index + 1}
+              </span>
+              {!isMobile && (
+                <span
+                  data-slot="stepper-label"
+                  className={cn(
+                    'text-center text-sm',
+                    isActive ? 'font-medium text-foreground' : 'text-muted-foreground',
+                  )}
+                >
+                  {label}
+                </span>
               )}
-            >
-              {label}
-            </span>
-          </div>
-        );
-      })}
+            </div>
+          );
+        })}
+      </div>
+      {isMobile && (
+        <span data-slot="stepper-active-label" className="text-center text-sm font-medium text-foreground">
+          {steps[activeStep]}
+        </span>
+      )}
     </div>
   );
 }

@@ -46,4 +46,10 @@ describe('Slider', () => {
     fireEvent.keyDown(screen.getByRole('slider'), { key: 'ArrowRight' });
     expect(onValueChange).toHaveBeenCalledWith(11);
   });
+
+  it('expands the thumb hit area to the touch target minimum', () => {
+    render(<Slider value={500} onValueChange={() => {}} min={100} max={60000} aria-label="interval" />);
+    const thumb = document.querySelector('[data-slot="slider-thumb"]');
+    expect(thumb?.classList.contains('tap-target')).toBe(true);
+  });
 });

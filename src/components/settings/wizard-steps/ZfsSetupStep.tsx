@@ -35,13 +35,14 @@ export default function ZfsSetupStep({
       <p className="text-sm text-muted-foreground">
         Run these commands on the target host to create the ZFS user:
       </p>
-      <div className="relative">
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs font-semibold">Setup commands</span>
+          <CopyButton text={ZFS_SETUP_COMMANDS} label="ZFS setup commands" />
+        </div>
         <pre className="p-3 rounded text-xs overflow-x-auto bg-(--level1) text-foreground">
           {ZFS_SETUP_COMMANDS}
         </pre>
-        <div className="absolute top-1 right-1">
-          <CopyButton text={ZFS_SETUP_COMMANDS} label="ZFS setup commands" />
-        </div>
       </div>
       <p className="text-sm text-muted-foreground mt-2">
         From the output above: copy the number after <code>uid=</code> into HLM_ZFS_UID, and the number after{' '}

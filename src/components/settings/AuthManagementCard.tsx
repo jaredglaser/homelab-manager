@@ -18,6 +18,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
 import { Spinner } from '@/components/ui/spinner';
+import { useIsMobile } from '@/hooks/useMediaQuery'
+import type { ReactNode } from 'react'
+
+function MobileField({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-3 text-xs">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      <span className="text-right break-words">{value}</span>
+    </div>
+  )
+}
 
 function RoleMappingPanel() {
   const { data: roleMapping } = useQuery({
@@ -74,6 +85,7 @@ function RoleMappingPanel() {
 }
 
 function UsersTable() {
+  const isMobile = useIsMobile()
   const { data: users = [], isLoading, isError, error } = useQuery({
     queryKey: ['auth-users'],
     queryFn: () => listUsers(),
@@ -92,6 +104,21 @@ function UsersTable() {
           <Spinner className="size-4" />
           <p className="text-sm text-muted-foreground">Loading users…</p>
         </div>
+      ) : isMobile ? (
+        users.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No users found.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {users.map((user) => (
+              <div key={user.id} className="rounded-lg border border-border p-3 flex flex-col gap-1.5">
+                <p className="text-sm font-semibold truncate">{user.name ?? '—'}</p>
+                <p className="text-xs text-muted-foreground break-all">{user.email}</p>
+                <MobileField label="Role" value={user.role} />
+                <MobileField label="Last Login" value={formatDate(user.lastLogin)} />
+              </div>
+            ))}
+          </div>
+        )
       ) : (
         <Table>
           <TableHeader>
@@ -128,6 +155,7 @@ function UsersTable() {
 
 function SessionsTable() {
   const queryClient = useQueryClient()
+  const isMobile = useIsMobile()
 
   const { data: sessions = [], isLoading, isError, error } = useQuery({
     queryKey: ['auth-sessions'],
@@ -175,12 +203,12 @@ function SessionsTable() {
 
           return (
             <div key={userId} className="mb-4">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm font-semibold">{displayName}</p>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <p className="text-sm font-semibold truncate min-w-0">{displayName}</p>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5"
+                  className="text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5 shrink-0"
                   disabled={revokeAllMutation.isPending}
                   onClick={() => revokeAllMutation.mutate(userId)}
                   aria-label={`Revoke all sessions for ${displayName}`}
@@ -188,56 +216,88 @@ function SessionsTable() {
                   Revoke All Sessions
                 </Button>
               </div>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>IP Address</TableHead>
-                    <TableHead>User Agent</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Expires</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              {isMobile ? (
+                <div className="flex flex-col gap-2">
                   {userSessions.map((session) => (
-                    <TableRow key={session.id}>
-                      <TableCell>
-                        <div>{session.userName ?? '—'}</div>
-                        <div className="text-xs text-muted-foreground">{session.userEmail}</div>
-                      </TableCell>
-                      <TableCell>{session.ipAddress ?? '—'}</TableCell>
-                      <TableCell>
-                        <Tooltip>
-                          <TooltipTrigger render={<span />}>{truncate(session.userAgent ?? '', 50)}</TooltipTrigger>
-                          <TooltipContent>{session.userAgent ?? ''}</TooltipContent>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell>{formatDate(session.createdAt)}</TableCell>
-                      <TableCell>{formatDate(session.expiresAt)}</TableCell>
-                      <TableCell>
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="text-destructive"
-                                disabled={revokeMutation.isPending}
-                                onClick={() => revokeMutation.mutate(session.id)}
-                                aria-label="Revoke session"
-                              />
-                            }
-                          >
-                            <Trash2 size={14} />
-                          </TooltipTrigger>
-                          <TooltipContent>Revoke session</TooltipContent>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
+                    <div key={session.id} className="rounded-lg border border-border p-3 flex flex-col gap-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm truncate">{session.userName ?? '—'}</p>
+                          <p className="text-xs text-muted-foreground truncate">{session.userEmail}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-destructive shrink-0"
+                          disabled={revokeMutation.isPending}
+                          onClick={() => revokeMutation.mutate(session.id)}
+                          aria-label="Revoke session"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                      <MobileField label="IP Address" value={session.ipAddress ?? '—'} />
+                      <div className="text-xs">
+                        <span className="text-muted-foreground">User Agent</span>
+                        <p className="break-words mt-0.5">{session.userAgent ?? '—'}</p>
+                      </div>
+                      <MobileField label="Created" value={formatDate(session.createdAt)} />
+                      <MobileField label="Expires" value={formatDate(session.expiresAt)} />
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>IP Address</TableHead>
+                      <TableHead>User Agent</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Expires</TableHead>
+                      <TableHead />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {userSessions.map((session) => (
+                      <TableRow key={session.id}>
+                        <TableCell>
+                          <div>{session.userName ?? '—'}</div>
+                          <div className="text-xs text-muted-foreground">{session.userEmail}</div>
+                        </TableCell>
+                        <TableCell>{session.ipAddress ?? '—'}</TableCell>
+                        <TableCell>
+                          <Tooltip>
+                            <TooltipTrigger render={<span />}>{truncate(session.userAgent ?? '', 50)}</TooltipTrigger>
+                            <TooltipContent>{session.userAgent ?? ''}</TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>{formatDate(session.createdAt)}</TableCell>
+                        <TableCell>{formatDate(session.expiresAt)}</TableCell>
+                        <TableCell>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-destructive"
+                                  disabled={revokeMutation.isPending}
+                                  onClick={() => revokeMutation.mutate(session.id)}
+                                  aria-label="Revoke session"
+                                />
+                              }
+                            >
+                              <Trash2 size={14} />
+                            </TooltipTrigger>
+                            <TooltipContent>Revoke session</TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </div>
           )
         })
@@ -316,6 +376,7 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
 
 function GitTokensTable() {
   const queryClient = useQueryClient()
+  const isMobile = useIsMobile()
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
   const [newToken, setNewToken] = useState<string | null>(null)
 
@@ -360,6 +421,35 @@ function GitTokensTable() {
           <Spinner className="size-4" />
           <p className="text-sm text-muted-foreground">Loading tokens…</p>
         </div>
+      ) : isMobile ? (
+        tokens.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No tokens.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {tokens.map((token) => (
+              <div key={token.id} className="rounded-lg border border-border p-3 flex flex-col gap-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{token.label}</p>
+                    <p className="text-xs text-muted-foreground truncate">{token.userName ?? token.userEmail}</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-destructive shrink-0"
+                    disabled={revokeMutation.isPending}
+                    onClick={() => revokeMutation.mutate(token.id)}
+                    aria-label="Revoke token"
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
+                <MobileField label="Last Used" value={token.lastUsedAt ? formatDate(token.lastUsedAt) : '—'} />
+                <MobileField label="Created" value={formatDate(token.createdAt)} />
+              </div>
+            ))}
+          </div>
+        )
       ) : (
         <Table>
           <TableHeader>
