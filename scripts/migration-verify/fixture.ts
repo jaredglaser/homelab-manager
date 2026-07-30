@@ -93,9 +93,10 @@ export const COUNTER_GUEST = {
 export const COUNTER_BUCKET_SAMPLES = Math.min(COUNTER_GUEST.samples, 60);
 
 /**
- * The one entity type whose gauges are NULL and whose storage_* columns are not, which is the
- * NULL pattern migration 032 claims is fixed per entity_type and therefore constant within a
- * rollup group.
+ * The one entity type whose cpu/mem gauges are NULL and whose storage_* columns are not, which is
+ * the NULL pattern migration 032 claims is fixed per entity_type and therefore constant within a
+ * rollup group. `disk`/`max_disk` stay populated: the collector derives them from the storage's
+ * used and total bytes (`proxmox-overview-converter.ts` storage rows).
  */
 export const PROXMOX_STORAGE_ENTITY = {
   entityType: 'storage',
@@ -117,7 +118,12 @@ export const PROXMOX_STORAGE_VALUES = {
   storageShared: false,
 };
 
-/** `proxmox_stats.cluster_version` is INT, matching the numeric `version` the collector reads. */
+/**
+ * `proxmox_stats.cluster_version` is INT, matching the numeric `version` the collector reads. The
+ * seed increments it once per sample: on a column that never varies within a bucket, `last()` is
+ * indistinguishable from AVG, MIN or MAX, so a constant would leave the cluster probe asserting
+ * nothing.
+ */
 export const PROXMOX_CLUSTER_VERSION = 8;
 
 export const PROXMOX_SUPPORTING_ENTITIES = [
@@ -127,8 +133,15 @@ export const PROXMOX_SUPPORTING_ENTITIES = [
   PROXMOX_STORAGE_ENTITY,
 ] as const;
 
-export const PROXMOX_SUPPORTING_SAMPLES = 60;
-export const PROXMOX_SUPPORTING_GAP_MINUTES = 1;
+/**
+ * Sub-minute spacing is load-bearing: at one sample per minute every `_1m` bucket holds a single
+ * row, where AVG equals last() and the storage and cluster probes cannot tell a correctly averaged
+ * gauge from one the aggregate carried through with last(). 360 samples 10s apart fill 60 whole
+ * minute buckets with 6 rows each, and still land inside one closed hour bucket.
+ */
+export const PROXMOX_SUPPORTING_SAMPLES = 360;
+export const PROXMOX_SUPPORTING_GAP_SECONDS = 10;
+const PROXMOX_SUPPORTING_SAMPLES_PER_MINUTE = 60 / PROXMOX_SUPPORTING_GAP_SECONDS;
 
 export const EXPECTED_TABLES = [
   'agent_keypairs',
@@ -198,5 +211,19 @@ if (Math.abs(nullMetricDilutedAverage() - nullMetricRawAverage()) < MIN_ROLLUP_D
   throw new Error(
     `NULL_METRIC_HOUR no longer discriminates a diluted average from an undiluted one: ` +
       `diluted ${nullMetricDilutedAverage()} vs raw ${nullMetricRawAverage()}`
+  );
+}
+
+if (PROXMOX_SUPPORTING_SAMPLES_PER_MINUTE < 2) {
+  throw new Error(
+    `PROXMOX_SUPPORTING_GAP_SECONDS=${PROXMOX_SUPPORTING_GAP_SECONDS} leaves one row per minute ` +
+      `bucket, where AVG and last() cannot be told apart`
+  );
+}
+
+if (PROXMOX_SUPPORTING_SAMPLES * PROXMOX_SUPPORTING_GAP_SECONDS !== 3600) {
+  throw new Error(
+    `the proxmox supporting fixture must fill exactly one hour, got ` +
+      `${PROXMOX_SUPPORTING_SAMPLES * PROXMOX_SUPPORTING_GAP_SECONDS}s`
   );
 }

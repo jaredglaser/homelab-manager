@@ -289,14 +289,16 @@ jobs:
           - 5432:5432
         # The log cap is not cosmetic: CI dumps this container's whole log after the last step, and
         # the policy schedulers write a line per chunk they touch, which pushed the harness's own
-        # check report thousands of lines out of the job log tail.
+        # check report thousands of lines out of the job log tail. The size trades away scrollback:
+        # keep it large enough that a startup failure is still legible, small enough that a healthy
+        # run's dump does not bury the report.
         options: >-
           --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
           --health-start-period 30s
-          --log-opt max-size=8k
+          --log-opt max-size=16k
 
     env:
       POSTGRES_HOST: localhost

@@ -29,6 +29,7 @@ import { runMigrations } from '@/lib/database/migrate';
 import { runStatsRollupBackfill } from '@/lib/database/stats-rollup-backfill';
 import {
   assertAggregateRegistry,
+  assertAggregateSources,
   assertAggregateTierValues,
   assertCumulativeCounters,
   assertHourlyAverageViews,
@@ -80,6 +81,7 @@ async function runFresh(): Promise<void> {
 
     await assertSchema(pool, checks);
     await assertAggregateRegistry(pool, checks);
+    await assertAggregateSources(pool, checks);
     await assertTierColumnCoverage(pool, checks);
     checks.report();
   } finally {
@@ -133,11 +135,17 @@ async function runUpgrade(): Promise<void> {
     // Both of the above read state the backfill changes: it adds the retention policies that
     // assertSchema requires the migrations not to add, and raw retention covers the 31-day-old
     // rows assertIdleContainerIdentity resolves a name from.
-    await runStatsRollupBackfill(asDatabaseClient(pool));
+    const swallowed = await runBackfillCapturingFailures(pool);
+    checks.equal(
+      'the rollup backfill reported no per-source failure',
+      swallowed.join(' | ') || 'none',
+      'none'
+    );
 
     // Registry and column coverage first: they name the views every later assertion queries by
     // interpolation, so a missing or renamed one reports as a failed check instead of a throw.
     await assertAggregateRegistry(pool, checks);
+    await assertAggregateSources(pool, checks);
     await assertTierColumnCoverage(pool, checks);
     await assertRollupBackfill(pool, checks);
     await assertWeightedRollup(pool, checks);
@@ -173,6 +181,27 @@ async function runIdempotent(): Promise<void> {
   } finally {
     await pool.end();
   }
+}
+
+/**
+ * `backfillSource` catches per-source failures and only skips that source's retention, so a refresh
+ * that lost a race with the scheduled refresh policy surfaces downstream as a missing retention
+ * policy and points at the wrong thing. Its one signal is the console.error it logs; capturing that
+ * turns the real cause into a named check while leaving the message in the job log.
+ */
+async function runBackfillCapturingFailures(pool: Pool): Promise<string[]> {
+  const swallowed: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]): void => {
+    swallowed.push(args.map(arg => String(arg)).join(' '));
+    original(...args);
+  };
+  try {
+    await runStatsRollupBackfill(asDatabaseClient(pool));
+  } finally {
+    console.error = original;
+  }
+  return swallowed;
 }
 
 async function freshDatabase(suffix: string): Promise<Pool> {

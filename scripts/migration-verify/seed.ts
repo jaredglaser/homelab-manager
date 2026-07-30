@@ -9,7 +9,7 @@ import {
   PROXMOX_HOST,
   PROXMOX_STORAGE_VALUES,
   PROXMOX_SUPPORTING_ENTITIES,
-  PROXMOX_SUPPORTING_GAP_MINUTES,
+  PROXMOX_SUPPORTING_GAP_SECONDS,
   PROXMOX_SUPPORTING_SAMPLES,
   SPARSE_HOUR,
   ZFS_DECIMATED_GAP_MINUTES,
@@ -104,6 +104,9 @@ async function seedDockerIdle(pool: Pool): Promise<void> {
   );
 }
 
+// One statement, not one per cpu_percent value: a second INSERT re-evaluates date_trunc('hour',
+// now()), so a run that crosses an hour boundary between the two would split the fixture across two
+// hour buckets and leave neither matching its expected average.
 async function seedDockerSparseHour(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO docker_stats ${DOCKER_COLUMNS}
@@ -111,30 +114,10 @@ async function seedDockerSparseHour(pool: Pool): Promise<void> {
        date_trunc('hour', now()) - make_interval(hours => $5::int)
          + make_interval(mins => m, secs => s),
        $1, $2, $3, $4,
-       $6::double precision,
+       CASE WHEN m = $6::int THEN $7::double precision ELSE $8::double precision END,
        ${DOCKER_METRICS}
-     FROM generate_series(0, $7::int - 1) AS m, generate_series(0, $8::int - 1) AS s`,
-    [
-      DOCKER_HOST,
-      SPARSE_HOUR.containerId,
-      SPARSE_HOUR.containerName,
-      SPARSE_HOUR.image,
-      SPARSE_HOUR.hoursAgo,
-      SPARSE_HOUR.fullCpuPercent,
-      SPARSE_HOUR.fullMinutes,
-      SPARSE_HOUR.fullSamplesPerMinute,
-    ]
-  );
-
-  await pool.query(
-    `INSERT INTO docker_stats ${DOCKER_COLUMNS}
-     SELECT
-       date_trunc('hour', now()) - make_interval(hours => $5::int)
-         + make_interval(mins => $6::int, secs => s),
-       $1, $2, $3, $4,
-       $7::double precision,
-       ${DOCKER_METRICS}
-     FROM generate_series(0, $8::int - 1) AS s`,
+     FROM generate_series(0, $9::int) AS m, generate_series(0, $10::int - 1) AS s
+     WHERE s < CASE WHEN m = $6::int THEN $11::int ELSE $10::int END`,
     [
       DOCKER_HOST,
       SPARSE_HOUR.containerId,
@@ -143,38 +126,36 @@ async function seedDockerSparseHour(pool: Pool): Promise<void> {
       SPARSE_HOUR.hoursAgo,
       SPARSE_HOUR.shortMinuteIndex,
       SPARSE_HOUR.shortCpuPercent,
+      SPARSE_HOUR.fullCpuPercent,
+      SPARSE_HOUR.fullMinutes,
+      SPARSE_HOUR.fullSamplesPerMinute,
       SPARSE_HOUR.shortSamples,
     ]
   );
 }
 
 async function seedDockerNullMetricHour(pool: Pool): Promise<void> {
-  for (const [fromMinute, toMinute, cpu] of [
-    [0, NULL_METRIC_HOUR.nullMinutes - 1, null],
-    [NULL_METRIC_HOUR.nullMinutes, NULL_METRIC_HOUR.minutes - 1, NULL_METRIC_HOUR.cpuPercent],
-  ] as const) {
-    await pool.query(
-      `INSERT INTO docker_stats ${DOCKER_COLUMNS}
-       SELECT
-         date_trunc('hour', now()) - make_interval(hours => $5::int)
-           + make_interval(mins => m, secs => s),
-         $1, $2, $3, $4,
-         $6::double precision,
-         ${DOCKER_METRICS}
-       FROM generate_series($7::int, $8::int) AS m, generate_series(0, $9::int - 1) AS s`,
-      [
-        DOCKER_HOST,
-        NULL_METRIC_HOUR.containerId,
-        NULL_METRIC_HOUR.containerName,
-        NULL_METRIC_HOUR.image,
-        NULL_METRIC_HOUR.hoursAgo,
-        cpu,
-        fromMinute,
-        toMinute,
-        NULL_METRIC_HOUR.samplesPerMinute,
-      ]
-    );
-  }
+  await pool.query(
+    `INSERT INTO docker_stats ${DOCKER_COLUMNS}
+     SELECT
+       date_trunc('hour', now()) - make_interval(hours => $5::int)
+         + make_interval(mins => m, secs => s),
+       $1, $2, $3, $4,
+       CASE WHEN m < $6::int THEN NULL ELSE $7::double precision END,
+       ${DOCKER_METRICS}
+     FROM generate_series(0, $8::int - 1) AS m, generate_series(0, $9::int - 1) AS s`,
+    [
+      DOCKER_HOST,
+      NULL_METRIC_HOUR.containerId,
+      NULL_METRIC_HOUR.containerName,
+      NULL_METRIC_HOUR.image,
+      NULL_METRIC_HOUR.hoursAgo,
+      NULL_METRIC_HOUR.nullMinutes,
+      NULL_METRIC_HOUR.cpuPercent,
+      NULL_METRIC_HOUR.minutes,
+      NULL_METRIC_HOUR.samplesPerMinute,
+    ]
+  );
 }
 
 const ZFS_COLUMNS = `(
@@ -271,64 +252,96 @@ async function seedProxmoxCounters(pool: Pool): Promise<void> {
   );
 }
 
-const PROXMOX_SUPPORTING_GAUGES = `'running',
-         0.2 + 0.05 * sin(s / 8.0), 8,
-         4294967296, 17179869184, 21474836480, 107374182400,
-         604800 - s * 60,
-         NULL,
-         2000000 + (($7::int - 1 - s) * 8192)::bigint,
-         1000000 + (($7::int - 1 - s) * 4096)::bigint`;
+/** cpu, max_cpu, mem, max_mem, disk, max_disk. `s` is the sample's age rank, 0 = newest. */
+const PROXMOX_GAUGES = `0.2 + 0.05 * sin(s / 8.0), 8,
+         4294967296 + (s % 40)::bigint * 1048576,
+         17179869184,
+         21474836480 + (s % 28)::bigint * 1048576,
+         107374182400`;
 
-const PROXMOX_STORAGE_GAUGES = `'active',
-         NULL, NULL,
-         NULL, NULL, NULL, NULL,
-         NULL,
-         NULL,
-         NULL, NULL`;
+const PROXMOX_UPTIME = `604800 - s * $6::int`;
+const PROXMOX_NETIN = `2000000 + (($7::int - 1 - s) * 8192)::bigint`;
+const PROXMOX_NETOUT = `1000000 + (($7::int - 1 - s) * 4096)::bigint`;
+const NO_STORAGE_COLUMNS = 'NULL, NULL, NULL, NULL';
 
 /**
  * Migration 032 rolls up a column the same way for every row of an entity_type, so each type is
- * seeded with the NULL pattern its collector produces: storage rows carry storage_avail and no
- * gauges, everything else the inverse.
+ * seeded with the NULL pattern `proxmox-overview-converter.ts` produces for it: a cluster row has no
+ * uptime, vmid or counters; a node row has uptime but still no vmid or counters; a guest has all
+ * three; a storage row has no cpu/mem gauges but does carry disk, max_disk and the storage_* set.
  */
-function proxmoxSupportingShape(entityType: string): { metrics: string; params: unknown[] } {
-  if (entityType === 'storage') {
-    return {
-      metrics: `${PROXMOX_STORAGE_GAUGES},
+function proxmoxSupportingShape(entity: { entityType: string; entityId: string }): {
+  metrics: string;
+  params: unknown[];
+} {
+  switch (entity.entityType) {
+    case 'storage':
+      return {
+        metrics: `'active',
+         NULL, NULL,
+         NULL, NULL,
+         21474836480 + (s % 32)::bigint * 1073741824,
+         107374182400,
+         NULL,
+         NULL,
+         NULL, NULL,
          $8::text, $9::text,
-         5497558138880 + (s % 24)::bigint * 1073741824,
+         85899345920 - (s % 32)::bigint * 1073741824,
          $10::boolean, NULL`,
-      params: [
-        PROXMOX_STORAGE_VALUES.storageType,
-        PROXMOX_STORAGE_VALUES.storageContent,
-        PROXMOX_STORAGE_VALUES.storageShared,
-      ],
-    };
+        params: [
+          PROXMOX_STORAGE_VALUES.storageType,
+          PROXMOX_STORAGE_VALUES.storageContent,
+          PROXMOX_STORAGE_VALUES.storageShared,
+        ],
+      };
+    case 'cluster':
+      return {
+        metrics: `'quorate',
+         ${PROXMOX_GAUGES},
+         NULL,
+         NULL,
+         NULL, NULL,
+         ${NO_STORAGE_COLUMNS},
+         $8::int + ($7::int - 1 - s)`,
+        params: [PROXMOX_CLUSTER_VERSION],
+      };
+    case 'node':
+      return {
+        metrics: `'online',
+         ${PROXMOX_GAUGES},
+         ${PROXMOX_UPTIME},
+         NULL,
+         NULL, NULL,
+         ${NO_STORAGE_COLUMNS},
+         NULL`,
+        params: [],
+      };
+    default:
+      return {
+        metrics: `'running',
+         ${PROXMOX_GAUGES},
+         ${PROXMOX_UPTIME},
+         $8::int,
+         ${PROXMOX_NETIN},
+         ${PROXMOX_NETOUT},
+         ${NO_STORAGE_COLUMNS},
+         NULL`,
+        params: [Number(entity.entityId)],
+      };
   }
-  if (entityType === 'cluster') {
-    return {
-      metrics: `${PROXMOX_SUPPORTING_GAUGES},
-         NULL, NULL, NULL, NULL, $8::int`,
-      params: [PROXMOX_CLUSTER_VERSION],
-    };
-  }
-  return {
-    metrics: `${PROXMOX_SUPPORTING_GAUGES},
-         NULL, NULL, NULL, NULL, NULL`,
-    params: [],
-  };
 }
 
 // Anchored to the previous whole hour for the same reason as the counter guest: seeding back from
 // now() puts every row in the in-progress hour whenever a run starts in the last minute of one, and
-// the storage and cluster probes need a closed `_1h` bucket to compare against.
+// the storage and cluster probes need a closed `_1h` bucket to compare against. The spacing is
+// seconds, not minutes, so each minute bucket holds several rows; see PROXMOX_SUPPORTING_SAMPLES.
 async function seedProxmoxSupporting(pool: Pool): Promise<void> {
   for (const entity of PROXMOX_SUPPORTING_ENTITIES) {
-    const shape = proxmoxSupportingShape(entity.entityType);
+    const shape = proxmoxSupportingShape(entity);
     await pool.query(
       `INSERT INTO proxmox_stats ${PROXMOX_COLUMNS}
        SELECT
-         date_trunc('hour', now()) - make_interval(mins => (s + 1) * $6::int),
+         date_trunc('hour', now()) - make_interval(secs => (s + 1) * $6::int),
          $1, $2, $3, $4, $5, ${shape.metrics}
        FROM generate_series(0, $7::int - 1) AS s`,
       [
@@ -337,7 +350,7 @@ async function seedProxmoxSupporting(pool: Pool): Promise<void> {
         entity.node,
         entity.entityId,
         entity.entityName,
-        PROXMOX_SUPPORTING_GAP_MINUTES,
+        PROXMOX_SUPPORTING_GAP_SECONDS,
         PROXMOX_SUPPORTING_SAMPLES,
         ...shape.params,
       ]

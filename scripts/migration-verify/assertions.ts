@@ -415,6 +415,7 @@ export async function assertRollupBackfill(pool: Pool, checks: Checks): Promise<
 
   await assertBackfillReachedFullHistory(pool, checks);
   await assertNoFailedRetentionJobs(pool, checks);
+  await assertRefreshWindowsFitRetention(pool, checks);
 
   const policies = await pool.query<{ target: string; drop_after: string }>(
     `SELECT
@@ -480,32 +481,144 @@ async function assertBackfillReachedFullHistory(pool: Pool, checks: Checks): Pro
  * The verification databases run at `log_min_messages = 'fatal'`, which hides the server-side ERROR
  * a failed background job leaves behind, so the harness has to read the job status itself.
  *
- * Retention only. The runner is short enough on background workers that a refresh or compression
- * policy regularly loses its slot ("out of background workers"), and neither one's run status is
- * load-bearing here: the harness drives every refresh itself through `runStatsRollupBackfill` and
- * checks the resulting numbers directly. Retention is the one policy nothing else re-derives.
+ * Retention only. The harness drives every refresh itself through `runStatsRollupBackfill` and
+ * checks the resulting numbers directly, so no other policy's run status is load-bearing.
+ *
+ * Read from `job_errors` rather than `job_stats.last_run_status` so worker starvation can be
+ * filtered out: 15 refresh and compression policies plus 3 retention ones run against a default
+ * timescaledb.max_background_workers of 16, and the backfill creates retention last, so it is the
+ * likeliest to lose its slot. A job that never launched says nothing about its policy.
  */
 async function assertNoFailedRetentionJobs(pool: Pool, checks: Checks): Promise<void> {
-  const available = await selectRow<{ present: boolean }>(
+  const target = `COALESCE(ca.view_name, j.hypertable_name, 'unknown')`;
+  const aggregateJoin = `LEFT JOIN timescaledb_information.continuous_aggregates ca
+       ON ca.materialization_hypertable_schema = j.hypertable_schema
+      AND ca.materialization_hypertable_name = j.hypertable_name`;
+
+  const errorsAvailable = await selectRow<{ present: boolean }>(
+    pool,
+    `SELECT to_regclass('timescaledb_information.job_errors') IS NOT NULL AS present`
+  );
+  if (errorsAvailable?.present === true) {
+    const failed = await selectColumn<string>(
+      pool,
+      `SELECT ${target} || ': ' || e.err_message
+       FROM timescaledb_information.job_errors e
+       JOIN timescaledb_information.jobs j ON j.job_id = e.job_id
+       ${aggregateJoin}
+       WHERE j.proc_name = 'policy_retention'
+         AND e.err_message NOT LIKE '%background workers%'`
+    );
+    checks.equal(
+      'no retention job failed for a reason of its own',
+      failed.join(', ') || 'none',
+      'none'
+    );
+    return;
+  }
+
+  const statsAvailable = await selectRow<{ present: boolean }>(
     pool,
     `SELECT to_regclass('timescaledb_information.job_stats') IS NOT NULL AS present`
   );
-  if (available?.present !== true) {
-    checks.record('background job status is readable', false, 'job_stats view is missing');
+  if (statsAvailable?.present !== true) {
+    checks.record(
+      'background job status is readable',
+      false,
+      'neither job_errors nor job_stats is present'
+    );
     return;
   }
 
   const failed = await selectColumn<string>(
     pool,
-    `SELECT j.proc_name || ' on ' || COALESCE(ca.view_name, j.hypertable_name, 'unknown')
+    `SELECT j.proc_name || ' on ' || ${target}
      FROM timescaledb_information.job_stats s
      JOIN timescaledb_information.jobs j ON j.job_id = s.job_id
-     LEFT JOIN timescaledb_information.continuous_aggregates ca
-       ON ca.materialization_hypertable_schema = j.hypertable_schema
-      AND ca.materialization_hypertable_name = j.hypertable_name
+     ${aggregateJoin}
      WHERE s.last_run_status = 'Failed' AND j.proc_name = 'policy_retention'`
   );
   checks.equal('no retention job has failed', failed.join(', ') || 'none', 'none');
+}
+
+/**
+ * Migration 030's second invariant: every refresh window sits strictly inside its source's
+ * retention (`_1m` start_offset 6h < raw 24h, `_1h` start_offset 3d < `_1m` 30d). The two policies
+ * only mean something read together, since a refresh reaching further back than its source keeps
+ * recomputes a region whose rows are gone and deletes the aggregate there. An unset start_offset
+ * reaches back forever and fails for the same reason.
+ */
+async function assertRefreshWindowsFitRetention(pool: Pool, checks: Checks): Promise<void> {
+  const rows = await pool.query<{
+    target: string | null;
+    proc_name: string;
+    start_offset_seconds: string | null;
+    drop_after_seconds: string | null;
+  }>(
+    `SELECT
+       COALESCE(ca.view_name, j.hypertable_name) AS target,
+       j.proc_name,
+       EXTRACT(EPOCH FROM (j.config->>'start_offset')::interval) AS start_offset_seconds,
+       EXTRACT(EPOCH FROM (j.config->>'drop_after')::interval) AS drop_after_seconds
+     FROM timescaledb_information.jobs j
+     LEFT JOIN timescaledb_information.continuous_aggregates ca
+       ON ca.materialization_hypertable_schema = j.hypertable_schema
+      AND ca.materialization_hypertable_name = j.hypertable_name
+     WHERE j.proc_name IN ('policy_retention', 'policy_refresh_continuous_aggregate')`
+  );
+
+  const refreshStart = new Map<string, number>();
+  const dropAfter = new Map<string, number>();
+  for (const row of rows.rows) {
+    if (row.target === null) continue;
+    if (row.proc_name === 'policy_retention') {
+      if (row.drop_after_seconds !== null) dropAfter.set(row.target, Number(row.drop_after_seconds));
+    } else if (row.start_offset_seconds !== null) {
+      refreshStart.set(row.target, Number(row.start_offset_seconds));
+    }
+  }
+
+  for (const source of ROLLUP_SOURCES) {
+    checkWindowInsideRetention(
+      checks,
+      `${source}_1m`,
+      refreshStart.get(`${source}_1m`),
+      source,
+      dropAfter.get(source)
+    );
+    checkWindowInsideRetention(
+      checks,
+      `${source}_1h`,
+      refreshStart.get(`${source}_1h`),
+      `${source}_1m`,
+      dropAfter.get(`${source}_1m`)
+    );
+  }
+}
+
+function checkWindowInsideRetention(
+  checks: Checks,
+  view: string,
+  startOffsetSeconds: number | undefined,
+  sourceLabel: string,
+  retentionSeconds: number | undefined
+): void {
+  const name = `${view} refreshes only within ${sourceLabel}'s retention`;
+  if (startOffsetSeconds === undefined || retentionSeconds === undefined) {
+    checks.record(
+      name,
+      false,
+      `refresh start_offset=${startOffsetSeconds ?? 'unbounded or absent'}, ` +
+        `${sourceLabel} retention=${retentionSeconds ?? 'absent'}`
+    );
+    return;
+  }
+  const ok = startOffsetSeconds < retentionSeconds;
+  checks.record(
+    name,
+    ok,
+    ok ? '' : `start_offset ${startOffsetSeconds}s reaches past retention ${retentionSeconds}s`
+  );
 }
 
 /**
@@ -561,7 +674,7 @@ export async function assertWeightedRollup(pool: Pool, checks: Checks): Promise<
   checks.equal(
     'docker_stats_1m holds one bucket per fixture minute',
     Number(rolled?.minute_buckets),
-    60
+    SPARSE_HOUR.fullMinutes + 1
   );
   checks.equal(
     'docker_stats_1m keeps the short minute sample count',
@@ -784,6 +897,37 @@ export async function assertAggregateRegistry(pool: Pool, checks: Checks): Promi
     views,
     AGGREGATE_TIERS.map(tier => tier.view)
   );
+}
+
+/**
+ * The invariant at the head of migration 030: `_1h` reads `_1m`, never raw. It buys the hourly tier
+ * a 30-day recovery window instead of raw's 24 hours, because a refresh over a region whose source
+ * rows are gone deletes the aggregate for that region.
+ *
+ * No value check can stand in for this one. Re-sourcing `_1h` from raw as
+ * `SUM(metric) AS metric_sum, count(*) AS sample_count` produces numbers identical to
+ * `SUM(metric * sample_count)` over `_1m` by identity, not by luck, so `assertAggregateTierValues`
+ * passes either way and the damage only shows up once raw retention has dropped the rows.
+ */
+export async function assertAggregateSources(pool: Pool, checks: Checks): Promise<void> {
+  const rows = await pool.query<{ view: string; source: string | null }>(
+    `SELECT
+       child.view_name AS view,
+       COALESCE(parent.view_name, child.hypertable_name) AS source
+     FROM timescaledb_information.continuous_aggregates child
+     LEFT JOIN timescaledb_information.continuous_aggregates parent
+       ON parent.materialization_hypertable_schema = child.hypertable_schema
+      AND parent.materialization_hypertable_name = child.hypertable_name`
+  );
+  const sourceOf = new Map(rows.rows.map(row => [row.view, row.source]));
+
+  for (const tier of AGGREGATE_TIERS) {
+    checks.equal(
+      `${tier.view} aggregates ${tier.sourceTable}`,
+      sourceOf.get(tier.view) ?? 'no such aggregate',
+      tier.sourceTable
+    );
+  }
 }
 
 /**
