@@ -29,7 +29,7 @@ import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
 import StackDriftWarning from '@/components/stacks/StackDriftWarning'
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
-import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY, STACK_DRIFT_QUERY_KEY, MANAGED_HOST_NAMES_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import type { StackDetail } from '@/types/stacks'
 import type { StackFormValues } from '@/components/stacks/stack-form'
 
@@ -132,7 +132,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   })
 
   const { data: availableHosts = [] } = useQuery({
-    queryKey: ['managed-host-names'],
+    queryKey: MANAGED_HOST_NAMES_QUERY_KEY,
     queryFn: () => listManagedHostNames(),
     enabled: settingsDialogOpen,
   })

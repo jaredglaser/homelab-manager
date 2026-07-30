@@ -46,4 +46,12 @@ describe('PageStatusBar', () => {
     expect(outer.className).toContain('items-center');
     expect(outer.className).toContain('justify-between');
   });
+
+  it('allows both slots to wrap onto their own line on a narrow viewport', () => {
+    const { container } = render(
+      <PageStatusBar left={<span>left content</span>} right={<span>right content</span>} />,
+    );
+    const outer = container.firstChild as HTMLElement;
+    expect(outer.className).toContain('flex-wrap');
+  });
 });

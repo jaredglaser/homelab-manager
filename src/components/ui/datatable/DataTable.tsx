@@ -27,11 +27,7 @@ export interface MetricGroup {
   icon?: ReactNode;
 }
 
-/**
- * Lets a nested DataTable follow its parent's metric-group selection. A detail-panel
- * subtable shares the parent's columns but owns no toolbar, so without this its
- * columns stay all-visible on mobile and stop lining up with the parent header.
- */
+/** Lets a nested DataTable follow its parent's selection: a subtable shares the parent's columns but owns no toolbar. */
 const MetricGroupContext = createContext<{ metricGroups: MetricGroup[]; activeIndex: number } | null>(null);
 
 type ExpansionControl =
@@ -473,9 +469,8 @@ function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, ha
       {...extraAttributes}
     >
       {row.getVisibleCells().map((cell) => (
-        // min-w-0 + overflow-hidden: without them a grid item's automatic minimum
-        // size is its content's min-content width, so a long name widens the track
-        // instead of letting the `truncate` inside the cell take effect.
+        // min-w-0 is load-bearing: without it a long name widens the grid track instead
+        // of letting the `truncate` inside the cell take effect.
         <div key={cell.id} className={`min-w-0 overflow-hidden py-2 ${isMobile ? 'px-2' : 'px-3'}`}>
           {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </div>
