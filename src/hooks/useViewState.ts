@@ -86,8 +86,6 @@ export interface DockerViewState {
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   toggleContainerExpanded: (containerId: string) => void;
   isContainerExpanded: (containerId: string) => boolean;
-  toggleStackExpanded: (stackEntityId: string) => void;
-  isStackExpanded: (stackEntityId: string) => boolean;
   setContainerShell: (containerKey: string, shell: string) => void;
   getContainerShell: (containerKey: string) => string | undefined;
 }
@@ -118,10 +116,6 @@ export function useDockerViewState(): DockerViewState {
     () => parseExpandedSet(viewState[SETTINGS_KEYS.docker.expandedContainers]),
     [viewState],
   );
-  const expandedStacks = useMemo(
-    () => parseExpandedSet(viewState[SETTINGS_KEYS.stacks.expandedStacks]),
-    [viewState],
-  );
   const containerShells = useMemo(
     () => parseShells(viewState[SETTINGS_KEYS.docker.containerShells]),
     [viewState],
@@ -147,15 +141,6 @@ export function useDockerViewState(): DockerViewState {
     [expandedContainers],
   );
 
-  const toggleStackExpanded = useCallback((stackEntityId: string) => {
-    setViewStateKey(SETTINGS_KEYS.stacks.expandedStacks, prev => toggleInSet(prev, stackEntityId));
-  }, [setViewStateKey]);
-
-  const isStackExpanded = useCallback(
-    (stackEntityId: string): boolean => expandedStacks.has(stackEntityId),
-    [expandedStacks],
-  );
-
   const setContainerShell = useCallback((containerKey: string, shell: string) => {
     setViewStateKey(SETTINGS_KEYS.docker.containerShells, prev =>
       JSON.stringify({ ...parseShells(prev), [containerKey]: shell }));
@@ -171,8 +156,6 @@ export function useDockerViewState(): DockerViewState {
     isHostExpanded,
     toggleContainerExpanded,
     isContainerExpanded,
-    toggleStackExpanded,
-    isStackExpanded,
     setContainerShell,
     getContainerShell,
   }), [
@@ -180,8 +163,6 @@ export function useDockerViewState(): DockerViewState {
     isHostExpanded,
     toggleContainerExpanded,
     isContainerExpanded,
-    toggleStackExpanded,
-    isStackExpanded,
     setContainerShell,
     getContainerShell,
   ]);

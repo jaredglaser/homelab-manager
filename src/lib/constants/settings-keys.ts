@@ -24,9 +24,6 @@ export const SETTINGS_KEYS = {
       networkSpeed: 'docker/decimals/networkSpeed',
     },
   },
-  stacks: {
-    expandedStacks: 'stacks/expandedStacks',
-  },
   zfs: {
     expandedHosts: 'zfs/expandedHosts',
     expandedPools: 'zfs/expandedPools',
@@ -63,7 +60,6 @@ export const VIEW_STATE_KEYS = [
   SETTINGS_KEYS.docker.expandedHosts,
   SETTINGS_KEYS.docker.expandedContainers,
   SETTINGS_KEYS.docker.containerShells,
-  SETTINGS_KEYS.stacks.expandedStacks,
   SETTINGS_KEYS.zfs.expandedHosts,
   SETTINGS_KEYS.zfs.expandedPools,
   SETTINGS_KEYS.zfs.expandedVdevs,

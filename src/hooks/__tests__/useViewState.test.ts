@@ -143,22 +143,6 @@ describe('useDockerViewState', () => {
     });
   });
 
-  it('persists stack toggles via the stacks key', async () => {
-    const { wrapper } = makeWrapper({});
-    const { result } = renderHook(() => useDockerViewState(), { wrapper });
-
-    await act(async () => {
-      result.current.toggleStackExpanded('server1/my-stack');
-    });
-
-    await waitFor(() => {
-      expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
-    });
-    expect(mockSetViewState).toHaveBeenCalledWith({
-      data: { key: SETTINGS_KEYS.stacks.expandedStacks, value: '["server1/my-stack"]' },
-    });
-  });
-
   it('getContainerShell returns undefined when no preference saved', () => {
     const { wrapper } = makeWrapper({});
     const { result } = renderHook(() => useDockerViewState(), { wrapper });
