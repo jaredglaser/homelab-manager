@@ -2,7 +2,6 @@ import type {
   HostListItem,
   AddHostResult,
   HealthCheckResult,
-  UpdateAgentResult,
 } from '@/data/hosts/functions';
 
 /**
@@ -65,22 +64,6 @@ export async function verifyHost(data: {
   return { host: buildHost(data) };
 }
 
-export async function addHost(data: {
-  name: string;
-  agentUrl: string;
-  capabilities?: { docker?: boolean; zfs?: boolean };
-}): Promise<AddHostResult> {
-  return { host: buildHost(data) };
-}
-
-export async function registerExistingHost(data: {
-  name: string;
-  agentUrl: string;
-  capabilities?: { docker?: boolean; zfs?: boolean };
-}): Promise<AddHostResult> {
-  return { host: buildHost(data) };
-}
-
 export async function updateHost(data: {
   hostId: number;
   name: string;
@@ -99,16 +82,6 @@ export async function removeHost(_data: {
 
 export async function listHosts(): Promise<HostListItem[]> {
   return [...mockHosts];
-}
-
-export async function updateAgent(_data: {
-  hostId: number;
-}): Promise<UpdateAgentResult> {
-  return {
-    hostId: _data.hostId,
-    healthy: true,
-    version: '0.2.0',
-  };
 }
 
 export async function checkHostHealth(_data: {
