@@ -1,4 +1,4 @@
-import type { StreamParser, ParseContext } from '../streaming/types';
+import type { ParseContext } from '../streaming/types';
 import type { ZFSIOStatRaw } from '../../types/zfs';
 
 /**
@@ -111,31 +111,4 @@ export function parseZFSIOStat(
       writeBytes: 0,
     },
   };
-}
-
-/**
- * ZFS iostat parser class implementing StreamParser interface
- */
-export class ZFSIOStatParser implements StreamParser<ZFSIOStatRaw> {
-  private headersSeen = 0;
-
-  parseLine(line: string, _context?: ParseContext): ZFSIOStatRaw | null {
-    // Track headers (first 2 lines are headers)
-    if (this.headersSeen < 2) {
-      this.headersSeen++;
-      return null;
-    }
-
-    return parseZFSIOStat(line, _context);
-  }
-
-  shouldProcessLine(line: string): boolean {
-    // Skip empty lines and separator lines
-    return line.trim().length > 0 && !line.match(/^[-\s]+$/);
-  }
-
-  parseHeader(line: string): Record<string, unknown> {
-    // Could extract column headers if needed for dynamic parsing
-    return { headerLine: line };
-  }
 }

@@ -18,6 +18,3 @@ export const MOBILE_BREAKPOINT = BREAKPOINTS.lg;
 
 /** Below this, the header collapses its tab bar into the drawer (Tailwind `md:`). */
 export const NAV_BREAKPOINT = BREAKPOINTS.md;
-
-/** Minimum comfortable touch target, per WCAG 2.2 target-size (minimum). */
-export const TOUCH_TARGET_PX = 44;
