@@ -11,8 +11,6 @@ export const BREAKPOINTS = {
   xl: 1280,
 } as const;
 
-export type BreakpointName = keyof typeof BREAKPOINTS;
-
 /** Below this, layouts switch to their single-column touch variants (Tailwind `lg:`). */
 export const MOBILE_BREAKPOINT = BREAKPOINTS.lg;
 
