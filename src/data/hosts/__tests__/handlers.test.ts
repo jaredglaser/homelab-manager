@@ -31,7 +31,6 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     delete: mock(() => Promise.resolve()),
     updateStatus: mock(() => Promise.resolve()),
     updateAgentVersion: mock(() => Promise.resolve()),
-    updateAgentUrl: mock(() => Promise.resolve()),
     ...overrides,
   } as HostRepo;
 }

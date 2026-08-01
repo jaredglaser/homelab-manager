@@ -264,23 +264,6 @@ describe('HostRepository', () => {
       });
     });
 
-    it('emits update notify on updateAgentUrl when row exists', async () => {
-      mock.pushResult([{ name: 'homeserver' }]);
-      await repo.updateAgentUrl(1, 'http://new:9090');
-      const notifies = pickNotify(mock);
-      expect(notifies).toHaveLength(1);
-      expect(JSON.parse(notifies[0].params[1] as string)).toEqual({
-        op: 'update',
-        name: 'homeserver',
-      });
-    });
-
-    it('skips notify on updateAgentUrl when row does not exist', async () => {
-      mock.pushResult([]);
-      await repo.updateAgentUrl(999, 'http://new:9090');
-      expect(pickNotify(mock)).toHaveLength(0);
-    });
-
     it('emits update notify on update', async () => {
       mock.pushResult([sampleRow]);
       await repo.update(1, { name: 'renamed' });

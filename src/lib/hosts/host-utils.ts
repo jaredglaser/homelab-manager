@@ -43,30 +43,6 @@ export function toHostListItem(
   };
 }
 
-/**
- * Retry a health check with exponential backoff delays.
- * Returns the first successful result, or the last failed result.
- * Logs each failed attempt for operational visibility.
- */
-export async function retryHealthCheck(
-  checkFn: (url: string) => Promise<HealthCheckOutcome>,
-  agentUrl: string,
-  delays: number[],
-): Promise<HealthCheckOutcome> {
-  let result: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
-  for (let i = 0; i < delays.length; i++) {
-    // Delay before each attempt (including the first) is intentional: the agent
-    // container needs startup time before it can respond to health checks.
-    await new Promise((resolve) => setTimeout(resolve, delays[i]));
-    result = await checkFn(agentUrl);
-    if (result.healthy) break;
-    console.info(`[retryHealthCheck] Attempt ${i + 1}/${delays.length} failed for ${agentUrl}: ${result.error}`);
-  }
-  return result;
-}
-
-export const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
-
 const AGENT_IMAGE_PROD = 'ghcr.io/jaredglaser/homelab-manager-agent:latest';
 // TODO: re-enable dev variant once CI publishes a :dev tag (or local compose tags
 // the locally-built agent as :dev). Until then `:dev` resolves to nothing.

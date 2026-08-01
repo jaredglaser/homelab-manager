@@ -1,11 +1,9 @@
-import { describe, test, expect, mock, afterEach } from 'bun:test';
+import { describe, test, expect, afterEach } from 'bun:test';
 import {
   toHostListItem,
-  retryHealthCheck,
   getAgentImage,
   getAgentUpdaterImage,
 } from '../host-utils';
-import type { HealthCheckOutcome } from '../host-utils';
 import type { ManagedHost } from '../../database/repositories/host-repository';
 
 describe('toHostListItem', () => {
@@ -77,61 +75,6 @@ describe('toHostListItem', () => {
     const row = { ...baseRow, capabilities: { docker: true, zfs: true } };
     const item = toHostListItem(row);
     expect(item.capabilities).toEqual({ docker: true, zfs: true });
-  });
-});
-
-describe('retryHealthCheck', () => {
-  test('returns immediately on first success', async () => {
-    const checkFn = mock<(url: string) => Promise<HealthCheckOutcome>>()
-      .mockResolvedValueOnce({ healthy: true, version: '1.0.0' });
-
-    const result = await retryHealthCheck(checkFn, 'http://agent:9090', [0]);
-    expect(result.healthy).toBe(true);
-    if (result.healthy) expect(result.version).toBe('1.0.0');
-    expect(checkFn).toHaveBeenCalledTimes(1);
-    expect(checkFn).toHaveBeenCalledWith('http://agent:9090');
-  });
-
-  test('retries on failure and returns success', async () => {
-    const checkFn = mock<(url: string) => Promise<HealthCheckOutcome>>()
-      .mockResolvedValueOnce({ healthy: false, error: 'connection refused' })
-      .mockResolvedValueOnce({ healthy: true, version: '1.0.0' });
-
-    const result = await retryHealthCheck(checkFn, 'http://agent:9090', [0, 0]);
-    expect(result.healthy).toBe(true);
-    expect(checkFn).toHaveBeenCalledTimes(2);
-  });
-
-  test('returns last failure after all retries exhausted', async () => {
-    const checkFn = mock<(url: string) => Promise<HealthCheckOutcome>>()
-      .mockResolvedValueOnce({ healthy: false, error: 'attempt 1' })
-      .mockResolvedValueOnce({ healthy: false, error: 'attempt 2' })
-      .mockResolvedValueOnce({ healthy: false, error: 'attempt 3' });
-
-    const result = await retryHealthCheck(checkFn, 'http://agent:9090', [0, 0, 0]);
-    expect(result.healthy).toBe(false);
-    if (!result.healthy) expect(result.error).toBe('attempt 3');
-    expect(checkFn).toHaveBeenCalledTimes(3);
-  });
-
-  test('returns default failure when delays array is empty', async () => {
-    const checkFn = mock<(url: string) => Promise<HealthCheckOutcome>>();
-
-    const result = await retryHealthCheck(checkFn, 'http://agent:9090', []);
-    expect(result.healthy).toBe(false);
-    if (!result.healthy) expect(result.error).toBe('Health check not attempted');
-    expect(checkFn).toHaveBeenCalledTimes(0);
-  });
-
-  test('stops retrying after first success', async () => {
-    const checkFn = mock<(url: string) => Promise<HealthCheckOutcome>>()
-      .mockResolvedValueOnce({ healthy: false, error: 'fail' })
-      .mockResolvedValueOnce({ healthy: true })
-      .mockResolvedValueOnce({ healthy: false, error: 'should not reach' });
-
-    const result = await retryHealthCheck(checkFn, 'http://agent:9090', [0, 0, 0]);
-    expect(result.healthy).toBe(true);
-    expect(checkFn).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -27,7 +27,6 @@ export interface HostRepo {
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
-  updateAgentUrl(id: number, agentUrl: string): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
 
@@ -84,8 +83,6 @@ export async function handleUpdateHost(
   deps: HostHandlerDeps,
   data: { hostId: number; name?: string; agentUrl?: string },
 ): Promise<HostListItem> {
-
-
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
