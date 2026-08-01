@@ -16,11 +16,6 @@ export const getContainerHistorySchema = z.object({
   path: ['fromMs'],
 });
 
-export const getContainerInfoSchema = z.object({
-  containerId: z.string().min(1),
-  host: z.string().optional(),
-});
-
 export const updateContainerIconSchema = z.object({
   /** Service-key entity path (host/service_key) - icon is stored here so it survives recreation. */
   serviceKeyEntity: z.string().min(1),

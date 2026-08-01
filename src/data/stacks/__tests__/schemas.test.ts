@@ -4,7 +4,6 @@ import {
   triggerDeploySchema,
   getDeployHistorySchema,
   saveComposeFileSchema,
-  updateStackIconSchema,
   controlStackSchema,
 } from '../schemas';
 
@@ -86,17 +85,6 @@ describe('saveComposeFileSchema', () => {
 
   it('rejects empty stackName', () => {
     expect(() => saveComposeFileSchema.parse({ stackName: '', content: '' })).toThrow();
-  });
-});
-
-describe('updateStackIconSchema', () => {
-  it('accepts valid input', () => {
-    expect(updateStackIconSchema.parse({ stackName: 'web', iconSlug: 'nginx' }).iconSlug).toBe('nginx');
-  });
-
-  it('rejects empty fields', () => {
-    expect(() => updateStackIconSchema.parse({ stackName: '', iconSlug: 'x' })).toThrow();
-    expect(() => updateStackIconSchema.parse({ stackName: 'x', iconSlug: '' })).toThrow();
   });
 });
 

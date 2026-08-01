@@ -424,29 +424,6 @@ export async function getManagedHostNames(): Promise<string[]> {
   return hosts.map((h) => h.name);
 }
 
-export async function updateStackIconSlug(
-  stackName: string,
-  iconSlug: string,
-): Promise<void> {
-  const repoPath = getRepoPath();
-  if (!repoPath) return;
-
-  const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
-  const manifest = parseManifest(manifestContent);
-  const entry = manifest.stacks[stackName];
-  if (!entry) return;
-
-  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { EntityMetadataRepository } = await import('@/lib/database/repositories/entity-metadata-repository');
-
-  const dbConfig = loadDatabaseConfig();
-  const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  const repo = new EntityMetadataRepository(dbClient.getPool());
-
-  await repo.upsertEntityMetadata(`${entry.host}/${stackName}`, 'icon', iconSlug);
-}
-
 async function dispatchControlAction(
   agent: AgentClient,
   action: 'start' | 'stop' | 'restart',

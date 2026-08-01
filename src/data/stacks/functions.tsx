@@ -10,7 +10,6 @@ import {
   triggerDeploySchema,
   getDeployHistorySchema,
   saveComposeFileSchema,
-  updateStackIconSchema,
   resumeDeploySchema,
   rejectDeploySchema,
   controlStackSchema,
@@ -132,36 +131,12 @@ export const saveComposeFile = createServerFn()
     return result;
   });
 
-/**
- * Update stack icon.
- */
-export const updateStackIcon = createServerFn()
-  .middleware([authMiddleware])
-  .inputValidator(updateStackIconSchema)
-  .handler(async ({ data, context }): Promise<void> => {
-    requireRole('admin', 'operator')(context.user);
-    const { updateStackIconSlug } = await import('@/lib/stacks/stack-service');
-    return updateStackIconSlug(data.stackName, data.iconSlug);
-  });
-
 const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const safePathSegment = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Must contain only letters, numbers, hyphens, and underscores');
 
 const stackVariablesSchema = z.object({
   stackName: safePathSegment,
 });
-
-/**
- * List all variable names stored for a stack.
- */
-export const getStackVariables = createServerFn({ method: 'GET' })
-  .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(stackVariablesSchema)
-  .handler(async ({ context, data }): Promise<string[]> => {
-    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
-    const repo = new StackSecretsRepository(context.pool, context.keyring);
-    return repo.list(data.stackName);
-  });
 
 /**
  * Fetch every variable name and decrypted value for a stack in one call.
@@ -176,24 +151,6 @@ export const getStackVariableValues = createServerFn({ method: 'GET' })
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
     const repo = new StackSecretsRepository(context.pool, context.keyring);
     return repo.getAll(data.stackName);
-  });
-
-const getVariableValueSchema = z.object({
-  stackName: safePathSegment,
-  variableName: safePathSegment,
-});
-
-/**
- * Fetch a single secret value. Returns null if the key does not exist.
- */
-export const getVariableValue = createServerFn({ method: 'GET' })
-  .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(getVariableValueSchema)
-  .handler(async ({ context, data }): Promise<string | null> => {
-    requireRole('admin', 'operator')(context.user);
-    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
-    const repo = new StackSecretsRepository(context.pool, context.keyring);
-    return repo.get(data.stackName, data.variableName);
   });
 
 const setVariableValueSchema = z.object({

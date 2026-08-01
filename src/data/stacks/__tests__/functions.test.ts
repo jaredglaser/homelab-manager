@@ -78,7 +78,6 @@ const mockGetStackDeployHistory = mock(() => Promise.resolve([
   { id: 1, stack: 'nginx', action: 'deploy', status: 'success', timestamp: '2026-01-01T00:00:00Z' },
 ]));
 const mockSaveStackComposeFile = mock(() => Promise.resolve({ commitSha: 'abc123' }));
-const mockUpdateStackIconSlug = mock(() => Promise.resolve(undefined));
 const mockCreateStackInRepo = mock(() => Promise.resolve({ commitSha: 'abc123' }));
 const mockDeleteStackFromRepo = mock((): Promise<{ status: 'removed'; commitSha: string } | { status: 'teardown-pending'; deployId: number }> =>
   Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }),
@@ -102,7 +101,6 @@ mock.module('@/lib/stacks/stack-service', () => ({
   triggerStackDeploy: mockTriggerStackDeploy,
   getStackDeployHistory: mockGetStackDeployHistory,
   saveStackComposeFile: mockSaveStackComposeFile,
-  updateStackIconSlug: mockUpdateStackIconSlug,
   createStackInRepo: mockCreateStackInRepo,
   deleteStackFromRepo: mockDeleteStackFromRepo,
   getManagedHostNames: mockGetManagedHostNames,
@@ -131,7 +129,6 @@ describe('stacks.functions module', () => {
     mockTriggerStackDeploy.mockClear();
     mockGetStackDeployHistory.mockClear();
     mockSaveStackComposeFile.mockClear();
-    mockUpdateStackIconSlug.mockClear();
     mockCreateStackInRepo.mockClear();
     mockDeleteStackFromRepo.mockClear();
     mockGetManagedHostNames.mockClear();
@@ -171,12 +168,6 @@ describe('stacks.functions module', () => {
       const mod = await import('../functions');
       expect(mod.saveComposeFile).toBeDefined();
       expect(typeof mod.saveComposeFile).toBe('function');
-    });
-
-    it('exports updateStackIcon server function', async () => {
-      const mod = await import('../functions');
-      expect(mod.updateStackIcon).toBeDefined();
-      expect(typeof mod.updateStackIcon).toBe('function');
     });
 
     it('exports controlStack server function', async () => {
@@ -348,21 +339,6 @@ describe('stacks.functions module', () => {
     });
   });
 
-  describe('updateStackIcon', () => {
-    it('delegates to updateStackIconSlug with stackName and iconSlug', async () => {
-      const { updateStackIcon } = await import('../functions');
-      await withStartContext(() => updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'nginx' } }));
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledTimes(1);
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('nginx', 'nginx');
-    });
-
-    it('passes through different icon slugs', async () => {
-      const { updateStackIcon } = await import('../functions');
-      await withStartContext(() => updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } }));
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('redis', 'redis-stack');
-    });
-  });
-
   describe('resumeDeploy', () => {
     it('delegates to resumePendingDeploy with deployId', async () => {
       const { resumeDeploy } = await import('../functions');
@@ -469,16 +445,6 @@ describe('stacks.functions module', () => {
       await expect(
         withStartContext(() => saveComposeFile({ data: { stackName: 'nginx', content: 'bad' } }))
       ).rejects.toThrow('Commit failed');
-    });
-
-    it('updateStackIcon propagates service errors', async () => {
-      mockUpdateStackIconSlug.mockImplementationOnce(() =>
-        Promise.reject(new Error('Entity not found'))
-      );
-      const { updateStackIcon } = await import('../functions');
-      await expect(
-        withStartContext(() => updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'bad' } }))
-      ).rejects.toThrow('Entity not found');
     });
 
     it('getDeployHistory propagates service errors', async () => {
