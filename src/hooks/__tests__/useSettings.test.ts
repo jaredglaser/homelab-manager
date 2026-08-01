@@ -8,8 +8,11 @@ type ReactNode = import('react').ReactNode;
     // Mock the settings functions
     const mockUpdateSetting = mock(() => Promise.resolve());
 
+    // Full export surface: a partial mock leaks into sibling test files.
     mock.module('@/data/settings/functions', () => ({
         updateSetting: mockUpdateSetting,
+        getViewState: mock(() => Promise.resolve({})),
+        setViewState: mock(() => Promise.resolve()),
     }));
 
     const mockToastError = mock(() => {});
@@ -234,179 +237,6 @@ type ReactNode = import('react').ReactNode;
         });
     });
 
-    describe('container expansion', () => {
-        it('should toggle container expanded state', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isContainerExpanded('container-1')).toBe(false);
-
-            act(() => {
-                result.current.toggleContainerExpanded('container-1');
-            });
-
-            expect(result.current.isContainerExpanded('container-1')).toBe(true);
-
-            act(() => {
-                result.current.toggleContainerExpanded('container-1');
-            });
-
-            expect(result.current.isContainerExpanded('container-1')).toBe(false);
-        });
-    });
-
-    describe('host expansion', () => {
-        it('should return true for single host', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isHostExpanded('host-1', 1)).toBe(true);
-        });
-
-        it('should default to expanded for multiple hosts', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
-        });
-
-        it('should toggle host expanded state for multiple hosts', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Default is expanded
-            expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
-
-            // Toggle to collapse
-            act(() => {
-                result.current.toggleHostExpanded('host-1');
-            });
-
-            expect(result.current.isHostExpanded('host-1', 2)).toBe(false);
-
-            // Toggle again to expand
-            act(() => {
-                result.current.toggleHostExpanded('host-1');
-            });
-
-            expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
-        });
-    });
-
-    describe('pool expansion', () => {
-        it('should return true for single pool', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isPoolExpanded('tank', 1)).toBe(true);
-        });
-
-        it('should toggle pool expanded state for multiple pools', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isPoolExpanded('tank', 2)).toBe(false);
-
-            act(() => {
-                result.current.togglePoolExpanded('tank');
-            });
-
-            expect(result.current.isPoolExpanded('tank', 2)).toBe(true);
-        });
-    });
-
-    describe('proxmox host expansion', () => {
-        it('should default to expanded when no saved state', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(true);
-        });
-
-        it('should toggle proxmox host expanded state', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Persisted set stores collapsed nodes, so the first toggle collapses.
-            act(() => {
-                result.current.toggleProxmoxHostExpanded('pve1');
-            });
-
-            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(false);
-
-            act(() => {
-                result.current.toggleProxmoxHostExpanded('pve1');
-            });
-
-            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(true);
-        });
-
-        it('should persist proxmox host expansion to database', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleProxmoxHostExpanded('pve1');
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.proxmox.expandedHosts, value: '["pve1"]' },
-            });
-        });
-
-        it('should parse proxmox collapsed hosts from JSON', () => {
-            const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.proxmox.expandedHosts]: '["pve1", "pve2"]',
-            });
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Nodes in the set are collapsed; anything else defaults to expanded.
-            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(false);
-            expect(result.current.isProxmoxHostExpanded('pve2')).toBe(false);
-            expect(result.current.isProxmoxHostExpanded('pve3')).toBe(true);
-        });
-    });
-
-    describe('proxmox section expansion', () => {
-        it('should default to expanded when no saved state', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isProxmoxSectionExpanded('pve1-vm')).toBe(true);
-        });
-
-        it('should toggle proxmox section expanded state', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleProxmoxSectionExpanded('pve1-vm');
-            });
-
-            expect(result.current.isProxmoxSectionExpanded('pve1-vm')).toBe(false);
-
-            act(() => {
-                result.current.toggleProxmoxSectionExpanded('pve1-vm');
-            });
-
-            expect(result.current.isProxmoxSectionExpanded('pve1-vm')).toBe(true);
-        });
-
-        it('should persist proxmox section expansion to database', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleProxmoxSectionExpanded('pve1-storage');
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.proxmox.expandedSections, value: '["pve1-storage"]' },
-            });
-        });
-    });
-
     describe('setUpdateInterval', () => {
         it('should update updateInterval state', () => {
             const { wrapper } = createWrapper();
@@ -419,43 +249,6 @@ type ReactNode = import('react').ReactNode;
             expect(mockUpdateSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.general.updateIntervalMs, value: '5000' },
             });
-        });
-    });
-
-    describe('ZFS host expansion', () => {
-        it('should return true for single ZFS host', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isZfsHostExpanded('zfs-host-1', 1)).toBe(true);
-        });
-
-        it('should toggle ZFS host expanded state', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleZfsHostExpanded('zfs-host-1');
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.zfs.expandedHosts, value: '["zfs-host-1"]' },
-            });
-        });
-    });
-
-    describe('vdev expansion', () => {
-        it('should toggle vdev expanded state', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isVdevExpanded('vdev-1')).toBe(false);
-
-            act(() => {
-                result.current.toggleVdevExpanded('vdev-1');
-            });
-
-            expect(result.current.isVdevExpanded('vdev-1')).toBe(true);
         });
     });
 
@@ -630,40 +423,6 @@ type ReactNode = import('react').ReactNode;
     });
 
     describe('parsing settings from raw atom', () => {
-        it('should parse collapsed hosts from JSON', () => {
-            const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.docker.expandedHosts]: '["host-1", "host-2"]',
-            });
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Hosts in the set are collapsed (inverted semantics)
-            expect(result.current.isHostExpanded('host-1', 3)).toBe(false);
-            expect(result.current.isHostExpanded('host-2', 3)).toBe(false);
-            expect(result.current.isHostExpanded('host-3', 3)).toBe(true);
-        });
-
-        it('should parse expanded containers from JSON', () => {
-            const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.docker.expandedContainers]: '["container-1"]',
-            });
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isContainerExpanded('container-1')).toBe(true);
-        });
-
-        it('should handle invalid JSON gracefully', () => {
-            const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.docker.expandedHosts]: 'not-valid-json',
-            });
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Should default to empty set (all expanded)
-            expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
-        });
-
         it('should handle invalid memory display mode', () => {
             const { wrapper } = createWrapper({
                 [SETTINGS_KEYS.docker.memoryDisplayMode]: 'invalid',
@@ -673,68 +432,6 @@ type ReactNode = import('react').ReactNode;
 
             // Should fall back to default
             expect(result.current.docker.memoryDisplayMode).toBe('bytes');
-        });
-    });
-
-    describe('stack expansion', () => {
-        it('should default to not expanded when no saved state', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isStackExpanded('server1/my-stack')).toBe(false);
-        });
-
-        it('should toggle stack expanded state on', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleStackExpanded('server1/my-stack');
-            });
-
-            expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
-        });
-
-        it('should toggle stack expanded state off', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleStackExpanded('server1/my-stack');
-            });
-
-            expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
-
-            act(() => {
-                result.current.toggleStackExpanded('server1/my-stack');
-            });
-
-            expect(result.current.isStackExpanded('server1/my-stack')).toBe(false);
-        });
-
-        it('should persist stack expansion to database', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleStackExpanded('server1/my-stack');
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.stacks.expandedStacks, value: '["server1/my-stack"]' },
-            });
-        });
-
-        it('should not affect other stacks when toggling one', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleStackExpanded('server1/stack-a');
-            });
-
-            expect(result.current.isStackExpanded('server1/stack-a')).toBe(true);
-            expect(result.current.isStackExpanded('server1/stack-b')).toBe(false);
         });
     });
 
@@ -761,29 +458,6 @@ type ReactNode = import('react').ReactNode;
 
             // Toast should be shown
             expect(mockToastError).toHaveBeenCalledWith('Failed to save setting');
-        });
-
-        it('should roll back a toggle setting on failure', async () => {
-            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
-
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isContainerExpanded('c1')).toBe(false);
-
-            act(() => {
-                result.current.toggleContainerExpanded('c1');
-            });
-
-            // Optimistically expanded
-            expect(result.current.isContainerExpanded('c1')).toBe(true);
-
-            // Wait for rollback
-            await waitFor(() => {
-                expect(result.current.isContainerExpanded('c1')).toBe(false);
-            });
-
-            expect(mockToastError).toHaveBeenCalled();
         });
 
         it('should roll back to existing value when key was already set', async () => {

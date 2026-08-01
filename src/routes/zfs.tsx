@@ -9,9 +9,12 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useGeneralSettings } from '@/hooks/useSettings'
 import { ZFS_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadZFSStats } from '@/lib/constants/preload-queries'
 import { zfsStatsChannel } from '@/lib/sse/channels/zfs-stats'
+import { queryClient } from '@/lib/query-client'
+import { viewStateQueryOptions } from '@/hooks/useViewState'
 
 export const Route = createFileRoute('/zfs')({
   ssr: false,
+  loader: () => queryClient.ensureQueryData(viewStateQueryOptions),
   component: ZFSPageContent,
 })
 

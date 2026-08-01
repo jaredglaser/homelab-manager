@@ -1,8 +1,18 @@
 import type { PoolClient } from 'pg';
 import type { SettingsSSEMessage } from '@/types/settings';
 import { backoffDelayMs } from '@/lib/utils/backoff';
+import { isViewStateKey } from '@/lib/constants/settings-keys';
 
 type SettingsCallback = (message: SettingsSSEMessage) => void;
+
+/** View state is loaded per route into the query cache, never streamed. */
+function configOnly(settings: Map<string, string>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of settings) {
+    if (!isViewStateKey(key)) result[key] = value;
+  }
+  return result;
+}
 
 async function defaultGetPoolClient(): Promise<PoolClient> {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -96,7 +106,7 @@ export class SettingsBroadcastService {
 
       // Only send if subscriber is still active
       if (this.subscribers.has(callback)) {
-        callback({ type: 'init', settings: Object.fromEntries(all) });
+        callback({ type: 'init', settings: configOnly(all) });
       }
     } catch (error) {
       console.error('[SettingsBroadcastService] Failed to send init:', error);
@@ -168,7 +178,7 @@ export class SettingsBroadcastService {
     if (this.subscribers.size === 0) return;
     try {
       const all = await this.loadAllSettings();
-      const message: SettingsSSEMessage = { type: 'init', settings: Object.fromEntries(all) };
+      const message: SettingsSSEMessage = { type: 'init', settings: configOnly(all) };
 
       for (const cb of this.subscribers) {
         try {
@@ -209,6 +219,7 @@ export class SettingsBroadcastService {
   }
 
   private async handleChange(key: string): Promise<void> {
+    if (isViewStateKey(key)) return;
     try {
       const value = await this.loadSingleSetting(key);
 

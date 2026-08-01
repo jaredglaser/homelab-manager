@@ -62,6 +62,8 @@ const registry: Record<string, ServerFnMock> = {
 
   // Settings
   updateSetting: fn(settingsFns.updateSetting),
+  getViewState: fn(settingsFns.getViewState),
+  setViewState: fn(settingsFns.setViewState),
 
   // Stacks
   listStacks: fn(stacksFns.listStacks),

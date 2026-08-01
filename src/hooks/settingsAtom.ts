@@ -28,27 +28,15 @@ export interface Settings {
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
     chartWindowSeconds: number;
-    expandedHosts: Set<string>;
-    expandedContainers: Set<string>;
     decimals: DecimalSettings;
-    /** Per-container preferred shell, keyed by host/container_name (stable across container recreation; container IDs change on restart). */
-    containerShells: Record<string, string>;
-  };
-  stacks: {
-    expandedStacks: Set<string>;
   };
   zfs: {
-    expandedHosts: Set<string>;
-    expandedPools: Set<string>;
-    expandedVdevs: Set<string>;
     decimals: {
       diskSpeed: boolean;
     };
   };
   proxmox: {
     updateInterval: ProxmoxUpdateInterval;
-    expandedHosts: Set<string>;
-    expandedSections: Set<string>;
   };
   retention: {
     rawDataHours: number;
@@ -80,26 +68,15 @@ export const DEFAULT_SETTINGS: Settings = {
   docker: {
     memoryDisplayMode: 'bytes',
     chartWindowSeconds: 300,
-    expandedHosts: new Set(),
-    expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
-    containerShells: {},
-  },
-  stacks: {
-    expandedStacks: new Set(),
   },
   zfs: {
-    expandedHosts: new Set(),
-    expandedPools: new Set(),
-    expandedVdevs: new Set(),
     decimals: {
       diskSpeed: false,
     },
   },
   proxmox: {
     updateInterval: 10000,
-    expandedHosts: new Set(),
-    expandedSections: new Set(),
   },
   retention: {
     rawDataHours: 1,
@@ -118,19 +95,6 @@ const VALID_MEMORY_MODES: readonly string[] = ['percentage', 'bytes'];
 function parseLightPalette(raw: string | undefined): LightPalette {
   if (raw !== undefined && VALID_LIGHT_PALETTES.includes(raw)) return raw as LightPalette;
   return DEFAULT_SETTINGS.general.lightPalette;
-}
-
-export function parseExpandedSet(raw: string | undefined): Set<string> {
-  if (!raw) return new Set();
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return new Set(parsed.filter((h): h is string => typeof h === 'string'));
-    }
-  } catch (err) {
-    console.error('Failed to parse expanded set from settings:', err);
-  }
-  return new Set();
 }
 
 export function parseBool(raw: string | undefined, defaultValue: boolean): boolean {
@@ -167,23 +131,6 @@ export function parseSettings(raw: Record<string, string>): Settings {
         raw[SETTINGS_KEYS.docker.chartWindowSeconds],
         DEFAULT_SETTINGS.docker.chartWindowSeconds,
       ))),
-      expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedHosts]),
-      expandedContainers: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedContainers]),
-      containerShells: (() => {
-        try {
-          const v = raw[SETTINGS_KEYS.docker.containerShells];
-          if (!v) return {};
-          const parsed = JSON.parse(v) as unknown;
-          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-            const result: Record<string, string> = {};
-            for (const [k, val] of Object.entries(parsed)) {
-              if (typeof k === 'string' && typeof val === 'string') result[k] = val;
-            }
-            return result;
-          }
-          return {};
-        } catch { return {}; }
-      })(),
       decimals: {
         cpu: parseBool(raw[SETTINGS_KEYS.docker.decimals.cpu], DEFAULT_DECIMAL_SETTINGS.cpu),
         memory: parseBool(raw[SETTINGS_KEYS.docker.decimals.memory], DEFAULT_DECIMAL_SETTINGS.memory),
@@ -191,21 +138,13 @@ export function parseSettings(raw: Record<string, string>): Settings {
         networkSpeed: parseBool(raw[SETTINGS_KEYS.docker.decimals.networkSpeed], DEFAULT_DECIMAL_SETTINGS.networkSpeed),
       },
     },
-    stacks: {
-      expandedStacks: parseExpandedSet(raw[SETTINGS_KEYS.stacks.expandedStacks]),
-    },
     zfs: {
-      expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.zfs.expandedHosts]),
-      expandedPools: parseExpandedSet(raw[SETTINGS_KEYS.zfs.expandedPools]),
-      expandedVdevs: parseExpandedSet(raw[SETTINGS_KEYS.zfs.expandedVdevs]),
       decimals: {
         diskSpeed: parseBool(raw[SETTINGS_KEYS.zfs.decimals.diskSpeed], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
       },
     },
     proxmox: {
       updateInterval: parseProxmoxUpdateInterval(raw[SETTINGS_KEYS.proxmox.updateInterval]),
-      expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.proxmox.expandedHosts]),
-      expandedSections: parseExpandedSet(raw[SETTINGS_KEYS.proxmox.expandedSections]),
     },
     retention: {
       rawDataHours: parseIntSetting(raw[SETTINGS_KEYS.retention.rawDataHours], DEFAULT_SETTINGS.retention.rawDataHours),
@@ -231,22 +170,6 @@ export const settingsAtom = atom<Settings>((get) => parseSettings(get(rawSetting
  *  that would re-render the entire Proxmox page on every SSE message). */
 export const proxmoxLastUpdateAtom = atom<number>(0);
 
-/**
- * Shallow set equality: compares two Sets by size and membership.
- * parseSettings creates fresh Set instances on every raw change, so plain
- * identity equality would always re-render domain subscribers. Using a
- * structural comparison lets selectAtom short-circuit when the parsed
- * contents match the previous slice.
- */
-function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
-  if (a === b) return true;
-  if (a.size !== b.size) return false;
-  for (const item of a) {
-    if (!b.has(item)) return false;
-  }
-  return true;
-}
-
 function generalEqual(a: Settings['general'], b: Settings['general']): boolean {
   return (
     a === b ||
@@ -258,17 +181,6 @@ function generalEqual(a: Settings['general'], b: Settings['general']): boolean {
   );
 }
 
-function shellsEqual(a: Record<string, string>, b: Record<string, string>): boolean {
-  if (a === b) return true;
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const k of aKeys) {
-    if (a[k] !== b[k]) return false;
-  }
-  return true;
-}
-
 function dockerEqual(a: Settings['docker'], b: Settings['docker']): boolean {
   return (
     a === b ||
@@ -277,34 +189,16 @@ function dockerEqual(a: Settings['docker'], b: Settings['docker']): boolean {
       a.decimals.cpu === b.decimals.cpu &&
       a.decimals.memory === b.decimals.memory &&
       a.decimals.diskSpeed === b.decimals.diskSpeed &&
-      a.decimals.networkSpeed === b.decimals.networkSpeed &&
-      setsEqual(a.expandedHosts, b.expandedHosts) &&
-      setsEqual(a.expandedContainers, b.expandedContainers) &&
-      shellsEqual(a.containerShells, b.containerShells))
+      a.decimals.networkSpeed === b.decimals.networkSpeed)
   );
-}
-
-function stacksEqual(a: Settings['stacks'], b: Settings['stacks']): boolean {
-  return a === b || setsEqual(a.expandedStacks, b.expandedStacks);
 }
 
 function zfsEqual(a: Settings['zfs'], b: Settings['zfs']): boolean {
-  return (
-    a === b ||
-    (a.decimals.diskSpeed === b.decimals.diskSpeed &&
-      setsEqual(a.expandedHosts, b.expandedHosts) &&
-      setsEqual(a.expandedPools, b.expandedPools) &&
-      setsEqual(a.expandedVdevs, b.expandedVdevs))
-  );
+  return a === b || a.decimals.diskSpeed === b.decimals.diskSpeed;
 }
 
 function proxmoxEqual(a: Settings['proxmox'], b: Settings['proxmox']): boolean {
-  return (
-    a === b ||
-    (a.updateInterval === b.updateInterval &&
-      setsEqual(a.expandedHosts, b.expandedHosts) &&
-      setsEqual(a.expandedSections, b.expandedSections))
-  );
+  return a === b || a.updateInterval === b.updateInterval;
 }
 
 function retentionEqual(a: Settings['retention'], b: Settings['retention']): boolean {
@@ -327,14 +221,12 @@ function developerEqual(a: Settings['developer'], b: Settings['developer']): boo
 
 /**
  * Domain-scoped derived atoms. Each selects one slice of `settingsAtom` and
- * re-emits only when that slice differs structurally from the previous value.
- * Components subscribing via useGeneralSettings/useDockerSettings/etc. only
- * re-render when their own domain changes: e.g. toggling a Docker host
- * expansion no longer re-renders ZFS or Proxmox components.
+ * re-emits only when that slice differs structurally from the previous value:
+ * `parseSettings` rebuilds the whole object on every raw change, so identity
+ * equality would re-render every subscriber on any setting change.
  */
 export const generalSettingsAtom = selectAtom(settingsAtom, (s) => s.general, generalEqual);
 export const dockerSettingsAtom = selectAtom(settingsAtom, (s) => s.docker, dockerEqual);
-export const stacksSettingsAtom = selectAtom(settingsAtom, (s) => s.stacks, stacksEqual);
 export const zfsSettingsAtom = selectAtom(settingsAtom, (s) => s.zfs, zfsEqual);
 export const proxmoxSettingsAtom = selectAtom(settingsAtom, (s) => s.proxmox, proxmoxEqual);
 export const retentionSettingsAtom = selectAtom(settingsAtom, (s) => s.retention, retentionEqual);

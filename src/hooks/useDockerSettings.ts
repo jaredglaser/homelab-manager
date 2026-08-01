@@ -2,38 +2,26 @@ import { useCallback, useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import {
   dockerSettingsAtom,
-  stacksSettingsAtom,
   type Settings,
   type MemoryDisplayMode,
   type DecimalSettings,
 } from '@/hooks/settingsAtom';
-import { useOptimisticSetting, toggleInSet } from '@/hooks/useOptimisticSetting';
+import { useOptimisticSetting } from '@/hooks/useOptimisticSetting';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 export interface DockerSettingsValue {
   docker: Settings['docker'];
-  stacks: Settings['stacks'];
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
   setChartWindowSeconds: (seconds: number) => void;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
-  toggleHostExpanded: (hostName: string) => void;
-  isHostExpanded: (hostName: string, totalHosts: number) => boolean;
-  toggleContainerExpanded: (containerId: string) => void;
-  isContainerExpanded: (containerId: string) => boolean;
-  toggleStackExpanded: (stackEntityId: string) => void;
-  isStackExpanded: (stackEntityId: string) => boolean;
-  setContainerShell: (containerKey: string, shell: string) => void;
-  getContainerShell: (containerKey: string) => string | undefined;
 }
 
 /**
- * Docker-dashboard settings: memory display, decimals, chart window, and host
- * / container / stack expansion state. Subscribes only to the docker and
- * stacks slices: ZFS/Proxmox/General changes do not re-render consumers.
+ * Docker-dashboard configuration: memory display, decimals, chart window.
+ * Row expansion and shell choice live in `useDockerViewState`.
  */
 export function useDockerSettings(): DockerSettingsValue {
   const docker = useAtomValue(dockerSettingsAtom);
-  const stacks = useAtomValue(stacksSettingsAtom);
   const optimisticSet = useOptimisticSetting();
 
   const setMemoryDisplayMode = useCallback((mode: MemoryDisplayMode) => {
@@ -48,82 +36,10 @@ export function useDockerSettings(): DockerSettingsValue {
     optimisticSet(SETTINGS_KEYS.docker.decimals[key], () => String(value));
   }, [optimisticSet]);
 
-  const toggleHostExpanded = useCallback((hostName: string) => {
-    optimisticSet(SETTINGS_KEYS.docker.expandedHosts, prev => toggleInSet(prev, hostName));
-  }, [optimisticSet]);
-
-  const isHostExpanded = useCallback(
-    (hostName: string, totalHosts: number): boolean => {
-      if (totalHosts === 1) return true;
-      return !docker.expandedHosts.has(hostName);
-    },
-    [docker.expandedHosts],
-  );
-
-  const toggleContainerExpanded = useCallback((containerId: string) => {
-    optimisticSet(SETTINGS_KEYS.docker.expandedContainers, prev => toggleInSet(prev, containerId));
-  }, [optimisticSet]);
-
-  const isContainerExpanded = useCallback(
-    (containerId: string): boolean => docker.expandedContainers.has(containerId),
-    [docker.expandedContainers],
-  );
-
-  const toggleStackExpanded = useCallback((stackEntityId: string) => {
-    optimisticSet(SETTINGS_KEYS.stacks.expandedStacks, prev => toggleInSet(prev, stackEntityId));
-  }, [optimisticSet]);
-
-  const isStackExpanded = useCallback(
-    (stackEntityId: string): boolean => stacks.expandedStacks.has(stackEntityId),
-    [stacks.expandedStacks],
-  );
-
-  const setContainerShell = useCallback((containerKey: string, shell: string) => {
-    optimisticSet(SETTINGS_KEYS.docker.containerShells, (prev) => {
-      const current: Record<string, string> = (() => {
-        try {
-          const p = JSON.parse(prev ?? '{}') as unknown;
-          return (typeof p === 'object' && p !== null && !Array.isArray(p))
-            ? (p as Record<string, string>)
-            : {};
-        } catch { return {}; }
-      })();
-      return JSON.stringify({ ...current, [containerKey]: shell });
-    });
-  }, [optimisticSet]);
-
-  const getContainerShell = useCallback(
-    (containerKey: string): string | undefined => docker.containerShells[containerKey],
-    [docker.containerShells],
-  );
-
   return useMemo<DockerSettingsValue>(() => ({
     docker,
-    stacks,
     setMemoryDisplayMode,
     setChartWindowSeconds,
     setDockerDecimal,
-    toggleHostExpanded,
-    isHostExpanded,
-    toggleContainerExpanded,
-    isContainerExpanded,
-    toggleStackExpanded,
-    isStackExpanded,
-    setContainerShell,
-    getContainerShell,
-  }), [
-    docker,
-    stacks,
-    setMemoryDisplayMode,
-    setChartWindowSeconds,
-    setDockerDecimal,
-    toggleHostExpanded,
-    isHostExpanded,
-    toggleContainerExpanded,
-    isContainerExpanded,
-    toggleStackExpanded,
-    isStackExpanded,
-    setContainerShell,
-    getContainerShell,
-  ]);
+  }), [docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal]);
 }

@@ -3,6 +3,7 @@ import { SettingsBroadcastService } from '../settings-broadcast-service';
 import type { SettingsSSEMessage } from '@/types/settings';
 import type { PoolClient } from 'pg';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
+import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -107,6 +108,50 @@ describe('SettingsBroadcastService', () => {
     poolClient.emit('notification', { channel: 'other_channel', payload: 'theme' });
     // channel filter is synchronous; an unrelated channel is a same-tick no-op
     expect(received.filter((m) => m.type === 'change')).toHaveLength(0);
+  });
+
+  it('omits view-state keys from the init payload', async () => {
+    const viewStateService = new SettingsBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadAllSettings: async () => new Map([
+        ['theme', 'dark'],
+        [SETTINGS_KEYS.docker.expandedHosts, '["server1"]'],
+        [SETTINGS_KEYS.proxmox.expandedSections, '["pve1-vm"]'],
+      ]),
+      loadSingleSetting: async () => null,
+    });
+    const received: SettingsSSEMessage[] = [];
+    viewStateService.subscribe((m) => received.push(m));
+
+    await waitForCondition(() => received.length > 0);
+
+    expect(received[0].type).toBe('init');
+    if (received[0].type === 'init') {
+      expect(received[0].settings).toEqual({ theme: 'dark' });
+    }
+    await viewStateService.stop();
+  });
+
+  it('does not broadcast a change for a view-state key', async () => {
+    const loadSingle = mock(async () => '["server1"]');
+    const viewStateService = new SettingsBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadAllSettings: async () => new Map([['theme', 'dark']]),
+      loadSingleSetting: loadSingle,
+    });
+    const received: SettingsSSEMessage[] = [];
+    viewStateService.subscribe((m) => received.push(m));
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'settings_change',
+      payload: SETTINGS_KEYS.docker.expandedHosts,
+    });
+
+    // The view-state guard is synchronous, so a skipped key never reaches the DB read.
+    expect(loadSingle).not.toHaveBeenCalled();
+    expect(received.filter((m) => m.type === 'change')).toHaveLength(0);
+    await viewStateService.stop();
   });
 
   it('stops listening when last subscriber unsubscribes', async () => {

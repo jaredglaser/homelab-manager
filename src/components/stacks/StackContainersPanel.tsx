@@ -14,7 +14,7 @@ import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ShellSelect from '@/components/docker/ShellSelect';
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog';
-import { useDockerSettings } from '@/hooks/useDockerSettings';
+import { useDockerViewState } from '@/hooks/useViewState';
 
 interface StackContainersPanelProps {
   containers: StackContainer[];
@@ -353,7 +353,7 @@ function ServiceControls({
 }
 
 function TerminalDialogContent({ container, host }: { container: StackContainer; host: string }) {
-  const { getContainerShell, setContainerShell } = useDockerSettings();
+  const { getContainerShell, setContainerShell } = useDockerViewState();
   const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
   const shellKey = `${host}/${container.name}`;
   const savedShell = getContainerShell(shellKey);

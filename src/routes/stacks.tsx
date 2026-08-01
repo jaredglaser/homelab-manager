@@ -5,10 +5,13 @@ import { listStacks, listManagedHostNames } from '@/data/stacks/functions'
 import { useStackStatus } from '@/hooks/useStackStatus'
 import { StackListContext, StackStatusContext } from '@/components/stacks/stacks-context'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { queryClient as rootQueryClient } from '@/lib/query-client'
+import { viewStateQueryOptions } from '@/hooks/useViewState'
 import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/stacks')({
   ssr: false,
+  loader: () => rootQueryClient.ensureQueryData(viewStateQueryOptions),
   component: StacksLayout,
 })
 

@@ -10,7 +10,7 @@ import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ContainerHistoryPage from '@/components/docker/ContainerHistoryPage';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import ContainerActionButtons from '@/components/docker/ContainerActionButtons';
-import { useDockerSettings } from '@/hooks/useDockerSettings';
+import { useDockerViewState } from '@/hooks/useViewState';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 export type ModalTab = 'logs' | 'terminal' | 'history';
@@ -182,7 +182,7 @@ export default memo(function ContainerModal({
   const [iconError, setIconError] = useState(false);
   const [wordWrap, setWordWrap] = useState(false);
 
-  const { getContainerShell, setContainerShell } = useDockerSettings();
+  const { getContainerShell, setContainerShell } = useDockerViewState();
   const shellKey = `${host}/${inventory.name}`;
   const savedShell = getContainerShell(shellKey);
   const effectiveShell =

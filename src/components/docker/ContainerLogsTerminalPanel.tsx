@@ -3,7 +3,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ShellSelect from '@/components/docker/ShellSelect';
-import { useDockerSettings } from '@/hooks/useDockerSettings';
+import { useDockerViewState } from '@/hooks/useViewState';
 
 interface ContainerInventoryInfo {
   name: string;
@@ -25,7 +25,7 @@ export default memo(function ContainerLogsTerminalPanel({
   const [terminalMounted, setTerminalMounted] = useState(false);
   const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
 
-  const { getContainerShell, setContainerShell } = useDockerSettings();
+  const { getContainerShell, setContainerShell } = useDockerViewState();
 
   const isRunning = inventory.state === 'running';
 

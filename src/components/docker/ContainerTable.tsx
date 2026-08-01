@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import { Spinner } from '@/components/ui/spinner';
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
+import { useDockerViewState } from '@/hooks/useViewState';
 import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
@@ -81,13 +82,13 @@ export default function ContainerTable({
   entityIcons,
   onIconChange,
 }: Readonly<ContainerTableProps>) {
+  const { docker } = useDockerSettings();
   const {
-    docker,
     isHostExpanded,
     isContainerExpanded,
     toggleHostExpanded,
     toggleContainerExpanded,
-  } = useDockerSettings();
+  } = useDockerViewState();
   const { general } = useGeneralSettings();
 
   const prevStatsRef = useRef<Map<string, DockerStatsFromDB>>(new Map());

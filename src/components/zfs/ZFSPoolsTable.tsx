@@ -8,6 +8,7 @@ import type { ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
 import { useGeneralSettings, useZfsSettings } from '@/hooks/useSettings';
+import { useZfsViewState } from '@/hooks/useViewState';
 import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 import PoolSubTable from '@/components/zfs/subtables/PoolSubTable';
 import { buildHostRow } from '@/components/zfs/utils/zfs-row-builders';
@@ -73,6 +74,7 @@ export default function ZFSPoolsTable({
   error,
   isStale,
 }: Readonly<ZFSPoolsTableProps>) {
+  const { zfs } = useZfsSettings();
   const {
     isZfsHostExpanded,
     toggleZfsHostExpanded,
@@ -80,8 +82,7 @@ export default function ZFSPoolsTable({
     togglePoolExpanded,
     isVdevExpanded,
     toggleVdevExpanded,
-    zfs,
-  } = useZfsSettings();
+  } = useZfsViewState();
   const { general } = useGeneralSettings();
 
   const hostHierarchy = useMemo<ZFSHostHierarchy>(() => {

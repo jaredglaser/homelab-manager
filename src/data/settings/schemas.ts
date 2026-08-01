@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+import { SETTINGS_KEYS, VIEW_STATE_KEYS, type ViewStateKey } from '@/lib/constants/settings-keys';
 
 /** Recursively extract all string values from a nested object. */
 type DeepStringValues<T> = T extends string
@@ -27,5 +27,10 @@ const VALID_KEYS = collectValues(SETTINGS_KEYS) as [SettingsKey, ...SettingsKey[
 
 export const updateSettingSchema = z.object({
   key: z.enum(VALID_KEYS),
+  value: z.string(),
+});
+
+export const setViewStateSchema = z.object({
+  key: z.enum(VIEW_STATE_KEYS as unknown as [ViewStateKey, ...ViewStateKey[]]),
   value: z.string(),
 });

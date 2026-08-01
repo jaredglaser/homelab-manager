@@ -47,6 +47,12 @@ mock.module('@xterm/addon-fit', () => ({
 }));
 mock.module('@xterm/xterm/css/xterm.css', () => ({}));
 
+// The expanded detail panel mounts the xterm-backed log viewer, which this
+// suite never asserts on.
+mock.module('@/components/docker/ContainerLogViewer', () => ({
+  default: () => null,
+}));
+
 mock.module('@/hooks/useContainerLogs', () => ({
   useContainerLogs: () => ({ isConnected: false, error: null }),
 }));
@@ -74,16 +80,24 @@ mock.module('@/lib/utils/icon-resolver', () => ({
 
 const { default: ContainerTable } = await import('../ContainerTable');
 const { createStore, Provider } = await import('jotai');
+const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+
+/** ContainerTable reads row expansion through useDockerViewState, which is a useQuery. */
+function withProviders(children: React.ReactNode, store: ReturnType<typeof createStore>) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(['view-state'], {});
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Provider store={store}>{children}</Provider>
+    </QueryClientProvider>
+  );
+}
 
 type TableProps = React.ComponentProps<typeof ContainerTable>;
 
 function renderTable(overrides: Partial<TableProps> = {}) {
   const store = createStore();
-  return render(
-    <Provider store={store}>
-      <ContainerTable {...defaultProps} {...overrides} />
-    </Provider>,
-  );
+  return render(withProviders(<ContainerTable {...defaultProps} {...overrides} />, store));
 }
 
 const baseDate = new Date('2024-01-01T00:00:00Z');
@@ -242,7 +256,7 @@ describe('ContainerTable', () => {
     expect(stoppedRows.length).toBeGreaterThan(0);
   });
 
-  it('shows exit metadata in the expanded detail panel for an exited container', () => {
+  it('shows exit metadata in the expanded detail panel for an exited container', async () => {
     const inventory = new Map([
       ['host1/abc123', {
         ...makeInventory('host1', 'abc123', 'old-app', 'exited'),
@@ -255,8 +269,8 @@ describe('ContainerTable', () => {
 
     fireEvent.click(screen.getByText('old-app'));
 
+    expect(await screen.findByText('Exit')).toBeDefined();
     expect(screen.getAllByText('exited').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('Exit')).toBeDefined();
     expect(screen.getByText('137')).toBeDefined();
   });
 
@@ -265,17 +279,15 @@ describe('ContainerTable', () => {
       const inventory = new Map([['host1/c1', makeInventory('host1', 'c1', 'nginx')]]);
       const latestByEntity = new Map([['host1/c1', rows[rows.length - 1]!]]);
       const store = createStore();
-      const view = render(
-        <Provider store={store}>
-          <ContainerTable {...defaultProps} inventory={inventory} rows={rows} latestByEntity={latestByEntity} />
-        </Provider>,
-      );
+      const view = render(withProviders(
+        <ContainerTable {...defaultProps} inventory={inventory} rows={rows} latestByEntity={latestByEntity} />,
+        store,
+      ));
       const rerenderWithRows = (nextRows: DockerStatsRow[]) => {
-        view.rerender(
-          <Provider store={store}>
-            <ContainerTable {...defaultProps} inventory={inventory} rows={nextRows} latestByEntity={latestByEntity} />
-          </Provider>,
-        );
+        view.rerender(withProviders(
+          <ContainerTable {...defaultProps} inventory={inventory} rows={nextRows} latestByEntity={latestByEntity} />,
+          store,
+        ));
       };
       return { rerenderWithRows };
     }

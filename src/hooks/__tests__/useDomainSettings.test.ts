@@ -7,8 +7,11 @@ type ReactNode = import('react').ReactNode;
 
 const mockUpdateSetting = mock(() => Promise.resolve());
 
+// Full export surface: a partial mock leaks into sibling test files.
 mock.module('@/data/settings/functions', () => ({
   updateSetting: mockUpdateSetting,
+  getViewState: mock(() => Promise.resolve({})),
+  setViewState: mock(() => Promise.resolve()),
 }));
 
 const { useDockerSettings } = await import('../useDockerSettings');
@@ -43,20 +46,18 @@ describe('useDockerSettings', () => {
     expect(result.current.docker.memoryDisplayMode).toBe('bytes');
     expect(result.current.docker.chartWindowSeconds).toBe(300);
     expect(typeof result.current.setMemoryDisplayMode).toBe('function');
-    expect(typeof result.current.toggleHostExpanded).toBe('function');
   });
 
-  it('persists stack toggles via the stacks key', () => {
+  it('persists memory display mode', () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useDockerSettings(), { wrapper });
 
     act(() => {
-      result.current.toggleStackExpanded('server1/my-stack');
+      result.current.setMemoryDisplayMode('percentage');
     });
 
-    expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
     expect(mockUpdateSetting).toHaveBeenCalledWith({
-      data: { key: SETTINGS_KEYS.stacks.expandedStacks, value: '["server1/my-stack"]' },
+      data: { key: SETTINGS_KEYS.docker.memoryDisplayMode, value: 'percentage' },
     });
   });
 });
@@ -91,7 +92,6 @@ describe('useProxmoxSettings', () => {
     const { result } = renderHook(() => useProxmoxSettings(), { wrapper });
 
     expect(result.current.proxmox.updateInterval).toBe(10000);
-    expect(result.current.isProxmoxHostExpanded('pve1')).toBe(true);
   });
 });
 
@@ -101,7 +101,6 @@ describe('useZfsSettings', () => {
     const { result } = renderHook(() => useZfsSettings(), { wrapper });
 
     expect(result.current.zfs.decimals.diskSpeed).toBe(false);
-    expect(result.current.isZfsHostExpanded('zfs-host', 1)).toBe(true);
   });
 });
 
@@ -128,15 +127,13 @@ describe('cross-domain re-render isolation', () => {
     // which is async). This simulates an SSE 'change' event updating the raw atom.
     act(() => {
       store.set(rawSettingsAtom, {
-        [SETTINGS_KEYS.zfs.expandedHosts]: '["host-a"]',
+        [SETTINGS_KEYS.zfs.decimals.diskSpeed]: 'true',
       });
     });
 
-    // ZFS hook must have re-rendered and picked up the change.
-    expect(zfsResult.current.isZfsHostExpanded('host-a', 2)).toBe(true);
+    expect(zfsResult.current.zfs.decimals.diskSpeed).toBe(true);
     expect(zfsRenders).toBeGreaterThan(1);
 
-    // Docker consumer must not have re-rendered.
     expect(dockerRenders).toBe(initialDockerRenders);
   });
 
@@ -154,7 +151,7 @@ describe('cross-domain re-render isolation', () => {
 
     act(() => {
       store.set(rawSettingsAtom, {
-        [SETTINGS_KEYS.proxmox.expandedHosts]: '["pve1"]',
+        [SETTINGS_KEYS.proxmox.updateInterval]: '1000',
       });
     });
 
@@ -175,7 +172,7 @@ describe('cross-domain re-render isolation', () => {
 
     act(() => {
       store.set(rawSettingsAtom, {
-        [SETTINGS_KEYS.docker.expandedContainers]: '["container-1"]',
+        [SETTINGS_KEYS.docker.decimals.cpu]: 'true',
       });
     });
 

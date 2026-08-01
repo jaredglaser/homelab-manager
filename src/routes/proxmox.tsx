@@ -16,10 +16,13 @@ import { proxmoxStatsChannel } from '@/lib/sse/channels/proxmox-stats'
 import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
 import { useProxmoxSettings } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
+import { queryClient } from '@/lib/query-client'
+import { viewStateQueryOptions } from '@/hooks/useViewState'
 import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/proxmox')({
   ssr: false,
+  loader: () => queryClient.ensureQueryData(viewStateQueryOptions),
   component: ProxmoxPageContent,
 })
 

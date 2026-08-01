@@ -37,8 +37,8 @@ mock.module('@/components/docker/ContainerTerminal', () => {
 const mockGetContainerShell = mock(() => undefined as string | undefined);
 const mockSetContainerShell = mock(() => {});
 
-mock.module('@/hooks/useDockerSettings', () => ({
-  useDockerSettings: () => ({
+mock.module('@/hooks/useViewState', () => ({
+  useDockerViewState: () => ({
     getContainerShell: mockGetContainerShell,
     setContainerShell: mockSetContainerShell,
   }),

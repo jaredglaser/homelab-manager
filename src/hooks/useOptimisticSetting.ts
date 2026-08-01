@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useSetAtom } from 'jotai';
-import { rawSettingsAtom, parseExpandedSet } from '@/hooks/settingsAtom';
+import { rawSettingsAtom } from '@/hooks/settingsAtom';
 import { useToast } from '@/hooks/toastAtom';
 import { updateSetting } from '@/data/settings/functions';
 import type { SettingsKey } from '@/data/settings/schemas';
@@ -48,19 +48,4 @@ export function useOptimisticSetting(): OptimisticSetter {
     },
     [setRaw, showToast],
   );
-}
-
-/**
- * Toggle-in-set helper: parses the JSON-encoded string, flips `item`
- * membership, and returns the re-encoded string. Used by every expanded-set
- * setting (hosts, containers, pools, etc.).
- */
-export function toggleInSet(raw: string | undefined, item: string): string {
-  const set = parseExpandedSet(raw);
-  if (set.has(item)) {
-    set.delete(item);
-  } else {
-    set.add(item);
-  }
-  return JSON.stringify(Array.from(set));
 }

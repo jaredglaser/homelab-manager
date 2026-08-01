@@ -20,8 +20,8 @@ mock.module('@/components/docker/ContainerActionButtons', () => ({
   default: () => null,
 }));
 
-mock.module('@/hooks/useDockerSettings', () => ({
-  useDockerSettings: () => ({
+mock.module('@/hooks/useViewState', () => ({
+  useDockerViewState: () => ({
     getContainerShell: () => undefined,
     setContainerShell: () => {},
   }),

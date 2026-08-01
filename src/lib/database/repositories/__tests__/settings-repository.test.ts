@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { SettingsRepository } from '../settings-repository';
+import { SETTINGS_KEYS, VIEW_STATE_KEYS } from '@/lib/constants/settings-keys';
 
 function createMockPool(rows: Record<string, unknown>[] = []) {
   const queryResults: Record<string, unknown>[][] = [];
@@ -78,6 +79,45 @@ describe('SettingsRepository', () => {
       expect(queries[0].params).toEqual(['docker/memoryDisplayMode', 'bytes']);
       expect(queries[1].sql).toContain('pg_notify');
       expect(queries[1].params).toEqual(['docker/memoryDisplayMode']);
+    });
+
+    it('skips the notify for a view-state key', async () => {
+      const queries: { sql: string; params: unknown[] }[] = [];
+      const pool = {
+        query: async (sql: string, params?: unknown[]) => {
+          queries.push({ sql, params: params ?? [] });
+          return { rows: [] };
+        },
+      } as any;
+
+      const r = new SettingsRepository(pool);
+      await r.set(SETTINGS_KEYS.docker.expandedHosts, '["server1"]');
+
+      expect(queries).toHaveLength(1);
+      expect(queries[0].sql).toContain('INSERT INTO settings');
+    });
+  });
+
+  describe('getMany', () => {
+    it('returns an empty map without querying for an empty key list', async () => {
+      let called = false;
+      const pool = {
+        query: async () => { called = true; return { rows: [] }; },
+      } as any;
+
+      const result = await new SettingsRepository(pool).getMany([]);
+
+      expect(result.size).toBe(0);
+      expect(called).toBe(false);
+    });
+
+    it('returns only the requested keys', async () => {
+      mock.pushResult([
+        { key: SETTINGS_KEYS.docker.expandedHosts, value: '["server1"]' },
+      ]);
+      const result = await repo.getMany(VIEW_STATE_KEYS);
+      expect(result.size).toBe(1);
+      expect(result.get(SETTINGS_KEYS.docker.expandedHosts)).toBe('["server1"]');
     });
   });
 });

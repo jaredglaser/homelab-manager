@@ -9,17 +9,21 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useDockerInventory } from '@/hooks/useDockerInventory'
 import { getDockerEntityIcons, updateContainerIcon, clearContainerIcon } from '@/data/docker/functions'
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings'
+import { viewStateQueryOptions } from '@/hooks/useViewState'
 import { PRELOAD_STALE_TIME, dockerPreloadQueryKey, dockerStatsWindowSeconds, preloadDockerStats } from '@/lib/constants/preload-queries'
 import { dockerStatsChannel } from '@/lib/sse/channels/docker-stats'
 
 
 export const Route = createFileRoute('/docker')({
   ssr: false,
-  loader: () => queryClient.ensureQueryData({
-    queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
-    queryFn: () => getDockerEntityIcons(),
-    staleTime: 60_000,
-  }),
+  loader: () => Promise.all([
+    queryClient.ensureQueryData({
+      queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
+      queryFn: () => getDockerEntityIcons(),
+      staleTime: 60_000,
+    }),
+    queryClient.ensureQueryData(viewStateQueryOptions),
+  ]),
   component: DockerLayout,
 })
 

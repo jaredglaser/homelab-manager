@@ -3,7 +3,8 @@ import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
-import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
+import { useGeneralSettings } from '@/hooks/useSettings'
+import { useProxmoxViewState } from '@/hooks/useViewState'
 import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell'
 import { formatUptime } from '@/components/proxmox/utils'
 import { GuestSection } from '@/components/proxmox/GuestSection'
@@ -19,7 +20,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
     toggleProxmoxHostExpanded,
     isProxmoxSectionExpanded,
     toggleProxmoxSectionExpanded,
-  } = useProxmoxSettings()
+  } = useProxmoxViewState()
   const { general: { showSparklines, useAbbreviatedUnits } } = useGeneralSettings()
 
   // Group data by node (memoized to avoid recomputing on expansion toggles)
