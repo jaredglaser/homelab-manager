@@ -1,12 +1,5 @@
 import type { HostStatus, HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
 
-/** Dockerode connection options parsed from a socket proxy URL. */
-export interface DockerodeConfig {
-  host: string;
-  port: number;
-  protocol: 'http' | 'https';
-}
-
 /** Serialized ManagedHost for API responses (Date -> ISO string). */
 export interface HostListItem {
   id: number;
