@@ -353,14 +353,12 @@ Full stack management interface at `/stacks` (top-level navigation).
 |-----------|---------|
 | `StackActionBar` | Deploy, teardown, restart action buttons |
 | `ComposeEditor` | Monaco YAML editor with Compose schema validation |
-| `ContainerList` | Running containers for a stack with status |
 | `DeployHistoryList` / `DeployHistoryRow` | Deploy history timeline with rollback |
 | `VariablesPanel` / `VariableRow` | Stack variables editor (JWE-encrypted in `stack_secrets`) |
 | `CreateStackDialog` | Create new stack |
 | `DeleteStackDialog` | Stack deletion confirmation |
 | `RollbackDialog` | Rollback to previous deployment |
 | `StackSettingsDialog` | Stack settings editor |
-| `SyncStatusBadge` | Git sync status badge |
 
 **Real-time updates:** The `useStackStatus` hook subscribes to `/api/stack-status` SSE endpoint. Container status changes and deployment completions are broadcast to all connected browsers.
 
