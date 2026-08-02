@@ -146,17 +146,6 @@ export class HostRepository {
     );
   }
 
-  async updateAgentUrl(id: number, agentUrl: string): Promise<void> {
-    const result = await this.pool.query(
-      `UPDATE managed_hosts SET agent_url = $1, updated_at = NOW()
-       WHERE id = $2 RETURNING name`,
-      [agentUrl, id],
-    );
-    if (result.rows.length > 0) {
-      await this.notifyChange('update', (result.rows[0] as { name: string }).name);
-    }
-  }
-
   async update(id: number, fields: UpdateHostInput): Promise<ManagedHost> {
     const setClauses: string[] = [];
     const params: unknown[] = [];

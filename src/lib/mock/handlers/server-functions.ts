@@ -96,11 +96,8 @@ const registry: Record<string, ServerFnMock> = {
   // Managed hosts (mocks take the raw data object)
   listHosts: fn(hostsFns.listHosts),
   verifyHost: withData(hostsFns.verifyHost),
-  addHost: withData(hostsFns.addHost),
-  registerExistingHost: withData(hostsFns.registerExistingHost),
   updateHost: withData(hostsFns.updateHost),
   removeHost: withData(hostsFns.removeHost),
-  updateAgent: withData(hostsFns.updateAgent),
   checkHostHealth: withData(hostsFns.checkHostHealth),
 
   // Git tokens
