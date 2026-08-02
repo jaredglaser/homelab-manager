@@ -1,16 +1,5 @@
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
-export interface DockerContainer {
-  name: string;
-  cpuUtil: number; // percentage
-  ramUtil: number; // percentage
-  ioRead: number; // megabytes per second
-  ioWrite: number; // megabytes per second
-  networkRead: number; // megabits per second
-  networkWrite: number; // megabits per second
-  ioWait: number; // percentage
-}
-
 /** Wide row from docker_stats hypertable */
 export interface DockerStatsRow {
   /** Epoch ms, converted at the repository read path */
@@ -50,20 +39,6 @@ export interface DockerStatsFromDB {
   memory_stats: {
     usage: number;
     limit: number;
-  };
-}
-
-/** Common interface for container stats display, shared by DockerStatsFromDB and any other rate-bearing source */
-export interface ContainerStatsDisplay {
-  id: string;
-  name: string;
-  rates: {
-    cpuPercent: number;
-    memoryPercent: number;
-    networkRxBytesPerSec: number;
-    networkTxBytesPerSec: number;
-    blockIoReadBytesPerSec: number;
-    blockIoWriteBytesPerSec: number;
   };
 }
 
