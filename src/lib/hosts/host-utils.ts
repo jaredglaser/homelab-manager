@@ -37,25 +37,15 @@ export function toHostListItem(
 }
 
 const AGENT_IMAGE_PROD = 'ghcr.io/jaredglaser/homelab-manager-agent:latest';
-// TODO: re-enable dev variant once CI publishes a :dev tag (or local compose tags
-// the locally-built agent as :dev). Until then `:dev` resolves to nothing.
-// const AGENT_IMAGE_DEV = 'homelab-manager-agent:dev';
 
 /** Get the agent Docker image. */
 export function getAgentImage(): string {
-  // NOSONAR
-  // return process.env.NODE_ENV === 'development' ? AGENT_IMAGE_DEV : AGENT_IMAGE_PROD;
   return AGENT_IMAGE_PROD;
 }
 
 const AGENT_UPDATER_IMAGE_PROD = 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest';
-// TODO: re-enable dev variant once CI publishes a :dev tag (or local compose tags
-// the locally-built agent-updater as :dev). Until then `:dev` resolves to nothing.
-// const AGENT_UPDATER_IMAGE_DEV = 'homelab-manager-agent-updater:dev';
 
 /** Get the agent-updater Docker image. */
 export function getAgentUpdaterImage(): string {
-  //NOSONAR
-  // return process.env.NODE_ENV === 'development' ? AGENT_UPDATER_IMAGE_DEV : AGENT_UPDATER_IMAGE_PROD;
   return AGENT_UPDATER_IMAGE_PROD;
 }
