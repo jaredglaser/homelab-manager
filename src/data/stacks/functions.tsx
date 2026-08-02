@@ -5,6 +5,7 @@ import { stackSecretsMiddleware } from '@/middleware/stack-secrets-middleware';
 import type { StackControlRequest } from '@/lib/clients/agent-client';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
+import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/path-patterns';
 import {
   getStackDetailSchema,
   triggerDeploySchema,
@@ -131,7 +132,6 @@ export const saveComposeFile = createServerFn()
     return result;
   });
 
-const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const safePathSegment = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Must contain only letters, numbers, hyphens, and underscores');
 
 const stackVariableValuesSchema = z.object({
