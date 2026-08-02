@@ -15,7 +15,14 @@ export interface AddHostResult {
 }
 
 export type HostOperationResult =
-  | { hostId: number; healthy: true; version?: string; dockerVersion?: string }
+  | {
+      hostId: number;
+      healthy: true;
+      version?: string;
+      dockerVersion?: string;
+      agentImage?: string | null;
+      agentImageTag?: string | null;
+    }
   | { hostId: number; healthy: false; error: string; suggestions?: string[] };
 
 export type HealthCheckResult = HostOperationResult;
@@ -26,7 +33,7 @@ export interface HostRepo {
   create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
-  updateAgentVersion(id: number, version: string): Promise<void>;
+  updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
 
@@ -53,12 +60,26 @@ export async function handleCheckHostHealth(
   const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
   await deps.repo.updateStatus(host.id, newStatus);
 
-  if (healthResult.healthy && healthResult.version) {
-    await deps.repo.updateAgentVersion(host.id, healthResult.version);
+  if (healthResult.healthy && (healthResult.version || healthResult.infoSupported)) {
+    // Only an agent that answered /info can speak to its image. An older agent
+    // that 404s leaves the stored value alone rather than clearing it.
+    await deps.repo.updateAgentInfo(host.id, {
+      version: healthResult.version,
+      ...(healthResult.infoSupported
+        ? { image: healthResult.agentImage ?? null, imageTag: healthResult.agentImageTag ?? null }
+        : {}),
+    });
   }
 
   return healthResult.healthy
-    ? { hostId: host.id, healthy: true, version: healthResult.version, dockerVersion: healthResult.dockerVersion }
+    ? {
+        hostId: host.id,
+        healthy: true,
+        version: healthResult.version,
+        dockerVersion: healthResult.dockerVersion,
+        agentImage: healthResult.agentImage,
+        agentImageTag: healthResult.agentImageTag,
+      }
     : { hostId: host.id, healthy: false, error: healthResult.error };
 }
 

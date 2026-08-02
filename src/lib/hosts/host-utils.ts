@@ -7,13 +7,22 @@ export interface HostListItem {
   agentUrl: string;
   capabilities: HostCapabilities;
   agentVersion: string | null;
+  agentImage: string | null;
+  agentImageTag: string | null;
   status: HostStatus;
   createdAt: string;
   updatedAt: string;
 }
 
 export type HealthCheckOutcome =
-  | { healthy: true; version?: string; dockerVersion?: string; infoSupported?: boolean }
+  | {
+      healthy: true;
+      version?: string;
+      dockerVersion?: string;
+      agentImage?: string | null;
+      agentImageTag?: string | null;
+      infoSupported?: boolean;
+    }
   | { healthy: false; error: string };
 
 /**
@@ -30,6 +39,8 @@ export function toHostListItem(
     agentUrl: row.agentUrl,
     capabilities: row.capabilities ?? {},
     agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agentVersion,
+    agentImage: row.agentImage,
+    agentImageTag: row.agentImageTag,
     status: overrides?.status ?? row.status,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

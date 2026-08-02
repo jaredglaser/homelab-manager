@@ -251,6 +251,46 @@ describe('agent-health-service', () => {
       if (result.healthy) expect(result.infoSupported).toBe(true);
     });
 
+    it('surfaces the agent image reported by /info', async () => {
+      const body = JSON.stringify({
+        status: 'healthy',
+        agentVersion: '0.1.0',
+        agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+        agentImageTag: 'dev',
+        capabilities: { docker: { available: true }, zfs: { available: false } },
+      });
+      const fetchFn = mock(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
+        return new Response(body, { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn, async () => 'jwt-123');
+
+      expect(result.healthy).toBe(true);
+      if (result.healthy) {
+        expect(result.agentImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');
+        expect(result.agentImageTag).toBe('dev');
+      }
+    });
+
+    it('reports null image fields for an agent that predates image reporting', async () => {
+      const fetchFn = mock(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
+        return new Response(infoBody(), { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn, async () => 'jwt-123');
+
+      expect(result.healthy).toBe(true);
+      if (result.healthy) {
+        expect(result.agentImage).toBeNull();
+        expect(result.agentImageTag).toBeNull();
+        expect(result.infoSupported).toBe(true);
+      }
+    });
+
     it('leaves infoSupported undefined when getToken throws', async () => {
       const fetchFn = mock(async () =>
         new Response(healthBody, { status: 200 })

@@ -20,11 +20,36 @@ function StatusDot({ status }: { status: HostListItem['status'] }) {
 
 interface HostRowProps {
   host: HostListItem
+  expectedImageTag: string
   isChecking: boolean
   isRemoving: boolean
   onHealthCheck: () => void
   onEdit: () => void
   onRemove: () => void
+}
+
+function AgentTagBadge({ host, expectedImageTag }: { host: HostListItem; expectedImageTag: string }) {
+  const matches = host.agentImageTag === expectedImageTag
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Badge
+            variant={matches ? 'outline' : 'warning'}
+            className="h-4 text-[10px]"
+            aria-label="agent image tag"
+          >
+            {host.agentImageTag}
+          </Badge>
+        }
+      />
+      <TooltipContent>
+        {matches
+          ? host.agentImage
+          : `${host.agentImage} does not match this dashboard's ${expectedImageTag} channel`}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 interface HostActionProps {
@@ -58,7 +83,7 @@ function HostAction({ label, ariaLabel, disabled, onClick, className, children }
   )
 }
 
-export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
+export default function HostRow({ host, expectedImageTag, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
   const busy = isChecking || isRemoving
   return (
     <div className="flex items-center gap-3 py-2 border-b border-border last:border-0">
@@ -82,6 +107,7 @@ export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, o
             {host.capabilities?.zfs && (
               <Badge variant="outline" className="h-4 text-[10px]">ZFS</Badge>
             )}
+            {host.agentImageTag && <AgentTagBadge host={host} expectedImageTag={expectedImageTag} />}
           </div>
         </div>
       </div>

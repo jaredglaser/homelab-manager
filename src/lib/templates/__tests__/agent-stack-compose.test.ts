@@ -86,6 +86,14 @@ describe('generateAgentStackCompose', () => {
     }
   });
 
+  it('passes AGENT_IMAGE through so the agent can report its own tag', () => {
+    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+      const parsed = parseYaml(generateAgentStackCompose(config));
+      expect(parsed.services.agent.environment.AGENT_IMAGE).toBe('${AGENT_IMAGE}');
+      expect(parsed.services['agent-updater'].environment.HLM_WATCH_IMAGE).toBe('${AGENT_IMAGE}');
+    }
+  });
+
   it('uses restart: unless-stopped for all services', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackCompose(config);

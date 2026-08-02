@@ -1,7 +1,15 @@
 import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
 
+export interface AgentInfoDetail {
+  version?: string;
+  dockerVersion?: string;
+  agentImage?: string | null;
+  agentImageTag?: string | null;
+  infoSupported?: boolean;
+}
+
 export type AgentHealthResult =
-  | { healthy: true; version?: string; dockerVersion?: string; infoSupported?: boolean }
+  | ({ healthy: true } & AgentInfoDetail)
   | { healthy: false; error: string };
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
@@ -16,13 +24,15 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
  *
  * @returns `infoSupported: false` when the agent predates /info (404), which
  * callers use to tell "version unknown" apart from "version unchanged".
+ * `agentImage`/`agentImageTag` are null for an agent that predates image
+ * reporting or one that could not determine its own image.
  */
 async function fetchAgentInfo(
   agentUrl: string,
   timeoutMs: number,
   fetchFn: typeof fetch,
   getToken: () => Promise<string>
-): Promise<{ version?: string; dockerVersion?: string; infoSupported?: boolean }> {
+): Promise<AgentInfoDetail> {
   let token: string;
   try {
     token = await getToken();
@@ -50,6 +60,8 @@ async function fetchAgentInfo(
     return {
       version: data.agentVersion,
       dockerVersion: data.capabilities?.docker?.version,
+      agentImage: data.agentImage ?? null,
+      agentImageTag: data.agentImageTag ?? null,
       infoSupported: true,
     };
   } catch (err) {

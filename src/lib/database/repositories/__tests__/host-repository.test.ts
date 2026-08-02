@@ -164,13 +164,49 @@ describe('HostRepository', () => {
     });
   });
 
-  describe('updateAgentVersion', () => {
+  describe('updateAgentInfo', () => {
     it('updates the agent_version field', async () => {
       mock.pushResult([]);
-      await repo.updateAgentVersion(1, '0.2.0');
+      await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
-      expect(mock.queries[0].params).toContain('0.2.0');
-      expect(mock.queries[0].params).toContain(1);
+      expect(mock.queries[0].sql).toContain('agent_version = $1');
+      expect(mock.queries[0].params).toEqual(['0.2.0', 1]);
+    });
+
+    it('updates the image columns alongside the version', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentInfo(1, {
+        version: '0.2.0',
+        image: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+        imageTag: 'dev',
+      });
+      expect(mock.queries[0].sql).toContain('agent_image = $2');
+      expect(mock.queries[0].sql).toContain('agent_image_tag = $3');
+      expect(mock.queries[0].params).toEqual([
+        '0.2.0',
+        'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+        'dev',
+        1,
+      ]);
+    });
+
+    it('clears the image columns when passed null', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentInfo(1, { image: null, imageTag: null });
+      expect(mock.queries[0].params).toEqual([null, null, 1]);
+    });
+
+    it('leaves omitted fields untouched', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentInfo(1, { imageTag: 'dev' });
+      expect(mock.queries[0].sql).toContain('agent_image_tag = $1');
+      expect(mock.queries[0].sql).not.toContain('agent_version');
+      expect(mock.queries[0].sql).not.toContain('agent_image =');
+    });
+
+    it('issues no query when given nothing to set', async () => {
+      await repo.updateAgentInfo(1, {});
+      expect(mock.queries).toHaveLength(0);
     });
   });
 
@@ -296,7 +332,7 @@ describe('HostRepository', () => {
       mock.pushResult([]);
       mock.pushResult([]);
       await repo.updateStatus(1, 'healthy');
-      await repo.updateAgentVersion(1, '0.2.0');
+      await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(pickNotify(mock)).toHaveLength(0);
     });
   });

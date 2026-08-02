@@ -14,6 +14,8 @@ export interface ManagedHost {
   agentUrl: string;
   capabilities: HostCapabilities;
   agentVersion: string | null;
+  agentImage: string | null;
+  agentImageTag: string | null;
   status: HostStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -23,6 +25,12 @@ export interface CreateHostInput {
   name: string;
   agentUrl: string;
   capabilities?: HostCapabilities;
+}
+
+export interface UpdateAgentInfoInput {
+  version?: string;
+  image?: string | null;
+  imageTag?: string | null;
 }
 
 export interface UpdateHostInput {
@@ -38,6 +46,8 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     agentUrl: row.agent_url as string,
     capabilities: (row.capabilities as HostCapabilities) ?? {},
     agentVersion: (row.agent_version as string | null | undefined) ?? null,
+    agentImage: (row.agent_image as string | null | undefined) ?? null,
+    agentImageTag: (row.agent_image_tag as string | null | undefined) ?? null,
     status: row.status as HostStatus,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -139,10 +149,36 @@ export class HostRepository {
     );
   }
 
-  async updateAgentVersion(id: number, version: string): Promise<void> {
+  /**
+   * Record what the agent reported about itself. Omitted fields are left as they
+   * were; an explicit null clears one, which is how a host whose agent can no
+   * longer determine its image stops showing a stale tag.
+   */
+  async updateAgentInfo(id: number, fields: UpdateAgentInfoInput): Promise<void> {
+    const setClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (fields.version !== undefined) {
+      params.push(fields.version);
+      setClauses.push(`agent_version = $${params.length}`);
+    }
+    if (fields.image !== undefined) {
+      params.push(fields.image);
+      setClauses.push(`agent_image = $${params.length}`);
+    }
+    if (fields.imageTag !== undefined) {
+      params.push(fields.imageTag);
+      setClauses.push(`agent_image_tag = $${params.length}`);
+    }
+
+    if (setClauses.length === 0) return;
+
+    setClauses.push('updated_at = NOW()');
+    params.push(id);
+
     await this.pool.query(
-      'UPDATE managed_hosts SET agent_version = $1, updated_at = NOW() WHERE id = $2',
-      [version, id],
+      `UPDATE managed_hosts SET ${setClauses.join(', ')} WHERE id = $${params.length}`,
+      params,
     );
   }
 

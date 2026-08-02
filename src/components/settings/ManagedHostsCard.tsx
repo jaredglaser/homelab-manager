@@ -23,30 +23,91 @@ export interface ManagedHostsCardProps {
   checkingHostIds: Set<number>
 }
 
-export interface AgentChannelNoticeProps {
-  tag: string
+export interface AgentChannelBuckets {
+  /** Hosts whose agent reported a tag other than the dashboard's. */
+  mismatched: HostListItem[]
+  /** Enrolled hosts whose agent has not reported a tag at all. */
+  unreported: HostListItem[]
+}
+
+/**
+ * Split hosts by how their reported agent tag compares to the dashboard's own.
+ * Pending hosts are left out: they have never completed a health check, so
+ * "no tag reported" says nothing about them yet.
+ */
+export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: string): AgentChannelBuckets {
+  const mismatched: HostListItem[] = []
+  const unreported: HostListItem[] = []
+
+  for (const host of hosts) {
+    if (host.agentImageTag === null) {
+      if (host.status !== 'pending') unreported.push(host)
+    } else if (host.agentImageTag !== expectedTag) {
+      mismatched.push(host)
+    }
+  }
+
+  return { mismatched, unreported }
+}
+
+export interface AgentChannelNoticeProps extends AgentChannelBuckets {
+  expectedTag: string
   agentImage: string
   agentUpdaterImage: string
 }
 
-export function AgentChannelNotice({ tag, agentImage, agentUpdaterImage }: Readonly<AgentChannelNoticeProps>) {
+function noticeTitle({ expectedTag, mismatched, unreported }: AgentChannelNoticeProps): string {
+  if (mismatched.length > 0) {
+    const plural = mismatched.length === 1 ? 'host is' : 'hosts are'
+    return `${mismatched.length} ${plural} not on the ${expectedTag} channel`
+  }
+  if (expectedTag !== DEFAULT_AGENT_IMAGE_TAG) return `Agents pinned to the ${expectedTag} channel`
+  const plural = unreported.length === 1 ? 'host has' : 'hosts have'
+  return `${unreported.length} ${plural} not reported an agent image`
+}
+
+export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
+  const { expectedTag, agentImage, agentUpdaterImage, mismatched, unreported } = props
+
   return (
-    <Alert variant="info" className="mb-4">
-      <AlertTitle>Agents pinned to the {tag} channel</AlertTitle>
+    <Alert variant={mismatched.length > 0 ? 'warning' : 'info'} className="mb-4">
+      <AlertTitle className="line-clamp-none">{noticeTitle(props)}</AlertTitle>
       <AlertDescription>
-        <p>
-          This dashboard is a <code className="font-mono">{tag}</code> build, so hosts you add below are
-          enrolled on <code className="font-mono">{agentImage}</code> and{' '}
-          <code className="font-mono">{agentUpdaterImage}</code>.
-        </p>
-        <p>
-          Hosts enrolled before this stay on whatever tag their own <code className="font-mono">.env</code> pins,
-          and the agent-updater keeps them there. To move one, set{' '}
-          <code className="font-mono">AGENT_IMAGE</code> and <code className="font-mono">AGENT_UPDATER_IMAGE</code>{' '}
-          to the <code className="font-mono">{tag}</code> tag in that host&apos;s{' '}
-          <code className="font-mono">.env</code>, then run{' '}
-          <code className="font-mono">docker compose up -d</code> on the host.
-        </p>
+        {expectedTag !== DEFAULT_AGENT_IMAGE_TAG && (
+          <p>
+            This dashboard is a <code className="font-mono">{expectedTag}</code> build, so hosts you add below
+            are enrolled on <code className="font-mono">{agentImage}</code> and{' '}
+            <code className="font-mono">{agentUpdaterImage}</code>.
+          </p>
+        )}
+
+        {mismatched.length > 0 && (
+          <>
+            <ul className="list-disc pl-5">
+              {mismatched.map((host) => (
+                <li key={host.id}>
+                  <span className="font-semibold">{host.name}</span> is running{' '}
+                  <code className="font-mono">{host.agentImage ?? host.agentImageTag}</code>
+                </li>
+              ))}
+            </ul>
+            <p>
+              To move a host, set <code className="font-mono">AGENT_IMAGE</code> and{' '}
+              <code className="font-mono">AGENT_UPDATER_IMAGE</code> to the{' '}
+              <code className="font-mono">{expectedTag}</code> tag in its{' '}
+              <code className="font-mono">.env</code>, then run{' '}
+              <code className="font-mono">docker compose up -d</code> on the host.
+            </p>
+          </>
+        )}
+
+        {unreported.length > 0 && (
+          <p>
+            No image reported by {unreported.map((host) => host.name).join(', ')}. Their agent predates image
+            reporting, or it has no <code className="font-mono">AGENT_IMAGE</code> set and no Docker socket to
+            inspect itself through. Re-run the health check once the agent has updated.
+          </p>
+        )}
       </AlertDescription>
     </Alert>
   )
@@ -69,6 +130,11 @@ export function ManagedHostsCardView({
   const [removeTarget, setRemoveTarget] = useState<HostListItem | null>(null)
   const [editTarget, setEditTarget] = useState<HostListItem | null>(null)
   const agentImageTag = getAgentImageTag()
+  const channel = bucketHostsByAgentChannel(hosts, agentImageTag)
+  const showChannelNotice =
+    agentImageTag !== DEFAULT_AGENT_IMAGE_TAG ||
+    channel.mismatched.length > 0 ||
+    channel.unreported.length > 0
 
   function handleRemoveConfirm() {
     if (removeTarget) {
@@ -86,11 +152,13 @@ export function ManagedHostsCardView({
       <div className="p-4 bg-card rounded-lg border border-border">
         <h6 className="text-xl font-medium mb-4">Managed Hosts</h6>
 
-        {agentImageTag !== DEFAULT_AGENT_IMAGE_TAG && (
+        {showChannelNotice && (
           <AgentChannelNotice
-            tag={agentImageTag}
+            expectedTag={agentImageTag}
             agentImage={getAgentImage()}
             agentUpdaterImage={getAgentUpdaterImage()}
+            mismatched={channel.mismatched}
+            unreported={channel.unreported}
           />
         )}
 
@@ -109,6 +177,7 @@ export function ManagedHostsCardView({
               <HostRow
                 key={host.id}
                 host={host}
+                expectedImageTag={agentImageTag}
                 isChecking={checkingHostIds.has(host.id)}
                 isRemoving={isRemoving}
                 onHealthCheck={() => onHealthCheck(host.id)}

@@ -108,7 +108,9 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 
 Mixing tags across images is not tested: run all four images (`web`, `worker`, `agent`, `agent-updater`) on the same tag.
 
-The `web` image knows which tag it was built from, so the Add Host wizard on a `dev` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:dev` and `...-agent-updater:dev`. Hosts you enrolled before switching keep whatever tag their own `.env` pins, and the agent-updater holds them there. To move one:
+The `web` image knows which tag it was built from, so the Add Host wizard on a `dev` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:dev` and `...-agent-updater:dev`. Hosts you enrolled before switching keep whatever tag their own `.env` pins, and the agent-updater holds them there.
+
+Each agent reports the image it is running, so **Settings → Managed Hosts** shows every host's tag next to its version and flags the ones that do not match the dashboard. To move a flagged host:
 
 ```bash
 # on the monitored host, in the agent stack directory
@@ -116,7 +118,7 @@ sed -i 's/:latest$/:dev/' .env   # AGENT_IMAGE and AGENT_UPDATER_IMAGE
 docker compose up -d
 ```
 
-Managed Hosts shows this reminder whenever the dashboard is off the `latest` channel. It cannot tell you which tag a given host is actually on: the agent reports its package version, not its image tag.
+A host shows no tag until it has completed one health check against an agent new enough to report one. An agent works this out from the `AGENT_IMAGE` environment variable the generated compose passes it, falling back to inspecting its own container over the Docker socket, so a ZFS-only host needs that variable set to report anything.
 
 ---
 

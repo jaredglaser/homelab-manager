@@ -171,7 +171,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Liveness heartbeat, status only (unauthenticated) |
-| GET | `/info` | Agent version + Docker/ZFS capability detail (authenticated) |
+| GET | `/info` | Agent version, the image reference and tag the agent runs, and Docker/ZFS capability detail (authenticated) |
 | GET | `/auth/verify` | JWT verification |
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
