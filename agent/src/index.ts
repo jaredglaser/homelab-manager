@@ -8,7 +8,6 @@ import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
-import { handleAgentUpdate } from './routes/agent-update';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 
 const portEnv = process.env.AGENT_PORT;
@@ -21,7 +20,6 @@ if (portEnv !== undefined && portEnv !== '') {
   }
 }
 const STACKS_DIR = process.env.STACKS_DIR || '/opt/homelab-manager/stacks';
-const AGENT_CONTAINER_NAME = process.env.AGENT_CONTAINER_NAME ?? 'hlm-agent';
 const AGENT_TRUSTED_PUBKEY_FILE = process.env.AGENT_TRUSTED_PUBKEY_FILE;
 const AGENT_TRUSTED_PUBKEY_ENV = process.env.AGENT_TRUSTED_PUBKEY;
 // Managed host name; manager JWTs carry it as aud, so a token minted for
@@ -154,7 +152,6 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
 
   if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);
   if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
-  if (url.pathname === '/agent/update' && request.method === 'POST') return handleAgentUpdate(docker, AGENT_CONTAINER_NAME);
 
   return null;
 }
