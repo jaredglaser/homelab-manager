@@ -93,10 +93,6 @@ export const removeHost = createServerFn()
     return handleRemoveHost({
       ...baseDeps,
       keypairs: {
-        createForHost: async (name) => {
-          const keypairs = await loadKeypairsRepo();
-          return keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk }));
-        },
         deleteForHost: async (name) => {
           try {
             const keypairs = await loadKeypairsRepo();

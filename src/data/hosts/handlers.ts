@@ -63,7 +63,7 @@ export async function handleCheckHostHealth(
 }
 
 export async function handleRemoveHost(
-  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  deps: HostHandlerDeps & { keypairs: Pick<KeypairsDep, 'deleteForHost'> },
   data: { hostId: number },
 ): Promise<{ success: boolean }> {
   const host = await deps.repo.findById(data.hostId);
@@ -89,8 +89,8 @@ export async function handleUpdateHost(
   // The host name is the cryptographic identity: it is the agent_keypairs lookup
   // key, the JWT `aud`, and the agent container's AGENT_HOST_NAME. Changing it
   // here would orphan the keypair and mint tokens the running agent rejects, so
-  // the name is immutable. Renaming means remove-and-re-add (which redeploys the
-  // agent container with a new AGENT_HOST_NAME anyway).
+  // the name is immutable. Renaming means remove-and-re-add, which also requires
+  // updating AGENT_HOST_NAME on the agent and restarting it.
   if (data.name !== undefined && data.name.trim() !== host.name) {
     throw new Error('Host name cannot be changed after enrollment. To rename, remove and re-add the host.');
   }
