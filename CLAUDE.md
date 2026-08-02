@@ -239,4 +239,5 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 ## CI/CD
 
 All changes to `main` via PR. CI runs build, test, coverage, license check. Docker images published to GHCR.
+Two long-lived trunks: `main` publishes `:latest`, `dev` publishes `:dev`. Both also publish a short-sha tag, and both run the full CI suite; only `main` deploys the GitHub Pages demo. `dev` is not the default branch, so `{{is_default_branch}}` in `docker/metadata-action` covers `latest` only and the `:dev` tag needs an explicit `github.ref` check.
 Env vars documented in `.env.example`. `.env` sets `POSTGRES_HOST=localhost` for local dev; Docker overrides to `postgres`.

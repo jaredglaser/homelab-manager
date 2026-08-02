@@ -98,7 +98,15 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 | `ghcr.io/jaredglaser/homelab-manager-agent` | Agent sidecar deployed on each monitored Docker/ZFS host |
 | `ghcr.io/jaredglaser/homelab-manager-agent-updater` | Optional companion that keeps the agent image up to date |
 
-> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker), [agent](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent), [agent-updater](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent-updater)) on every push to `main`. The project is pre-release and not yet versioned: use `latest`, and review recent commits on `main` for breaking changes before pulling updates.
+> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker), [agent](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent), [agent-updater](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent-updater)) on every push to `main` or `dev`. The project is pre-release and not yet versioned.
+
+| Tag | Built from | Use it for |
+|-----|-----------|-----------|
+| `latest` | `main` | Normal self-hosting. Review recent commits on `main` for breaking changes before pulling updates. |
+| `dev` | `dev` | Early access to work that has not reached `main` yet. Expect breakage; run it on a throwaway stack, not your only one. |
+| `<short-sha>` | any push to `main` or `dev` | Pinning to an exact build, e.g. to roll back after a bad `latest`. |
+
+Mixing tags across images is not tested: run all four images (`web`, `worker`, `agent`, `agent-updater`) on the same tag.
 
 ---
 
