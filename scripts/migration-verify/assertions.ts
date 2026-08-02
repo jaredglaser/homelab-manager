@@ -241,9 +241,10 @@ export function assertRowCountsPreserved(
 }
 
 /**
- * `getContainerInfo` resolves a container's name and image from the newest raw
- * `docker_stats` row, so a container idle past the raw window must not go
- * anonymous.
+ * Docker history reads resolve identity with `last(container_name, time)` over
+ * whichever tier `resolveStatsTier` picks, and the retention cascade carries both
+ * identity columns into `_1m` and `_1h`. A container that stopped reporting weeks
+ * ago must therefore still resolve a name and image, not go anonymous.
  */
 export async function assertIdleContainerIdentity(pool: Pool, checks: Checks): Promise<void> {
   const row = await selectRow<{

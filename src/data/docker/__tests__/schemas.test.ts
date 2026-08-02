@@ -2,7 +2,6 @@ import { describe, it, expect } from 'bun:test';
 import {
   getHistoricalDockerStatsSchema,
   getContainerHistorySchema,
-  getContainerInfoSchema,
   updateContainerIconSchema,
 } from '../schemas';
 
@@ -54,17 +53,6 @@ describe('getContainerHistorySchema', () => {
 
   it('rejects fromMs greater than toMs', () => {
     expect(() => getContainerHistorySchema.parse({ containerId: 'x', fromMs: 2000, toMs: 1000 })).toThrow();
-  });
-});
-
-describe('getContainerInfoSchema', () => {
-  it('accepts containerId with optional host', () => {
-    expect(getContainerInfoSchema.parse({ containerId: 'abc' }).containerId).toBe('abc');
-    expect(getContainerInfoSchema.parse({ containerId: 'abc', host: 'h1' }).host).toBe('h1');
-  });
-
-  it('rejects empty containerId', () => {
-    expect(() => getContainerInfoSchema.parse({ containerId: '' })).toThrow();
   });
 });
 

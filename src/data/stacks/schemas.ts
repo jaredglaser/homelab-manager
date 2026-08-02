@@ -32,11 +32,6 @@ export const saveComposeFileSchema = z.object({
   content: z.string().min(1, 'Compose file content cannot be empty'),
 });
 
-export const updateStackIconSchema = z.object({
-  stackName: stackNameField,
-  iconSlug: z.string().min(1),
-});
-
 export const resumeDeploySchema = z.object({
   deployId: z.number().int().positive(),
 });

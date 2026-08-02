@@ -349,18 +349,6 @@ export async function saveComposeFile(_opts: {
   return { commitSha: 'mock' + Date.now().toString(36) };
 }
 
-export async function updateStackIcon(_opts: {
-  data: { stackName: string; iconSlug: string };
-}): Promise<void> {
-  // No-op in demo mode
-}
-
-export async function getStackVariables(opts: {
-  data: { stackName: string };
-}): Promise<string[]> {
-  return Object.keys(MOCK_VARIABLE_VALUES[opts.data.stackName] ?? {});
-}
-
 const MOCK_VARIABLE_VALUES: Record<string, Record<string, string>> = {
   traefik: {
     CF_DNS_API_TOKEN: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
@@ -393,12 +381,6 @@ const MOCK_VARIABLE_VALUES: Record<string, Record<string, string>> = {
   },
   portainer: {},
 };
-
-export async function getVariableValue(opts: {
-  data: { stackName: string; variableName: string };
-}): Promise<string | null> {
-  return MOCK_VARIABLE_VALUES[opts.data.stackName]?.[opts.data.variableName] ?? '';
-}
 
 export async function getStackVariableValues(opts: {
   data: { stackName: string };
