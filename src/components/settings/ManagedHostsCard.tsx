@@ -26,24 +26,27 @@ export interface ManagedHostsCardProps {
 export interface AgentChannelBuckets {
   /** Hosts whose agent reported a tag other than the dashboard's. */
   mismatched: HostListItem[]
-  /** Enrolled hosts whose agent has not reported a tag at all. */
+  /** Healthy hosts whose agent reported no image at all. */
   unreported: HostListItem[]
 }
 
 /**
  * Split hosts by how their reported agent tag compares to the dashboard's own.
- * Pending hosts are left out: they have never completed a health check, so
- * "no tag reported" says nothing about them yet.
+ *
+ * Only a healthy host can land in `unreported`: silence from a host we could not
+ * reach says nothing about its agent, and the remedy the notice offers would be
+ * wrong for it. A host that reported an image but no tag is digest-pinned, which
+ * is deliberate and not comparable to a channel, so it lands in neither bucket.
  */
 export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: string): AgentChannelBuckets {
   const mismatched: HostListItem[] = []
   const unreported: HostListItem[] = []
 
   for (const host of hosts) {
-    if (host.agentImageTag === null) {
-      if (host.status !== 'pending') unreported.push(host)
-    } else if (host.agentImageTag !== expectedTag) {
-      mismatched.push(host)
+    if (host.agentImageTag !== null) {
+      if (host.agentImageTag !== expectedTag) mismatched.push(host)
+    } else if (host.agentImage === null && host.status === 'healthy') {
+      unreported.push(host)
     }
   }
 
@@ -61,9 +64,11 @@ function noticeTitle({ expectedTag, mismatched, unreported }: AgentChannelNotice
     const plural = mismatched.length === 1 ? 'host is' : 'hosts are'
     return `${mismatched.length} ${plural} not on the ${expectedTag} channel`
   }
-  if (expectedTag !== DEFAULT_AGENT_IMAGE_TAG) return `Agents pinned to the ${expectedTag} channel`
-  const plural = unreported.length === 1 ? 'host has' : 'hosts have'
-  return `${unreported.length} ${plural} not reported an agent image`
+  if (unreported.length > 0) {
+    const plural = unreported.length === 1 ? 'host has' : 'hosts have'
+    return `${unreported.length} ${plural} not reported an agent image`
+  }
+  return `Agents pinned to the ${expectedTag} channel`
 }
 
 export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
@@ -87,7 +92,7 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
               {mismatched.map((host) => (
                 <li key={host.id}>
                   <span className="font-semibold">{host.name}</span> is running{' '}
-                  <code className="font-mono">{host.agentImage ?? host.agentImageTag}</code>
+                  <code className="font-mono break-all">{host.agentImage ?? host.agentImageTag}</code>
                 </li>
               ))}
             </ul>
@@ -105,7 +110,9 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
           <p>
             No image reported by {unreported.map((host) => host.name).join(', ')}. Their agent predates image
             reporting, or it has no <code className="font-mono">AGENT_IMAGE</code> set and no Docker socket to
-            inspect itself through. Re-run the health check once the agent has updated.
+            inspect itself through, which is the case for a ZFS-only host enrolled before this existed. Add{' '}
+            <code className="font-mono">AGENT_IMAGE: $&#123;AGENT_IMAGE&#125;</code> to the agent service in that
+            host&apos;s compose file, then run <code className="font-mono">docker compose up -d</code>.
           </p>
         )}
       </AlertDescription>

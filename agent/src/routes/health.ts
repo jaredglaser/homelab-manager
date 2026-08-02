@@ -67,15 +67,16 @@ export async function handleHealth(
  *
  * @param docker - Dockerode client, or null when Docker is not configured
  * @param zfsCapabilities - Pre-detected ZFS capabilities (detected once at startup)
- * @param agentImage - Image this agent runs (resolved once at startup); null fields mean undetermined
+ * @param resolveImage - Lazy resolver for the image this agent runs; null fields mean undetermined
  * @returns An HTTP Response whose JSON body includes status, agentVersion, agent image, and capabilities
  */
 export async function handleInfo(
   docker: Dockerode | null,
   zfsCapabilities?: ZfsCapabilities,
-  agentImage?: AgentImageInfo
+  resolveImage?: () => Promise<AgentImageInfo>
 ): Promise<Response> {
   const { dockerCapability, zfsAvailable, isHealthy } = await checkHealthy(docker, zfsCapabilities);
+  const agentImage = await resolveImage?.();
 
   return Response.json(
     {

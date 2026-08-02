@@ -8,7 +8,7 @@ import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
-import { resolveAgentImage } from './lib/agent-image';
+import { createAgentImageResolver } from './lib/agent-image';
 import { handleAgentUpdate } from './routes/agent-update';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 
@@ -114,7 +114,7 @@ if (DOCKER_HOST) {
 
 const zfsCapabilities = await detectZfsCapabilities();
 
-const agentImage = await resolveAgentImage(docker, AGENT_CONTAINER_NAME, process.env.AGENT_IMAGE);
+const resolveAgentImage = createAgentImageResolver(docker, AGENT_CONTAINER_NAME, process.env.AGENT_IMAGE);
 
 if (!docker && !zfsCapabilities.available) {
   console.error('No capabilities available. Set DOCKER_HOST for Docker support, or ensure zpool is installed for ZFS support.');
@@ -126,7 +126,7 @@ if (!docker && !zfsCapabilities.available) {
  */
 function matchRoute(request: Request, url: URL): Promise<Response> | Response | null {
   if (url.pathname === '/health' && request.method === 'GET') return handleHealth(docker, zfsCapabilities);
-  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, zfsCapabilities, agentImage);
+  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, zfsCapabilities, resolveAgentImage);
   if (url.pathname === '/auth/verify' && request.method === 'GET') return Response.json({ status: 'ok' });
 
   if (docker) {

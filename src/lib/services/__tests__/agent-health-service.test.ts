@@ -291,6 +291,53 @@ describe('agent-health-service', () => {
       }
     });
 
+    it.each([
+      ['a 300-character image reference', 'x'.repeat(300), null],
+      ['an empty string', '', null],
+      ['a non-string', 42, null],
+      ['a padded reference', '  ghcr.io/x/agent:dev  ', 'ghcr.io/x/agent:dev'],
+    ])('bounds %s reported by the agent', async (_label, reported, expected) => {
+      const body = JSON.stringify({
+        status: 'healthy',
+        agentVersion: '0.1.0',
+        agentImage: reported,
+        agentImageTag: reported,
+        capabilities: { docker: { available: true }, zfs: { available: false } },
+      });
+      const fetchFn = mock(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
+        return new Response(body, { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn, async () => 'jwt-123');
+
+      expect(result.healthy).toBe(true);
+      if (result.healthy) {
+        expect(result.agentImage).toBe(expected);
+        expect(result.agentImageTag).toBe(expected);
+      }
+    });
+
+    it('keeps a reference exactly at the 256-character bound', async () => {
+      const reference = 'x'.repeat(256);
+      const body = JSON.stringify({
+        status: 'healthy',
+        agentVersion: '0.1.0',
+        agentImage: reference,
+        agentImageTag: 'dev',
+        capabilities: { docker: { available: true }, zfs: { available: false } },
+      });
+      const fetchFn = mock(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
+        return new Response(body, { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn, async () => 'jwt-123');
+      if (result.healthy) expect(result.agentImage).toBe(reference);
+    });
+
     it('leaves infoSupported undefined when getToken throws', async () => {
       const fetchFn = mock(async () =>
         new Response(healthBody, { status: 200 })

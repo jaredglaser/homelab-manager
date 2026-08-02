@@ -28,6 +28,13 @@ interface HostRowProps {
   onRemove: () => void
 }
 
+/** Tooltip copy for the agent tag chip. Split out because Base UI renders tooltip content on hover only. */
+export function agentTagTooltip(host: HostListItem, expectedImageTag: string): string {
+  const reference = host.agentImage ?? host.agentImageTag ?? 'unknown image'
+  if (host.agentImageTag === expectedImageTag) return reference
+  return `${reference} does not match this dashboard's ${expectedImageTag} channel`
+}
+
 function AgentTagBadge({ host, expectedImageTag }: { host: HostListItem; expectedImageTag: string }) {
   const matches = host.agentImageTag === expectedImageTag
   return (
@@ -36,18 +43,14 @@ function AgentTagBadge({ host, expectedImageTag }: { host: HostListItem; expecte
         render={
           <Badge
             variant={matches ? 'outline' : 'warning'}
-            className="h-4 text-[10px]"
+            className="h-4 max-w-40 truncate text-[10px]"
             aria-label="agent image tag"
           >
             {host.agentImageTag}
           </Badge>
         }
       />
-      <TooltipContent>
-        {matches
-          ? host.agentImage
-          : `${host.agentImage} does not match this dashboard's ${expectedImageTag} channel`}
-      </TooltipContent>
+      <TooltipContent>{agentTagTooltip(host, expectedImageTag)}</TooltipContent>
     </Tooltip>
   )
 }

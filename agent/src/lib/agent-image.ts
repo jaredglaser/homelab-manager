@@ -32,6 +32,37 @@ export function parseImageTag(reference: string): string | null {
   return DOCKER_TAG_PATTERN.test(tag) ? tag : null;
 }
 
+const UNRESOLVED: AgentImageInfo = { image: null, tag: null };
+
+/**
+ * Build the lazy resolver `/info` calls.
+ *
+ * Resolution must not happen at startup: Dockerode sets no request timeout, so a
+ * black-holed DOCKER_HOST would stall the process before `Bun.serve` binds, and a
+ * cold `docker compose up` races the socket-proxy (plain `depends_on`, not
+ * `condition: service_healthy`). A failure is therefore retried on the next call
+ * rather than frozen for the life of the container; only a success is cached,
+ * since the image cannot change without the container being recreated.
+ */
+export function createAgentImageResolver(
+  docker: Dockerode | null,
+  containerName: string,
+  envImage: string | undefined,
+): () => Promise<AgentImageInfo> {
+  let resolved: AgentImageInfo | null = null;
+  let inFlight: Promise<AgentImageInfo> | null = null;
+
+  return async () => {
+    if (resolved) return resolved;
+    inFlight ??= resolveAgentImage(docker, containerName, envImage).finally(() => {
+      inFlight = null;
+    });
+    const result = await inFlight;
+    if (result.image !== null) resolved = result;
+    return result;
+  };
+}
+
 /**
  * Resolve the image this agent is running.
  *
@@ -49,18 +80,18 @@ export async function resolveAgentImage(
   const fromEnv = envImage?.trim();
   if (fromEnv) return { image: fromEnv, tag: parseImageTag(fromEnv) };
 
-  if (!docker) return { image: null, tag: null };
+  if (!docker) return UNRESOLVED;
 
   try {
     const info = await docker.getContainer(containerName).inspect();
     const image = info.Config?.Image?.trim();
-    if (!image) return { image: null, tag: null };
+    if (!image) return UNRESOLVED;
     return { image, tag: parseImageTag(image) };
   } catch (error) {
     console.error(
       `Could not determine agent image from container '${containerName}':`,
       error instanceof Error ? error.message : error,
     );
-    return { image: null, tag: null };
+    return UNRESOLVED;
   }
 }

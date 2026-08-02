@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, afterEach } from 'bun:test';
 import {
   toHostListItem,
   getAgentImage,
@@ -8,6 +8,7 @@ import {
   DEFAULT_AGENT_IMAGE_TAG,
 } from '../host-utils';
 import type { ManagedHost } from '../../database/repositories/host-repository';
+import { generateAgentStackEnv } from '@/lib/templates/agent-stack-compose';
 
 describe('toHostListItem', () => {
   const baseRow: ManagedHost = {
@@ -37,6 +38,17 @@ describe('toHostListItem', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
     });
+  });
+
+  test('carries the reported agent image through to the API shape', () => {
+    const row = {
+      ...baseRow,
+      agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+      agentImageTag: 'dev',
+    };
+    const item = toHostListItem(row);
+    expect(item.agentImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');
+    expect(item.agentImageTag).toBe('dev');
   });
 
   test('applies agentVersion override', () => {
@@ -122,11 +134,67 @@ describe('normalizeAgentImageTag', () => {
 });
 
 describe('agent images', () => {
-  // Vite inlines VITE_AGENT_IMAGE_TAG at build time, so the tag cannot be varied here.
-  test('pin both images to the build-time tag', () => {
-    const tag = getAgentImageTag();
-    expect(tag).toBe(DEFAULT_AGENT_IMAGE_TAG);
-    expect(getAgentImage()).toBe(`ghcr.io/jaredglaser/homelab-manager-agent:${tag}`);
-    expect(getAgentUpdaterImage()).toBe(`ghcr.io/jaredglaser/homelab-manager-agent-updater:${tag}`);
+  const originalTag = import.meta.env.VITE_AGENT_IMAGE_TAG;
+
+  function setBuildTag(tag: string | undefined) {
+    if (tag === undefined) {
+      delete import.meta.env.VITE_AGENT_IMAGE_TAG;
+    } else {
+      import.meta.env.VITE_AGENT_IMAGE_TAG = tag;
+    }
+  }
+
+  afterEach(() => {
+    setBuildTag(originalTag);
+  });
+
+  test('defaults both images to latest when the build set no tag', () => {
+    setBuildTag(undefined);
+    expect(getAgentImageTag()).toBe(DEFAULT_AGENT_IMAGE_TAG);
+    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
+    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
+  });
+
+  test('pins both images to the tag the build baked in', () => {
+    setBuildTag('dev');
+    expect(getAgentImageTag()).toBe('dev');
+    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');
+    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:dev');
+  });
+
+  test('pins to a release tag', () => {
+    setBuildTag('v1.2.3');
+    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:v1.2.3');
+  });
+
+  test('routes a malformed build tag through the guard rather than emitting it', () => {
+    setBuildTag('dev latest');
+    expect(getAgentImageTag()).toBe(DEFAULT_AGENT_IMAGE_TAG);
+    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
+  });
+});
+
+describe('generated enrollment files carry the build tag', () => {
+  const originalTag = import.meta.env.VITE_AGENT_IMAGE_TAG;
+
+  afterEach(() => {
+    if (originalTag === undefined) {
+      delete import.meta.env.VITE_AGENT_IMAGE_TAG;
+    } else {
+      import.meta.env.VITE_AGENT_IMAGE_TAG = originalTag;
+    }
+  });
+
+  test('a dev dashboard writes dev images into the agent .env', () => {
+    import.meta.env.VITE_AGENT_IMAGE_TAG = 'dev';
+    const env = generateAgentStackEnv({
+      hostName: 'test-host',
+      agentTrustedPubkey: 'pubkey',
+      agentImage: getAgentImage(),
+      agentUpdaterImage: getAgentUpdaterImage(),
+      capabilities: { docker: true, zfs: false },
+    });
+    expect(env).toContain('AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:dev\n');
+    expect(env).toContain('AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:dev\n');
   });
 });

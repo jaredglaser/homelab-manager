@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
-import { parseImageTag, resolveAgentImage } from '../lib/agent-image';
+import { createAgentImageResolver, parseImageTag, resolveAgentImage } from '../lib/agent-image';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -110,5 +110,70 @@ describe('resolveAgentImage', () => {
       image: 'ghcr.io/x/agent@sha256:abc123',
       tag: null,
     });
+  });
+});
+
+describe('createAgentImageResolver', () => {
+  function dockerFailingTimes(failures: number, image = 'ghcr.io/x/agent:dev') {
+    let calls = 0;
+    return {
+      calls: () => calls,
+      docker: {
+        getContainer: () => ({
+          inspect: () => {
+            calls += 1;
+            return calls <= failures
+              ? Promise.reject(new Error('connect ECONNREFUSED'))
+              : Promise.resolve({ Config: { Image: image } });
+          },
+        }),
+      },
+    };
+  }
+
+  test('retries after a failed resolution instead of freezing the null', async () => {
+    const { docker, calls } = dockerFailingTimes(1);
+    const resolve = createAgentImageResolver(docker as never, 'hlm-agent', undefined);
+
+    expect(await resolve()).toEqual({ image: null, tag: null });
+    expect(await resolve()).toEqual({ image: 'ghcr.io/x/agent:dev', tag: 'dev' });
+    expect(calls()).toBe(2);
+  });
+
+  test('caches a success so later calls do not touch Docker again', async () => {
+    const { docker, calls } = dockerFailingTimes(0);
+    const resolve = createAgentImageResolver(docker as never, 'hlm-agent', undefined);
+
+    await resolve();
+    await resolve();
+    await resolve();
+    expect(calls()).toBe(1);
+  });
+
+  test('shares one in-flight resolution across concurrent callers', async () => {
+    const { docker, calls } = dockerFailingTimes(0);
+    const resolve = createAgentImageResolver(docker as never, 'hlm-agent', undefined);
+
+    const [a, b] = await Promise.all([resolve(), resolve()]);
+    expect(a).toEqual({ image: 'ghcr.io/x/agent:dev', tag: 'dev' });
+    expect(b).toEqual(a);
+    expect(calls()).toBe(1);
+  });
+
+  test('never touches Docker when AGENT_IMAGE is set', async () => {
+    const { docker, calls } = dockerFailingTimes(0);
+    const resolve = createAgentImageResolver(docker as never, 'hlm-agent', 'ghcr.io/x/agent:pinned');
+
+    expect(await resolve()).toEqual({ image: 'ghcr.io/x/agent:pinned', tag: 'pinned' });
+    expect(calls()).toBe(0);
+  });
+
+  test('keeps retrying on a host that can never resolve', async () => {
+    const { docker, calls } = dockerFailingTimes(Number.MAX_SAFE_INTEGER);
+    const resolve = createAgentImageResolver(docker as never, 'hlm-agent', undefined);
+
+    await resolve();
+    await resolve();
+    expect(calls()).toBe(2);
   });
 });

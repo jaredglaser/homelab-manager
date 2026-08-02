@@ -106,7 +106,16 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 | `dev` | `dev` | Early access to work that has not reached `main` yet. Expect breakage; run it on a throwaway stack, not your only one. |
 | `<short-sha>` | any push to `main` or `dev` | Pinning to an exact build, e.g. to roll back after a bad `latest`. |
 
-Mixing tags across images is not tested: run all four images (`web`, `worker`, `agent`, `agent-updater`) on the same tag.
+Set `HLM_IMAGE_TAG` in your `.env` to move the whole stack at once:
+
+```env
+HLM_IMAGE_TAG=dev
+```
+
+Mixing tags across images is not tested, and one mismatch in particular breaks the dashboard: only the `worker` applies database migrations, so a `web:dev` running against a `worker:latest` that has not applied a newer schema fails every write it attempts. Use the one variable rather than editing image lines.
+
+> [!WARNING]
+> `dev` is an auto-updating channel gated only by push access to the `dev` branch. The agent-updater tracks a mutable tag and recreates the agent container on its own, and the agent holds a read-write Docker socket, so anything published to `:dev` runs as root on every host tracking it. Give the `dev` branch the same protection rules as `main` before using this channel.
 
 The `web` image knows which tag it was built from, so the Add Host wizard on a `dev` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:dev` and `...-agent-updater:dev`. Hosts you enrolled before switching keep whatever tag their own `.env` pins, and the agent-updater holds them there.
 
@@ -118,7 +127,16 @@ sed -i 's/:latest$/:dev/' .env   # AGENT_IMAGE and AGENT_UPDATER_IMAGE
 docker compose up -d
 ```
 
-A host shows no tag until it has completed one health check against an agent new enough to report one. An agent works this out from the `AGENT_IMAGE` environment variable the generated compose passes it, falling back to inspecting its own container over the Docker socket, so a ZFS-only host needs that variable set to report anything.
+A host shows no tag until it has completed one health check against an agent new enough to report one. An agent works this out from the `AGENT_IMAGE` environment variable the generated compose passes it, falling back to inspecting its own container over the Docker socket.
+
+Hosts enrolled before this existed have no `AGENT_IMAGE` line in their compose file. Docker-capable ones recover on their own through the self-inspection fallback. A **ZFS-only** host has no Docker socket and cannot, so add the variable to the `agent` service in its compose file and re-up:
+
+```yaml
+services:
+  agent:
+    environment:
+      AGENT_IMAGE: ${AGENT_IMAGE}
+```
 
 ---
 

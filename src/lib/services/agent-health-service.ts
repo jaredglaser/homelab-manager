@@ -14,6 +14,19 @@ export type AgentHealthResult =
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
+// An agent is a remote peer, so /info is untrusted input however trusted the host
+// is for deploys. The agent-side tag parser is not a control here: a hostile or
+// buggy agent puts whatever it likes in the JSON body. Bound it before it reaches
+// an unbounded TEXT column that every dashboard user then loads.
+const MAX_REPORTED_IMAGE_LENGTH = 256;
+
+function boundedImageField(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed.length > MAX_REPORTED_IMAGE_LENGTH) return null;
+  return trimmed;
+}
+
 /**
  * Fetch version and capability detail from the agent's authenticated /info
  * endpoint. Best-effort: returns an empty object on any failure so liveness
@@ -60,8 +73,8 @@ async function fetchAgentInfo(
     return {
       version: data.agentVersion,
       dockerVersion: data.capabilities?.docker?.version,
-      agentImage: data.agentImage ?? null,
-      agentImageTag: data.agentImageTag ?? null,
+      agentImage: boundedImageField(data.agentImage),
+      agentImageTag: boundedImageField(data.agentImageTag),
       infoSupported: true,
     };
   } catch (err) {
