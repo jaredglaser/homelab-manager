@@ -34,7 +34,6 @@ export function manifestEntryToSummary(name: string, entry: StackEntry): StackSu
   return {
     name,
     host: entry.host,
-    syncStatus: 'unknown',
     deployMode: entry.autoDeploy ? 'auto' : 'manual',
     lastDeployAt: null,
     lastDeployStatus: null,
@@ -48,7 +47,6 @@ export function manifestEntryToDetail(name: string, entry: StackEntry, composeCo
   return {
     name,
     host: entry.host,
-    syncStatus: 'unknown',
     deployMode: entry.autoDeploy ? 'auto' : 'manual',
     composeContent,
     lastDeployCommitSha: null,

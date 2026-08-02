@@ -9,7 +9,7 @@ import {
 import type { DeployDeps } from '@/lib/stacks/stack-mappers';
 import type { DeployRecord, DeployRequest } from '@/lib/deploy/types';
 import type { DeployPipeline } from '@/lib/deploy/pipeline';
-import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/stacks/stack-service';
+import { STACK_NAME_PATTERN } from '@/lib/constants/path-patterns';
 import * as gitConfig from '@/lib/config/git-config';
 import * as pipelineFactory from '@/lib/deploy/pipeline-factory';
 import { initBareRepo, commitFiles } from '@/lib/git/repo';
@@ -98,7 +98,6 @@ describe('manifestEntryToSummary', () => {
     expect(result.name).toBe('plex');
     expect(result.host).toBe('homeserver');
     expect(result.deployMode).toBe('auto');
-    expect(result.syncStatus).toBe('unknown');
     expect(result.lastDeployAt).toBeNull();
     expect(result.lastDeployStatus).toBeNull();
     expect(result.containerCount).toBe(0);
@@ -330,42 +329,47 @@ describe('triggerStackDeploy', () => {
   });
 });
 
-describe('SAFE_PATH_SEGMENT_PATTERN (createStackInRepo validation)', () => {
+describe('STACK_NAME_PATTERN (createStackInRepo validation)', () => {
   test('accepts valid stack names with letters and numbers', () => {
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('mystack')).toBe(true);
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('stack123')).toBe(true);
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('MyStack')).toBe(true);
+    expect(STACK_NAME_PATTERN.test('mystack')).toBe(true);
+    expect(STACK_NAME_PATTERN.test('stack123')).toBe(true);
+    expect(STACK_NAME_PATTERN.test('MyStack')).toBe(true);
   });
 
   test('accepts stack names with hyphens and underscores', () => {
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('my-stack')).toBe(true);
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('my_stack')).toBe(true);
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('my-stack_v2')).toBe(true);
+    expect(STACK_NAME_PATTERN.test('my-stack')).toBe(true);
+    expect(STACK_NAME_PATTERN.test('my_stack')).toBe(true);
+    expect(STACK_NAME_PATTERN.test('my-stack_v2')).toBe(true);
+  });
+
+  test('rejects a leading hyphen or underscore, matching the agent', () => {
+    expect(STACK_NAME_PATTERN.test('_stack')).toBe(false);
+    expect(STACK_NAME_PATTERN.test('-stack')).toBe(false);
   });
 
   test('rejects path traversal: ../evil', () => {
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('../evil')).toBe(false);
+    expect(STACK_NAME_PATTERN.test('../evil')).toBe(false);
   });
 
   test('rejects names with forward slashes: foo/bar', () => {
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('foo/bar')).toBe(false);
+    expect(STACK_NAME_PATTERN.test('foo/bar')).toBe(false);
   });
 
   test('rejects names with spaces: foo bar', () => {
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('foo bar')).toBe(false);
+    expect(STACK_NAME_PATTERN.test('foo bar')).toBe(false);
   });
 
   test('rejects empty string', () => {
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('')).toBe(false);
+    expect(STACK_NAME_PATTERN.test('')).toBe(false);
   });
 
   test('rejects names with dots', () => {
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('stack.v2')).toBe(false);
+    expect(STACK_NAME_PATTERN.test('stack.v2')).toBe(false);
   });
 
   test('rejects names with special characters', () => {
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('stack$name')).toBe(false);
-    expect(SAFE_PATH_SEGMENT_PATTERN.test('stack@host')).toBe(false);
+    expect(STACK_NAME_PATTERN.test('stack$name')).toBe(false);
+    expect(STACK_NAME_PATTERN.test('stack@host')).toBe(false);
   });
 });
 

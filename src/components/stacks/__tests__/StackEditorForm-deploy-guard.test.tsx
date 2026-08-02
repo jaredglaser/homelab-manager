@@ -47,7 +47,6 @@ mock.module('@/data/stacks/functions', () => ({
 const detail: StackDetail = {
   name: 'web',
   host: 'host1',
-  syncStatus: 'in_sync',
   deployMode: 'manual',
   icon: null,
   composeContent: 'image: nginx',

@@ -143,9 +143,9 @@ describe('StacksMenuContent', () => {
   it('renders stacks sorted by name', async () => {
     mockListStacks.mockImplementation(() =>
       Promise.resolve([
-        { name: 'zabbix', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-        { name: 'authentik', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'zabbix', host: 'server1', icon: null, deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'authentik', host: 'server1', icon: null, deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'plex', host: 'server1', icon: null, deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
       ]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -164,8 +164,8 @@ describe('StacksMenuContent', () => {
   it('renders <img> for stacks with icon and <span> placeholder for stacks with null icon', async () => {
     mockListStacks.mockImplementation(() =>
       Promise.resolve([
-        { name: 'nginx', host: 'server1', icon: 'nginx', syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
-        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'nginx', host: 'server1', icon: 'nginx', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'plex', host: 'server1', icon: null, deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
       ]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -189,7 +189,7 @@ describe('StacksMenuContent', () => {
   it('calls close context when a stack link is clicked', async () => {
     const closeSpy = mock(() => {})
     mockListStacks.mockImplementation(() =>
-      Promise.resolve([{ name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 }]),
+      Promise.resolve([{ name: 'plex', host: 'server1', icon: null, deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 }]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
@@ -207,7 +207,7 @@ describe('StacksMenuContent', () => {
   it('renders links with the stack name resolved in the href', async () => {
     mockListStacks.mockImplementation(() =>
       Promise.resolve([
-        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'plex', host: 'server1', icon: null, deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
       ]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })

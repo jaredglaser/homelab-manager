@@ -9,6 +9,7 @@ import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-clien
 import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
 import type { RepoStackSnapshot } from '@/lib/stacks/stack-drift-service';
 import { loadGitConfig } from '@/lib/config/git-config';
+import { STACK_NAME_PATTERN } from '@/lib/constants/path-patterns';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
@@ -19,12 +20,8 @@ import {
   manifestEntryToDetail,
   toStackDeployRecord,
   handleTriggerDeploy,
-  computeSyncStatus,
 } from '@/lib/stacks/stack-mappers';
 import { resolveDeleteStack, type DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
-
-/** Safe path segment: allows only alphanumeric, hyphen, and underscore. Used to validate stack names and secret keys. */
-export const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 /** Re-exported alongside service layer for consistent mock.module() targeting in tests. */
 export { resolveDeleteStack } from '@/lib/stacks/delete-stack-resolver';
@@ -48,40 +45,7 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
   }
 
   const manifest = parseManifest(manifestContent);
-  const entries = Object.entries(manifest.stacks);
-
-  try {
-    // Batch-fetch latest deploy per stack and resolve HEAD SHA in parallel
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
-    const { default: git } = await import('isomorphic-git');
-    const fs = await import('node:fs');
-
-    const dbConfig = loadDatabaseConfig();
-    const dbClient = await databaseConnectionManager.getClient(dbConfig);
-    const deployRepo = new DeployRepository(dbClient.getPool());
-
-    const [latestDeploys, headSha] = await Promise.all([
-      deployRepo.getLatestDeployPerStack(),
-      git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' }).catch(() => null),
-    ]);
-
-    const latestDeployMap = new Map(latestDeploys.map((d) => [`${d.host}/${d.stack}`, d]));
-
-    return entries.map(([name, entry]) => {
-      const summary = manifestEntryToSummary(name, entry);
-      summary.syncStatus = computeSyncStatus(latestDeployMap.get(`${entry.host}/${name}`) ?? null, headSha);
-      return summary;
-    });
-  } catch (error) {
-    if (error instanceof TypeError || error instanceof RangeError) {
-      throw error;
-    }
-    console.error('[StackService] Failed to enrich stack summaries:', error);
-    // Return manifest stacks with 'unknown' sync status when DB/git fails
-    return entries.map(([name, entry]) => manifestEntryToSummary(name, entry));
-  }
+  return Object.entries(manifest.stacks).map(([name, entry]) => manifestEntryToSummary(name, entry));
 }
 
 export async function getStackDetailByName(
@@ -338,8 +302,8 @@ export async function createStackInRepo(
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
 
-  if (!SAFE_PATH_SEGMENT_PATTERN.test(stackName)) {
-    throw new Error(`Invalid stack name "${stackName}": must contain only letters, numbers, hyphens, and underscores`);
+  if (!STACK_NAME_PATTERN.test(stackName)) {
+    throw new Error(`Invalid stack name "${stackName}": must start with a letter or digit and contain only letters, digits, hyphens, and underscores`);
   }
 
   // Validate host exists in managed_hosts

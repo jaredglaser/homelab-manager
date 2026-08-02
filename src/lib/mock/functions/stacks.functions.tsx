@@ -5,7 +5,6 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'traefik',
     host: 'nas01',
-    syncStatus: 'pending',
     deployMode: 'manual',
     lastDeployAt: new Date(Date.now() - 86_400_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -15,7 +14,6 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'plex',
     host: 'nas01',
-    syncStatus: 'in_sync',
     deployMode: 'auto',
     lastDeployAt: new Date(Date.now() - 3_600_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -25,7 +23,6 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'homeassistant',
     host: 'nas01',
-    syncStatus: 'in_sync',
     deployMode: 'auto',
     lastDeployAt: new Date(Date.now() - 1_800_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -35,7 +32,6 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'monitoring',
     host: 'nas01',
-    syncStatus: 'in_sync',
     deployMode: 'manual',
     lastDeployAt: new Date(Date.now() - 43_200_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -46,7 +42,6 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'jellyfin',
     host: 'server02',
-    syncStatus: 'in_sync',
     deployMode: 'auto',
     lastDeployAt: new Date(Date.now() - 7_200_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -56,7 +51,6 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'vaultwarden',
     host: 'server02',
-    syncStatus: 'in_sync',
     deployMode: 'auto',
     lastDeployAt: new Date(Date.now() - 10_800_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -66,7 +60,6 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'pihole',
     host: 'server02',
-    syncStatus: 'failed',
     deployMode: 'auto',
     lastDeployAt: new Date(Date.now() - 7_200_000).toISOString(),
     lastDeployStatus: 'failed',
@@ -76,7 +69,6 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'portainer',
     host: 'server02',
-    syncStatus: 'in_sync',
     deployMode: 'manual',
     lastDeployAt: new Date(Date.now() - 21_600_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -303,11 +295,10 @@ export async function getStackDetail(opts: {
   return {
     name: stack.name,
     host: stack.host,
-    syncStatus: stack.syncStatus,
     deployMode: stack.deployMode,
     composeContent: compose,
     lastDeployCommitSha: 'a1b2c3d',
-    currentCommitSha: stack.syncStatus === 'pending' ? 'x9y8z7w' : 'a1b2c3d',
+    currentCommitSha: stack.name === 'traefik' ? 'x9y8z7w' : 'a1b2c3d',
     variableNames,
     icon: stack.icon,
   };

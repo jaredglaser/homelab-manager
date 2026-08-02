@@ -51,7 +51,6 @@ export interface StackDriftReport {
 export interface StackSummary {
   name: string;
   host: string;
-  syncStatus: SyncStatus;
   deployMode: DeployMode;
   lastDeployAt: string | null;
   lastDeployStatus: DeployStatus | null;
@@ -60,7 +59,7 @@ export interface StackSummary {
 }
 
 /** Full stack detail shown in expanded view */
-export interface StackDetail extends Pick<StackSummary, 'name' | 'host' | 'syncStatus' | 'deployMode' | 'icon'> {
+export interface StackDetail extends Pick<StackSummary, 'name' | 'host' | 'deployMode' | 'icon'> {
   composeContent: string;
   lastDeployCommitSha: string | null;
   currentCommitSha: string;
