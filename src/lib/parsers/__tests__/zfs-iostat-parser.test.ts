@@ -219,6 +219,12 @@ describe('parseZFSIOStat', () => {
     expect(parseZFSIOStat('tank')).toBeNull();
   });
 
+  it('should reject lines whose numeric columns parse to NaN', () => {
+    // A bare '.' is the one shape that satisfies the [\d.]+ unit pattern but parses to NaN.
+    expect(parseZFSIOStat('tank  .  .  .  .  .  .')).toBeNull();
+    expect(parseZFSIOStat('  mirror-0  -  -  .  .  .  .')).toBeNull();
+  });
+
   it('should handle lines with exactly 7 columns', () => {
     const line = 'tank  1T  500G  10  5  1M  500K';
     const result = parseZFSIOStat(line);
