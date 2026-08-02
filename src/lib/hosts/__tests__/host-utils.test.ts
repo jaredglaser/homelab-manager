@@ -1,8 +1,11 @@
-import { describe, test, expect, afterEach } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 import {
   toHostListItem,
   getAgentImage,
+  getAgentImageTag,
   getAgentUpdaterImage,
+  normalizeAgentImageTag,
+  DEFAULT_AGENT_IMAGE_TAG,
 } from '../host-utils';
 import type { ManagedHost } from '../../database/repositories/host-repository';
 
@@ -78,62 +81,48 @@ describe('toHostListItem', () => {
   });
 });
 
-describe('getAgentImage', () => {
-  const originalEnv = process.env.NODE_ENV;
+describe('normalizeAgentImageTag', () => {
+  test.each(['latest', 'dev', 'a1b2c3d', '1.2.3', 'v1.2.3-rc.1', 'A_b.c-d'])(
+    'keeps the valid tag %s',
+    (tag) => {
+      expect(normalizeAgentImageTag(tag)).toBe(tag);
+    },
+  );
 
-  afterEach(() => {
-    if (originalEnv === undefined) {
-      delete process.env.NODE_ENV;
-    } else {
-      process.env.NODE_ENV = originalEnv;
-    }
+  test.each([
+    ['', 'empty'],
+    ['dev latest', 'whitespace'],
+    ['-dev', 'leading dash'],
+    ['.dev', 'leading dot'],
+    ['dev:latest', 'colon'],
+    ['ghcr.io/x/y:dev', 'a full image reference'],
+    ['dev\n$(id)', 'shell metacharacters'],
+    ['d'.repeat(129), 'over the 128-character limit'],
+  ])('falls back to latest for %s (%s)', (raw) => {
+    expect(normalizeAgentImageTag(raw)).toBe(DEFAULT_AGENT_IMAGE_TAG);
   });
 
-  // TODO: restore dev-variant test once CI/local builds publish a :dev tag.
-  // test('returns dev image in development', () => {
-  //   process.env.NODE_ENV = 'development';
-  //   expect(getAgentImage()).toBe('homelab-manager-agent:dev');
-  // });
-
-  test('returns prod image in production', () => {
-    process.env.NODE_ENV = 'production';
-    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
+  test.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['a number', 7],
+    ['an object', { tag: 'dev' }],
+  ])('falls back to latest for %s', (_label, raw) => {
+    expect(normalizeAgentImageTag(raw)).toBe(DEFAULT_AGENT_IMAGE_TAG);
   });
 
-  test('returns prod image when NODE_ENV is unset', () => {
-    delete process.env.NODE_ENV;
-    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
-  });
-
-  test('returns prod image even in development (dev variant disabled)', () => {
-    process.env.NODE_ENV = 'development';
-    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
+  test('accepts a tag exactly at the 128-character limit', () => {
+    const tag = 'd'.repeat(128);
+    expect(normalizeAgentImageTag(tag)).toBe(tag);
   });
 });
 
-describe('getAgentUpdaterImage', () => {
-  const originalEnv = process.env.NODE_ENV;
-
-  afterEach(() => {
-    if (originalEnv === undefined) {
-      delete process.env.NODE_ENV;
-    } else {
-      process.env.NODE_ENV = originalEnv;
-    }
-  });
-
-  test('returns prod image in production', () => {
-    process.env.NODE_ENV = 'production';
-    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
-  });
-
-  test('returns prod image when NODE_ENV is unset', () => {
-    delete process.env.NODE_ENV;
-    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
-  });
-
-  test('returns prod image even in development (dev variant disabled)', () => {
-    process.env.NODE_ENV = 'development';
-    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
+describe('agent images', () => {
+  // Vite inlines VITE_AGENT_IMAGE_TAG at build time, so the tag cannot be varied here.
+  test('pin both images to the build-time tag', () => {
+    const tag = getAgentImageTag();
+    expect(tag).toBe(DEFAULT_AGENT_IMAGE_TAG);
+    expect(getAgentImage()).toBe(`ghcr.io/jaredglaser/homelab-manager-agent:${tag}`);
+    expect(getAgentUpdaterImage()).toBe(`ghcr.io/jaredglaser/homelab-manager-agent-updater:${tag}`);
   });
 });

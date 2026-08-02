@@ -443,6 +443,8 @@ jobs:
           context: .
           target: production
           push: true
+          build-args: |
+            VITE_AGENT_IMAGE_TAG=${{ github.ref == 'refs/heads/dev' && 'dev' || 'latest' }}
           tags: ${{ steps.meta-web.outputs.tags }}
           labels: ${{ steps.meta-web.outputs.labels }}
           cache-from: type=gha

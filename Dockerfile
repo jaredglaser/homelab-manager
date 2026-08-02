@@ -21,6 +21,11 @@ FROM base AS production
 
 ENV NODE_ENV=production
 
+# Tag the Add Host wizard pins new agents to. Baked into the client bundle, so the
+# :dev dashboard image enrolls :dev agents; CI sets it per branch.
+ARG VITE_AGENT_IMAGE_TAG=latest
+ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
+
 # git is needed at runtime for git-upload-pack and git-receive-pack (Git HTTP smart protocol)
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 

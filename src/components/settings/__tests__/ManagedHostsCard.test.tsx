@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { ManagedHostsCardView } from '../ManagedHostsCard'
+import { AgentChannelNotice, ManagedHostsCardView } from '../ManagedHostsCard'
 import type { ManagedHostsCardProps } from '../ManagedHostsCard'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 
@@ -440,4 +440,37 @@ describe('ManagedHostsCard', () => {
     })
   })
 
+})
+
+describe('agent channel notice', () => {
+  it('stays hidden on the default channel', () => {
+    render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+    expect(screen.queryByText(/pinned to the/i)).toBeNull()
+  })
+
+  it('names the channel and the images new hosts get', () => {
+    render(
+      <AgentChannelNotice
+        tag="dev"
+        agentImage="ghcr.io/jaredglaser/homelab-manager-agent:dev"
+        agentUpdaterImage="ghcr.io/jaredglaser/homelab-manager-agent-updater:dev"
+      />,
+    )
+    expect(screen.getByText('Agents pinned to the dev channel')).toBeTruthy()
+    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent:dev')).toBeTruthy()
+    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent-updater:dev')).toBeTruthy()
+  })
+
+  it('tells the operator how to move already-enrolled hosts', () => {
+    render(
+      <AgentChannelNotice
+        tag="dev"
+        agentImage="ghcr.io/jaredglaser/homelab-manager-agent:dev"
+        agentUpdaterImage="ghcr.io/jaredglaser/homelab-manager-agent-updater:dev"
+      />,
+    )
+    expect(screen.getByText('AGENT_IMAGE')).toBeTruthy()
+    expect(screen.getByText('AGENT_UPDATER_IMAGE')).toBeTruthy()
+    expect(screen.getByText('docker compose up -d')).toBeTruthy()
+  })
 })
