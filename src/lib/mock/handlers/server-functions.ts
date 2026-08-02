@@ -13,6 +13,7 @@ import * as stacksFns from '@/lib/mock/functions/stacks.functions';
 import * as authFns from '@/lib/mock/functions/auth.functions';
 import * as hostsFns from '@/lib/mock/functions/hosts.functions';
 import * as gitTokenFns from '@/lib/mock/functions/git-tokens.functions';
+import * as ansibleFns from '@/lib/mock/functions/ansible.functions';
 import { functionIdFromUrl, resolveFunctionName } from '@/lib/mock/handlers/function-id';
 
 /** A server function invocation as decoded from the wire. */
@@ -100,6 +101,11 @@ const registry: Record<string, ServerFnMock> = {
   listGitTokens: fn(gitTokenFns.listGitTokens),
   createGitToken: fn(gitTokenFns.createGitToken),
   revokeGitToken: fn(gitTokenFns.revokeGitToken),
+
+  // Ansible execution layer (disabled by default; the demo build has no sidecar)
+  listAnsibleRuns: fn(ansibleFns.listAnsibleRuns),
+  startAnsibleRun: fn(ansibleFns.startAnsibleRun),
+  cancelAnsibleRun: fn(ansibleFns.cancelAnsibleRun),
 };
 
 export const registeredServerFnNames: readonly string[] = Object.keys(registry);

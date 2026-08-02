@@ -71,6 +71,23 @@ async function startGitTokenHashBackfill(): Promise<void> {
   });
 }
 
+async function startAnsibleRunRecovery(): Promise<void> {
+  const { isAnsibleEnabled } = await import('@/lib/config/ansible-config');
+  if (!isAnsibleEnabled()) return;
+
+  const { databaseConnectionManager: dbm } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { AnsibleRunRepository } = await import(
+    '@/lib/database/repositories/ansible-run-repository'
+  );
+
+  const dbClient = await dbm.getClient(loadDatabaseConfig());
+  const failed = await new AnsibleRunRepository(dbClient.getPool()).failStrandedRuns();
+  if (failed > 0) {
+    console.info(`[Server] Failed ${failed} stranded Ansible run(s) from a prior process`);
+  }
+}
+
 /**
  * Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy
  * recovery, the stats rollup backfill, and the git token hash backfill.
@@ -115,6 +132,10 @@ export function initServer(): void {
 
   startGitTokenHashBackfill().catch((err) => {
     console.error('[Server] Git token hash backfill failed:', err);
+  });
+
+  startAnsibleRunRecovery().catch((err) => {
+    console.error('[Server] Ansible run recovery failed:', err);
   });
 
   console.info('[Server] Shutdown handlers registered');

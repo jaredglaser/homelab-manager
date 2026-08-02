@@ -5,6 +5,7 @@ coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [
   "src/data/*/functions.tsx",
   "src/components/settings/ManagedHostsCardConnected.tsx",
+  "src/components/automation/AutomationPanelConnected.tsx",
   # Custom client entry: browser-only bootstrap, exercised by the e2e suite.
   "src/client.tsx",
   # MSW mock backend glue (worker setup + demo data sources). The pure logic

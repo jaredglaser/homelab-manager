@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AutomationRouteImport } from './routes/automation'
 import { Route as DeniedRouteImport } from './routes/denied'
 import { Route as DockerRouteImport } from './routes/docker'
 import { Route as LoginRouteImport } from './routes/login'
@@ -17,6 +18,8 @@ import { Route as ProxmoxRouteImport } from './routes/proxmox'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StacksRouteImport } from './routes/stacks'
 import { Route as ZfsRouteImport } from './routes/zfs'
+import { Route as ApiAnsibleInventoryRouteImport } from './routes/api/ansible-inventory'
+import { Route as ApiAnsibleRunsRouteImport } from './routes/api/ansible-runs'
 import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
@@ -37,6 +40,11 @@ import { Route as StacksHostHostNameRouteImport } from './routes/stacks/host.$ho
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AutomationRoute = AutomationRouteImport.update({
+  id: '/automation',
+  path: '/automation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeniedRoute = DeniedRouteImport.update({
@@ -72,6 +80,16 @@ const StacksRoute = StacksRouteImport.update({
 const ZfsRoute = ZfsRouteImport.update({
   id: '/zfs',
   path: '/zfs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAnsibleInventoryRoute = ApiAnsibleInventoryRouteImport.update({
+  id: '/api/ansible-inventory',
+  path: '/api/ansible-inventory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAnsibleRunsRoute = ApiAnsibleRunsRouteImport.update({
+  id: '/api/ansible-runs',
+  path: '/api/ansible-runs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDockerInventoryRoute = ApiDockerInventoryRouteImport.update({
@@ -158,6 +176,7 @@ const StacksHostHostNameRoute = StacksHostHostNameRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/automation': typeof AutomationRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
@@ -165,6 +184,8 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
+  '/api/ansible-inventory': typeof ApiAnsibleInventoryRoute
+  '/api/ansible-runs': typeof ApiAnsibleRunsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -184,12 +205,15 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/automation': typeof AutomationRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
+  '/api/ansible-inventory': typeof ApiAnsibleInventoryRoute
+  '/api/ansible-runs': typeof ApiAnsibleRunsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -210,6 +234,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/automation': typeof AutomationRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
@@ -217,6 +242,8 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
+  '/api/ansible-inventory': typeof ApiAnsibleInventoryRoute
+  '/api/ansible-runs': typeof ApiAnsibleRunsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -238,6 +265,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/automation'
     | '/denied'
     | '/docker'
     | '/login'
@@ -245,6 +273,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stacks'
     | '/zfs'
+    | '/api/ansible-inventory'
+    | '/api/ansible-runs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -264,12 +294,15 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/automation'
     | '/denied'
     | '/docker'
     | '/login'
     | '/proxmox'
     | '/settings'
     | '/zfs'
+    | '/api/ansible-inventory'
+    | '/api/ansible-runs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -289,6 +322,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/automation'
     | '/denied'
     | '/docker'
     | '/login'
@@ -296,6 +330,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stacks'
     | '/zfs'
+    | '/api/ansible-inventory'
+    | '/api/ansible-runs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -316,6 +352,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AutomationRoute: typeof AutomationRoute
   DeniedRoute: typeof DeniedRoute
   DockerRoute: typeof DockerRouteWithChildren
   LoginRoute: typeof LoginRoute
@@ -323,6 +360,8 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   StacksRoute: typeof StacksRouteWithChildren
   ZfsRoute: typeof ZfsRoute
+  ApiAnsibleInventoryRoute: typeof ApiAnsibleInventoryRoute
+  ApiAnsibleRunsRoute: typeof ApiAnsibleRunsRoute
   ApiDockerInventoryRoute: typeof ApiDockerInventoryRoute
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
   ApiHealthRoute: typeof ApiHealthRoute
@@ -344,6 +383,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/automation': {
+      id: '/automation'
+      path: '/automation'
+      fullPath: '/automation'
+      preLoaderRoute: typeof AutomationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/denied': {
@@ -393,6 +439,20 @@ declare module '@tanstack/react-router' {
       path: '/zfs'
       fullPath: '/zfs'
       preLoaderRoute: typeof ZfsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ansible-inventory': {
+      id: '/api/ansible-inventory'
+      path: '/api/ansible-inventory'
+      fullPath: '/api/ansible-inventory'
+      preLoaderRoute: typeof ApiAnsibleInventoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ansible-runs': {
+      id: '/api/ansible-runs'
+      path: '/api/ansible-runs'
+      fullPath: '/api/ansible-runs'
+      preLoaderRoute: typeof ApiAnsibleRunsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/docker-inventory': {
@@ -538,6 +598,7 @@ const StacksRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AutomationRoute: AutomationRoute,
   DeniedRoute: DeniedRoute,
   DockerRoute: DockerRouteWithChildren,
   LoginRoute: LoginRoute,
@@ -545,6 +606,8 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   StacksRoute: StacksRouteWithChildren,
   ZfsRoute: ZfsRoute,
+  ApiAnsibleInventoryRoute: ApiAnsibleInventoryRoute,
+  ApiAnsibleRunsRoute: ApiAnsibleRunsRoute,
   ApiDockerInventoryRoute: ApiDockerInventoryRoute,
   ApiDockerStatsRoute: ApiDockerStatsRoute,
   ApiHealthRoute: ApiHealthRoute,

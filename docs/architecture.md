@@ -372,3 +372,66 @@ Managed hosts are configured via the Settings page:
 | `ManagedHostsCard` | Host list with status, capabilities, and actions |
 | `HostDialogs` | Edit and delete confirmation dialogs |
 | `HostRow` | Individual host row with health indicator |
+
+### Ansible Execution Layer (`ansible-sidecar/`)
+
+Proof of concept for issue #416, gated behind `ANSIBLE_RUNNER_ENABLED` (default off).
+The agent deploy path is untouched and remains the only way stacks are deployed; this
+covers host baseline configuration only.
+
+```mermaid
+flowchart LR
+    UI["/automation route"]
+    FN["startAnsibleRun<br/>(admin-only server fn)"]
+    SVC["AnsibleRunService"]
+    SC["ansible-sidecar<br/>(ansible-runner)"]
+    HOSTS["Managed hosts<br/>(SSH)"]
+    DB["ansible_runs<br/>ansible_run_events"]
+    SSE["/api/ansible-runs SSE"]
+
+    UI --> FN --> SVC --> SC --> HOSTS
+    SC -->|"SSE job events"| SVC --> DB
+    SVC --> SSE --> UI
+```
+
+**Sidecar** (`ansible-sidecar/`): a Python container running `ansible-runner` as a library.
+Four routes on a stdlib `ThreadingHTTPServer`: `GET /health`, `POST /runs`, `GET /runs/{id}/events`
+(SSE), `POST /runs/{id}/cancel`. It is deliberately separate from the Bun image so Python,
+`ansible-core` (GPL-3.0-or-later), the collections, and the SSH keys stay out of the
+web-facing process.
+
+- `suppress_env_files=True` keeps extravars out of `<private_data_dir>/env/`, so decrypted
+  secrets never land on disk. Tasks that consume them are marked `no_log`, which keeps the
+  value out of stdout and out of `event_data.res`.
+- `ANSIBLE_HOST_KEY_CHECKING` is passed explicitly: `ansible-runner` defaults it to `False`
+  when the variable is absent from the environment it is handed.
+- Runs declare their host set up front and a run intersecting an in-flight one is rejected
+  with 409. The guard is in-process because there is one sidecar; a second would need the
+  advisory-lock approach the deploy pipeline uses for stacks.
+
+**Event handling**: the sidecar forwards runner job events with `event_data.res` and
+`task_args` stripped. `normalizeRunnerEvent` (`src/lib/ansible/events.ts`) then applies a
+strict allowlist, so only `play_start`, `task_start`, `host_result`, `stats`, and `status`
+shapes reach `ansible_run_events` or the browser. `playbook_on_stats` carries the per-host
+`ok`/`changed`/`failures`/`dark` maps, which is where per-host outcomes come from; a host in
+`dark` is reported `unreachable` rather than failing the run, so one sleeping host does not
+turn a multi-host run red.
+
+**Inventory**: `/api/ansible-inventory` serves `managed_hosts` in Ansible's inventory JSON,
+authenticated with the sidecar token (not a session cookie). `hlm_inventory.py` in the
+sidecar fetches it and prints it; `_meta.hostvars` is always populated so `--host` is never
+invoked. Hosts registered through the Add Host wizard become Ansible targets with no second
+inventory to maintain. The host named by `ANSIBLE_SELF_HOST_NAME` gets `hlm_self_managed: true`
+and the baseline play ends early on it, since the app cannot cleanly recreate itself mid-play.
+
+**Secrets**: variables stored in `stack_secrets` under the reserved scope `__ansible__` are
+decrypted at invocation time and passed as extravars of the same name.
+
+| Module | Purpose |
+|--------|---------|
+| `src/lib/ansible/events.ts` | Runner event allowlist and per-host summary derivation |
+| `src/lib/ansible/inventory.ts` | Managed hosts to Ansible inventory JSON |
+| `src/lib/ansible/inventory-handler.ts` | Token-authenticated inventory endpoint |
+| `src/lib/ansible/sidecar-client.ts` | HTTP + SSE client for the sidecar |
+| `src/lib/ansible/run-service.ts` | Dispatch, event drain, terminal status |
+| `src/lib/ansible/run-broadcast-service.ts` | In-process fan-out to SSE subscribers |

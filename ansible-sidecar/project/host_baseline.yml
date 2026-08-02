@@ -1,0 +1,84 @@
+---
+- name: Host baseline
+  hosts: all
+  gather_facts: true
+  become: true
+  # One sleeping host must not end the run for every other host. Unreachable hosts
+  # come back in playbook_on_stats.dark and are reported on their own.
+  any_errors_fatal: false
+  ignore_unreachable: true
+
+  vars:
+    hlm_appdata_root: /srv/appdata
+    hlm_service_user: homelab
+    hlm_service_group: homelab
+    hlm_appdata_mode: "0750"
+    hlm_baseline_packages: []
+    hlm_baseline_secret: ""
+
+  tasks:
+    - name: Skip the host running Homelab Manager
+      ansible.builtin.meta: end_host
+      when: hlm_self_managed | default(false) | bool
+
+    - name: Install baseline packages
+      ansible.builtin.package:
+        name: "{{ hlm_baseline_packages }}"
+        state: present
+      when: hlm_baseline_packages | length > 0
+
+    - name: Check for a Docker engine
+      ansible.builtin.command: docker version --format '{{ "{{" }}.Server.Version{{ "}}" }}'
+      register: hlm_docker_version
+      changed_when: false
+      failed_when: false
+
+    - name: Report the Docker engine state
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            'Docker engine ' ~ hlm_docker_version.stdout | trim
+            if hlm_docker_version.rc == 0
+            else 'Docker engine not present'
+          }}
+
+    - name: Ensure the service group exists
+      ansible.builtin.group:
+        name: "{{ hlm_service_group }}"
+        state: present
+
+    - name: Ensure the service user exists
+      ansible.builtin.user:
+        name: "{{ hlm_service_user }}"
+        group: "{{ hlm_service_group }}"
+        shell: /usr/sbin/nologin
+        create_home: false
+        state: present
+
+    - name: Ensure the appdata root exists
+      ansible.builtin.file:
+        path: "{{ hlm_appdata_root }}"
+        state: directory
+        owner: "{{ hlm_service_user }}"
+        group: "{{ hlm_service_group }}"
+        mode: "{{ hlm_appdata_mode }}"
+
+    - name: Ensure the baseline credential directory exists
+      ansible.builtin.file:
+        path: "{{ hlm_appdata_root }}/.hlm"
+        state: directory
+        owner: "{{ hlm_service_user }}"
+        group: "{{ hlm_service_group }}"
+        mode: "0700"
+
+    # no_log keeps the value out of stdout, out of event_data.res, and therefore out
+    # of the job_events artifacts and everything downstream of them.
+    - name: Write the baseline credential
+      ansible.builtin.copy:
+        content: "HLM_BASELINE_TOKEN={{ hlm_baseline_secret }}\n"
+        dest: "{{ hlm_appdata_root }}/.hlm/baseline.env"
+        owner: "{{ hlm_service_user }}"
+        group: "{{ hlm_service_group }}"
+        mode: "0600"
+      no_log: true
+      when: hlm_baseline_secret | length > 0

@@ -1,11 +1,12 @@
 # Project Structure
 
-Directory-level map of the repo's four packages. For how the subsystems fit together, see [Architecture](architecture.md); for file-level detail, read the directory itself. Tests live in `__tests__/` folders co-located with the code they cover (omitted below).
+Directory-level map of the repo's packages. For how the subsystems fit together, see [Architecture](architecture.md); for file-level detail, read the directory itself. Tests live in `__tests__/` folders co-located with the code they cover (omitted below).
 
 ```text
 src/                        # Web app + worker (TanStack Start SPA, Bun)
 ├── components/
 │   ├── auth/               # Login and access-denied UI
+│   ├── automation/         # Ansible run trigger and live output (feature-flagged)
 │   ├── docker/             # Docker dashboard: container table, detail panels, charts, log viewer
 │   ├── header/             # Navigation header, menus, demo banner
 │   ├── proxmox/            # Proxmox dashboard: cluster summary, per-node guest/storage sections
@@ -18,6 +19,7 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 ├── data/                   # Server functions + Zod schemas per domain (docker, hosts, proxmox, settings, stacks, zfs)
 ├── middleware/             # createServerFn middleware (database client injection)
 ├── lib/
+│   ├── ansible/            # Runner event allowlist, inventory builder, sidecar client, run service
 │   ├── auth/               # OIDC client, sessions, role mapping, SSE auth
 │   ├── charts/             # ECharts helpers (CSS var colors, y-axis scaling)
 │   ├── clients/            # Agent, database (pg pool), and Proxmox clients
@@ -54,6 +56,10 @@ agent/                      # Agent sidecar (separate Bun package with its own l
 └── src/                    # Bun.serve entry + JWT middleware; routes/ per endpoint, lib/ helpers
 
 agent-updater/              # Agent auto-update sidecar (separate Bun package)
+
+ansible-sidecar/            # Ansible execution sidecar (Python; ansible-runner + playbooks)
+├── app/                    # stdlib HTTP server, run registry, per-host locking
+└── project/                # host_baseline.yml + the dynamic inventory script
 
 migrations/                 # SQL migrations (hypertables, settings, stacks, deploys, auth)
 scripts/                    # check-coverage, icon/schema downloads, migrate-master-key, dev/ seeders

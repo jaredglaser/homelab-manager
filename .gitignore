@@ -53,3 +53,7 @@ agent-token
 /blob-report/
 /playwright/.cache/
 /e2e-build/
+
+# Python bytecode (ansible-sidecar)
+__pycache__/
+*.py[cod]

@@ -172,6 +172,33 @@ services:
     profiles:
       - management
 
+  # Ansible execution sidecar (ansible profile). Off unless ANSIBLE_RUNNER_ENABLED=true
+  # in the app env; the agent deploy path works with or without this service.
+  ansible-sidecar:
+    build:
+      context: ./ansible-sidecar
+      dockerfile: Dockerfile
+    container_name: hlm-ansible-sidecar
+    restart: unless-stopped
+    environment:
+      ANSIBLE_SIDECAR_PORT: "9095"
+      ANSIBLE_SIDECAR_TOKEN: ${ANSIBLE_SIDECAR_TOKEN:-}
+      ANSIBLE_HOST_KEY_CHECKING: ${ANSIBLE_HOST_KEY_CHECKING:-True}
+      # The inventory script reads these to call back into the app.
+      HLM_API_URL: ${ANSIBLE_HLM_API_URL:-http://host.docker.internal:3000}
+      HLM_API_TOKEN: ${ANSIBLE_SIDECAR_TOKEN:-}
+    volumes:
+      - ansible-ssh-local:/runner/ssh
+      - ansible-artifacts-local:/runner/artifacts
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:9095:9095"
+    networks:
+      - homelab-network
+    profiles:
+      - ansible
+
   # Pocket ID OIDC provider (oidc profile)
   pocket-id:
     image: ghcr.io/pocket-id/pocket-id:v2
@@ -226,6 +253,8 @@ volumes:
   pgdata-local:
   agent-stacks-local:
   pocketid-data:
+  ansible-ssh-local:
+  ansible-artifacts-local:
 
 networks:
   homelab-network:
