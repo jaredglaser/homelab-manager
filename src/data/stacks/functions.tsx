@@ -134,7 +134,7 @@ export const saveComposeFile = createServerFn()
 const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const safePathSegment = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Must contain only letters, numbers, hyphens, and underscores');
 
-const stackVariablesSchema = z.object({
+const stackVariableValuesSchema = z.object({
   stackName: safePathSegment,
 });
 
@@ -145,7 +145,7 @@ const stackVariablesSchema = z.object({
  */
 export const getStackVariableValues = createServerFn({ method: 'GET' })
   .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(stackVariablesSchema)
+  .inputValidator(stackVariableValuesSchema)
   .handler(async ({ context, data }): Promise<Record<string, string>> => {
     requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
