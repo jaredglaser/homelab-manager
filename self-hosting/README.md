@@ -114,9 +114,6 @@ HLM_IMAGE_TAG=dev
 
 Mixing tags across images is not tested, and one mismatch in particular breaks the dashboard: only the `worker` applies database migrations, so a `web:dev` running against a `worker:latest` that has not applied a newer schema fails every write it attempts. Use the one variable rather than editing image lines.
 
-> [!WARNING]
-> `dev` is an auto-updating channel gated only by push access to the `dev` branch. The agent-updater tracks a mutable tag and recreates the agent container on its own, and the agent holds a read-write Docker socket, so anything published to `:dev` runs as root on every host tracking it. Give the `dev` branch the same protection rules as `main` before using this channel.
-
 The `web` image knows which tag it was built from, so the Add Host wizard on a `dev` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:dev` and `...-agent-updater:dev`. Hosts you enrolled before switching keep whatever tag their own `.env` pins, and the agent-updater holds them there.
 
 Each agent reports the image it is running, so **Settings → Managed Hosts** shows every host's tag next to its version and flags the ones that do not match the dashboard. To move a flagged host:
