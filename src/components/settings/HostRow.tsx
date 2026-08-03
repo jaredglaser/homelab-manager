@@ -28,7 +28,6 @@ interface HostRowProps {
   onRemove: () => void
 }
 
-/** Tooltip copy for the agent tag chip. Split out because Base UI renders tooltip content on hover only. */
 export function agentTagTooltip(host: HostListItem, expectedImageTag: string): string {
   const reference = host.agentImage ?? host.agentImageTag ?? 'unknown image'
   if (host.agentImageTag === expectedImageTag) return reference

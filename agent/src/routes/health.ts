@@ -67,7 +67,7 @@ export async function handleHealth(
  *
  * @param docker - Dockerode client, or null when Docker is not configured
  * @param zfsCapabilities - Pre-detected ZFS capabilities (detected once at startup)
- * @param resolveImage - Lazy resolver for the image this agent runs; null fields mean undetermined
+ * @param resolveImage - Lazy resolver for this agent's image; null fields mean undetermined
  * @returns An HTTP Response whose JSON body includes status, agentVersion, agent image, and capabilities
  */
 export async function handleInfo(

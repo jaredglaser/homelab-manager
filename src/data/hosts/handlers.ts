@@ -61,8 +61,7 @@ export async function handleCheckHostHealth(
   await deps.repo.updateStatus(host.id, newStatus);
 
   if (healthResult.healthy && (healthResult.version || healthResult.infoSupported)) {
-    // Only an agent that answered /info can speak to its image. An older agent
-    // that 404s leaves the stored value alone rather than clearing it.
+    // Only an agent that answered /info may clear its image; a 404 leaves the stored value.
     await deps.repo.updateAgentInfo(host.id, {
       version: healthResult.version,
       ...(healthResult.infoSupported

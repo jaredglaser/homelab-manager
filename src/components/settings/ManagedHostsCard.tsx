@@ -24,20 +24,10 @@ export interface ManagedHostsCardProps {
 }
 
 export interface AgentChannelBuckets {
-  /** Hosts whose agent reported a tag other than the dashboard's. */
   mismatched: HostListItem[]
-  /** Healthy hosts whose agent reported no image at all. */
   unreported: HostListItem[]
 }
 
-/**
- * Split hosts by how their reported agent tag compares to the dashboard's own.
- *
- * Only a healthy host can land in `unreported`: silence from a host we could not
- * reach says nothing about its agent, and the remedy the notice offers would be
- * wrong for it. A host that reported an image but no tag is digest-pinned, which
- * is deliberate and not comparable to a channel, so it lands in neither bucket.
- */
 export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: string): AgentChannelBuckets {
   const mismatched: HostListItem[] = []
   const unreported: HostListItem[] = []
@@ -46,6 +36,8 @@ export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: st
     if (host.agentImageTag !== null) {
       if (host.agentImageTag !== expectedTag) mismatched.push(host)
     } else if (host.agentImage === null && host.status === 'healthy') {
+      // An image without a tag is a digest pin, and silence from a host we could not
+      // reach says nothing about its agent. Neither belongs in the notice.
       unreported.push(host)
     }
   }

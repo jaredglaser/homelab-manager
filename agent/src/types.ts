@@ -59,8 +59,7 @@ export interface AgentZfsCapability {
 export interface AgentInfoResponse {
   status: 'healthy' | 'unhealthy';
   agentVersion: string;
-  // Optional because agents released before image reporting omit both fields; a
-  // present-but-null value means the agent looked and could not tell.
+  // Absent on agents predating image reporting; null means the agent looked and could not tell.
   agentImage?: string | null;
   agentImageTag?: string | null;
   capabilities: {

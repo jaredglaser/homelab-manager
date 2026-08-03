@@ -149,11 +149,7 @@ export class HostRepository {
     );
   }
 
-  /**
-   * Record what the agent reported about itself. Omitted fields are left as they
-   * were; an explicit null clears one, which is how a host whose agent can no
-   * longer determine its image stops showing a stale tag.
-   */
+  /** An omitted field is left as it was; an explicit null clears it. */
   async updateAgentInfo(id: number, fields: UpdateAgentInfoInput): Promise<void> {
     const setClauses: string[] = [];
     const params: unknown[] = [];

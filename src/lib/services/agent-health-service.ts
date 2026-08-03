@@ -14,10 +14,8 @@ export type AgentHealthResult =
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
-// An agent is a remote peer, so /info is untrusted input however trusted the host
-// is for deploys. The agent-side tag parser is not a control here: a hostile or
-// buggy agent puts whatever it likes in the JSON body. Bound it before it reaches
-// an unbounded TEXT column that every dashboard user then loads.
+// The agent-side tag parser is not a control here: a hostile agent puts what it likes in
+// the JSON body, and this lands in an unbounded TEXT column every user then loads.
 const MAX_REPORTED_IMAGE_LENGTH = 256;
 
 function boundedImageField(value: unknown): string | null {
@@ -37,8 +35,7 @@ function boundedImageField(value: unknown): string | null {
  *
  * @returns `infoSupported: false` when the agent predates /info (404), which
  * callers use to tell "version unknown" apart from "version unchanged".
- * `agentImage`/`agentImageTag` are null for an agent that predates image
- * reporting or one that could not determine its own image.
+ * `agentImage`/`agentImageTag` are null when the agent predates image reporting or could not tell.
  */
 async function fetchAgentInfo(
   agentUrl: string,

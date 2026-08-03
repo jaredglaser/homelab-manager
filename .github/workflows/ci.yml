@@ -443,9 +443,8 @@ jobs:
           context: .
           target: production
           push: true
-          # A release build must enroll agents from its own release, not whatever
-          # :latest happens to be later: the updater tracks a mutable tag, so a
-          # v1.2.3 dashboard pinning :latest would let its agents roll forward past it.
+          # A release must enroll agents from its own release: the updater tracks a mutable
+          # tag, so a v1.2.3 dashboard pinning :latest lets its agents roll forward past it.
           build-args: |
             VITE_AGENT_IMAGE_TAG=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (github.ref == 'refs/heads/dev' && 'dev' || 'latest') }}
           tags: ${{ steps.meta-web.outputs.tags }}

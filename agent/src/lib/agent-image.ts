@@ -1,22 +1,15 @@
 import type Dockerode from 'dockerode';
 
 export interface AgentImageInfo {
-  /** Full image reference the agent container runs, or null when it cannot be determined. */
   image: string | null;
-  /** Tag portion of that reference, or null when the reference carries no usable tag. */
   tag: string | null;
 }
 
 const DOCKER_TAG_PATTERN = /^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$/;
 
 /**
- * Extract the tag from a Docker image reference.
- *
- * Handles the three shapes that reach us: a registry host with a port
- * (`localhost:5000/agent`, where the colon is not a tag separator), a digest
- * pin (`agent:dev@sha256:...`), and an untagged reference, which Docker
- * resolves to `latest`. Returns null for a digest-only reference, which pins a
- * build with no tag to report.
+ * A colon can belong to a registry port (`localhost:5000/agent`), an untagged reference means
+ * `latest` as Docker resolves it, and a digest-only pin has no tag to report.
  */
 export function parseImageTag(reference: string): string | null {
   const withoutDigest = reference.trim().split('@')[0];
@@ -35,14 +28,9 @@ export function parseImageTag(reference: string): string | null {
 const UNRESOLVED: AgentImageInfo = { image: null, tag: null };
 
 /**
- * Build the lazy resolver `/info` calls.
- *
- * Resolution must not happen at startup: Dockerode sets no request timeout, so a
- * black-holed DOCKER_HOST would stall the process before `Bun.serve` binds, and a
- * cold `docker compose up` races the socket-proxy (plain `depends_on`, not
- * `condition: service_healthy`). A failure is therefore retried on the next call
- * rather than frozen for the life of the container; only a success is cached,
- * since the image cannot change without the container being recreated.
+ * Lazy, not resolved at startup: Dockerode sets no request timeout, so a black-holed
+ * DOCKER_HOST would stall the process before `Bun.serve` binds, and a cold start races
+ * socket-proxy. Failures retry on the next call; only a success is cached.
  */
 export function createAgentImageResolver(
   docker: Dockerode | null,
@@ -63,15 +51,7 @@ export function createAgentImageResolver(
   };
 }
 
-/**
- * Resolve the image this agent is running.
- *
- * `AGENT_IMAGE` wins when set: the generated agent stack passes it through from
- * the same compose variable that pins the container, and it is the only source
- * available on a ZFS-only host with no Docker socket. Otherwise the agent
- * inspects its own container, which is what lets a host enrolled before this
- * existed start reporting a tag as soon as its agent updates.
- */
+/** `AGENT_IMAGE` wins: it is the only source on a ZFS-only host, which has no Docker socket. */
 export async function resolveAgentImage(
   docker: Dockerode | null,
   containerName: string,
