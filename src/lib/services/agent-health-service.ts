@@ -14,14 +14,14 @@ export type AgentHealthResult =
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
-// The agent-side tag parser is not a control here: a hostile agent puts what it likes in
-// the JSON body, and this lands in an unbounded TEXT column every user then loads.
-const MAX_REPORTED_IMAGE_LENGTH = 256;
+// The agent-side parsers are not a control here: a hostile agent puts what it likes in
+// the JSON body, and these land in unbounded TEXT columns every user then loads.
+const MAX_REPORTED_FIELD_LENGTH = 256;
 
-function boundedImageField(value: unknown): string | null {
+function boundedAgentField(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
-  if (trimmed === '' || trimmed.length > MAX_REPORTED_IMAGE_LENGTH) return null;
+  if (trimmed === '' || trimmed.length > MAX_REPORTED_FIELD_LENGTH) return null;
   return trimmed;
 }
 
@@ -68,10 +68,10 @@ async function fetchAgentInfo(
     }
     const data = (await response.json()) as AgentInfoResponse;
     return {
-      version: data.agentVersion,
-      dockerVersion: data.capabilities?.docker?.version,
-      agentImage: boundedImageField(data.agentImage),
-      agentImageTag: boundedImageField(data.agentImageTag),
+      version: boundedAgentField(data.agentVersion) ?? undefined,
+      dockerVersion: boundedAgentField(data.capabilities?.docker?.version) ?? undefined,
+      agentImage: boundedAgentField(data.agentImage),
+      agentImageTag: boundedAgentField(data.agentImageTag),
       infoSupported: true,
     };
   } catch (err) {

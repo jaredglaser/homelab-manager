@@ -168,6 +168,30 @@ describe('createAgentImageResolver', () => {
     expect(calls()).toBe(0);
   });
 
+  test('gives up on a hung inspect instead of leaving /info awaiting it forever', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => realSetTimeout(fn, 0)) as typeof globalThis.setTimeout;
+
+    try {
+      let inspectCalls = 0;
+      const docker = {
+        getContainer: () => ({
+          inspect: () => {
+            inspectCalls += 1;
+            return new Promise(() => {});
+          },
+        }),
+      };
+      const resolve = createAgentImageResolver(docker as never, 'hlm-agent', undefined);
+
+      expect(await resolve()).toEqual({ image: null, tag: null });
+      expect(await resolve()).toEqual({ image: null, tag: null });
+      expect(inspectCalls).toBe(2);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
   test('keeps retrying on a host that can never resolve', async () => {
     const { docker, calls } = dockerFailingTimes(Number.MAX_SAFE_INTEGER);
     const resolve = createAgentImageResolver(docker as never, 'hlm-agent', undefined);

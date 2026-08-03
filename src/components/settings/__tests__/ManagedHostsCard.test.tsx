@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { render, screen, fireEvent, within } from '@testing-library/react'
-import { AgentChannelNotice, ManagedHostsCardView, bucketHostsByAgentChannel } from '../ManagedHostsCard'
-import type { ManagedHostsCardProps } from '../ManagedHostsCard'
+import { AgentChannelNotice, ManagedHostsCardView, bucketHostsByAgentChannel } from '@/components/settings/ManagedHostsCard'
+import type { ManagedHostsCardProps } from '@/components/settings/ManagedHostsCard'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 
 const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({

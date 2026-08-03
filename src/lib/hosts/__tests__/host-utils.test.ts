@@ -6,8 +6,8 @@ import {
   getAgentUpdaterImage,
   normalizeAgentImageTag,
   DEFAULT_AGENT_IMAGE_TAG,
-} from '../host-utils';
-import type { ManagedHost } from '../../database/repositories/host-repository';
+} from '@/lib/hosts/host-utils';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import { generateAgentStackEnv } from '@/lib/templates/agent-stack-compose';
 
 describe('toHostListItem', () => {

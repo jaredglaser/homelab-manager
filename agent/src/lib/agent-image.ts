@@ -27,6 +27,28 @@ export function parseImageTag(reference: string): string | null {
 
 const UNRESOLVED: AgentImageInfo = { image: null, tag: null };
 
+// Dockerode sets no request timeout. Without this a socket-proxy that accepts the
+// connection and never answers leaves the resolver's in-flight promise pending forever,
+// and every later /info awaits that same promise instead of retrying.
+const INSPECT_TIMEOUT_MS = 5000;
+
+async function inspectWithTimeout(docker: Dockerode, containerName: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      docker.getContainer(containerName).inspect(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`inspect timed out after ${INSPECT_TIMEOUT_MS}ms`)),
+          INSPECT_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Lazy, not resolved at startup: Dockerode sets no request timeout, so a black-holed
  * DOCKER_HOST would stall the process before `Bun.serve` binds, and a cold start races
@@ -63,7 +85,7 @@ export async function resolveAgentImage(
   if (!docker) return UNRESOLVED;
 
   try {
-    const info = await docker.getContainer(containerName).inspect();
+    const info = await inspectWithTimeout(docker, containerName);
     const image = info.Config?.Image?.trim();
     if (!image) return UNRESOLVED;
     return { image, tag: parseImageTag(image) };

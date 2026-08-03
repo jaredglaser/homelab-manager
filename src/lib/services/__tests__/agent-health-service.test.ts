@@ -319,6 +319,27 @@ describe('agent-health-service', () => {
       }
     });
 
+    it('bounds the version fields the agent reports, not just the image ones', async () => {
+      const body = JSON.stringify({
+        status: 'healthy',
+        agentVersion: 'x'.repeat(300),
+        capabilities: { docker: { available: true, version: 'y'.repeat(300) }, zfs: { available: false } },
+      });
+      const fetchFn = mock(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
+        return new Response(body, { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn, async () => 'jwt-123');
+
+      expect(result.healthy).toBe(true);
+      if (result.healthy) {
+        expect(result.version).toBeUndefined();
+        expect(result.dockerVersion).toBeUndefined();
+      }
+    });
+
     it('keeps a reference exactly at the 256-character bound', async () => {
       const reference = 'x'.repeat(256);
       const body = JSON.stringify({

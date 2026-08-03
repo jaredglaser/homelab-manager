@@ -445,8 +445,10 @@ jobs:
           push: true
           # A release must enroll agents from its own release: the updater tracks a mutable
           # tag, so a v1.2.3 dashboard pinning :latest lets its agents roll forward past it.
+          # Taken from meta-agent rather than github.ref_name, which would pin v1.2.3 while
+          # type=semver,pattern={{version}} publishes the agent as 1.2.3.
           build-args: |
-            VITE_AGENT_IMAGE_TAG=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (github.ref == 'refs/heads/dev' && 'dev' || 'latest') }}
+            VITE_AGENT_IMAGE_TAG=${{ startsWith(github.ref, 'refs/tags/v') && steps.meta-agent.outputs.version || (github.ref == 'refs/heads/dev' && 'dev' || 'latest') }}
           tags: ${{ steps.meta-web.outputs.tags }}
           labels: ${{ steps.meta-web.outputs.labels }}
           cache-from: type=gha
