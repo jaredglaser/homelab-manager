@@ -498,6 +498,17 @@ describe('bucketHostsByAgentChannel', () => {
     expect(buckets.mismatched).toEqual([])
   })
 
+  it.each([
+    ['a malformed tag the agent could not parse', 'ghcr.io/x/agent:-bad'],
+    ['an empty tag', 'ghcr.io/x/agent:'],
+    ['a tag this app rejected as oversized', 'ghcr.io/x/agent:dev'],
+  ])('reports a host whose image is known but whose tag is not (%s)', (_label, image) => {
+    const host = makeHost({ id: 8, name: 'untagged', agentImage: image, agentImageTag: null })
+    const buckets = bucketHostsByAgentChannel([host], 'latest')
+    expect(buckets.unreported.map((h) => h.name)).toEqual(['untagged'])
+    expect(buckets.mismatched).toEqual([])
+  })
+
   it('flags a dev host against a latest dashboard and the reverse', () => {
     const devHost = makeHost({ id: 5, name: 'devbox', agentImageTag: 'dev' })
     expect(bucketHostsByAgentChannel([devHost], 'latest').mismatched).toHaveLength(1)
@@ -559,11 +570,11 @@ describe('agent channel notice', () => {
     expect(screen.getByText('docker compose up -d')).toBeTruthy()
   })
 
-  it('calls out hosts that reported no image at all', () => {
+  it('calls out hosts that reported no usable tag', () => {
     const unreported = [makeHost({ id: 3, name: 'silent', agentImage: null, agentImageTag: null })]
     render(<AgentChannelNotice {...noticeProps} expectedTag="latest" unreported={unreported} />)
-    expect(screen.getByText('1 host has not reported an agent image')).toBeTruthy()
-    expect(screen.getByText(/No image reported by silent/)).toBeTruthy()
+    expect(screen.getByText('1 host has not reported a usable image tag')).toBeTruthy()
+    expect(screen.getByText(/No usable image tag from silent/)).toBeTruthy()
   })
 
   it('keeps naming unreported hosts on an off-default channel', () => {
@@ -572,8 +583,8 @@ describe('agent channel notice', () => {
       makeHost({ id: 4, name: 'quiet', agentImage: null, agentImageTag: null }),
     ]
     render(<AgentChannelNotice {...noticeProps} unreported={unreported} />)
-    expect(screen.getByText('2 hosts have not reported an agent image')).toBeTruthy()
-    expect(screen.getByText(/No image reported by silent, quiet/)).toBeTruthy()
+    expect(screen.getByText('2 hosts have not reported a usable image tag')).toBeTruthy()
+    expect(screen.getByText(/No usable image tag from silent, quiet/)).toBeTruthy()
   })
 
   it('raises the alert to a warning only when a host is off-channel', () => {
@@ -589,8 +600,8 @@ describe('agent channel notice', () => {
     const hosts = [makeHost({ id: 9, name: 'silent', agentImage: null, agentImageTag: null })]
     render(<ManagedHostsCardView {...makeProps({ hosts })} />)
     const alert = within(screen.getByRole('alert'))
-    expect(alert.getByText('1 host has not reported an agent image')).toBeTruthy()
-    expect(alert.getByText(/No image reported by silent/)).toBeTruthy()
+    expect(alert.getByText('1 host has not reported a usable image tag')).toBeTruthy()
+    expect(alert.getByText(/No usable image tag from silent/)).toBeTruthy()
   })
 
   it('shows no notice for a digest-pinned host on the default channel', () => {

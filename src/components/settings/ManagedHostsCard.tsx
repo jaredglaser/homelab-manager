@@ -25,7 +25,15 @@ export interface ManagedHostsCardProps {
 
 export interface AgentChannelBuckets {
   mismatched: HostListItem[]
+  /** Healthy hosts with no usable tag, whether the agent sent none or sent one we rejected. */
   unreported: HostListItem[]
+}
+
+// `@` separates a digest in a Docker reference and appears nowhere else in one. Read the
+// pin off the image itself: a null tag also covers a malformed one and a tag this app
+// rejected as oversized, and inferring "digest-pinned" from those would hide the host.
+function isDigestPinned(image: string | null): boolean {
+  return image !== null && image.includes('@')
 }
 
 export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: string): AgentChannelBuckets {
@@ -35,9 +43,8 @@ export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: st
   for (const host of hosts) {
     if (host.agentImageTag !== null) {
       if (host.agentImageTag !== expectedTag) mismatched.push(host)
-    } else if (host.agentImage === null && host.status === 'healthy') {
-      // An image without a tag is a digest pin, and silence from a host we could not
-      // reach says nothing about its agent. Neither belongs in the notice.
+    } else if (host.status === 'healthy' && !isDigestPinned(host.agentImage)) {
+      // Silence from a host we could not reach says nothing about its agent.
       unreported.push(host)
     }
   }
@@ -58,7 +65,7 @@ function noticeTitle({ expectedTag, mismatched, unreported }: AgentChannelNotice
   }
   if (unreported.length > 0) {
     const plural = unreported.length === 1 ? 'host has' : 'hosts have'
-    return `${unreported.length} ${plural} not reported an agent image`
+    return `${unreported.length} ${plural} not reported a usable image tag`
   }
   return `Agents pinned to the ${expectedTag} channel`
 }
@@ -100,9 +107,9 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
 
         {unreported.length > 0 && (
           <p>
-            No image reported by {unreported.map((host) => host.name).join(', ')}. Their agent predates image
-            reporting, or it has no <code className="font-mono">AGENT_IMAGE</code> set and no Docker socket to
-            inspect itself through, which is the case for a ZFS-only host enrolled before this existed. Add{' '}
+            No usable image tag from {unreported.map((host) => host.name).join(', ')}. Their agent predates
+            image reporting, or it has no <code className="font-mono">AGENT_IMAGE</code> set and no Docker socket
+            to inspect itself through, which is the case for a ZFS-only host enrolled before this existed. Add{' '}
             <code className="font-mono">AGENT_IMAGE: $&#123;AGENT_IMAGE&#125;</code> to the agent service in that
             host&apos;s compose file, then run <code className="font-mono">docker compose up -d</code>.
           </p>
