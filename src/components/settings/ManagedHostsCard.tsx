@@ -1,9 +1,11 @@
 import { useState } from 'react'
 
 import type { HostListItem } from '@/lib/hosts/host-utils'
+import { DEFAULT_AGENT_IMAGE_TAG, getAgentImage, getAgentImageTag, getAgentUpdaterImage } from '@/lib/hosts/host-utils'
 import HostRow from '@/components/settings/HostRow'
 import { RemoveDialog, EditDialog } from '@/components/settings/HostDialogs'
 import AddHostWizard from '@/components/settings/AddHostWizard'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Spinner } from '@/components/ui/spinner';
 
 export interface ManagedHostsCardProps {
@@ -19,6 +21,102 @@ export interface ManagedHostsCardProps {
   isUpdating: boolean
   onHealthCheck: (hostId: number) => void
   checkingHostIds: Set<number>
+}
+
+export interface AgentChannelBuckets {
+  mismatched: HostListItem[]
+  /** Healthy hosts with no usable tag, whether the agent sent none or sent one we rejected. */
+  unreported: HostListItem[]
+}
+
+// `@` separates a digest in a Docker reference and appears nowhere else in one. Read the
+// pin off the image itself: a null tag also covers a malformed one and a tag this app
+// rejected as oversized, and inferring "digest-pinned" from those would hide the host.
+function isDigestPinned(image: string | null): boolean {
+  return image !== null && image.includes('@')
+}
+
+export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: string): AgentChannelBuckets {
+  const mismatched: HostListItem[] = []
+  const unreported: HostListItem[] = []
+
+  for (const host of hosts) {
+    if (host.agentImageTag !== null) {
+      if (host.agentImageTag !== expectedTag) mismatched.push(host)
+    } else if (host.status === 'healthy' && !isDigestPinned(host.agentImage)) {
+      // Silence from a host we could not reach says nothing about its agent.
+      unreported.push(host)
+    }
+  }
+
+  return { mismatched, unreported }
+}
+
+export interface AgentChannelNoticeProps extends AgentChannelBuckets {
+  expectedTag: string
+  agentImage: string
+  agentUpdaterImage: string
+}
+
+function noticeTitle({ expectedTag, mismatched, unreported }: AgentChannelNoticeProps): string {
+  if (mismatched.length > 0) {
+    const plural = mismatched.length === 1 ? 'host is' : 'hosts are'
+    return `${mismatched.length} ${plural} not on the ${expectedTag} channel`
+  }
+  if (unreported.length > 0) {
+    const plural = unreported.length === 1 ? 'host has' : 'hosts have'
+    return `${unreported.length} ${plural} not reported a usable image tag`
+  }
+  return `Agents pinned to the ${expectedTag} channel`
+}
+
+export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
+  const { expectedTag, agentImage, agentUpdaterImage, mismatched, unreported } = props
+
+  return (
+    <Alert variant={mismatched.length > 0 ? 'warning' : 'info'} className="mb-4">
+      <AlertTitle className="line-clamp-none">{noticeTitle(props)}</AlertTitle>
+      <AlertDescription>
+        {expectedTag !== DEFAULT_AGENT_IMAGE_TAG && (
+          <p>
+            This dashboard is a <code className="font-mono">{expectedTag}</code> build, so hosts you add below
+            are enrolled on <code className="font-mono">{agentImage}</code> and{' '}
+            <code className="font-mono">{agentUpdaterImage}</code>.
+          </p>
+        )}
+
+        {mismatched.length > 0 && (
+          <>
+            <ul className="list-disc pl-5">
+              {mismatched.map((host) => (
+                <li key={host.id}>
+                  <span className="font-semibold">{host.name}</span> is running{' '}
+                  <code className="font-mono break-all">{host.agentImage ?? host.agentImageTag}</code>
+                </li>
+              ))}
+            </ul>
+            <p>
+              To move a host, set <code className="font-mono">AGENT_IMAGE</code> and{' '}
+              <code className="font-mono">AGENT_UPDATER_IMAGE</code> to the{' '}
+              <code className="font-mono">{expectedTag}</code> tag in its{' '}
+              <code className="font-mono">.env</code>, then run{' '}
+              <code className="font-mono">docker compose up -d</code> on the host.
+            </p>
+          </>
+        )}
+
+        {unreported.length > 0 && (
+          <p>
+            No usable image tag from {unreported.map((host) => host.name).join(', ')}. Their agent predates
+            image reporting, or it has no <code className="font-mono">AGENT_IMAGE</code> set and no Docker socket
+            to inspect itself through, which is the case for a ZFS-only host enrolled before this existed. Add{' '}
+            <code className="font-mono">AGENT_IMAGE: $&#123;AGENT_IMAGE&#125;</code> to the agent service in that
+            host&apos;s compose file, then run <code className="font-mono">docker compose up -d</code>.
+          </p>
+        )}
+      </AlertDescription>
+    </Alert>
+  )
 }
 
 export function ManagedHostsCardView({
@@ -37,6 +135,12 @@ export function ManagedHostsCardView({
 }: Readonly<ManagedHostsCardProps>) {
   const [removeTarget, setRemoveTarget] = useState<HostListItem | null>(null)
   const [editTarget, setEditTarget] = useState<HostListItem | null>(null)
+  const agentImageTag = getAgentImageTag()
+  const channel = bucketHostsByAgentChannel(hosts, agentImageTag)
+  const showChannelNotice =
+    agentImageTag !== DEFAULT_AGENT_IMAGE_TAG ||
+    channel.mismatched.length > 0 ||
+    channel.unreported.length > 0
 
   function handleRemoveConfirm() {
     if (removeTarget) {
@@ -54,6 +158,16 @@ export function ManagedHostsCardView({
       <div className="p-4 bg-card rounded-lg border border-border">
         <h6 className="text-xl font-medium mb-4">Managed Hosts</h6>
 
+        {showChannelNotice && (
+          <AgentChannelNotice
+            expectedTag={agentImageTag}
+            agentImage={getAgentImage()}
+            agentUpdaterImage={getAgentUpdaterImage()}
+            mismatched={channel.mismatched}
+            unreported={channel.unreported}
+          />
+        )}
+
         {isLoading ? (
           <div className="flex items-center gap-2 py-4">
             <Spinner className="size-4" />
@@ -69,6 +183,7 @@ export function ManagedHostsCardView({
               <HostRow
                 key={host.id}
                 host={host}
+                expectedImageTag={agentImageTag}
                 isChecking={checkingHostIds.has(host.id)}
                 isRemoving={isRemoving}
                 onHealthCheck={() => onHealthCheck(host.id)}

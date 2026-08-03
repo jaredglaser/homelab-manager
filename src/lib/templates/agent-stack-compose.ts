@@ -113,6 +113,8 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
     // Must match the managed host name: manager JWTs carry it as the aud claim.
     AGENT_HOST_NAME: config.hostName,
+    // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.
+    AGENT_IMAGE: '${AGENT_IMAGE}',
   };
 
   if (docker) {

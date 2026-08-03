@@ -24,6 +24,12 @@ ENV NODE_ENV=production
 # git is needed at runtime for git-upload-pack and git-receive-pack (Git HTTP smart protocol)
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
+# Tag the Add Host wizard pins new agents to. Declared after apt so a channel switch
+# does not invalidate that layer. Vite inlines it at build, so the copy that survives
+# into the runtime image does nothing.
+ARG VITE_AGENT_IMAGE_TAG=latest
+ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
+
 RUN bun run build
 
 CMD ["bun", ".output/server/index.mjs"]

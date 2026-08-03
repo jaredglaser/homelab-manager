@@ -98,7 +98,42 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 | `ghcr.io/jaredglaser/homelab-manager-agent` | Agent sidecar deployed on each monitored Docker/ZFS host |
 | `ghcr.io/jaredglaser/homelab-manager-agent-updater` | Optional companion that keeps the agent image up to date |
 
-> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker), [agent](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent), [agent-updater](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent-updater)) on every push to `main`. The project is pre-release and not yet versioned: use `latest`, and review recent commits on `main` for breaking changes before pulling updates.
+> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker), [agent](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent), [agent-updater](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent-updater)) on every push to `main` or `dev`. The project is pre-release and not yet versioned.
+
+| Tag | Built from | Use it for |
+|-----|-----------|-----------|
+| `latest` | `main` | Normal self-hosting. Review recent commits on `main` for breaking changes before pulling updates. |
+| `dev` | `dev` | Early access to work that has not reached `main` yet. Expect breakage; run it on a throwaway stack, not your only one. |
+| `<short-sha>` | any push to `main` or `dev` | Pinning to an exact build, e.g. to roll back after a bad `latest`. |
+
+Set `HLM_IMAGE_TAG` in your `.env` to move the whole stack at once:
+
+```env
+HLM_IMAGE_TAG=dev
+```
+
+Mixing tags across images is not tested, and one mismatch in particular breaks the dashboard: only the `worker` applies database migrations, so a `web:dev` running against a `worker:latest` that has not applied a newer schema fails every write it attempts. Use the one variable rather than editing image lines.
+
+The `web` image knows which tag it was built from, so the Add Host wizard on a `dev` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:dev` and `...-agent-updater:dev`. Hosts you enrolled before switching keep whatever tag their own `.env` pins, and the agent-updater holds them there.
+
+Each agent reports the image it is running, so **Settings → Managed Hosts** shows every host's tag next to its version and flags the ones that do not match the dashboard. To move a flagged host:
+
+```bash
+# on the monitored host, in the agent stack directory
+sed -i 's/:latest$/:dev/' .env   # AGENT_IMAGE and AGENT_UPDATER_IMAGE
+docker compose up -d
+```
+
+A host shows no tag until it has completed one health check against an agent new enough to report one. An agent works this out from the `AGENT_IMAGE` environment variable the generated compose passes it, falling back to inspecting its own container over the Docker socket.
+
+Hosts enrolled before this existed have no `AGENT_IMAGE` line in their compose file. Docker-capable ones recover on their own through the self-inspection fallback. A **ZFS-only** host has no Docker socket and cannot, so add the variable to the `agent` service in its compose file and re-up:
+
+```yaml
+services:
+  agent:
+    environment:
+      AGENT_IMAGE: ${AGENT_IMAGE}
+```
 
 ---
 

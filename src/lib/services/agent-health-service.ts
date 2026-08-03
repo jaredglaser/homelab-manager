@@ -1,10 +1,29 @@
 import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
 
+export interface AgentInfoDetail {
+  version?: string;
+  dockerVersion?: string;
+  agentImage?: string | null;
+  agentImageTag?: string | null;
+  infoSupported?: boolean;
+}
+
 export type AgentHealthResult =
-  | { healthy: true; version?: string; dockerVersion?: string; infoSupported?: boolean }
+  | ({ healthy: true } & AgentInfoDetail)
   | { healthy: false; error: string };
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
+
+// The agent-side parsers are not a control here: a hostile agent puts what it likes in
+// the JSON body, and these land in unbounded TEXT columns every user then loads.
+const MAX_REPORTED_FIELD_LENGTH = 256;
+
+function boundedAgentField(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed.length > MAX_REPORTED_FIELD_LENGTH) return null;
+  return trimmed;
+}
 
 /**
  * Fetch version and capability detail from the agent's authenticated /info
@@ -16,13 +35,14 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
  *
  * @returns `infoSupported: false` when the agent predates /info (404), which
  * callers use to tell "version unknown" apart from "version unchanged".
+ * `agentImage`/`agentImageTag` are null when the agent predates image reporting or could not tell.
  */
 async function fetchAgentInfo(
   agentUrl: string,
   timeoutMs: number,
   fetchFn: typeof fetch,
   getToken: () => Promise<string>
-): Promise<{ version?: string; dockerVersion?: string; infoSupported?: boolean }> {
+): Promise<AgentInfoDetail> {
   let token: string;
   try {
     token = await getToken();
@@ -48,8 +68,10 @@ async function fetchAgentInfo(
     }
     const data = (await response.json()) as AgentInfoResponse;
     return {
-      version: data.agentVersion,
-      dockerVersion: data.capabilities?.docker?.version,
+      version: boundedAgentField(data.agentVersion) ?? undefined,
+      dockerVersion: boundedAgentField(data.capabilities?.docker?.version) ?? undefined,
+      agentImage: boundedAgentField(data.agentImage),
+      agentImageTag: boundedAgentField(data.agentImageTag),
       infoSupported: true,
     };
   } catch (err) {

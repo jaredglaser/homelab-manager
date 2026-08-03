@@ -20,11 +20,38 @@ function StatusDot({ status }: { status: HostListItem['status'] }) {
 
 interface HostRowProps {
   host: HostListItem
+  expectedImageTag: string
   isChecking: boolean
   isRemoving: boolean
   onHealthCheck: () => void
   onEdit: () => void
   onRemove: () => void
+}
+
+export function agentTagTooltip(host: HostListItem, expectedImageTag: string): string {
+  const reference = host.agentImage ?? host.agentImageTag ?? 'unknown image'
+  if (host.agentImageTag === expectedImageTag) return reference
+  return `${reference} does not match this dashboard's ${expectedImageTag} channel`
+}
+
+function AgentTagBadge({ host, expectedImageTag }: { host: HostListItem; expectedImageTag: string }) {
+  const matches = host.agentImageTag === expectedImageTag
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Badge
+            variant={matches ? 'outline' : 'warning'}
+            className="h-4 max-w-40 truncate text-[10px]"
+            aria-label="agent image tag"
+          >
+            {host.agentImageTag}
+          </Badge>
+        }
+      />
+      <TooltipContent>{agentTagTooltip(host, expectedImageTag)}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 interface HostActionProps {
@@ -58,7 +85,7 @@ function HostAction({ label, ariaLabel, disabled, onClick, className, children }
   )
 }
 
-export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
+export default function HostRow({ host, expectedImageTag, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
   const busy = isChecking || isRemoving
   return (
     <div className="flex items-center gap-3 py-2 border-b border-border last:border-0">
@@ -82,6 +109,7 @@ export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, o
             {host.capabilities?.zfs && (
               <Badge variant="outline" className="h-4 text-[10px]">ZFS</Badge>
             )}
+            {host.agentImageTag && <AgentTagBadge host={host} expectedImageTag={expectedImageTag} />}
           </div>
         </div>
       </div>

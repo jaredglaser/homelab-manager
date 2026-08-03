@@ -7,13 +7,22 @@ export interface HostListItem {
   agentUrl: string;
   capabilities: HostCapabilities;
   agentVersion: string | null;
+  agentImage: string | null;
+  agentImageTag: string | null;
   status: HostStatus;
   createdAt: string;
   updatedAt: string;
 }
 
 export type HealthCheckOutcome =
-  | { healthy: true; version?: string; dockerVersion?: string; infoSupported?: boolean }
+  | {
+      healthy: true;
+      version?: string;
+      dockerVersion?: string;
+      agentImage?: string | null;
+      agentImageTag?: string | null;
+      infoSupported?: boolean;
+    }
   | { healthy: false; error: string };
 
 /**
@@ -30,22 +39,37 @@ export function toHostListItem(
     agentUrl: row.agentUrl,
     capabilities: row.capabilities ?? {},
     agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agentVersion,
+    agentImage: row.agentImage,
+    agentImageTag: row.agentImageTag,
     status: overrides?.status ?? row.status,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-const AGENT_IMAGE_PROD = 'ghcr.io/jaredglaser/homelab-manager-agent:latest';
+const AGENT_IMAGE_REPO = 'ghcr.io/jaredglaser/homelab-manager-agent';
+const AGENT_UPDATER_IMAGE_REPO = 'ghcr.io/jaredglaser/homelab-manager-agent-updater';
+export const DEFAULT_AGENT_IMAGE_TAG = 'latest';
 
-/** Get the agent Docker image. */
-export function getAgentImage(): string {
-  return AGENT_IMAGE_PROD;
+// Docker's tag grammar. The value lands unquoted in the generated agent .env, so a junk
+// build arg must not reach the operator's host.
+const DOCKER_TAG_PATTERN = /^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$/;
+
+/** Coerce a build-arg value to a usable tag, falling back to `latest` on anything malformed. */
+export function normalizeAgentImageTag(raw: unknown): string {
+  if (typeof raw !== 'string' || !DOCKER_TAG_PATTERN.test(raw)) return DEFAULT_AGENT_IMAGE_TAG;
+  return raw;
 }
 
-const AGENT_UPDATER_IMAGE_PROD = 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest';
+/** Baked at build time from VITE_AGENT_IMAGE_TAG: Vite inlines it, so runtime env cannot drive it. */
+export function getAgentImageTag(): string {
+  return normalizeAgentImageTag(import.meta.env.VITE_AGENT_IMAGE_TAG);
+}
 
-/** Get the agent-updater Docker image. */
+export function getAgentImage(): string {
+  return `${AGENT_IMAGE_REPO}:${getAgentImageTag()}`;
+}
+
 export function getAgentUpdaterImage(): string {
-  return AGENT_UPDATER_IMAGE_PROD;
+  return `${AGENT_UPDATER_IMAGE_REPO}:${getAgentImageTag()}`;
 }

@@ -16,6 +16,8 @@ function mockRow(overrides?: Record<string, unknown>) {
     agentUrl: 'http://192.168.1.10:9090',
     capabilities: { docker: true },
     agentVersion: null,
+    agentImage: null,
+    agentImageTag: null,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
     ...overrides,
@@ -30,7 +32,7 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     update: mock(() => Promise.resolve(mockRow())),
     delete: mock(() => Promise.resolve()),
     updateStatus: mock(() => Promise.resolve()),
-    updateAgentVersion: mock(() => Promise.resolve()),
+    updateAgentInfo: mock(() => Promise.resolve()),
     ...overrides,
   } as HostRepo;
 }
@@ -71,7 +73,57 @@ describe('handleCheckHostHealth', () => {
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(true);
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
-    expect(repo.updateAgentVersion).toHaveBeenCalledWith(1, '2.0.0');
+    expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0' });
+  });
+
+  it('records the reported agent image when the agent answers /info', async () => {
+    const repo = mockRepo();
+    const deps = {
+      ...baseDeps(),
+      repo,
+      checkHealth: mock(() =>
+        Promise.resolve({
+          healthy: true as const,
+          version: '2.0.0',
+          infoSupported: true,
+          agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+          agentImageTag: 'dev',
+        }),
+      ),
+    };
+    const result = await handleCheckHostHealth(deps, { hostId: 1 });
+    expect(result).toMatchObject({ agentImageTag: 'dev' });
+    expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, {
+      version: '2.0.0',
+      image: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+      imageTag: 'dev',
+    });
+  });
+
+  it('clears a stale image when a reporting agent can no longer determine one', async () => {
+    const repo = mockRepo();
+    const deps = {
+      ...baseDeps(),
+      repo,
+      checkHealth: mock(() =>
+        Promise.resolve({ healthy: true as const, version: '2.0.0', infoSupported: true }),
+      ),
+    };
+    await handleCheckHostHealth(deps, { hostId: 1 });
+    expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0', image: null, imageTag: null });
+  });
+
+  it('leaves the stored image alone for an agent with no /info endpoint', async () => {
+    const repo = mockRepo();
+    const deps = {
+      ...baseDeps(),
+      repo,
+      checkHealth: mock(() =>
+        Promise.resolve({ healthy: true as const, version: '2.0.0', infoSupported: false }),
+      ),
+    };
+    await handleCheckHostHealth(deps, { hostId: 1 });
+    expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0' });
   });
 
   it('updates status to unhealthy on failure', async () => {
@@ -80,7 +132,7 @@ describe('handleCheckHostHealth', () => {
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
-    expect(repo.updateAgentVersion).not.toHaveBeenCalled();
+    expect(repo.updateAgentInfo).not.toHaveBeenCalled();
   });
 
   it('throws when host not found', async () => {
@@ -155,7 +207,7 @@ describe('handleVerifyHost', () => {
     const result = await handleVerifyHost(deps, { name: 'new-host', agentUrl: 'http://x:9090' });
     expect(result.host.status).toBe('pending');
     expect(deps.repo.updateStatus).not.toHaveBeenCalled();
-    expect(deps.repo.updateAgentVersion).not.toHaveBeenCalled();
+    expect(deps.repo.updateAgentInfo).not.toHaveBeenCalled();
   });
 
   it('rolls back DB record on keypair generation failure', async () => {

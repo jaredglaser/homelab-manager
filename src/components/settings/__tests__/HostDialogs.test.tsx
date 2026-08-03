@@ -11,6 +11,8 @@ function makeHost(overrides?: Partial<HostListItem>): HostListItem {
     agentUrl: 'http://192.168.1.10:9090',
     capabilities: { docker: true, zfs: false },
     agentVersion: '1.2.3',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
     status: 'healthy',
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
