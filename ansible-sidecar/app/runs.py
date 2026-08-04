@@ -109,7 +109,7 @@ class RunRegistry:
             run.publish(strip_event(event))
             return True
 
-        def on_status(status: dict[str, Any], _runner_config: Any = None) -> None:
+        def on_status(status: dict[str, Any], runner_config: Any = None) -> None:
             run.status = status.get("status", run.status)
             run.publish({"event": "runner_status", "status": run.status})
 
@@ -149,7 +149,22 @@ class RunRegistry:
             run.finish()
             raise
 
+        # Runner.run() raising leaves finished_callback unfired and the job/idle timeouts
+        # inert, so without this watcher the run is stranded at pending and subscribers hang.
+        def supervise() -> None:
+            thread.join()
+            if not run.finished:
+                run.publish(
+                    {
+                        "event": "runner_status",
+                        "status": "failed",
+                        "message": "runner thread exited before the run finished",
+                    }
+                )
+                run.finish()
+
         run.thread = thread
+        threading.Thread(target=supervise, daemon=True).start()
         return run
 
     def cancel(self, run_id: str) -> bool:
