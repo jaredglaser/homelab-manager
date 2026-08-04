@@ -102,6 +102,11 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
           <span className="text-xs font-mono text-muted-foreground block truncate">
             {host.agentUrl}
           </span>
+          {host.sshHost && (
+            <span className="text-xs font-mono text-muted-foreground block truncate" title="SSH address used by Ansible runs">
+              ssh:{host.sshUser ? `${host.sshUser}@` : ''}{host.sshHost}
+            </span>
+          )}
           <div className="flex items-center gap-1">
             {host.capabilities?.docker && (
               <Badge variant="outline" className="h-4 text-[10px]">Docker</Badge>

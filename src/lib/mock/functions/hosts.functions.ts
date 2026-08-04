@@ -13,6 +13,8 @@ function buildHost(
     name: string;
     agentUrl: string;
     capabilities?: { docker?: boolean; zfs?: boolean };
+    sshHost?: string | null;
+    sshUser?: string | null;
   },
   id: number = nextMockId++,
 ): HostListItem {
@@ -25,6 +27,8 @@ function buildHost(
     agentVersion: '0.1.0',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
+    sshHost: data.sshHost ?? null,
+    sshUser: data.sshUser ?? null,
     status: 'healthy',
     createdAt: now,
     updatedAt: now,
@@ -40,6 +44,8 @@ const mockHosts: readonly HostListItem[] = [
     agentVersion: '0.1.0',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
+    sshHost: null,
+    sshUser: null,
     status: 'healthy',
     createdAt: '2026-01-15T10:00:00Z',
     updatedAt: '2026-01-15T10:00:00Z',
@@ -52,6 +58,8 @@ const mockHosts: readonly HostListItem[] = [
     agentVersion: '0.1.0',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
+    sshHost: 'media-server.lan',
+    sshUser: 'ansible',
     status: 'healthy',
     createdAt: '2026-02-01T14:30:00Z',
     updatedAt: '2026-02-01T14:30:00Z',
@@ -66,6 +74,8 @@ export async function verifyHost(data: {
   agentUrl: string;
   agentToken: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
+  sshHost?: string | null;
+  sshUser?: string | null;
 }): Promise<AddHostResult> {
   return { host: buildHost(data) };
 }
@@ -75,6 +85,8 @@ export async function updateHost(data: {
   name: string;
   agentUrl: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
+  sshHost?: string | null;
+  sshUser?: string | null;
 }): Promise<HostListItem> {
   return buildHost(data, data.hostId);
 }

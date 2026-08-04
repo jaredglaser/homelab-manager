@@ -8,6 +8,10 @@ function host(overrides: Partial<ManagedHost> & { name: string }): ManagedHost {
     agentUrl: `https://${overrides.name}.example:9090`,
     capabilities: {},
     agentVersion: null,
+    agentImage: null,
+    agentImageTag: null,
+    sshHost: null,
+    sshUser: null,
     status: 'healthy',
     createdAt: new Date(0),
     updatedAt: new Date(0),
@@ -53,6 +57,52 @@ describe('buildAnsibleInventory', () => {
 
     expect(inventory._meta.hostvars['host-a'].ansible_host).toBe('10.0.0.5');
     expect(inventory._meta.hostvars['host-b'].ansible_host).toBe('host-b');
+  });
+
+  it('prefers the host ssh_host over the agent URL', () => {
+    const inventory = buildAnsibleInventory(
+      [
+        host({ name: 'host-a', agentUrl: 'https://agent.lan', sshHost: '192.168.1.50' }),
+        host({ name: 'host-b', agentUrl: 'http://localhost:9090', sshHost: 'host.docker.internal' }),
+      ],
+      options,
+    );
+
+    expect(inventory._meta.hostvars['host-a'].ansible_host).toBe('192.168.1.50');
+    expect(inventory._meta.hostvars['host-b'].ansible_host).toBe('host.docker.internal');
+  });
+
+  it('ignores a whitespace-only ssh_host and falls through to the agent URL', () => {
+    const inventory = buildAnsibleInventory(
+      [host({ name: 'host-a', agentUrl: 'https://10.0.0.5:9090', sshHost: '   ' })],
+      options,
+    );
+
+    expect(inventory._meta.hostvars['host-a'].ansible_host).toBe('10.0.0.5');
+  });
+
+  it('trims an ssh_host with surrounding whitespace', () => {
+    const inventory = buildAnsibleInventory(
+      [host({ name: 'host-a', sshHost: '  nas.lan  ' })],
+      options,
+    );
+
+    expect(inventory._meta.hostvars['host-a'].ansible_host).toBe('nas.lan');
+  });
+
+  it('uses the per-host ssh_user and falls back to remoteUser for hosts without one', () => {
+    const inventory = buildAnsibleInventory(
+      [
+        host({ name: 'host-a', sshUser: 'root' }),
+        host({ name: 'host-b' }),
+        host({ name: 'host-c', sshUser: '   ' }),
+      ],
+      options,
+    );
+
+    expect(inventory._meta.hostvars['host-a'].ansible_user).toBe('root');
+    expect(inventory._meta.hostvars['host-b'].ansible_user).toBe('ansible');
+    expect(inventory._meta.hostvars['host-c'].ansible_user).toBe('ansible');
   });
 
   it('groups by capability and leaves capability-less hosts ungrouped', () => {

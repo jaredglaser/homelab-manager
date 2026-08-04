@@ -59,6 +59,8 @@ function mockHost(overrides: Partial<ManagedHost> & Pick<ManagedHost, 'id' | 'na
     agentVersion: null,
     agentImage: null,
     agentImageTag: null,
+    sshHost: null,
+    sshUser: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     ...overrides,
@@ -121,9 +123,23 @@ describe('seedDevAgent', () => {
     expect(mockHostUpdateStatus).toHaveBeenCalledWith(1, 'healthy');
   });
 
+  it('seeds the sidecar-reachable ssh host on create', async () => {
+    const { seedDevAgent } = await import('../dev-seed');
+    await seedDevAgent(makeMockDb());
+
+    expect(mockHostCreate).toHaveBeenCalledWith({
+      name: 'localhost',
+      agentUrl: 'http://localhost:9090',
+      capabilities: { docker: true },
+      sshHost: 'host.docker.internal',
+    });
+  });
+
   it('updates agent URL when existing host has a stale URL', async () => {
     mockHostFindAll.mockImplementation(() =>
-      Promise.resolve([mockHost({ id: 2, name: 'localhost', agentUrl: 'http://old-host:9090', status: 'healthy' })]),
+      Promise.resolve([
+        mockHost({ id: 2, name: 'localhost', agentUrl: 'http://old-host:9090', status: 'healthy', sshHost: 'already-set' }),
+      ]),
     );
     mockKeypairGetPublicJwk.mockImplementation(() =>
       Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'abc' }),
@@ -136,9 +152,25 @@ describe('seedDevAgent', () => {
     expect(mockHostCreate).not.toHaveBeenCalled();
   });
 
-  it('skips host create when existing host already has the correct URL', async () => {
+  it('backfills the ssh host on an existing row that predates the column', async () => {
     mockHostFindAll.mockImplementation(() =>
-      Promise.resolve([mockHost({ id: 3, name: 'localhost', agentUrl: 'http://localhost:9090', status: 'healthy' })]),
+      Promise.resolve([mockHost({ id: 4, name: 'localhost', agentUrl: 'http://localhost:9090', status: 'healthy' })]),
+    );
+    mockKeypairGetPublicJwk.mockImplementation(() =>
+      Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'abc' }),
+    );
+
+    const { seedDevAgent } = await import('../dev-seed');
+    await seedDevAgent(makeMockDb());
+
+    expect(mockHostUpdate).toHaveBeenCalledWith(4, { sshHost: 'host.docker.internal' });
+  });
+
+  it('skips host create and update when the existing host is already correct', async () => {
+    mockHostFindAll.mockImplementation(() =>
+      Promise.resolve([
+        mockHost({ id: 3, name: 'localhost', agentUrl: 'http://localhost:9090', status: 'healthy', sshHost: 'host.docker.internal' }),
+      ]),
     );
     mockKeypairGetPublicJwk.mockImplementation(() =>
       Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'abc' }),

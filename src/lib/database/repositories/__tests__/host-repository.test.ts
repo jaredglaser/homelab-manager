@@ -28,6 +28,8 @@ const sampleRow = {
   agent_version: '0.1.0',
   agent_image: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
   agent_image_tag: 'dev',
+  ssh_host: null,
+  ssh_user: null,
   status: 'healthy',
   created_at: new Date('2026-01-01T00:00:00Z'),
   updated_at: new Date('2026-01-01T00:00:00Z'),
@@ -75,6 +77,38 @@ describe('HostRepository', () => {
       expect(id).toBe(5);
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
       expect(mock.queries[0].params).toContain(JSON.stringify({ docker: true }));
+    });
+
+    it('persists the ssh target and defaults it to null', async () => {
+      mock.pushResult([{ ...sampleRow, ssh_host: '10.0.0.5', ssh_user: 'deploy' }]);
+
+      const result = await repo.create({
+        name: 'homeserver',
+        agentUrl: 'http://192.168.1.10:9090',
+        sshHost: '10.0.0.5',
+        sshUser: 'deploy',
+      });
+
+      expect(result.sshHost).toBe('10.0.0.5');
+      expect(result.sshUser).toBe('deploy');
+      expect(mock.queries[0].sql).toContain('ssh_host');
+      expect(mock.queries[0].params).toEqual([
+        'homeserver',
+        'http://192.168.1.10:9090',
+        '{}',
+        '10.0.0.5',
+        'deploy',
+      ]);
+    });
+
+    it('binds null for an omitted ssh target', async () => {
+      mock.pushResult([sampleRow]);
+
+      const result = await repo.create({ name: 'homeserver', agentUrl: 'http://192.168.1.10:9090' });
+
+      expect(result.sshHost).toBeNull();
+      expect(result.sshUser).toBeNull();
+      expect(mock.queries[0].params.slice(3)).toEqual([null, null]);
     });
   });
 
@@ -266,6 +300,27 @@ describe('HostRepository', () => {
       expect(mock.queries[0].sql).toContain('capabilities = $1');
       expect(mock.queries[0].sql).toContain('updated_at = NOW()');
       expect(mock.queries[0].params).toContain(JSON.stringify({ docker: true }));
+    });
+
+    it('sets the ssh target and clears it when passed null', async () => {
+      mock.pushResult([{ ...sampleRow, ssh_host: 'nas.lan', ssh_user: null }]);
+
+      const result = await repo.update(1, { sshHost: 'nas.lan', sshUser: null });
+
+      expect(result.sshHost).toBe('nas.lan');
+      expect(result.sshUser).toBeNull();
+      expect(mock.queries[0].sql).toContain('ssh_host = $1');
+      expect(mock.queries[0].sql).toContain('ssh_user = $2');
+      expect(mock.queries[0].params).toEqual(['nas.lan', null, 1]);
+    });
+
+    it('leaves the ssh target untouched when the fields are absent', async () => {
+      mock.pushResult([sampleRow]);
+
+      await repo.update(1, { agentUrl: 'http://192.168.1.20:9090' });
+
+      expect(mock.queries[0].sql).not.toContain('ssh_host');
+      expect(mock.queries[0].sql).not.toContain('ssh_user');
     });
 
     it('returns existing host without issuing UPDATE when no fields provided', async () => {

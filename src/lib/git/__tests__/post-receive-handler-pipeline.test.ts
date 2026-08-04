@@ -46,6 +46,8 @@ const TEST_HOST: ManagedHost = {
   agentVersion: '0.1.0',
   agentImage: null,
   agentImageTag: null,
+  sshHost: null,
+  sshUser: null,
   status: 'healthy',
   createdAt: new Date(),
   updatedAt: new Date(),

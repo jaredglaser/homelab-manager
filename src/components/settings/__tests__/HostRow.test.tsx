@@ -10,6 +10,8 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   agentVersion: '1.2.3',
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentImageTag: 'latest',
+  sshHost: null,
+  sshUser: null,
   status: 'healthy',
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',

@@ -4,20 +4,22 @@ import type { HostListItem } from '@/lib/hosts/host-utils'
 import { DEFAULT_AGENT_IMAGE_TAG, getAgentImage, getAgentImageTag, getAgentUpdaterImage } from '@/lib/hosts/host-utils'
 import HostRow from '@/components/settings/HostRow'
 import { RemoveDialog, EditDialog } from '@/components/settings/HostDialogs'
+import type { EditHostSubmission } from '@/components/settings/HostDialogs'
 import AddHostWizard from '@/components/settings/AddHostWizard'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import type { AddHostSubmission } from '@/components/settings/AddHostWizard'
 import { Spinner } from '@/components/ui/spinner';
 
 export interface ManagedHostsCardProps {
   hosts: HostListItem[]
   isLoading: boolean
-  onAdd: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onAdd: (submission: AddHostSubmission) => void
   isAdding: boolean
   addError: string | null
   verifyResult: { publicJwk: unknown } | null
   onRemove: (hostId: number) => void
   isRemoving: boolean
-  onUpdate: (hostId: number, name: string, agentUrl: string) => void
+  onUpdate: (submission: EditHostSubmission) => void
   isUpdating: boolean
   onHealthCheck: (hostId: number) => void
   checkingHostIds: Set<number>
@@ -149,10 +151,6 @@ export function ManagedHostsCardView({
     }
   }
 
-  function handleEditConfirm(hostId: number, name: string, agentUrl: string) {
-    onUpdate(hostId, name, agentUrl)
-  }
-
   return (
     <>
       <div className="p-4 bg-card rounded-lg border border-border">
@@ -208,7 +206,7 @@ export function ManagedHostsCardView({
         open={editTarget !== null}
         host={editTarget}
         isUpdating={isUpdating}
-        onConfirm={handleEditConfirm}
+        onConfirm={onUpdate}
         onClose={() => setEditTarget(null)}
       />
 

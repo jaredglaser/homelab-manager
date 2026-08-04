@@ -13,6 +13,8 @@ function makeHost(overrides?: Partial<HostListItem>): HostListItem {
     agentVersion: '1.2.3',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
+    sshHost: null,
+    sshUser: null,
     status: 'healthy',
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
@@ -143,7 +145,36 @@ describe('EditDialog', () => {
     fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: '  http://10.0.0.1:9090  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(onConfirm).toHaveBeenCalledTimes(1)
-    expect(onConfirm).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.1:9090')
+    expect(onConfirm).toHaveBeenCalledWith({
+      hostId: 1,
+      name: 'server1',
+      agentUrl: 'http://10.0.0.1:9090',
+      sshHost: null,
+      sshUser: null,
+    })
+  })
+
+  it('pre-fills the SSH fields from host prop', () => {
+    render(<EditDialog {...defaultProps} host={makeHost({ sshHost: '10.0.0.5', sshUser: 'deploy' })} />)
+    expect((screen.getByLabelText('Edit SSH Address') as HTMLInputElement).value).toBe('10.0.0.5')
+    expect((screen.getByLabelText('Edit SSH User') as HTMLInputElement).value).toBe('deploy')
+  })
+
+  it('submits trimmed SSH fields and sends null for a cleared one', () => {
+    const onConfirm = mock(() => {})
+    render(
+      <EditDialog {...defaultProps} host={makeHost({ sshHost: '10.0.0.5', sshUser: 'deploy' })} onConfirm={onConfirm} />,
+    )
+    fireEvent.change(screen.getByLabelText('Edit SSH Address'), { target: { value: '  nas.lan  ' } })
+    fireEvent.change(screen.getByLabelText('Edit SSH User'), { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onConfirm).toHaveBeenCalledWith({
+      hostId: 1,
+      name: 'server1',
+      agentUrl: 'http://192.168.1.10:9090',
+      sshHost: 'nas.lan',
+      sshUser: null,
+    })
   })
 
   it('calls onClose when Cancel is clicked', () => {

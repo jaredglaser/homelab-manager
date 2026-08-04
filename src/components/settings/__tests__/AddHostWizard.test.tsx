@@ -2,11 +2,12 @@ import { describe, it, expect, mock } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@/lib/test/testing-library'
 import AddHostWizard from '@/components/settings/AddHostWizard'
+import type { AddHostSubmission } from '@/components/settings/AddHostWizard'
 
 interface WizardProps {
   isAdding: boolean
   addError: string | null
-  onSubmit: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onSubmit: (submission: AddHostSubmission) => void
   verifyResult: { publicJwk: unknown } | null
 }
 
@@ -213,11 +214,30 @@ describe('AddHostWizard', () => {
       fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://192.168.1.10:9090  ' } })
       fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
       expect(onSubmit).toHaveBeenCalledTimes(1)
-      const callArgs = onSubmit.mock.calls[0] as unknown as [string, string, { docker: boolean; zfs: boolean }]
-      const [name, agentUrl, capabilities] = callArgs
-      expect(name).toBe('dev-machine')
-      expect(agentUrl).toBe('http://192.168.1.10:9090')
-      expect(capabilities).toEqual({ docker: true, zfs: false })
+      const [submission] = onSubmit.mock.calls[0] as unknown as [AddHostSubmission]
+      expect(submission).toEqual({
+        name: 'dev-machine',
+        agentUrl: 'http://192.168.1.10:9090',
+        sshHost: null,
+        sshUser: null,
+        capabilities: { docker: true, zfs: false },
+      })
+    })
+
+    it('submits the trimmed SSH address and user when supplied', () => {
+      const onSubmit = mock(() => {})
+      render(<AddHostWizard isAdding={false} addError={null} onSubmit={onSubmit} verifyResult={null} />)
+      enterHostName('dev-machine')
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://192.168.1.10:9090' } })
+      fireEvent.change(screen.getByLabelText('SSH Address'), { target: { value: '  10.0.0.5  ' } })
+      fireEvent.change(screen.getByLabelText('SSH User'), { target: { value: '  deploy  ' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+      const [submission] = onSubmit.mock.calls[0] as unknown as [AddHostSubmission]
+      expect(submission.sshHost).toBe('10.0.0.5')
+      expect(submission.sshUser).toBe('deploy')
     })
 
     it('does not call onSubmit when isAdding is true', () => {

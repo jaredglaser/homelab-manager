@@ -42,30 +42,48 @@ export function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }:
   )
 }
 
+export interface EditHostSubmission {
+  hostId: number
+  name: string
+  agentUrl: string
+  sshHost: string | null
+  sshUser: string | null
+}
+
 interface EditDialogProps {
   open: boolean
   host: HostListItem | null
   isUpdating: boolean
-  onConfirm: (hostId: number, name: string, agentUrl: string) => void
+  onConfirm: (submission: EditHostSubmission) => void
   onClose: () => void
 }
 
 export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogProps) {
   const [name, setName] = useState(host?.name ?? '')
   const [agentUrl, setAgentUrl] = useState(host?.agentUrl ?? '')
+  const [sshHost, setSshHost] = useState(host?.sshHost ?? '')
+  const [sshUser, setSshUser] = useState(host?.sshUser ?? '')
 
   const [prevHost, setPrevHost] = useState(host)
   if (host !== prevHost) {
     setPrevHost(host)
     setName(host?.name ?? '')
     setAgentUrl(host?.agentUrl ?? '')
+    setSshHost(host?.sshHost ?? '')
+    setSshUser(host?.sshUser ?? '')
   }
 
   const isValid = agentUrl.trim().length > 0
 
   function handleSave() {
     if (!host || !isValid || isUpdating) return
-    onConfirm(host.id, name.trim(), agentUrl.trim())
+    onConfirm({
+      hostId: host.id,
+      name: name.trim(),
+      agentUrl: agentUrl.trim(),
+      sshHost: sshHost.trim() || null,
+      sshUser: sshUser.trim() || null,
+    })
   }
 
   return (
@@ -93,6 +111,28 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
               onChange={(e) => setAgentUrl(e.target.value)}
               disabled={isUpdating}
               aria-label="Edit Agent URL"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="edit-ssh-host">SSH Address</Label>
+            <Input
+              id="edit-ssh-host"
+              value={sshHost}
+              onChange={(e) => setSshHost(e.target.value)}
+              placeholder="Defaults to the agent URL host"
+              disabled={isUpdating}
+              aria-label="Edit SSH Address"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="edit-ssh-user">SSH User</Label>
+            <Input
+              id="edit-ssh-user"
+              value={sshUser}
+              onChange={(e) => setSshUser(e.target.value)}
+              placeholder="Defaults to ANSIBLE_REMOTE_USER"
+              disabled={isUpdating}
+              aria-label="Edit SSH User"
             />
           </div>
         </DialogBody>

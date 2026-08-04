@@ -27,14 +27,19 @@ export type HostOperationResult =
 
 export type HealthCheckResult = HostOperationResult;
 
+export interface SshTargetInput {
+  sshHost?: string | null;
+  sshUser?: string | null;
+}
+
 export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
   findAll(): Promise<ManagedHost[]>;
-  create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } } & SshTargetInput): Promise<ManagedHost>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null }): Promise<void>;
-  update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } } & SshTargetInput): Promise<ManagedHost>;
 }
 
 export interface HostHandlerDeps {
@@ -101,7 +106,7 @@ export async function handleRemoveHost(
 
 export async function handleUpdateHost(
   deps: HostHandlerDeps,
-  data: { hostId: number; name?: string; agentUrl?: string },
+  data: { hostId: number; name?: string; agentUrl?: string } & SshTargetInput,
 ): Promise<HostListItem> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
@@ -115,8 +120,10 @@ export async function handleUpdateHost(
     throw new Error('Host name cannot be changed after enrollment. To rename, remove and re-add the host.');
   }
 
-  const fields: { agentUrl?: string } = {};
+  const fields: { agentUrl?: string } & SshTargetInput = {};
   if (data.agentUrl !== undefined) fields.agentUrl = data.agentUrl;
+  if (data.sshHost !== undefined) fields.sshHost = data.sshHost;
+  if (data.sshUser !== undefined) fields.sshUser = data.sshUser;
 
   const updated = await deps.repo.update(data.hostId, fields);
   return toHostListItem(updated);
@@ -130,13 +137,15 @@ export async function handleUpdateHost(
  */
 export async function handleVerifyHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
-  data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+  data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } } & SshTargetInput,
 ): Promise<AddHostResult> {
   const name = data.name.trim();
   const host = await deps.repo.create({
     name,
     agentUrl: data.agentUrl,
     capabilities: data.capabilities,
+    sshHost: data.sshHost ?? null,
+    sshUser: data.sshUser ?? null,
   });
 
   let publicJwk;

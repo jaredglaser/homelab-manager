@@ -9,6 +9,8 @@ export interface HostListItem {
   agentVersion: string | null;
   agentImage: string | null;
   agentImageTag: string | null;
+  sshHost: string | null;
+  sshUser: string | null;
   status: HostStatus;
   createdAt: string;
   updatedAt: string;
@@ -41,6 +43,8 @@ export function toHostListItem(
     agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agentVersion,
     agentImage: row.agentImage,
     agentImageTag: row.agentImageTag,
+    sshHost: row.sshHost,
+    sshUser: row.sshUser,
     status: overrides?.status ?? row.status,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

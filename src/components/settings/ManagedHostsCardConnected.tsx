@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost } from '@/data/hosts/functions'
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
+import type { AddHostSubmission } from '@/components/settings/AddHostWizard'
+import type { EditHostSubmission } from '@/components/settings/HostDialogs'
 import { useToast } from '@/hooks/toastAtom'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
@@ -19,8 +21,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   })
 
   const addMutation = useMutation({
-    mutationFn: ({ name, agentUrl, capabilities }: { name: string; agentUrl: string; capabilities: { docker: boolean; zfs: boolean } }) =>
-      verifyHost({ data: { name, agentUrl, capabilities } }),
+    mutationFn: (submission: AddHostSubmission) => verifyHost({ data: submission }),
     onMutate: () => {
       setVerifyResult(null)
     },
@@ -58,8 +59,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ hostId, name, agentUrl }: { hostId: number; name: string; agentUrl: string }) =>
-      updateHost({ data: { hostId, name, agentUrl } }),
+    mutationFn: (submission: EditHostSubmission) => updateHost({ data: submission }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       showToast('Host updated', 'success')
@@ -99,13 +99,13 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     <ManagedHostsCardView
       hosts={filteredHosts}
       isLoading={isLoading}
-      onAdd={(name, agentUrl, capabilities) => addMutation.mutate({ name, agentUrl, capabilities })}
+      onAdd={(submission) => addMutation.mutate(submission)}
       isAdding={addMutation.isPending}
       addError={addError}
       verifyResult={verifyResult}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
       isRemoving={removeMutation.isPending}
-      onUpdate={(hostId, name, agentUrl) => updateMutation.mutate({ hostId, name, agentUrl })}
+      onUpdate={(submission) => updateMutation.mutate(submission)}
       isUpdating={updateMutation.isPending}
       onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
       checkingHostIds={checkingHostIds}

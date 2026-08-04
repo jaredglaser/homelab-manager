@@ -8,6 +8,8 @@ import { loadMasterKeyring } from '@/lib/crypto/master-key';
 
 const DEV_AGENT_URL = 'http://localhost:9090';
 const DEV_HEALTH_CHECK_URL = 'http://hlm-agent:9090';
+/** Reaches the dev box from inside the ansible-sidecar container, which docker-compose gives a host-gateway alias. */
+const DEV_SSH_HOST = 'host.docker.internal';
 const DEV_DEFAULT_HOST_NAME = 'localhost';
 const DEFAULT_PUBKEY_FILE = process.env.DEV_AGENT_PUBKEY_FILE || './data/dev-agent-pubkey.json';
 const HEALTH_CHECK_ATTEMPTS = 5;
@@ -43,10 +45,16 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
       name: devHostName,
       agentUrl: DEV_AGENT_URL,
       capabilities: { docker: true },
+      sshHost: DEV_SSH_HOST,
     });
-  } else if (host.agentUrl !== DEV_AGENT_URL) {
-    await hostRepo.update(host.id, { agentUrl: DEV_AGENT_URL });
-    console.info(`[DevSeed] Updated agent URL from ${host.agentUrl} to ${DEV_AGENT_URL}`);
+  } else {
+    const fields: { agentUrl?: string; sshHost?: string } = {};
+    if (host.agentUrl !== DEV_AGENT_URL) fields.agentUrl = DEV_AGENT_URL;
+    if (host.sshHost === null) fields.sshHost = DEV_SSH_HOST;
+    if (Object.keys(fields).length > 0) {
+      await hostRepo.update(host.id, fields);
+      console.info(`[DevSeed] Updated ${Object.keys(fields).join(', ')} for "${devHostName}"`);
+    }
   }
 
   const existingPubKey = await keypairs.getPublicJwkForHost(devHostName);

@@ -18,6 +18,8 @@ function mockRow(overrides?: Record<string, unknown>) {
     agentVersion: null,
     agentImage: null,
     agentImageTag: null,
+    sshHost: null,
+    sshUser: null,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
     ...overrides,
@@ -199,6 +201,8 @@ describe('handleVerifyHost', () => {
       name: 'new-host',
       agentUrl: 'http://192.168.1.10:9090',
       capabilities: { docker: true },
+      sshHost: null,
+      sshUser: null,
     });
   });
 
@@ -230,6 +234,8 @@ describe('handleVerifyHost', () => {
       name: 'zfs-host',
       agentUrl: 'http://x:9090',
       capabilities: { docker: true, zfs: true },
+      sshHost: null,
+      sshUser: null,
     });
   });
 
@@ -240,8 +246,27 @@ describe('handleVerifyHost', () => {
       name: 'padded-host',
       agentUrl: 'http://x:9090',
       capabilities: undefined,
+      sshHost: null,
+      sshUser: null,
     });
     expect(deps.keypairs.createForHost).toHaveBeenCalledWith('padded-host');
+  });
+
+  it('passes the SSH target through to repo.create', async () => {
+    const deps = verifyDeps();
+    await handleVerifyHost(deps, {
+      name: 'nas',
+      agentUrl: 'https://agent.lan',
+      sshHost: '192.168.1.50',
+      sshUser: 'root',
+    });
+    expect(deps.repo.create).toHaveBeenCalledWith({
+      name: 'nas',
+      agentUrl: 'https://agent.lan',
+      capabilities: undefined,
+      sshHost: '192.168.1.50',
+      sshUser: 'root',
+    });
   });
 });
 
@@ -257,6 +282,16 @@ describe('handleUpdateHost', () => {
     expect(result.name).toBe('test-host');
     expect(result.agentUrl).toBe('http://new-url:9090');
     expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'http://new-url:9090' });
+  });
+
+  it('writes the SSH target and clears it when explicitly null', async () => {
+    const repo = mockRepo({ update: mock(() => Promise.resolve(mockRow())) });
+    const deps = baseDeps();
+    deps.repo = repo;
+
+    await handleUpdateHost(deps, { hostId: 1, sshHost: '10.0.0.5', sshUser: null });
+
+    expect(repo.update).toHaveBeenCalledWith(1, { sshHost: '10.0.0.5', sshUser: null });
   });
 
   it('throws when host not found', async () => {

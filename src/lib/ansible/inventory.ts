@@ -13,18 +13,24 @@ export interface AnsibleInventory {
 export interface InventoryOptions {
   /** Name of the managed host this deployment runs on, if any. Excluded from plays that would recreate it. */
   selfHostName?: string | null;
-  /** SSH login for every host. Per-host overrides land in `managed_hosts` once enrollment collects them. */
+  /** Fallback SSH login, used only for hosts with no `ssh_user` of their own. */
   remoteUser: string;
   appdataRoot: string;
 }
 
-/** The agent URL is an HTTP endpoint, not an SSH target; the host name is what SSH connects to. */
+/** Resolution order: the host's own `ssh_host`, then the agent URL hostname, then the host name. */
 function ansibleHostFor(host: ManagedHost): string {
+  const explicit = host.sshHost?.trim();
+  if (explicit) return explicit;
   try {
     return new URL(host.agentUrl).hostname || host.name;
   } catch {
     return host.name;
   }
+}
+
+function ansibleUserFor(host: ManagedHost, fallback: string): string {
+  return host.sshUser?.trim() || fallback;
 }
 
 /**
@@ -43,7 +49,7 @@ export function buildAnsibleInventory(
     names.push(host.name);
     hostvars[host.name] = {
       ansible_host: ansibleHostFor(host),
-      ansible_user: options.remoteUser,
+      ansible_user: ansibleUserFor(host, options.remoteUser),
       hlm_appdata_root: options.appdataRoot,
       hlm_host_status: host.status,
       hlm_self_managed: host.name === options.selfHostName,

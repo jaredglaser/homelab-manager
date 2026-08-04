@@ -16,6 +16,8 @@ export interface ManagedHost {
   agentVersion: string | null;
   agentImage: string | null;
   agentImageTag: string | null;
+  sshHost: string | null;
+  sshUser: string | null;
   status: HostStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -25,6 +27,8 @@ export interface CreateHostInput {
   name: string;
   agentUrl: string;
   capabilities?: HostCapabilities;
+  sshHost?: string | null;
+  sshUser?: string | null;
 }
 
 export interface UpdateAgentInfoInput {
@@ -37,6 +41,8 @@ export interface UpdateHostInput {
   name?: string;
   agentUrl?: string;
   capabilities?: HostCapabilities;
+  sshHost?: string | null;
+  sshUser?: string | null;
 }
 
 function toManagedHost(row: Record<string, unknown>): ManagedHost {
@@ -48,6 +54,8 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     agentVersion: (row.agent_version as string | null | undefined) ?? null,
     agentImage: (row.agent_image as string | null | undefined) ?? null,
     agentImageTag: (row.agent_image_tag as string | null | undefined) ?? null,
+    sshHost: (row.ssh_host as string | null | undefined) ?? null,
+    sshUser: (row.ssh_user as string | null | undefined) ?? null,
     status: row.status as HostStatus,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -90,10 +98,16 @@ export class HostRepository {
 
   async create(input: CreateHostInput): Promise<ManagedHost> {
     const result = await this.pool.query(
-      `INSERT INTO managed_hosts (name, agent_url, capabilities)
-       VALUES ($1, $2, $3)
+      `INSERT INTO managed_hosts (name, agent_url, capabilities, ssh_host, ssh_user)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
+      [
+        input.name,
+        input.agentUrl,
+        JSON.stringify(input.capabilities ?? {}),
+        input.sshHost ?? null,
+        input.sshUser ?? null,
+      ],
     );
     const host = toManagedHost(result.rows[0] as Record<string, unknown>);
     await this.notifyChange('add', host.name);
@@ -102,10 +116,16 @@ export class HostRepository {
 
   async insert(input: CreateHostInput): Promise<number> {
     const result = await this.pool.query(
-      `INSERT INTO managed_hosts (name, agent_url, capabilities)
-       VALUES ($1, $2, $3)
+      `INSERT INTO managed_hosts (name, agent_url, capabilities, ssh_host, ssh_user)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING id`,
-      [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
+      [
+        input.name,
+        input.agentUrl,
+        JSON.stringify(input.capabilities ?? {}),
+        input.sshHost ?? null,
+        input.sshUser ?? null,
+      ],
     );
     await this.notifyChange('add', input.name);
     return Number((result.rows[0] as Record<string, unknown>).id);
@@ -193,6 +213,14 @@ export class HostRepository {
     if (fields.capabilities !== undefined) {
       params.push(JSON.stringify(fields.capabilities));
       setClauses.push(`capabilities = $${params.length}`);
+    }
+    if (fields.sshHost !== undefined) {
+      params.push(fields.sshHost);
+      setClauses.push(`ssh_host = $${params.length}`);
+    }
+    if (fields.sshUser !== undefined) {
+      params.push(fields.sshUser);
+      setClauses.push(`ssh_user = $${params.length}`);
     }
 
     if (setClauses.length === 0) {

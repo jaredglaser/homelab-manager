@@ -8,19 +8,27 @@ import { Spinner } from '@/components/ui/spinner';
 
 interface VerifyConnectionStepProps {
   agentUrl: string
+  sshHost: string
+  sshUser: string
   isAdding: boolean
   canVerify: boolean
   publicJwkJson: string | null
   onAgentUrlChange: (value: string) => void
+  onSshHostChange: (value: string) => void
+  onSshUserChange: (value: string) => void
   onVerify: () => void
 }
 
 export default function VerifyConnectionStep({
   agentUrl,
+  sshHost,
+  sshUser,
   isAdding,
   canVerify,
   publicJwkJson,
   onAgentUrlChange,
+  onSshHostChange,
+  onSshUserChange,
   onVerify,
 }: VerifyConnectionStepProps) {
   return (
@@ -38,6 +46,34 @@ export default function VerifyConnectionStep({
           disabled={isAdding}
           aria-label="Agent URL"
         />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="wizard-ssh-host">SSH Address (optional)</Label>
+        <Input
+          id="wizard-ssh-host"
+          value={sshHost}
+          onChange={(e) => onSshHostChange(e.target.value)}
+          placeholder="192.168.1.10"
+          disabled={isAdding}
+          aria-label="SSH Address"
+        />
+        <p className="text-xs text-muted-foreground">
+          Used only by Ansible runs. Defaults to the agent URL host. Not checked by Verify Connection.
+        </p>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="wizard-ssh-user">SSH User (optional)</Label>
+        <Input
+          id="wizard-ssh-user"
+          value={sshUser}
+          onChange={(e) => onSshUserChange(e.target.value)}
+          placeholder="ansible"
+          disabled={isAdding}
+          aria-label="SSH User"
+        />
+        <p className="text-xs text-muted-foreground">
+          Defaults to ANSIBLE_REMOTE_USER. Needs passwordless become on this host.
+        </p>
       </div>
       <Button
         size="sm"

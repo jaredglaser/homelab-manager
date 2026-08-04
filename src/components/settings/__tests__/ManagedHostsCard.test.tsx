@@ -12,6 +12,8 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   agentVersion: '1.2.3',
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentImageTag: 'latest',
+  sshHost: null,
+  sshUser: null,
   status: 'healthy',
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',
@@ -77,6 +79,24 @@ describe('ManagedHostsCard', () => {
     it('renders agent version', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
       expect(screen.getByText('v1.2.3')).toBeDefined()
+    })
+
+    it('renders the ssh target only when the host has one', () => {
+      const { unmount } = render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      expect(screen.queryByText(/^ssh:/)).toBeNull()
+      unmount()
+
+      render(
+        <ManagedHostsCardView
+          {...makeProps({ hosts: [makeHost({ sshHost: '10.0.0.5', sshUser: 'deploy' })] })}
+        />,
+      )
+      expect(screen.getByText('ssh:deploy@10.0.0.5')).toBeDefined()
+    })
+
+    it('renders the ssh address without a user prefix when no ssh user is set', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ sshHost: '10.0.0.5' })] })} />)
+      expect(screen.getByText('ssh:10.0.0.5')).toBeDefined()
     })
 
     it('does not render version when agentVersion is null', () => {
@@ -335,10 +355,13 @@ describe('ManagedHostsCard', () => {
       fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://localhost:9090  ' } })
       fireEvent.click(screen.getByRole('button', { name: /Verify Connection/ }))
       expect(onAdd).toHaveBeenCalledTimes(1)
-      const args = (onAdd as ReturnType<typeof mock>).mock.calls[0]
-      expect(args[0]).toBe('server1')
-      expect(args[1]).toBe('http://localhost:9090')
-      expect(args[2]).toEqual({ docker: true, zfs: false })
+      expect(onAdd).toHaveBeenCalledWith({
+        name: 'server1',
+        agentUrl: 'http://localhost:9090',
+        sshHost: null,
+        sshUser: null,
+        capabilities: { docker: true, zfs: false },
+      })
     })
 
     it('Verify Connection button is disabled while isAdding', () => {
@@ -439,7 +462,13 @@ describe('ManagedHostsCard', () => {
       fireEvent.click(screen.getByLabelText('edit host'))
       fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: 'http://10.0.0.9:9090' } })
       fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-      expect(onUpdate).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.9:9090')
+      expect(onUpdate).toHaveBeenCalledWith({
+        hostId: 1,
+        name: 'server1',
+        agentUrl: 'http://10.0.0.9:9090',
+        sshHost: null,
+        sshUser: null,
+      })
     })
 
     it('does not call onUpdate when Cancel is clicked', () => {
