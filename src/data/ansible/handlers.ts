@@ -1,6 +1,11 @@
 import type { AnsibleRunService, StartRunInput } from '@/lib/ansible/run-service';
 import type { AnsibleRunRepository } from '@/lib/database/repositories/ansible-run-repository';
-import type { AnsibleRun } from '@/types/ansible';
+import type { AnsibleRun, AnsibleRunEvent } from '@/types/ansible';
+
+export interface AnsibleRunDetail {
+  run: AnsibleRun;
+  events: AnsibleRunEvent[];
+}
 
 /**
  * Reserved `stack_secrets.stack_name` holding secrets that belong to a playbook rather
@@ -47,6 +52,14 @@ export async function handleListRuns(
   deps: Pick<AnsibleHandlerDeps, 'repo'>,
 ): Promise<AnsibleRun[]> {
   return deps.repo.findRecent(limit);
+}
+
+export async function handleGetLatestRun(
+  deps: Pick<AnsibleHandlerDeps, 'repo'>,
+): Promise<AnsibleRunDetail | null> {
+  const run = await deps.repo.findLatest();
+  if (!run) return null;
+  return { run, events: await deps.repo.findEvents(run.id) };
 }
 
 export async function handleCancelRun(

@@ -14,6 +14,10 @@ export async function startAnsibleRun(): Promise<AnsibleRun> {
   throw new Error('Ansible execution is disabled in demo mode.');
 }
 
+export async function getLatestAnsibleRun(): Promise<null> {
+  return null;
+}
+
 export async function cancelAnsibleRun(): Promise<{ cancelled: boolean }> {
   return { cancelled: false };
 }

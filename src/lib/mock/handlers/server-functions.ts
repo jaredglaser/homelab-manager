@@ -104,6 +104,7 @@ const registry: Record<string, ServerFnMock> = {
 
   // Ansible execution layer (disabled by default; the demo build has no sidecar)
   listAnsibleRuns: fn(ansibleFns.listAnsibleRuns),
+  getLatestAnsibleRun: fn(ansibleFns.getLatestAnsibleRun),
   startAnsibleRun: fn(ansibleFns.startAnsibleRun),
   cancelAnsibleRun: fn(ansibleFns.cancelAnsibleRun),
 };

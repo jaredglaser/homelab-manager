@@ -96,6 +96,27 @@ export class AnsibleRunRepository {
     return result.rows.length > 0 ? toRun(result.rows[0] as Record<string, unknown>) : null;
   }
 
+  async findLatest(): Promise<AnsibleRun | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM ansible_runs ORDER BY created_at DESC LIMIT 1`,
+    );
+    return result.rows.length > 0 ? toRun(result.rows[0] as Record<string, unknown>) : null;
+  }
+
+  /**
+   * Insertion order, not `counter`: runner_status frames carry no counter and normalize to
+   * 0, so ordering by it sorts every status event to the front. A run's event count is
+   * bounded by tasks times hosts, since the allowlist drops per-item loop events, so this
+   * needs no limit.
+   */
+  async findEvents(runId: number): Promise<AnsibleRunEvent[]> {
+    const result = await this.pool.query(
+      `SELECT payload FROM ansible_run_events WHERE run_id = $1 ORDER BY id`,
+      [runId],
+    );
+    return result.rows.map((row) => (row as { payload: AnsibleRunEvent }).payload);
+  }
+
   /**
    * Stranded rows from a process that died mid-run. The sidecar keeps no durable state,
    * so a run whose dispatcher is gone has no writer left and can never reach a terminal

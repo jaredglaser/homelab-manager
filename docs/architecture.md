@@ -417,6 +417,16 @@ shapes reach `ansible_run_events` or the browser. `playbook_on_stats` carries th
 `dark` is reported `unreachable` rather than failing the run, so one sleeping host does not
 turn a multi-host run red.
 
+**Reading a run back**: `ansible_run_events` is the durable record, not just an audit trail.
+`useAnsibleRun` preloads the newest run through `getLatestAnsibleRun` and merges later SSE
+frames deduped on the line key, so a reload, a second tab, or a server restart mid-run renders
+the run so far rather than an empty panel. The preload takes no limit and the hook retains
+every line: because the allowlist above excludes the per-item loop events, a task looping over
+ten thousand items costs one row per host, and a run's size is a function of playbook structure
+rather than playbook data. Widening the allowlist to `runner_item_on_*` would remove that
+property. Rows are ordered by `id`, not `counter`: `runner_status` frames carry no counter and
+normalize to `0`, which would sort them all to the front.
+
 **Inventory**: `/api/ansible-inventory` serves `managed_hosts` in Ansible's inventory JSON,
 authenticated with the sidecar token (not a session cookie). `hlm_inventory.py` in the
 sidecar fetches it and prints it; `_meta.hostvars` is always populated so `--host` is never

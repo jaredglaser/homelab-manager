@@ -11,7 +11,9 @@ import {
   handleStartRun,
   handleListRuns,
   handleCancelRun,
+  handleGetLatestRun,
   type AnsibleHandlerDeps,
+  type AnsibleRunDetail,
 } from '@/data/ansible/handlers';
 import type { AnsibleRun } from '@/types/ansible';
 
@@ -60,6 +62,13 @@ export const listAnsibleRuns = createServerFn()
   .handler(async ({ data, context }): Promise<AnsibleRun[]> => {
     requireRole('admin')(context.user);
     return handleListRuns(data.limit, await loadDeps());
+  });
+
+export const getLatestAnsibleRun = createServerFn()
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<AnsibleRunDetail | null> => {
+    requireRole('admin')(context.user);
+    return handleGetLatestRun(await loadDeps());
   });
 
 export const cancelAnsibleRun = createServerFn({ method: 'POST' })

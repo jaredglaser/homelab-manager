@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import type { Pool } from 'pg';
+import type { AnsibleRunEvent } from '@/types/ansible';
 import { AnsibleRunRepository } from '../ansible-run-repository';
 
 interface MockPool {
@@ -100,6 +101,29 @@ describe('AnsibleRunRepository', () => {
 
     pool.results.push({ rows: [] });
     expect(await repo.findByRunId('missing')).toBeNull();
+  });
+
+  it('reads a run and its events back in insertion order', async () => {
+    pool.results.push({ rows: [row] });
+    expect((await repo.findLatest())?.runId).toBe('run-1');
+    expect(String(pool.query.mock.calls[0][0])).toContain('ORDER BY created_at DESC LIMIT 1');
+
+    const events: AnsibleRunEvent[] = [
+      { kind: 'status', counter: 0, status: 'running' },
+      { kind: 'play_start', counter: 2, play: 'Host baseline' },
+    ];
+    pool.results.push({ rows: events.map((payload) => ({ payload })) });
+    expect(await repo.findEvents(7)).toEqual(events);
+    expect(pool.query.mock.calls[1][1]).toEqual([7]);
+
+    // Ordering by counter would sort every runner_status frame to the front: they carry
+    // no counter and normalize to 0.
+    expect(String(pool.query.mock.calls[1][0])).toContain('ORDER BY id');
+  });
+
+  it('returns no events for a run that has none', async () => {
+    pool.results.push({ rows: [] });
+    expect(await repo.findEvents(7)).toEqual([]);
   });
 
   it('reports whether it was the call that finished the run, and refuses terminal rows', async () => {

@@ -4,6 +4,7 @@ import {
   handleStartRun,
   handleListRuns,
   handleCancelRun,
+  handleGetLatestRun,
 } from '@/data/ansible/handlers';
 import type { AnsibleRunService } from '@/lib/ansible/run-service';
 import type { AnsibleRunRepository } from '@/lib/database/repositories/ansible-run-repository';
@@ -35,7 +36,11 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     consume: mock(async () => 'succeeded' as const),
     cancel: mock(async () => {}),
   };
-  const repo = { findRecent: mock(async () => [run]) };
+  const repo = {
+    findRecent: mock(async () => [run]),
+    findLatest: mock(async (): Promise<AnsibleRun | null> => run),
+    findEvents: mock(async () => [{ kind: 'play_start', counter: 1, play: 'Host baseline' }]),
+  };
   return {
     service: service as unknown as AnsibleRunService,
     repo: repo as unknown as AnsibleRunRepository,
@@ -99,5 +104,23 @@ describe('handleListRuns and handleCancelRun', () => {
     const deps = makeDeps();
     expect(await handleCancelRun('run-1', deps)).toEqual({ cancelled: true });
     expect(deps.spies.service.cancel).toHaveBeenCalledWith('run-1');
+  });
+});
+
+describe('handleGetLatestRun', () => {
+  it('pairs the newest run with its persisted events', async () => {
+    const deps = makeDeps();
+    expect(await handleGetLatestRun(deps)).toEqual({
+      run,
+      events: [{ kind: 'play_start', counter: 1, play: 'Host baseline' }],
+    });
+    expect(deps.spies.repo.findEvents).toHaveBeenCalledWith(run.id);
+  });
+
+  it('returns null and reads no events when no run exists', async () => {
+    const deps = makeDeps();
+    deps.spies.repo.findLatest.mockImplementation(async () => null);
+    expect(await handleGetLatestRun(deps)).toBeNull();
+    expect(deps.spies.repo.findEvents).not.toHaveBeenCalled();
   });
 });
