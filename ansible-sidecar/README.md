@@ -66,3 +66,27 @@ docker compose -f docker-compose.local.yml --profile ansible up -d --build
 Then set `ANSIBLE_RUNNER_ENABLED=true` and `ANSIBLE_SIDECAR_TOKEN` in the app environment and
 open `/automation`. The route is not linked from the navigation while the feature is behind a
 flag.
+
+## Tests
+
+```bash
+bun run setup:ansible-sidecar   # once: creates ansible-sidecar/.venv from requirements-dev.txt
+bun run test:ansible-sidecar    # cd ansible-sidecar && .venv/bin/python -m pytest
+```
+
+Deliberately outside `bun run test:all`, which must not require a Python virtualenv. CI runs
+the suite in its own `ansible-sidecar` job on Python 3.13, matching the image.
+
+The suite needs no Docker daemon, no SSH target, and no network. It does need the pinned
+`ansible-runner` installed, because `tests/test_runner_contract.py` drives the sidecar's
+callbacks through the real `ansible_runner.runner.Runner` instead of a stand-in. A stand-in
+would have been written from the same reading of the API as the sidecar, so it would have
+agreed with the `status_handler(status, _runner_config=None)` signature that silently killed
+the runner thread on every run: `Runner.status_callback` passes `runner_config=` as a keyword.
+Layout: `test_runner_contract.py` (runner callback contract), `test_runs_registry.py`
+(dispatch arguments, host locking, supervisor), `test_server.py` (auth, request validation),
+`test_inventory_script.py` (dynamic inventory).
+
+Tests live in `ansible-sidecar/tests/` rather than the repo's co-located `__tests__/`
+convention, which is written for `bun test`. `pytest.ini` puts the rootdir here, and
+`.dockerignore` keeps `tests/`, `.venv/`, and `__pycache__/` out of the build context.

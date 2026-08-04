@@ -249,6 +249,39 @@ jobs:
           path: agent-updater/license-report.json
           retention-days: 30
 
+  # No license check step: ansible-core is GPL-3.0-or-later, which is why the sidecar
+  # ships as its own image rather than as dependencies of the Bun agent.
+  ansible-sidecar:
+    name: Ansible Sidecar Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Must track python:3.13-slim in ansible-sidecar/Dockerfile: the suite asserts the
+      # ansible-runner callback contract against the interpreter the image ships.
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            ansible-sidecar/requirements.txt
+            ansible-sidecar/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+        working-directory: ansible-sidecar
+
+      - name: Run tests
+        run: python -m pytest
+        working-directory: ansible-sidecar
+
   demo-build:
     name: Demo Build
     runs-on: ubuntu-latest

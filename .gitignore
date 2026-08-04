@@ -54,6 +54,8 @@ agent-token
 /playwright/.cache/
 /e2e-build/
 
-# Python bytecode (ansible-sidecar)
+# Python (ansible-sidecar)
 __pycache__/
 *.py[cod]
+/ansible-sidecar/.venv/
+.pytest_cache/
