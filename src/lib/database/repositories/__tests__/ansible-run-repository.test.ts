@@ -102,11 +102,42 @@ describe('AnsibleRunRepository', () => {
     expect(await repo.findByRunId('missing')).toBeNull();
   });
 
-  it('reports how many stranded runs it failed, treating a null rowCount as zero', async () => {
-    pool.results.push({ rows: [], rowCount: 3 });
-    expect(await repo.failStrandedRuns()).toBe(3);
+  it('reports whether it was the call that finished the run, and refuses terminal rows', async () => {
+    pool.results.push({ rows: [{ id: '42' }] });
+    expect(await repo.finish(42, 'succeeded', [])).toBe(true);
 
     pool.results.push({ rows: [] });
-    expect(await repo.failStrandedRuns()).toBe(0);
+    expect(await repo.finish(42, 'succeeded', [])).toBe(false);
+
+    const sql = String(pool.query.mock.calls[0][0]).replace(/\s+/g, ' ');
+    expect(sql).toContain("AND status IN ('pending', 'running')");
+    expect(sql).toContain('RETURNING id');
+  });
+
+  it('returns the stranded runs it failed, coercing the BIGSERIAL id', async () => {
+    pool.results.push({ rows: [{ id: '4', run_id: 'run-a' }, { id: '5', run_id: 'run-b' }] });
+    expect(await repo.failStrandedRuns()).toEqual([
+      { id: 4, runId: 'run-a' },
+      { id: 5, runId: 'run-b' },
+    ]);
+
+    const sql = String(pool.query.mock.calls[0][0]);
+    expect(sql).toContain("status IN ('pending', 'running')");
+    expect(sql).toContain('RETURNING id, run_id');
+
+    pool.results.push({ rows: [] });
+    expect(await repo.failStrandedRuns()).toEqual([]);
+  });
+
+  it('times out stuck runs by last event time, covering both non-terminal statuses', async () => {
+    pool.results.push({ rows: [{ id: '9', run_id: 'run-9' }] });
+    expect(await repo.timeoutStuckRuns(15)).toEqual([{ id: 9, runId: 'run-9' }]);
+
+    const sql = String(pool.query.mock.calls[0][0]);
+    expect(pool.query.mock.calls[0][1]).toEqual([15]);
+    expect(sql).toContain("r.status IN ('pending', 'running')");
+    expect(sql).toContain('MAX(e.at)');
+    expect(sql).toContain('RETURNING r.id, r.run_id');
+    expect(sql.replace(/\s+/g, ' ')).toContain(') < NOW() - make_interval(mins => $1)');
   });
 });

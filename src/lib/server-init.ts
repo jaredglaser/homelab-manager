@@ -4,9 +4,11 @@ import { settingsBroadcastService } from '@/lib/settings/settings-broadcast-serv
 import { stackStatusBroadcastService } from '@/lib/stacks/stack-status-broadcast-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployWatchdog } from '@/lib/deploy/deploy-watchdog';
+import { AnsibleRunWatchdog } from '@/lib/ansible/run-watchdog';
 
 let initialized = false;
 const deployWatchdog = new DeployWatchdog();
+const ansibleRunWatchdog = new AnsibleRunWatchdog();
 
 async function startDeployRecovery(): Promise<void> {
   const { databaseConnectionManager: dbm } = await import('@/lib/clients/database-client');
@@ -80,12 +82,15 @@ async function startAnsibleRunRecovery(): Promise<void> {
   const { AnsibleRunRepository } = await import(
     '@/lib/database/repositories/ansible-run-repository'
   );
+  const { performAnsibleRunRecovery } = await import('@/lib/ansible/startup-recovery');
+  const { ansibleRunBroadcastService } = await import('@/lib/ansible/run-broadcast-service');
 
   const dbClient = await dbm.getClient(loadDatabaseConfig());
-  const failed = await new AnsibleRunRepository(dbClient.getPool()).failStrandedRuns();
-  if (failed > 0) {
-    console.info(`[Server] Failed ${failed} stranded Ansible run(s) from a prior process`);
-  }
+  const repo = new AnsibleRunRepository(dbClient.getPool());
+
+  await performAnsibleRunRecovery(repo, ansibleRunWatchdog, (event) => {
+    ansibleRunBroadcastService.publish(event);
+  });
 }
 
 /**
@@ -106,6 +111,7 @@ export function initServer(): void {
 
     try {
       deployWatchdog.stop();
+      ansibleRunWatchdog.stop();
       await statsPollService.stop();
       await settingsBroadcastService.stop();
       await stackStatusBroadcastService.stop();

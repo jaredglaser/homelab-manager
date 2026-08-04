@@ -22,7 +22,7 @@ function makeRepo() {
   return {
     create: mock(async () => record),
     appendEvent: mock(async () => {}),
-    finish: mock(async () => {}),
+    finish: mock(async () => true),
   };
 }
 
@@ -152,6 +152,17 @@ describe('AnsibleRunService.consume', () => {
       ],
     );
     expect(published.at(-1)).toEqual({ type: 'run_finished', runId: 'run-1', status: 'succeeded' });
+  });
+
+  it('publishes no terminal frame when the row already reached a terminal status', async () => {
+    const repo = makeRepo();
+    repo.finish = mock(async () => false);
+    const client = makeClient([{ event: 'runner_status', status: 'successful' }]);
+    const { service, published } = makeService(repo, client);
+
+    expect(await service.consume(record)).toBe('succeeded');
+    expect(repo.finish).toHaveBeenCalledTimes(1);
+    expect(published.filter((e) => e.type === 'run_finished')).toEqual([]);
   });
 
   it('derives a terminal status from the summaries when the stream ends without one', async () => {

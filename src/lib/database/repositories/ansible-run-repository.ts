@@ -14,6 +14,15 @@ export interface CreateAnsibleRunInput {
   requestedBy: string;
 }
 
+export interface StrandedAnsibleRunRow {
+  id: number;
+  runId: string;
+}
+
+function toStrandedRow(row: Record<string, unknown>): StrandedAnsibleRunRow {
+  return { id: Number(row.id), runId: row.run_id as string };
+}
+
 function toRun(row: Record<string, unknown>): AnsibleRun {
   const finishedAt = row.finished_at as Date | null;
   return {
@@ -50,17 +59,24 @@ export class AnsibleRunRepository {
     );
   }
 
+  /**
+   * No-ops when the row already reached a terminal status, so a drain that outlives a
+   * watchdog timeout cannot resurrect it. Returns whether this call was the one that finished it.
+   */
   async finish(
     runId: number,
     status: AnsibleRunStatus,
     summaries: AnsibleHostSummary[],
-  ): Promise<void> {
-    await this.pool.query(
+  ): Promise<boolean> {
+    const result = await this.pool.query(
       `UPDATE ansible_runs
        SET status = $2, summaries = $3, finished_at = NOW()
-       WHERE id = $1`,
+       WHERE id = $1
+         AND status IN ('pending', 'running')
+       RETURNING id`,
       [runId, status, JSON.stringify(summaries)],
     );
+    return result.rows.length > 0;
   }
 
   async setStatus(runId: number, status: AnsibleRunStatus): Promise<void> {
@@ -83,14 +99,34 @@ export class AnsibleRunRepository {
   /**
    * Stranded rows from a process that died mid-run. The sidecar keeps no durable state,
    * so a run whose dispatcher is gone has no writer left and can never reach a terminal
-   * status on its own.
+   * status on its own. Fails ALL pending/running rows regardless of age, so it is safe
+   * only at startup and only when exactly one web process runs against the database.
    */
-  async failStrandedRuns(): Promise<number> {
+  async failStrandedRuns(): Promise<StrandedAnsibleRunRow[]> {
     const result = await this.pool.query(
       `UPDATE ansible_runs
        SET status = 'failed', finished_at = NOW()
-       WHERE status IN ('pending', 'running')`,
+       WHERE status IN ('pending', 'running')
+       RETURNING id, run_id`,
     );
-    return result.rowCount ?? 0;
+    return result.rows.map((row) => toStrandedRow(row as Record<string, unknown>));
+  }
+
+  /** Fails non-terminal runs that have made no progress for thresholdMinutes. Returns the timed-out rows. */
+  async timeoutStuckRuns(thresholdMinutes: number): Promise<StrandedAnsibleRunRow[]> {
+    // Last event time is a run's only progress signal, so a run still emitting
+    // events keeps resetting the clock while a silent one ages out.
+    const result = await this.pool.query(
+      `UPDATE ansible_runs r
+       SET status = 'failed', finished_at = NOW()
+       WHERE r.status IN ('pending', 'running')
+         AND COALESCE(
+               (SELECT MAX(e.at) FROM ansible_run_events e WHERE e.run_id = r.id),
+               r.created_at
+             ) < NOW() - make_interval(mins => $1)
+       RETURNING r.id, r.run_id`,
+      [thresholdMinutes],
+    );
+    return result.rows.map((row) => toStrandedRow(row as Record<string, unknown>));
   }
 }

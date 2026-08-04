@@ -424,8 +424,34 @@ invoked. Hosts registered through the Add Host wizard become Ansible targets wit
 inventory to maintain. The host named by `ANSIBLE_SELF_HOST_NAME` gets `hlm_self_managed: true`
 and the baseline play ends early on it, since the app cannot cleanly recreate itself mid-play.
 
+`ansible_host` resolves in order: the host's `ssh_host` column, then the agent URL hostname,
+then the host name. The agent URL is an HTTP endpoint and only coincidentally an SSH target:
+it may be a reverse proxy, a container name, or a loopback address that names the app's own
+box rather than the managed host, so deriving the SSH address from it is wrong wherever the
+two differ. `ssh_host` and `ssh_user` are set per host in the Add Host wizard and the Edit
+Host dialog, both optional. `ANSIBLE_REMOTE_USER` is the fallback for hosts with no
+`ssh_user`, not the value for every host. Neither field is probed by Verify Connection, which
+only checks the agent URL, so a wrong SSH address surfaces at the first run. Filling in
+`ssh_host` on a host that already converged changes its SSH host-key identity, which matters
+when `ANSIBLE_HOST_KEY_CHECKING` is on.
+
 **Secrets**: variables stored in `stack_secrets` under the reserved scope `__ansible__` are
 decrypted at invocation time and passed as extravars of the same name.
+
+**Stranded runs**: the row is written by the process that dispatched the run, so anything
+that stops that process from draining the sidecar stream leaves `pending` or `running` behind
+with no writer left. Two sweeps recover it, mirroring the deploy pipeline. At startup
+`performAnsibleRunRecovery` retries `failStrandedRuns`, which fails every non-terminal row
+regardless of age (safe only single-instance, same constraint as `recoverStuckDeploys`), and
+then starts the watchdog whether or not recovery succeeded. `AnsibleRunWatchdog` then sweeps
+every `ANSIBLE_WATCHDOG_INTERVAL_MS` and fails runs whose newest `ansible_run_events` row (or
+`created_at`, for a run that never emitted one) is older than
+`ANSIBLE_WATCHDOG_TIMEOUT_MINUTES`, which covers the live-process case a crash sweep cannot:
+a drain wedged against a sidecar that heartbeats forever. Both publish `run_finished` on the
+in-process broadcast channel so a browser holding the SSE connection stops showing "Running".
+The default 15-minute threshold sits above the sidecar's 600s `ANSIBLE_IDLE_TIMEOUT_SECONDS`,
+so the sidecar resolves a silent run through its own idle cap first; raising that cap without
+raising the watchdog threshold fails live runs.
 
 | Module | Purpose |
 |--------|---------|
@@ -435,3 +461,5 @@ decrypted at invocation time and passed as extravars of the same name.
 | `src/lib/ansible/sidecar-client.ts` | HTTP + SSE client for the sidecar |
 | `src/lib/ansible/run-service.ts` | Dispatch, event drain, terminal status |
 | `src/lib/ansible/run-broadcast-service.ts` | In-process fan-out to SSE subscribers |
+| `src/lib/ansible/run-watchdog.ts` | Periodic sweep failing runs with no event progress |
+| `src/lib/ansible/startup-recovery.ts` | Boot-time stranded-run sweep, then watchdog start |

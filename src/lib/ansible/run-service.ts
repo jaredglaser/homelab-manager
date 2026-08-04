@@ -48,8 +48,9 @@ export class AnsibleRunService {
         extravars: input.extravars,
       });
     } catch (err) {
-      await this.deps.repo.finish(record.id, 'failed', []);
-      this.deps.publish({ type: 'run_finished', runId, status: 'failed' });
+      if (await this.deps.repo.finish(record.id, 'failed', [])) {
+        this.deps.publish({ type: 'run_finished', runId, status: 'failed' });
+      }
       throw err;
     }
 
@@ -86,8 +87,9 @@ export class AnsibleRunService {
     }
 
     const finalStatus = TERMINAL_STATUSES.includes(status) ? status : statusFromSummaries(summaries);
-    await this.deps.repo.finish(record.id, finalStatus, summaries);
-    this.deps.publish({ type: 'run_finished', runId: record.runId, status: finalStatus });
+    if (await this.deps.repo.finish(record.id, finalStatus, summaries)) {
+      this.deps.publish({ type: 'run_finished', runId: record.runId, status: finalStatus });
+    }
     return finalStatus;
   }
 
