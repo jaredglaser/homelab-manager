@@ -46,7 +46,7 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
     '',
   ].join('\n');
 
-  return header + dump(doc, { lineWidth: -1, quotingType: '"' });
+  return header + dump(doc, { lineWidth: -1, quoteStyle: 'double' });
 }
 
 /** Generate a .env file content string for the agent stack. */
@@ -113,6 +113,8 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
     // Must match the managed host name: manager JWTs carry it as the aud claim.
     AGENT_HOST_NAME: config.hostName,
+    // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.
+    AGENT_IMAGE: '${AGENT_IMAGE}',
   };
 
   if (docker) {

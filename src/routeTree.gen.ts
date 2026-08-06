@@ -9,59 +9,34 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as ZfsRouteImport } from './routes/zfs'
-import { Route as StacksRouteImport } from './routes/stacks'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as ProxmoxRouteImport } from './routes/proxmox'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as DockerRouteImport } from './routes/docker'
-import { Route as DeniedRouteImport } from './routes/denied'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DeniedRouteImport } from './routes/denied'
+import { Route as DockerRouteImport } from './routes/docker'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as ProxmoxRouteImport } from './routes/proxmox'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as StacksRouteImport } from './routes/stacks'
+import { Route as ZfsRouteImport } from './routes/zfs'
+import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
+import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiProxmoxStatsRouteImport } from './routes/api/proxmox-stats'
+import { Route as ApiSettingsRouteImport } from './routes/api/settings'
+import { Route as ApiStackStatusRouteImport } from './routes/api/stack-status'
+import { Route as ApiZfsStatsRouteImport } from './routes/api/zfs-stats'
+import { Route as DockerContainerIdRouteImport } from './routes/docker.$containerId'
 import { Route as StacksIndexRouteImport } from './routes/stacks/index'
 import { Route as StacksStackNameRouteImport } from './routes/stacks/$stackName'
-import { Route as DockerContainerIdRouteImport } from './routes/docker.$containerId'
-import { Route as ApiZfsStatsRouteImport } from './routes/api/zfs-stats'
-import { Route as ApiStackStatusRouteImport } from './routes/api/stack-status'
-import { Route as ApiSettingsRouteImport } from './routes/api/settings'
-import { Route as ApiProxmoxStatsRouteImport } from './routes/api/proxmox-stats'
-import { Route as ApiHealthRouteImport } from './routes/api/health'
-import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
-import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
-import { Route as StacksHostHostNameRouteImport } from './routes/stacks/host.$hostName'
-import { Route as ApiGitSplatRouteImport } from './routes/api/git.$'
-import { Route as ApiDockerLogsContainerIdRouteImport } from './routes/api/docker-logs.$containerId'
-import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
-import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthCallbackRouteImport } from './routes/api/auth/callback'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
+import { Route as ApiDockerLogsContainerIdRouteImport } from './routes/api/docker-logs.$containerId'
+import { Route as ApiGitSplatRouteImport } from './routes/api/git.$'
+import { Route as StacksHostHostNameRouteImport } from './routes/stacks/host.$hostName'
 
-const ZfsRoute = ZfsRouteImport.update({
-  id: '/zfs',
-  path: '/zfs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StacksRoute = StacksRouteImport.update({
-  id: '/stacks',
-  path: '/stacks',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProxmoxRoute = ProxmoxRouteImport.update({
-  id: '/proxmox',
-  path: '/proxmox',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DockerRoute = DockerRouteImport.update({
-  id: '/docker',
-  path: '/docker',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeniedRoute = DeniedRouteImport.update({
@@ -69,10 +44,75 @@ const DeniedRoute = DeniedRouteImport.update({
   path: '/denied',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const DockerRoute = DockerRouteImport.update({
+  id: '/docker',
+  path: '/docker',
   getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProxmoxRoute = ProxmoxRouteImport.update({
+  id: '/proxmox',
+  path: '/proxmox',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StacksRoute = StacksRouteImport.update({
+  id: '/stacks',
+  path: '/stacks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ZfsRoute = ZfsRouteImport.update({
+  id: '/zfs',
+  path: '/zfs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDockerInventoryRoute = ApiDockerInventoryRouteImport.update({
+  id: '/api/docker-inventory',
+  path: '/api/docker-inventory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDockerStatsRoute = ApiDockerStatsRouteImport.update({
+  id: '/api/docker-stats',
+  path: '/api/docker-stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProxmoxStatsRoute = ApiProxmoxStatsRouteImport.update({
+  id: '/api/proxmox-stats',
+  path: '/api/proxmox-stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSettingsRoute = ApiSettingsRouteImport.update({
+  id: '/api/settings',
+  path: '/api/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiStackStatusRoute = ApiStackStatusRouteImport.update({
+  id: '/api/stack-status',
+  path: '/api/stack-status',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiZfsStatsRoute = ApiZfsStatsRouteImport.update({
+  id: '/api/zfs-stats',
+  path: '/api/zfs-stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DockerContainerIdRoute = DockerContainerIdRouteImport.update({
+  id: '/$containerId',
+  path: '/$containerId',
+  getParentRoute: () => DockerRoute,
 } as any)
 const StacksIndexRoute = StacksIndexRouteImport.update({
   id: '/',
@@ -84,54 +124,19 @@ const StacksStackNameRoute = StacksStackNameRouteImport.update({
   path: '/$stackName',
   getParentRoute: () => StacksRoute,
 } as any)
-const DockerContainerIdRoute = DockerContainerIdRouteImport.update({
-  id: '/$containerId',
-  path: '/$containerId',
-  getParentRoute: () => DockerRoute,
-} as any)
-const ApiZfsStatsRoute = ApiZfsStatsRouteImport.update({
-  id: '/api/zfs-stats',
-  path: '/api/zfs-stats',
+const ApiAuthCallbackRoute = ApiAuthCallbackRouteImport.update({
+  id: '/api/auth/callback',
+  path: '/api/auth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiStackStatusRoute = ApiStackStatusRouteImport.update({
-  id: '/api/stack-status',
-  path: '/api/stack-status',
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSettingsRoute = ApiSettingsRouteImport.update({
-  id: '/api/settings',
-  path: '/api/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiProxmoxStatsRoute = ApiProxmoxStatsRouteImport.update({
-  id: '/api/proxmox-stats',
-  path: '/api/proxmox-stats',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiHealthRoute = ApiHealthRouteImport.update({
-  id: '/api/health',
-  path: '/api/health',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiDockerStatsRoute = ApiDockerStatsRouteImport.update({
-  id: '/api/docker-stats',
-  path: '/api/docker-stats',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiDockerInventoryRoute = ApiDockerInventoryRouteImport.update({
-  id: '/api/docker-inventory',
-  path: '/api/docker-inventory',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StacksHostHostNameRoute = StacksHostHostNameRouteImport.update({
-  id: '/host/$hostName',
-  path: '/host/$hostName',
-  getParentRoute: () => StacksRoute,
-} as any)
-const ApiGitSplatRoute = ApiGitSplatRouteImport.update({
-  id: '/api/git/$',
-  path: '/api/git/$',
+const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
+  id: '/api/auth/logout',
+  path: '/api/auth/logout',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDockerLogsContainerIdRoute =
@@ -140,20 +145,15 @@ const ApiDockerLogsContainerIdRoute =
     path: '/api/docker-logs/$containerId',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
-  id: '/api/auth/logout',
-  path: '/api/auth/logout',
+const ApiGitSplatRoute = ApiGitSplatRouteImport.update({
+  id: '/api/git/$',
+  path: '/api/git/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
-  id: '/api/auth/login',
-  path: '/api/auth/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthCallbackRoute = ApiAuthCallbackRouteImport.update({
-  id: '/api/auth/callback',
-  path: '/api/auth/callback',
-  getParentRoute: () => rootRouteImport,
+const StacksHostHostNameRoute = StacksHostHostNameRouteImport.update({
+  id: '/host/$hostName',
+  path: '/host/$hostName',
+  getParentRoute: () => StacksRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -339,46 +339,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/zfs': {
-      id: '/zfs'
-      path: '/zfs'
-      fullPath: '/zfs'
-      preLoaderRoute: typeof ZfsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/stacks': {
-      id: '/stacks'
-      path: '/stacks'
-      fullPath: '/stacks'
-      preLoaderRoute: typeof StacksRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/proxmox': {
-      id: '/proxmox'
-      path: '/proxmox'
-      fullPath: '/proxmox'
-      preLoaderRoute: typeof ProxmoxRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/docker': {
-      id: '/docker'
-      path: '/docker'
-      fullPath: '/docker'
-      preLoaderRoute: typeof DockerRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/denied': {
@@ -388,12 +353,103 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeniedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/docker': {
+      id: '/docker'
+      path: '/docker'
+      fullPath: '/docker'
+      preLoaderRoute: typeof DockerRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/proxmox': {
+      id: '/proxmox'
+      path: '/proxmox'
+      fullPath: '/proxmox'
+      preLoaderRoute: typeof ProxmoxRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/stacks': {
+      id: '/stacks'
+      path: '/stacks'
+      fullPath: '/stacks'
+      preLoaderRoute: typeof StacksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/zfs': {
+      id: '/zfs'
+      path: '/zfs'
+      fullPath: '/zfs'
+      preLoaderRoute: typeof ZfsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docker-inventory': {
+      id: '/api/docker-inventory'
+      path: '/api/docker-inventory'
+      fullPath: '/api/docker-inventory'
+      preLoaderRoute: typeof ApiDockerInventoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docker-stats': {
+      id: '/api/docker-stats'
+      path: '/api/docker-stats'
+      fullPath: '/api/docker-stats'
+      preLoaderRoute: typeof ApiDockerStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/proxmox-stats': {
+      id: '/api/proxmox-stats'
+      path: '/api/proxmox-stats'
+      fullPath: '/api/proxmox-stats'
+      preLoaderRoute: typeof ApiProxmoxStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/settings': {
+      id: '/api/settings'
+      path: '/api/settings'
+      fullPath: '/api/settings'
+      preLoaderRoute: typeof ApiSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/stack-status': {
+      id: '/api/stack-status'
+      path: '/api/stack-status'
+      fullPath: '/api/stack-status'
+      preLoaderRoute: typeof ApiStackStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/zfs-stats': {
+      id: '/api/zfs-stats'
+      path: '/api/zfs-stats'
+      fullPath: '/api/zfs-stats'
+      preLoaderRoute: typeof ApiZfsStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docker/$containerId': {
+      id: '/docker/$containerId'
+      path: '/$containerId'
+      fullPath: '/docker/$containerId'
+      preLoaderRoute: typeof DockerContainerIdRouteImport
+      parentRoute: typeof DockerRoute
     }
     '/stacks/': {
       id: '/stacks/'
@@ -409,88 +465,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StacksStackNameRouteImport
       parentRoute: typeof StacksRoute
     }
-    '/docker/$containerId': {
-      id: '/docker/$containerId'
-      path: '/$containerId'
-      fullPath: '/docker/$containerId'
-      preLoaderRoute: typeof DockerContainerIdRouteImport
-      parentRoute: typeof DockerRoute
-    }
-    '/api/zfs-stats': {
-      id: '/api/zfs-stats'
-      path: '/api/zfs-stats'
-      fullPath: '/api/zfs-stats'
-      preLoaderRoute: typeof ApiZfsStatsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/stack-status': {
-      id: '/api/stack-status'
-      path: '/api/stack-status'
-      fullPath: '/api/stack-status'
-      preLoaderRoute: typeof ApiStackStatusRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/settings': {
-      id: '/api/settings'
-      path: '/api/settings'
-      fullPath: '/api/settings'
-      preLoaderRoute: typeof ApiSettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/proxmox-stats': {
-      id: '/api/proxmox-stats'
-      path: '/api/proxmox-stats'
-      fullPath: '/api/proxmox-stats'
-      preLoaderRoute: typeof ApiProxmoxStatsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/health': {
-      id: '/api/health'
-      path: '/api/health'
-      fullPath: '/api/health'
-      preLoaderRoute: typeof ApiHealthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/docker-stats': {
-      id: '/api/docker-stats'
-      path: '/api/docker-stats'
-      fullPath: '/api/docker-stats'
-      preLoaderRoute: typeof ApiDockerStatsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/docker-inventory': {
-      id: '/api/docker-inventory'
-      path: '/api/docker-inventory'
-      fullPath: '/api/docker-inventory'
-      preLoaderRoute: typeof ApiDockerInventoryRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/stacks/host/$hostName': {
-      id: '/stacks/host/$hostName'
-      path: '/host/$hostName'
-      fullPath: '/stacks/host/$hostName'
-      preLoaderRoute: typeof StacksHostHostNameRouteImport
-      parentRoute: typeof StacksRoute
-    }
-    '/api/git/$': {
-      id: '/api/git/$'
-      path: '/api/git/$'
-      fullPath: '/api/git/$'
-      preLoaderRoute: typeof ApiGitSplatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/docker-logs/$containerId': {
-      id: '/api/docker-logs/$containerId'
-      path: '/api/docker-logs/$containerId'
-      fullPath: '/api/docker-logs/$containerId'
-      preLoaderRoute: typeof ApiDockerLogsContainerIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/logout': {
-      id: '/api/auth/logout'
-      path: '/api/auth/logout'
-      fullPath: '/api/auth/logout'
-      preLoaderRoute: typeof ApiAuthLogoutRouteImport
+    '/api/auth/callback': {
+      id: '/api/auth/callback'
+      path: '/api/auth/callback'
+      fullPath: '/api/auth/callback'
+      preLoaderRoute: typeof ApiAuthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/login': {
@@ -500,12 +479,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/auth/callback': {
-      id: '/api/auth/callback'
-      path: '/api/auth/callback'
-      fullPath: '/api/auth/callback'
-      preLoaderRoute: typeof ApiAuthCallbackRouteImport
+    '/api/auth/logout': {
+      id: '/api/auth/logout'
+      path: '/api/auth/logout'
+      fullPath: '/api/auth/logout'
+      preLoaderRoute: typeof ApiAuthLogoutRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/docker-logs/$containerId': {
+      id: '/api/docker-logs/$containerId'
+      path: '/api/docker-logs/$containerId'
+      fullPath: '/api/docker-logs/$containerId'
+      preLoaderRoute: typeof ApiDockerLogsContainerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/git/$': {
+      id: '/api/git/$'
+      path: '/api/git/$'
+      fullPath: '/api/git/$'
+      preLoaderRoute: typeof ApiGitSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/stacks/host/$hostName': {
+      id: '/stacks/host/$hostName'
+      path: '/host/$hostName'
+      fullPath: '/stacks/host/$hostName'
+      preLoaderRoute: typeof StacksHostHostNameRouteImport
+      parentRoute: typeof StacksRoute
     }
   }
 }

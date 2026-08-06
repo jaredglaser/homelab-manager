@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { ManagedHostsCardView } from '../ManagedHostsCard'
-import type { ManagedHostsCardProps } from '../ManagedHostsCard'
+import { render, screen, fireEvent, within } from '@testing-library/react'
+import { AgentChannelNotice, ManagedHostsCardView, bucketHostsByAgentChannel } from '@/components/settings/ManagedHostsCard'
+import type { ManagedHostsCardProps } from '@/components/settings/ManagedHostsCard'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 
 const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
@@ -10,6 +10,8 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   agentUrl: 'http://192.168.1.10:9090',
   capabilities: { docker: true, zfs: false },
   agentVersion: '1.2.3',
+  agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+  agentImageTag: 'latest',
   status: 'healthy',
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',
@@ -124,6 +126,26 @@ describe('ManagedHostsCard', () => {
       const chips = document.querySelectorAll('[data-slot="badge"]')
       const zfsChip = Array.from(chips).find((c) => c.textContent === 'ZFS')
       expect(zfsChip).toBeDefined()
+    })
+
+    it('renders the reported agent image tag as a chip', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ agentImageTag: 'latest' })] })} />)
+      expect(screen.getByLabelText('agent image tag').textContent).toBe('latest')
+    })
+
+    it('renders no tag chip when the agent reported none', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ agentImage: null, agentImageTag: null })] })} />)
+      expect(screen.queryByLabelText('agent image tag')).toBeNull()
+    })
+
+    it('marks an off-channel tag chip as a warning', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ agentImageTag: 'dev' })] })} />)
+      expect(screen.getByLabelText('agent image tag').className).toContain('bg-warning')
+    })
+
+    it('leaves an on-channel tag chip unstyled', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ agentImageTag: 'latest' })] })} />)
+      expect(screen.getByLabelText('agent image tag').className).not.toContain('bg-warning')
     })
 
     it('renders both capability chips', () => {
@@ -440,4 +462,151 @@ describe('ManagedHostsCard', () => {
     })
   })
 
+})
+
+describe('bucketHostsByAgentChannel', () => {
+  it('splits hosts by reported tag', () => {
+    const onChannel = makeHost({ id: 1, name: 'a', agentImageTag: 'latest' })
+    const offChannel = makeHost({ id: 2, name: 'b', agentImageTag: 'dev' })
+    const silent = makeHost({ id: 3, name: 'c', agentImage: null, agentImageTag: null })
+
+    const buckets = bucketHostsByAgentChannel([onChannel, offChannel, silent], 'latest')
+
+    expect(buckets.mismatched.map((h) => h.name)).toEqual(['b'])
+    expect(buckets.unreported.map((h) => h.name)).toEqual(['c'])
+  })
+
+  it.each(['pending', 'unhealthy', 'error'] as const)(
+    'does not call a %s host unreported, since we never heard from it',
+    (status) => {
+      const host = makeHost({ id: 4, name: 'offline', agentImage: null, agentImageTag: null, status })
+      const buckets = bucketHostsByAgentChannel([host], 'latest')
+      expect(buckets.unreported).toEqual([])
+      expect(buckets.mismatched).toEqual([])
+    },
+  )
+
+  it('leaves a digest-pinned host out of both buckets', () => {
+    const pinned = makeHost({
+      id: 7,
+      name: 'pinned',
+      agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent@sha256:abc123',
+      agentImageTag: null,
+    })
+    const buckets = bucketHostsByAgentChannel([pinned], 'latest')
+    expect(buckets.unreported).toEqual([])
+    expect(buckets.mismatched).toEqual([])
+  })
+
+  it.each([
+    ['a malformed tag the agent could not parse', 'ghcr.io/x/agent:-bad'],
+    ['an empty tag', 'ghcr.io/x/agent:'],
+    ['a tag this app rejected as oversized', 'ghcr.io/x/agent:dev'],
+  ])('reports a host whose image is known but whose tag is not (%s)', (_label, image) => {
+    const host = makeHost({ id: 8, name: 'untagged', agentImage: image, agentImageTag: null })
+    const buckets = bucketHostsByAgentChannel([host], 'latest')
+    expect(buckets.unreported.map((h) => h.name)).toEqual(['untagged'])
+    expect(buckets.mismatched).toEqual([])
+  })
+
+  it('flags a dev host against a latest dashboard and the reverse', () => {
+    const devHost = makeHost({ id: 5, name: 'devbox', agentImageTag: 'dev' })
+    expect(bucketHostsByAgentChannel([devHost], 'latest').mismatched).toHaveLength(1)
+    expect(bucketHostsByAgentChannel([devHost], 'dev').mismatched).toHaveLength(0)
+
+    const latestHost = makeHost({ id: 6, name: 'prod', agentImageTag: 'latest' })
+    expect(bucketHostsByAgentChannel([latestHost], 'dev').mismatched).toHaveLength(1)
+  })
+})
+
+describe('agent channel notice', () => {
+  const noticeProps = {
+    expectedTag: 'dev',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+    agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:dev',
+    mismatched: [],
+    unreported: [],
+  }
+
+  it('stays hidden when every host matches the default channel', () => {
+    render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('surfaces hosts on the wrong channel from the card', () => {
+    const hosts = [makeHost({ id: 9, name: 'oddball', agentImage: 'ghcr.io/x/agent:dev', agentImageTag: 'dev' })]
+    render(<ManagedHostsCardView {...makeProps({ hosts })} />)
+    const alert = within(screen.getByRole('alert'))
+    expect(alert.getByText('1 host is not on the latest channel')).toBeTruthy()
+    expect(alert.getByText('oddball')).toBeTruthy()
+    expect(alert.getByText('ghcr.io/x/agent:dev')).toBeTruthy()
+  })
+
+  it('names the channel and the images new hosts get', () => {
+    render(<AgentChannelNotice {...noticeProps} />)
+    expect(screen.getByText('Agents pinned to the dev channel')).toBeTruthy()
+    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent:dev')).toBeTruthy()
+    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent-updater:dev')).toBeTruthy()
+  })
+
+  it('lists each mismatched host with the image it actually runs', () => {
+    const mismatched = [
+      makeHost({ id: 1, name: 'alpha', agentImage: 'ghcr.io/x/agent:latest', agentImageTag: 'latest' }),
+      makeHost({ id: 2, name: 'beta', agentImage: 'ghcr.io/x/agent:v0.9', agentImageTag: 'v0.9' }),
+    ]
+    render(<AgentChannelNotice {...noticeProps} mismatched={mismatched} />)
+    expect(screen.getByText('2 hosts are not on the dev channel')).toBeTruthy()
+    expect(screen.getByText('alpha')).toBeTruthy()
+    expect(screen.getByText('ghcr.io/x/agent:latest')).toBeTruthy()
+    expect(screen.getByText('beta')).toBeTruthy()
+    expect(screen.getByText('ghcr.io/x/agent:v0.9')).toBeTruthy()
+  })
+
+  it('tells the operator how to move already-enrolled hosts', () => {
+    const mismatched = [makeHost({ agentImage: 'ghcr.io/x/agent:latest', agentImageTag: 'latest' })]
+    render(<AgentChannelNotice {...noticeProps} mismatched={mismatched} />)
+    expect(screen.getByText('AGENT_IMAGE')).toBeTruthy()
+    expect(screen.getByText('AGENT_UPDATER_IMAGE')).toBeTruthy()
+    expect(screen.getByText('docker compose up -d')).toBeTruthy()
+  })
+
+  it('calls out hosts that reported no usable tag', () => {
+    const unreported = [makeHost({ id: 3, name: 'silent', agentImage: null, agentImageTag: null })]
+    render(<AgentChannelNotice {...noticeProps} expectedTag="latest" unreported={unreported} />)
+    expect(screen.getByText('1 host has not reported a usable image tag')).toBeTruthy()
+    expect(screen.getByText(/No usable image tag from silent/)).toBeTruthy()
+  })
+
+  it('keeps naming unreported hosts on an off-default channel', () => {
+    const unreported = [
+      makeHost({ id: 3, name: 'silent', agentImage: null, agentImageTag: null }),
+      makeHost({ id: 4, name: 'quiet', agentImage: null, agentImageTag: null }),
+    ]
+    render(<AgentChannelNotice {...noticeProps} unreported={unreported} />)
+    expect(screen.getByText('2 hosts have not reported a usable image tag')).toBeTruthy()
+    expect(screen.getByText(/No usable image tag from silent, quiet/)).toBeTruthy()
+  })
+
+  it('raises the alert to a warning only when a host is off-channel', () => {
+    const { unmount } = render(<AgentChannelNotice {...noticeProps} />)
+    expect(screen.getByRole('alert').className).not.toContain('--warning')
+    unmount()
+
+    render(<AgentChannelNotice {...noticeProps} mismatched={[makeHost({ agentImageTag: 'latest' })]} />)
+    expect(screen.getByRole('alert').className).toContain('--warning')
+  })
+
+  it('surfaces an unreported host from the card, not just the notice', () => {
+    const hosts = [makeHost({ id: 9, name: 'silent', agentImage: null, agentImageTag: null })]
+    render(<ManagedHostsCardView {...makeProps({ hosts })} />)
+    const alert = within(screen.getByRole('alert'))
+    expect(alert.getByText('1 host has not reported a usable image tag')).toBeTruthy()
+    expect(alert.getByText(/No usable image tag from silent/)).toBeTruthy()
+  })
+
+  it('shows no notice for a digest-pinned host on the default channel', () => {
+    const hosts = [makeHost({ agentImage: 'ghcr.io/x/agent@sha256:abc', agentImageTag: null })]
+    render(<ManagedHostsCardView {...makeProps({ hosts })} />)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
 })

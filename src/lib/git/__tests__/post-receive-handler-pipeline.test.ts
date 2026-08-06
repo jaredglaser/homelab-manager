@@ -44,6 +44,8 @@ const TEST_HOST: ManagedHost = {
   agentUrl: 'http://agent:9090',
   capabilities: { docker: true },
   agentVersion: '0.1.0',
+  agentImage: null,
+  agentImageTag: null,
   status: 'healthy',
   createdAt: new Date(),
   updatedAt: new Date(),

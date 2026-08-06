@@ -171,7 +171,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Liveness heartbeat, status only (unauthenticated) |
-| GET | `/info` | Agent version + Docker/ZFS capability detail (authenticated) |
+| GET | `/info` | Agent version, the image reference and tag the agent runs, and Docker/ZFS capability detail (authenticated) |
 | GET | `/auth/verify` | JWT verification |
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
@@ -342,7 +342,7 @@ stacks:
 At-rest encryption uses a versioned keyring of symmetric keys (base64, 256-bit) resolved at startup: `MASTER_KEY`/`MASTER_KEY_FILE` maps to KID `v1`, and `MASTER_KEY_<KID>` variants enroll additional keys for rotation (see the self-hosting guide's Master Key Rotation section).
 
 - **Stack secrets** (`stack_secrets` table): name/value pairs stored as JWE-encrypted blobs. The deploy pipeline resolves `${SECRET:name}` references in compose files before dispatching to agents (`src/lib/crypto/encrypted-value.ts`)
-- **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted; the public JWK is injected into the agent container as the `AGENT_TRUSTED_PUBKEY` env var when the dashboard provisions the agent (`src/lib/services/agent-provisioning-service.ts`). The dev compose flow writes the JWK to `data/dev-agent-pubkey.json` and the agent loads it via `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)
+- **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted; the public JWK is returned to the operator during the Add Host wizard's Verify step, who installs it in the agent as the `AGENT_TRUSTED_PUBKEY` env var and restarts it (`src/data/hosts/handlers.ts`). The dev compose flow writes the JWK to `data/dev-agent-pubkey.json` and the agent loads it via `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)
 - `src/lib/crypto/master-key.ts` handles key resolution and exports the AES-GCM key object used by the JWE helpers
 
 ### Stacks UI
@@ -353,14 +353,12 @@ Full stack management interface at `/stacks` (top-level navigation).
 |-----------|---------|
 | `StackActionBar` | Deploy, teardown, restart action buttons |
 | `ComposeEditor` | Monaco YAML editor with Compose schema validation |
-| `ContainerList` | Running containers for a stack with status |
 | `DeployHistoryList` / `DeployHistoryRow` | Deploy history timeline with rollback |
 | `VariablesPanel` / `VariableRow` | Stack variables editor (JWE-encrypted in `stack_secrets`) |
 | `CreateStackDialog` | Create new stack |
 | `DeleteStackDialog` | Stack deletion confirmation |
 | `RollbackDialog` | Rollback to previous deployment |
 | `StackSettingsDialog` | Stack settings editor |
-| `SyncStatusBadge` | Git sync status badge |
 
 **Real-time updates:** The `useStackStatus` hook subscribes to `/api/stack-status` SSE endpoint. Container status changes and deployment completions are broadcast to all connected browsers.
 

@@ -29,6 +29,8 @@ function makeHost(name: string, overrides?: Partial<ManagedHost>): ManagedHost {
     agentUrl: `http://${name}:9090`,
     capabilities: { docker: true, zfs: false },
     agentVersion: null,
+    agentImage: null,
+    agentImageTag: null,
     status: 'healthy',
     createdAt: new Date(),
     updatedAt: new Date(),

@@ -337,32 +337,6 @@ export class StatsRepository {
     return result.rows.map(toDockerStatsRow);
   }
 
-  async getContainerInfo(
-    containerId: string,
-    host?: string,
-  ): Promise<{ container_name: string | null; image: string | null; host: string } | null> {
-    const params: string[] = [containerId];
-    const hostFilter = host ? `AND host = $${params.push(host)}` : '';
-
-    // Reads the minute aggregate, not raw: raw is dropped after 24 hours, so a container
-    // idle longer than that would otherwise lose its name and image.
-    const result = await this.pool.query(
-      `SELECT container_name, image, host
-       FROM docker_stats_1m
-       WHERE container_id = $1 ${hostFilter}
-       ORDER BY time DESC
-       LIMIT 1`,
-      params
-    );
-    const row = result.rows[0];
-    if (!row) return null;
-    return {
-      container_name: row.container_name ?? null,
-      image: row.image ?? null,
-      host: row.host,
-    };
-  }
-
   async getZFSStatsHistory(seconds: number): Promise<ZFSStatsRow[]> {
     const tier = resolveStatsTier('zfs_stats', seconds);
     const bucketSeconds = tierBucketSeconds(tier, seconds);

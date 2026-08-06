@@ -84,6 +84,47 @@ describe('handleHealth', () => {
 });
 
 describe('handleInfo', () => {
+  test('reports the resolved agent image', async () => {
+    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, async () => ({
+      image: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+      tag: 'dev',
+    }));
+    const body = await response.json();
+
+    expect(body.agentImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');
+    expect(body.agentImageTag).toBe('dev');
+  });
+
+  test('reports null image fields when the agent could not determine its image', async () => {
+    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, async () => ({ image: null, tag: null }));
+    const body = await response.json();
+
+    expect(body.agentImage).toBeNull();
+    expect(body.agentImageTag).toBeNull();
+  });
+
+  test('reports null image fields when no image was resolved at all', async () => {
+    const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
+    const body = await response.json();
+
+    expect(body.agentImage).toBeNull();
+    expect(body.agentImageTag).toBeNull();
+  });
+
+  test('resolves the image per request, so a later call can recover from an early failure', async () => {
+    let call = 0;
+    const resolveImage = async () => {
+      call += 1;
+      return call === 1 ? { image: null, tag: null } : { image: 'ghcr.io/x/agent:dev', tag: 'dev' };
+    };
+
+    const first = await (await handleInfo(mockDockerClient() as any, zfsAvailable, resolveImage)).json();
+    const second = await (await handleInfo(mockDockerClient() as any, zfsAvailable, resolveImage)).json();
+
+    expect(first.agentImageTag).toBeNull();
+    expect(second.agentImageTag).toBe('dev');
+  });
+
   test('reports Docker and ZFS capabilities when both available', async () => {
     const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
     const body = await response.json();

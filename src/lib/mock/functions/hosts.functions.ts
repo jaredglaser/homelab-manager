@@ -2,7 +2,6 @@ import type {
   HostListItem,
   AddHostResult,
   HealthCheckResult,
-  UpdateAgentResult,
 } from '@/data/hosts/functions';
 
 /**
@@ -24,6 +23,8 @@ function buildHost(
     agentUrl: data.agentUrl,
     capabilities: data.capabilities ?? {},
     agentVersion: '0.1.0',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
     status: 'healthy',
     createdAt: now,
     updatedAt: now,
@@ -37,6 +38,8 @@ const mockHosts: readonly HostListItem[] = [
     agentUrl: 'http://192.168.1.10:9090',
     capabilities: { docker: true },
     agentVersion: '0.1.0',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
     status: 'healthy',
     createdAt: '2026-01-15T10:00:00Z',
     updatedAt: '2026-01-15T10:00:00Z',
@@ -47,6 +50,8 @@ const mockHosts: readonly HostListItem[] = [
     agentUrl: 'http://192.168.1.20:9090',
     capabilities: { docker: true, zfs: true },
     agentVersion: '0.1.0',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
     status: 'healthy',
     createdAt: '2026-02-01T14:30:00Z',
     updatedAt: '2026-02-01T14:30:00Z',
@@ -60,22 +65,6 @@ export async function verifyHost(data: {
   name: string;
   agentUrl: string;
   agentToken: string;
-  capabilities?: { docker?: boolean; zfs?: boolean };
-}): Promise<AddHostResult> {
-  return { host: buildHost(data) };
-}
-
-export async function addHost(data: {
-  name: string;
-  agentUrl: string;
-  capabilities?: { docker?: boolean; zfs?: boolean };
-}): Promise<AddHostResult> {
-  return { host: buildHost(data) };
-}
-
-export async function registerExistingHost(data: {
-  name: string;
-  agentUrl: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
 }): Promise<AddHostResult> {
   return { host: buildHost(data) };
@@ -101,16 +90,6 @@ export async function listHosts(): Promise<HostListItem[]> {
   return [...mockHosts];
 }
 
-export async function updateAgent(_data: {
-  hostId: number;
-}): Promise<UpdateAgentResult> {
-  return {
-    hostId: _data.hostId,
-    healthy: true,
-    version: '0.2.0',
-  };
-}
-
 export async function checkHostHealth(_data: {
   hostId: number;
 }): Promise<HealthCheckResult> {
@@ -119,5 +98,7 @@ export async function checkHostHealth(_data: {
     healthy: true,
     version: '0.1.0',
     dockerVersion: '24.0.7',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
   };
 }

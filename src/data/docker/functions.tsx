@@ -6,7 +6,6 @@ import { requireRole } from '@/lib/auth/require-role';
 import {
   getHistoricalDockerStatsSchema,
   getContainerHistorySchema,
-  getContainerInfoSchema,
   updateContainerIconSchema,
   clearContainerIconSchema,
   controlContainerSchema,
@@ -91,43 +90,6 @@ export const getContainerHistory = createServerFn()
     } catch (err) {
       console.error('[getContainerHistory] Failed to fetch container history:', err);
       return [];
-    }
-  });
-
-export const getContainerInfo = createServerFn()
-  .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(getContainerInfoSchema)
-  .handler(async ({ context, data }): Promise<{
-    containerName: string;
-    image: string;
-    host: string;
-    icon: string | null;
-    serviceKey: string | null;
-  } | null> => {
-    try {
-      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-      const { EntityMetadataRepository } = await import(
-        '@/lib/database/repositories/entity-metadata-repository'
-      );
-      const repo = new StatsRepository(context.pool);
-      const metaRepo = new EntityMetadataRepository(context.pool);
-
-      const info = await repo.getContainerInfo(data.containerId, data.host);
-      if (!info) return null;
-
-      const containerEntity = `${info.host}/${data.containerId}`;
-      const serviceInfo = await metaRepo.getContainerServiceInfo(containerEntity);
-
-      return {
-        containerName: info.container_name ?? data.containerId.substring(0, 12),
-        image: info.image ?? '',
-        host: info.host,
-        icon: serviceInfo?.icon ?? null,
-        serviceKey: serviceInfo?.serviceKey ?? null,
-      };
-    } catch (err) {
-      console.error('[getContainerInfo] Failed to fetch container info:', err);
-      return null;
     }
   });
 

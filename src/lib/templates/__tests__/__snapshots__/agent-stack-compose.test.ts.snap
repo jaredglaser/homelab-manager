@@ -36,6 +36,7 @@ services:
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
+      AGENT_IMAGE: \${AGENT_IMAGE}
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes: []
     networks:
@@ -84,6 +85,7 @@ services:
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
+      AGENT_IMAGE: \${AGENT_IMAGE}
     volumes:
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
@@ -145,6 +147,7 @@ services:
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
+      AGENT_IMAGE: \${AGENT_IMAGE}
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
       - /usr/sbin/zpool:/usr/sbin/zpool:ro

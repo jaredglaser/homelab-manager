@@ -67,10 +67,10 @@ export default defineConfig(({ mode }) => {
       viteReact(),
     ],
     ssr: {
-      external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
+      external: ['undici'],
     },
     optimizeDeps: {
-      exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams', '@tanstack/start-server-core'],
+      exclude: ['@tanstack/start-server-core'],
       // Pre-bundle MSW so demo/e2e mode does not trigger a mid-session dep
       // re-optimization (which invalidates in-flight module hashes and 404s
       // already-loaded dynamic imports). MSW is lazy-loaded, so without this Vite
@@ -92,7 +92,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       rolldownOptions: {
-        external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
+        external: ['undici'],
         onwarn(warning, warn) {
           // Suppress "use client" directive warnings from MUI and other libraries
           if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {

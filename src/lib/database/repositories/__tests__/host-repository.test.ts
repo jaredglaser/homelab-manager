@@ -26,6 +26,8 @@ const sampleRow = {
   agent_url: 'http://192.168.1.10:9090',
   capabilities: { docker: true, zfs: true },
   agent_version: '0.1.0',
+  agent_image: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+  agent_image_tag: 'dev',
   status: 'healthy',
   created_at: new Date('2026-01-01T00:00:00Z'),
   updated_at: new Date('2026-01-01T00:00:00Z'),
@@ -110,7 +112,21 @@ describe('HostRepository', () => {
         name: 'homeserver',
         agentUrl: 'http://192.168.1.10:9090',
         agentVersion: '0.1.0',
+        agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+        agentImageTag: 'dev',
       });
+    });
+
+    it('maps a row that carries no agent image to nulls', async () => {
+      const { agent_image, agent_image_tag, ...withoutImage } = sampleRow;
+      void agent_image;
+      void agent_image_tag;
+      mock.pushResult([withoutImage]);
+
+      const result = await repo.getAll();
+
+      expect(result[0].agentImage).toBeNull();
+      expect(result[0].agentImageTag).toBeNull();
     });
   });
 
@@ -164,13 +180,54 @@ describe('HostRepository', () => {
     });
   });
 
-  describe('updateAgentVersion', () => {
+  describe('updateAgentInfo', () => {
     it('updates the agent_version field', async () => {
       mock.pushResult([]);
-      await repo.updateAgentVersion(1, '0.2.0');
+      await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
-      expect(mock.queries[0].params).toContain('0.2.0');
-      expect(mock.queries[0].params).toContain(1);
+      expect(mock.queries[0].sql).toContain('agent_version = $1');
+      expect(mock.queries[0].sql).toContain('updated_at = NOW()');
+      expect(mock.queries[0].sql).toContain('WHERE id = $2');
+      expect(mock.queries[0].params).toEqual(['0.2.0', 1]);
+    });
+
+    it('updates the image columns alongside the version', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentInfo(1, {
+        version: '0.2.0',
+        image: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+        imageTag: 'dev',
+      });
+      expect(mock.queries[0].sql).toContain('agent_image = $2');
+      expect(mock.queries[0].sql).toContain('agent_image_tag = $3');
+      expect(mock.queries[0].sql).toContain('WHERE id = $4');
+      expect(mock.queries[0].params).toEqual([
+        '0.2.0',
+        'ghcr.io/jaredglaser/homelab-manager-agent:dev',
+        'dev',
+        1,
+      ]);
+    });
+
+    it('clears the image columns when passed null', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentInfo(1, { image: null, imageTag: null });
+      expect(mock.queries[0].sql).toContain('WHERE id = $3');
+      expect(mock.queries[0].params).toEqual([null, null, 1]);
+    });
+
+    it('leaves omitted fields untouched', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentInfo(1, { imageTag: 'dev' });
+      expect(mock.queries[0].sql).toContain('agent_image_tag = $1');
+      expect(mock.queries[0].sql).toContain('WHERE id = $2');
+      expect(mock.queries[0].sql).not.toContain('agent_version');
+      expect(mock.queries[0].sql).not.toContain('agent_image =');
+    });
+
+    it('issues no query when given nothing to set', async () => {
+      await repo.updateAgentInfo(1, {});
+      expect(mock.queries).toHaveLength(0);
     });
   });
 
@@ -264,23 +321,6 @@ describe('HostRepository', () => {
       });
     });
 
-    it('emits update notify on updateAgentUrl when row exists', async () => {
-      mock.pushResult([{ name: 'homeserver' }]);
-      await repo.updateAgentUrl(1, 'http://new:9090');
-      const notifies = pickNotify(mock);
-      expect(notifies).toHaveLength(1);
-      expect(JSON.parse(notifies[0].params[1] as string)).toEqual({
-        op: 'update',
-        name: 'homeserver',
-      });
-    });
-
-    it('skips notify on updateAgentUrl when row does not exist', async () => {
-      mock.pushResult([]);
-      await repo.updateAgentUrl(999, 'http://new:9090');
-      expect(pickNotify(mock)).toHaveLength(0);
-    });
-
     it('emits update notify on update', async () => {
       mock.pushResult([sampleRow]);
       await repo.update(1, { name: 'renamed' });
@@ -313,7 +353,7 @@ describe('HostRepository', () => {
       mock.pushResult([]);
       mock.pushResult([]);
       await repo.updateStatus(1, 'healthy');
-      await repo.updateAgentVersion(1, '0.2.0');
+      await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(pickNotify(mock)).toHaveLength(0);
     });
   });
