@@ -5,7 +5,7 @@
  * manifest and delete its files". A layout change (renaming the compose file,
  * moving to nested dirs) should only ever require editing this file.
  */
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 import type { CommitCallback } from '@/lib/git/repo';
 import { parseManifest, type StackManifest } from '@/lib/git/manifest';
 
