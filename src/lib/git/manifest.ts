@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import yaml from 'js-yaml';
+import * as yaml from 'js-yaml';
 
 const StackEntrySchema = z.strictObject({
   host: z.string().min(1),
