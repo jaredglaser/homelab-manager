@@ -3,6 +3,7 @@ import { authenticateRequest } from './middleware';
 import { handleHealth, handleInfo } from './routes/health';
 import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
+import { handleLogHistory } from './routes/logs-history';
 import { handleStackDeploy, handleStackUpdate, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus, handleStackInventory, handleGetStackCompose } from './routes/stacks';
 import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
@@ -134,6 +135,11 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
 
     const logsMatch = /^\/logs\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)$/.exec(url.pathname);
     if (logsMatch && request.method === 'GET') return handleLogStream(docker, logsMatch[1], request);
+
+    const logsHistoryMatch = /^\/logs\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)\/history$/.exec(url.pathname);
+    if (logsHistoryMatch && request.method === 'GET') {
+      return handleLogHistory(docker, logsHistoryMatch[1], url);
+    }
 
     if (url.pathname === '/containers/events' && request.method === 'GET') return handleContainerEvents(docker, request);
 

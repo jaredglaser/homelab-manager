@@ -9,6 +9,7 @@ import {
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { generateDefaultSettings } from '@/lib/mock/generators/settings';
+import { generateAiSnapshot } from '@/lib/mock/generators/ai';
 import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import type { SettingsSSEMessage } from '@/types/settings';
@@ -79,6 +80,14 @@ function stackStatus() {
   });
 }
 
+// The real channel re-sends the whole snapshot on every write; the demo has no
+// worker filing observations, so it sends the fixture once and idles.
+function aiAnalysis() {
+  return createSseResponse((controller) => {
+    controller.send(generateAiSnapshot());
+  });
+}
+
 function dockerLogs(request: Request) {
   const url = new URL(request.url);
   const segments = url.pathname.split('/');
@@ -108,5 +117,6 @@ export const sseHandlers = [
   http.get(/\/api\/docker-inventory(?:\?|$)/, dockerInventory),
   http.get(/\/api\/settings(?:\?|$)/, settings),
   http.get(/\/api\/stack-status(?:\?|$)/, stackStatus),
+  http.get(/\/api\/ai-analysis(?:\?|$)/, aiAnalysis),
   http.get(/\/api\/docker-logs\//, ({ request }) => dockerLogs(request)),
 ];

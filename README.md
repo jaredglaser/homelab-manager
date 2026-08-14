@@ -47,6 +47,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 - **Theming** - Dark/light color modes with selectable light-mode palettes
 - **Virtualized Tables** - Shared DataTable with CSS Grid + conditional contained virtualization for large datasets
 - **Stale Detection** - Per-entity amber highlighting when a host or container stops reporting
+- **AI Log Analysis (POC)** - Point the dashboard at any OpenAI-compatible endpoint and it runs one log-analysis agent per container: a profiling pass writes each container a bespoke analysis skill from its own history, a per-day agent reads live log batches against that skill and writes an end-of-day report, and an orchestrator turns the observations they file into alerts
 
 ## Quick Start
 
@@ -78,6 +79,7 @@ Full instructions: [Self-Hosting Guide](self-hosting/README.md). For local devel
 - [x] Pre-built Docker image on a container registry
 - [x] Live demo deployed to GitHub Pages
 - [x] Authentication (OIDC with Pocket ID support): required by default with `AUTH_DISABLED=true` as the opt-out; setup documented in the [self-hosting guide](self-hosting/README.md#authentication-oidc)
+- [x] AI fleet log analysis against OpenAI-compatible endpoints (proof of concept)
 - [ ] Return to TanStack Start streaming server functions (pending upstream abort signal fix)
 
 ## AI Disclosure

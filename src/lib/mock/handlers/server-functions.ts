@@ -13,6 +13,7 @@ import * as stacksFns from '@/lib/mock/functions/stacks.functions';
 import * as authFns from '@/lib/mock/functions/auth.functions';
 import * as hostsFns from '@/lib/mock/functions/hosts.functions';
 import * as gitTokenFns from '@/lib/mock/functions/git-tokens.functions';
+import * as aiFns from '@/lib/mock/functions/ai.functions';
 import { functionIdFromUrl, resolveFunctionName } from '@/lib/mock/handlers/function-id';
 
 /** A server function invocation as decoded from the wire. */
@@ -100,6 +101,15 @@ const registry: Record<string, ServerFnMock> = {
   listGitTokens: fn(gitTokenFns.listGitTokens),
   createGitToken: fn(gitTokenFns.createGitToken),
   revokeGitToken: fn(gitTokenFns.revokeGitToken),
+
+  // AI log analysis (mocks take the raw data object)
+  getAiConfig: fn(aiFns.getAiConfig),
+  saveAiProvider: fn(aiFns.saveAiProvider),
+  saveAiSettings: fn(aiFns.saveAiSettings),
+  testAiEndpoint: fn(aiFns.testAiEndpoint),
+  getAiSnapshot: fn(aiFns.getAiSnapshot),
+  setContainerAnalysis: withData(aiFns.setContainerAnalysis),
+  setAlertStatus: withData(aiFns.setAlertStatus),
 };
 
 export const registeredServerFnNames: readonly string[] = Object.keys(registry);

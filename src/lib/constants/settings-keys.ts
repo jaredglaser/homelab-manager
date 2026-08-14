@@ -45,6 +45,13 @@ export const SETTINGS_KEYS = {
     minuteAggDays: 'retention/minuteAggDays',
     hourAggDays: 'retention/hourAggDays',
   },
+  ai: {
+    enabled: 'ai/enabled',
+    batchLines: 'ai/batchLines',
+    maxConcurrentAgents: 'ai/maxConcurrentAgents',
+    profileWindowDays: 'ai/profileWindowDays',
+    alertSeverity: 'ai/alertSeverity',
+  },
   developer: {
     dockerDebugLogging: 'developer/dockerDebugLogging',
     dbFlushDebugLogging: 'developer/dbFlushDebugLogging',

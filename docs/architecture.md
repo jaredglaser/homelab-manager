@@ -372,3 +372,91 @@ Managed hosts are configured via the Settings page:
 | `ManagedHostsCard` | Host list with status, capabilities, and actions |
 | `HostDialogs` | Edit and delete confirmation dialogs |
 | `HostRow` | Individual host row with health indicator |
+
+### AI Fleet Log Analysis (`src/lib/ai/`, `src/worker/ai/`)
+
+Proof of concept. Opt-in (`ai/enabled`), off by default, and scoped to
+OpenAI-compatible endpoints so it can run against local compute (llama.cpp,
+vLLM, Ollama, LM Studio) as well as a hosted API. Built on the Vercel AI SDK's
+`@ai-sdk/openai-compatible` provider; every model call goes through the single
+`TextGenerator` seam in `src/lib/ai/text-generator.ts`.
+
+```mermaid
+flowchart TD
+    Inventory["docker_container_events<br/>(running containers)"] --> Manager["FleetLogAnalysisManager<br/>(reconciles every 60s)"]
+    Manager -->|"one per container"| Runner["ContainerLogAnalyst<br/>(BaseCollector)"]
+    Runner -->|"first sight: /logs/:id/history"| Profiler["Profiler agent<br/>writes the container's skill"]
+    Profiler --> Profiles["ai_container_profiles"]
+    Runner -->|"live /logs/:id SSE, batched"| Analyst["ContainerAnalyst<br/>(one per container per day)"]
+    Profiles -->|"skill = system prompt"| Analyst
+    Analyst -->|"report_observation"| Observations["ai_observations"]
+    Analyst -->|"end of day"| Sessions["ai_analysis_sessions<br/>(running summary + report)"]
+    Observations --> Triage["Observation triage loop<br/>(orchestrator, every 120s)"]
+    Triage -->|"raise_alert"| Alerts["ai_alerts"]
+    Alerts --> Notify["NOTIFY ai_analysis_change"]
+    Observations --> Notify
+    Sessions --> Notify
+    Profiles --> Notify
+    Notify --> Broadcast["AiAnalysisBroadcastService"]
+    Broadcast -->|"/api/ai-analysis SSE"| UI["/ai route"]
+```
+
+**Container identity.** Analysis state is keyed on `(host, container_key)`,
+where `container_key` is the compose service key and falls back to the
+container name. Docker ids change on every `compose up`, so keying on them
+would discard a container's learned skill on each redeploy.
+
+**Profiling pass.** The first time a container is seen, the runner pulls up to
+`ai/profileWindowDays` of history from the agent's `/logs/:id/history`
+endpoint (NDJSON, non-following, line-capped), down-samples it to fit the
+model's context while keeping both ends, and asks the profiler model to write
+a Markdown skill: line grammar, what normal looks like, which lines are
+signals and at what severity, escalation thresholds, and what the sample could
+not determine. The skill is stored once and reused; only a failed profile is
+retried, paced by `BaseCollector`'s backoff.
+
+**Per-day analyst.** A fresh `ContainerAnalyst` is created per container per
+UTC day with the skill as its system prompt. It receives live log lines in
+batches (`ai/batchLines`, or a character ceiling, or an idle flush for quiet
+containers), files observations through a `report_observation` tool, and
+rewrites its running summary each batch through `update_summary`. Context is
+bounded by `ContextWindow`: the newest turns stay verbatim and older ones are
+folded into the summary by a model call once the estimate crosses the budget.
+The summary is persisted on `ai_analysis_sessions`, so a worker restart or an
+agent reconnect resumes the same day rather than starting over. At day
+rollover the analyst writes the day's report and the session closes.
+
+**Orchestrator.** Container analysts never see each other. The triage loop
+claims untriaged observations (a single `UPDATE ... FOR UPDATE SKIP LOCKED`,
+so two workers cannot double-triage), and runs them through the orchestrator
+whenever one clears the operator's alert floor or low-severity chatter spans
+three or more containers. Observations are presented to the model numbered,
+not by primary key, and `raise_alert` references those numbers so a
+hallucinated id cannot attach an alert to the wrong finding.
+
+**Concurrency.** One `Semaphore` bounds how many agents hold a model call at
+once (`ai/maxConcurrentAgents`), shared by the analysts, the profiler and the
+triage loop, so a fleet-wide flush queues here rather than invisibly inside a
+single-slot local server.
+
+| Module | Purpose |
+|--------|---------|
+| `lib/ai/provider.ts` | Builds the analyst/profiler models; `/models` probe for the settings UI |
+| `lib/ai/profiler-agent.ts` | One-off skill authoring from a container's history |
+| `lib/ai/container-agent.ts` | Per-container, per-day analyst with its two tools |
+| `lib/ai/triage-agent.ts` | Orchestrator that folds observations into alerts |
+| `lib/ai/context-window.ts` | Rolling summary + recent turns, compacted on budget |
+| `lib/ai/log-batcher.ts` | Batching, line truncation, profiling down-sample |
+| `lib/ai/log-source.ts` | Agent history fetch and live-frame normalization |
+| `lib/ai/semaphore.ts` | Fleet-wide model-call concurrency ceiling |
+| `worker/ai/container-log-analyst.ts` | Per-container runner (profile, batch, rotate, report) |
+| `worker/ai/fleet-log-analysis-manager.ts` | Reconciles the analyst set against the inventory |
+| `worker/ai/observation-triage-loop.ts` | Orchestrator polling loop |
+| `worker/ai/start-fleet-log-analysis.ts` | Composition root, called from the worker entry point |
+
+**Configuration.** Endpoint, models and context size live in `ai_providers`
+(one row; the API key is JWE-encrypted with the same master keyring as stack
+secrets and never sent to the browser). Runtime knobs live in `settings` under
+`ai/*` and are read once at worker startup, so toggling the feature takes a
+worker restart rather than tearing agents down mid-day. Both are edited from
+Settings → AI Log Analysis (admin only).

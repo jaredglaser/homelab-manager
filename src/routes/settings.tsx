@@ -15,6 +15,7 @@ import {
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
+import { AiAnalysisCard } from '@/components/settings/AiAnalysisCard'
 import { useAuth } from '@/hooks/useAuth'
 import {
   CHART_WINDOW_MARKS,
@@ -274,6 +275,8 @@ function SettingsContent() {
         <div id="managed-hosts" className="scroll-mt-20">
           <ManagedHostsCard />
         </div>
+
+        {user?.role === 'admin' && <AiAnalysisCard />}
 
         {user?.role === 'admin' && <AuthManagementCard />}
 

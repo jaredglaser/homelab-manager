@@ -1,4 +1,4 @@
-import { Archive, Code, HardDrive, Layers, Server, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react'
+import { Archive, Brain, Code, HardDrive, Layers, Server, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react'
 import { DockerIcon, ProxmoxIcon } from '@/components/header/icons'
 import type { IconProps } from '@/components/header/icons'
 import { queryClient } from '@/lib/query-client'
@@ -13,7 +13,7 @@ import type { SettingsSectionId } from '@/lib/constants/settings-sections'
 export type { SettingsSectionId }
 
 export type MenuRouteKey = '/docker' | '/stacks' | '/settings'
-export type RouteKey = MenuRouteKey | '/zfs' | '/proxmox'
+export type RouteKey = MenuRouteKey | '/zfs' | '/proxmox' | '/ai'
 
 export type NoMenuNavItem = {
   to: Exclude<RouteKey, MenuRouteKey>
@@ -36,6 +36,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/stacks', label: 'Stacks', Icon: Layers, hasMenu: true },
   { to: '/zfs', label: 'ZFS', Icon: HardDrive, hasMenu: false },
   { to: '/proxmox', label: 'Proxmox', Icon: ProxmoxIcon, hasMenu: false },
+  { to: '/ai', label: 'AI', Icon: Brain, hasMenu: false },
   { to: '/settings', label: 'Settings', Icon: SettingsIcon, hasMenu: true },
 ]
 
@@ -51,6 +52,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDescriptor[] = [
   { id: 'zfs-dashboard', label: 'ZFS Dashboard', Icon: HardDrive },
   { id: 'data-retention', label: 'Data Retention', Icon: Archive },
   { id: 'managed-hosts', label: 'Managed Hosts', Icon: Server },
+  { id: 'ai-analysis', label: 'AI Log Analysis', Icon: Brain },
   { id: 'developer', label: 'Developer', Icon: Code },
 ]
 

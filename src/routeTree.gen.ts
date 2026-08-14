@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AiRouteImport } from './routes/ai'
 import { Route as DeniedRouteImport } from './routes/denied'
 import { Route as DockerRouteImport } from './routes/docker'
 import { Route as LoginRouteImport } from './routes/login'
@@ -17,6 +18,7 @@ import { Route as ProxmoxRouteImport } from './routes/proxmox'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StacksRouteImport } from './routes/stacks'
 import { Route as ZfsRouteImport } from './routes/zfs'
+import { Route as ApiAiAnalysisRouteImport } from './routes/api/ai-analysis'
 import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
@@ -37,6 +39,11 @@ import { Route as StacksHostHostNameRouteImport } from './routes/stacks/host.$ho
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AiRoute = AiRouteImport.update({
+  id: '/ai',
+  path: '/ai',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeniedRoute = DeniedRouteImport.update({
@@ -72,6 +79,11 @@ const StacksRoute = StacksRouteImport.update({
 const ZfsRoute = ZfsRouteImport.update({
   id: '/zfs',
   path: '/zfs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAiAnalysisRoute = ApiAiAnalysisRouteImport.update({
+  id: '/api/ai-analysis',
+  path: '/api/ai-analysis',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDockerInventoryRoute = ApiDockerInventoryRouteImport.update({
@@ -158,6 +170,7 @@ const StacksHostHostNameRoute = StacksHostHostNameRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/ai': typeof AiRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
@@ -165,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
+  '/api/ai-analysis': typeof ApiAiAnalysisRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -184,12 +198,14 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/ai': typeof AiRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
+  '/api/ai-analysis': typeof ApiAiAnalysisRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -210,6 +226,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/ai': typeof AiRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
@@ -217,6 +234,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
+  '/api/ai-analysis': typeof ApiAiAnalysisRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -238,6 +256,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/ai'
     | '/denied'
     | '/docker'
     | '/login'
@@ -245,6 +264,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stacks'
     | '/zfs'
+    | '/api/ai-analysis'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -264,12 +284,14 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/ai'
     | '/denied'
     | '/docker'
     | '/login'
     | '/proxmox'
     | '/settings'
     | '/zfs'
+    | '/api/ai-analysis'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -289,6 +311,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/ai'
     | '/denied'
     | '/docker'
     | '/login'
@@ -296,6 +319,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stacks'
     | '/zfs'
+    | '/api/ai-analysis'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -316,6 +340,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AiRoute: typeof AiRoute
   DeniedRoute: typeof DeniedRoute
   DockerRoute: typeof DockerRouteWithChildren
   LoginRoute: typeof LoginRoute
@@ -323,6 +348,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   StacksRoute: typeof StacksRouteWithChildren
   ZfsRoute: typeof ZfsRoute
+  ApiAiAnalysisRoute: typeof ApiAiAnalysisRoute
   ApiDockerInventoryRoute: typeof ApiDockerInventoryRoute
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
   ApiHealthRoute: typeof ApiHealthRoute
@@ -344,6 +370,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ai': {
+      id: '/ai'
+      path: '/ai'
+      fullPath: '/ai'
+      preLoaderRoute: typeof AiRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/denied': {
@@ -393,6 +426,13 @@ declare module '@tanstack/react-router' {
       path: '/zfs'
       fullPath: '/zfs'
       preLoaderRoute: typeof ZfsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ai-analysis': {
+      id: '/api/ai-analysis'
+      path: '/api/ai-analysis'
+      fullPath: '/api/ai-analysis'
+      preLoaderRoute: typeof ApiAiAnalysisRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/docker-inventory': {
@@ -538,6 +578,7 @@ const StacksRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AiRoute: AiRoute,
   DeniedRoute: DeniedRoute,
   DockerRoute: DockerRouteWithChildren,
   LoginRoute: LoginRoute,
@@ -545,6 +586,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   StacksRoute: StacksRouteWithChildren,
   ZfsRoute: ZfsRoute,
+  ApiAiAnalysisRoute: ApiAiAnalysisRoute,
   ApiDockerInventoryRoute: ApiDockerInventoryRoute,
   ApiDockerStatsRoute: ApiDockerStatsRoute,
   ApiHealthRoute: ApiHealthRoute,

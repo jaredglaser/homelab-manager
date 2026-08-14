@@ -174,6 +174,24 @@ async function main() {
       );
       await settingsListener.start();
 
+      // AI log analysis is opt-in and must never block startup: a bad endpoint
+      // or an unreadable master key leaves the rest of the worker collecting.
+      let aiRunners: Promise<void>[] = [];
+      try {
+        const { startFleetLogAnalysis } = await import('@/worker/ai/start-fleet-log-analysis');
+        const fleetAnalysis = await startFleetLogAnalysis({
+          db,
+          getSigner,
+          signal: shutdownController.signal,
+        });
+        if (fleetAnalysis) {
+          stack.use(fleetAnalysis.manager);
+          aiRunners = fleetAnalysis.runners;
+        }
+      } catch (err) {
+        console.error('[Worker] AI log analysis failed to start:', err instanceof Error ? err.message : err);
+      }
+
       // Block here until shutdown is signalled, then drain everything that's
       // running at the time. Drainage is a snapshot: anything spawned later
       // is bound to the same global signal and will resolve on its own.
@@ -184,7 +202,7 @@ async function main() {
         }
         shutdownController.signal.addEventListener('abort', () => resolve(), { once: true });
       });
-      await Promise.allSettled([...staticRunners, ...hostManager.runners()]);
+      await Promise.allSettled([...staticRunners, ...hostManager.runners(), ...aiRunners]);
     }
     // AsyncDisposableStack disposes here - cleans up
 

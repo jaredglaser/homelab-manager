@@ -40,6 +40,12 @@ export function generateDefaultSettings(): Record<string, string> {
     [SETTINGS_KEYS.retention.minuteAggDays]: '7',
     [SETTINGS_KEYS.retention.hourAggDays]: '30',
 
+    [SETTINGS_KEYS.ai.enabled]: 'true',
+    [SETTINGS_KEYS.ai.batchLines]: '200',
+    [SETTINGS_KEYS.ai.maxConcurrentAgents]: '3',
+    [SETTINGS_KEYS.ai.profileWindowDays]: '7',
+    [SETTINGS_KEYS.ai.alertSeverity]: 'warning',
+
     [SETTINGS_KEYS.developer.dockerDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.dbFlushDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.sseDebugLogging]: 'false',

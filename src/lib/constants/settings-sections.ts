@@ -4,4 +4,5 @@ export type SettingsSectionId =
   | 'zfs-dashboard'
   | 'data-retention'
   | 'managed-hosts'
+  | 'ai-analysis'
   | 'developer'
