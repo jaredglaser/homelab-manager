@@ -179,8 +179,11 @@ criticality tier actually lives.
 
 ### 4.2 Tiers
 
-Tier is a property of the container, set by the operator per container or per
-stack, and later suggested by the system (see 5.5).
+Tier is a property of the container, **configured in the homelab-manager UI**
+per container or per stack, with a fleet default. Nothing is hardcoded and no
+seed list ships in the repo. The system suggests changes with evidence (5.5);
+you decide. Tier lives on `entity_metadata` alongside icons and labels, keyed by
+entity id, so it survives redeploys the same way the rest of that table does.
 
 | | Tier 0 critical | Tier 1 standard | Tier 2 background |
 | --- | --- | --- | --- |
@@ -302,7 +305,7 @@ rules that produce them, through MCP.
 
 #### Routing, not suppression
 
-A rule's outcome is not fire-or-ignore, it is a **routing decision across five
+A rule's outcome is not fire-or-ignore, it is a **routing decision across four
 lanes**. This matters more than any other detail in the design, because it is
 what lets the agent aggressively stop waking itself without ever going blind:
 
@@ -312,12 +315,13 @@ what lets the agent aggressively stop waking itself without ever going blind:
 | `triage` | webhook fires, agent investigates now | high |
 | `batch` | accumulated into a rollup bucket, parsed in bulk on a schedule | amortized, near zero per line |
 | `count` | tally plus a handful of exemplars retained, nothing parsed | negligible |
-| `drop` | discarded | zero |
 
-`drop` exists but the agent should almost never choose it, and the skill says
-so. The honest answer to "this shape is noise" is `count` or `batch`, both of
-which keep the evidence. That is the difference between a system that learns to
-be quiet and a system that learns to be blind.
+**There is no discard lane.** `count` is the floor: every line the system ever
+sees leaves behind a counter and a bounded set of exemplars. Storage for that is
+free at homelab scale, and it buys an absolute guarantee that every
+"why did you not tell me about this" question has an answer. A system that can
+learn to be quiet is useful; a system that can learn to be blind is not, and
+removing the lane removes the possibility rather than discouraging it.
 
 #### Log shapes
 
@@ -344,7 +348,7 @@ So the loop the agent runs is:
 1. `list_log_shapes(entityId, since)` returns shapes with counts, first and last
    seen, exemplars, and current lane.
 2. For shapes that are clearly routine, `propose_shape_route(shapeId, 'batch')`
-   with a rationale.
+   or `'count'` with a rationale.
 3. For shapes that look like a fault signature, `propose_shape_route(shapeId,
    'triage')` or propose a `match` rule around them.
 4. Everything proposed enters shadow first, exactly like any other rule.
@@ -405,10 +409,28 @@ default 48 hours or 20 shadow matches, whichever comes first) the UI shows:
 - how many landed in windows with no incident at all
 - projected added run volume and cost per week
 
-Promotion is then either a click, or automatic when precision clears a
-threshold and the projected volume fits the tier's budget. Rules are demoted by
-the same machinery running in reverse: an active rule whose findings are
+**Promotion is automatic by default**, with a manual override UI arriving later.
+A shadow rule promotes itself when it clears its gate; rules are demoted by the
+same machinery running in reverse, so an active rule whose findings are
 consistently labeled `noise` drops back to shadow and tells you why.
+
+Automatic promotion needs an envelope, because "automatic" and "unbounded" are
+not the same thing:
+
+| Direction | Gate | Rationale |
+| --- | --- | --- |
+| Escalation (`count` or `batch` toward `triage` or `page`) | projected volume fits the tier budget | failure mode is cost and noise, both bounded by the budget ceiling and instantly reversible |
+| Demotion, tiers 1 and 2 | shadow stability plus no coincidence with a labeled incident | failure mode is delayed detection, and the batch lane still parses it within the hour or the day |
+| **Demotion on a tier-0 container** | **always a click** | this is the latency you asked for; nothing automatic is allowed to slow down Jellyfin |
+| Any rule with fleet-wide scope | always a click | a rule proposed while investigating one container should not silently become policy |
+
+**One dependency worth stating plainly.** Precision is computed from
+`finding_labels`, which does not exist until phase 3. Before then there is no
+precision signal, so early auto-promotion gates on shadow stability and volume
+bounds alone, which is a weaker test. That is acceptable for escalations and
+for tier 1 and 2 demotions, and it is the reason tier-0 demotion stays manual
+from the start. Auto-promotion gets meaningfully smarter the moment labels
+start flowing, which is another reason not to defer phase 3.
 
 **Demotion rules get the inverse treatment**, because their failure mode is
 invisible by construction. A rule that moves a shape to `batch` or `count`
@@ -471,7 +493,7 @@ and it is tier 1."
 
 ### 5.6 Guardrails against drift
 
-- **Suppression audit** (5.3). Non-negotiable.
+- **Demotion audit** (5.3). Non-negotiable, and cheap now that no lane discards.
 - **Holdout set** for GEPA (5.4). Non-negotiable.
 - **Budget ceilings per tier** so no adaptation, agent-authored or otherwise,
   can increase spend without hitting a wall you set.
@@ -538,7 +560,7 @@ discovery tools first get better results.
 | Tool | Input | Returns |
 | --- | --- | --- |
 | `list_log_shapes` | `entityId?`, `since`, `lane?`, `newOnly?` | discovered shapes with template, count, first and last seen, exemplars, current lane |
-| `propose_shape_route` | `shapeId`, `lane`, `rationale` | enters shadow; `page`, `triage`, `batch`, `count` or `drop` |
+| `propose_shape_route` | `shapeId`, `lane`, `rationale` | enters shadow; `page`, `triage`, `batch` or `count` |
 | `get_batch_digest` | `entityId?`, `host?`, `since`, `until?` | the rollup described in 5.3: per-shape counts, numeric distributions, trend against the previous period, shapes first seen in the window |
 | `get_shape_examples` | `shapeId`, `limit` | retained exemplars, so a demoted shape can still be inspected |
 
@@ -597,7 +619,38 @@ mcp_servers:
     connect_timeout: 30
 ```
 
-### 6.3 Rules engine: `src/worker/log-watcher/`
+### 6.3 Deployment and networking
+
+Hermes runs on a separate LAN machine and reaches homelab-manager over the
+existing web vhost.
+
+**No new port and no new container.** `/api/mcp` is a route on the TanStack
+Start server, so it rides the same port the dashboard already listens on and
+sits behind the same Caddy vhost. The per-host agent's 9090 is a separate
+service with its own port; MCP is not, and does not need to be.
+
+Reverse proxy requirements, on top of the three already documented in
+`self-hosting/README.md`:
+
+- **Do not buffer `/api/mcp`.** Streamable HTTP MCP can hold a long-lived
+  response for server-initiated messages, so it inherits the same
+  no-buffering, raised-idle-timeout treatment the SSE routes under `/api/`
+  already require. A buffering proxy makes MCP look like it hangs.
+- **Do not enforce cookie auth on that path.** MCP authenticates with a bearer
+  token (6.2), not the OIDC session cookie. A proxy-level auth layer that
+  demands a session will reject Hermes.
+- **TLS at Caddy.** The token is a bearer credential, so the hop from the
+  Hermes machine to homelab-manager should be https. Caddy's internal CA is
+  enough on a LAN; Hermes trusts it the same way any client would.
+- **Stay on the LAN.** `self-hosting/README.md` already says not to route the
+  dashboard through a public-facing proxy, and adding an MCP endpoint that can
+  read every container's logs makes that advice stronger, not weaker.
+
+mTLS is available (Hermes supports client certs on MCP servers) but is not
+proposed for v1: a scoped bearer token over LAN TLS is proportionate, and mTLS
+adds a certificate lifecycle to operate.
+
+### 6.4 Rules engine: `src/worker/log-watcher/`
 
 Reconciles one lightweight watcher per running container against the inventory,
 reusing `resolveTargets` and the reconcile loop from `FleetLogAnalysisManager`
@@ -636,11 +689,43 @@ Shadow evaluation runs in the same pass as active evaluation, writing to
 `rule_shadow_fires` instead of dispatching. Cost is a regex per rule per line,
 which is why shadow mode can be the default for everything the agent proposes.
 
-### 6.4 Dispatcher: `src/worker/log-watcher/hermes-dispatcher.ts`
+### 6.5 Dispatcher: `src/worker/log-watcher/hermes-dispatcher.ts`
 
 The fair queue described in 4.1 and 4.2. Per-tier lanes, per-entity debounce and
 cooldown, reserved tier-0 allocation, global in-flight ceiling, daily budget per
 tier.
+
+**Capacity is derived live, not configured.** Nothing in the design takes a
+static fleet size as input. The dispatcher reads the current running-container
+inventory (which it already reconciles against) and computes lane widths and
+per-tier budgets from it, against an operator-set maximum for in-flight runs and
+daily spend. Adding twenty containers rescales the allocation without anyone
+editing a number; the ceiling stays where you put it.
+
+**Runs are scoped to one unit of work.** This is a hard rule, not a preference:
+every agent run investigates a single container, or a single logically grouped
+set, and never "the fleet". Scoped runs keep context small, keep the trace
+readable, keep GEPA's training examples comparable to each other, and keep a
+failure contained to one investigation.
+
+**Incident coalescing** is how the grouping happens. Before dispatch, signals
+are correlated within a short window (default 30s) and merged into one incident
+when they share a cause:
+
+- same stack, overlapping windows (a bad redeploy takes six containers down
+  together and is one incident, not six)
+- same host, same window, infrastructure-shaped signal (disk pressure, network)
+- same container, multiple rules firing on the same window
+
+The dispatcher then sends **one webhook per incident**, carrying the full set of
+affected entities. Without this, a stack-wide failure produces six parallel
+agent runs that each rediscover the same cause, six findings you have to
+mentally re-merge, and six times the cost. With it, the single most expensive
+failure mode in the fleet is also the cheapest to diagnose.
+
+Incident id is also what makes the delivery id work: `X-Request-ID` is
+`<incidentId>-<occurrence>`, so Hermes' one-hour cache deduplicates true retries
+while a recurring fault still gets through as a new occurrence.
 
 Signs the raw body with HMAC-SHA256 keyed by a secret shared with the route
 config and stored encrypted under the master keyring. Sends
@@ -650,7 +735,7 @@ backoff, drops with a logged warning if the gateway is down.
 
 For tier 0 it fires the `deliver_only` route and the triage route in parallel.
 
-### 6.5 Skill pack: `hermes/skills/` in this repo
+### 6.6 Skill pack: `hermes/skills/` in this repo
 
 Versioned with the code that backs it, mounted via `skills.external_dirs`.
 
@@ -670,7 +755,7 @@ hermes/skills/homelab/
                           how to read get_rule_performance
   shape-routing/
     SKILL.md              read list_log_shapes, decide lanes, write rationales;
-                          when `count` is honest and `drop` is not
+                          when `batch` is right and when `count` is enough
   batch-review/
     SKILL.md              parse a get_batch_digest rollup, spot trends and new
                           shapes, promote anything that stopped being routine
@@ -684,7 +769,7 @@ outcome of a triage run is no finding. Without that framing the agent finds
 something to say every time, precision collapses, and the labels that the whole
 learning loop depends on become worthless.
 
-### 6.6 Where learning lives
+### 6.7 Where learning lives
 
 - **Procedure** in Hermes skills, in this repo, improved by GEPA PRs.
 - **Per-container knowledge** in homelab-manager's `container_profiles` table,
@@ -698,7 +783,7 @@ characters, so it is the wrong home for fleet knowledge either way. Keeping
 per-container state in the database also means it is visible, editable and
 deletable in your UI, and survives a Hermes reinstall.
 
-### 6.7 UI
+### 6.8 UI
 
 A `/log-analysis` route with four surfaces:
 
@@ -746,9 +831,8 @@ This is exactly why 5.3 is built the way it is, and the mitigations are already
 load-bearing rather than bolted on:
 
 - Proposed rules never fire and never demote. Shadow only.
-- Demoted shapes keep their counts and exemplars, forever. `drop` is the only
-  lane that discards, the skill discourages it, and it can be disabled outright
-  so the agent cannot choose it at all.
+- Demoted shapes keep their counts and exemplars, forever. No lane discards, so
+  a blinding attack cannot destroy evidence, only delay when it is read.
 - Any reported miss names the shapes, lanes and rules that handled the window.
 - Rules carry the run and the rationale that produced them.
 - Rule scope is bounded: a rule proposed while investigating one container
@@ -756,7 +840,7 @@ load-bearing rather than bolted on:
 - The kill switch reverts every agent-authored rule to shadow in one click.
 
 A blinding attack therefore has to survive shadow mode, a promotion decision,
-and the suppression audit. That is a reasonable bar.
+and the demotion audit. That is a reasonable bar.
 
 ### 7.3 If you want it to act (opt-in, and the sharp edge)
 
@@ -831,9 +915,10 @@ do not state.
 
 **Phase 2. Push, with tiers and shapes from day one.** Rules engine with seeded
 rules, **shape extraction and the five routing lanes**, adaptive baselines,
-tiers, dispatcher with per-tier lanes, `deliver_only` tier-0 path, `findings`
-plus the feed UI. Shape routing starts on static defaults (unknown shapes go to
-`triage` at tier 0, `batch` below it); the agent does not touch it yet. The
+tiers with their configuration UI, dispatcher with per-tier lanes and incident
+coalescing, `deliver_only` tier-0 path, `findings` plus the feed UI. Shape
+routing starts on static defaults (unknown shapes go to `triage` at tier 0,
+`batch` below it); the agent does not touch it yet. The
 Jellyfin timeline (4.3) works at the end of this phase, and so does the cost
 ceiling, because a chatty container is already being rolled up rather than
 firing runs.
@@ -844,10 +929,13 @@ or defer this.** Everything after it is unmeasurable without it, and phases 4
 and 5 are actively unsafe without it.
 
 **Phase 4. Adaptation.** `container_profiles` read and write, `detector_rules`
-and shape-routing proposal tools, shadow mode and promotion UI, the demotion
-audit, kill switch, and the cron jobs: `batch-review` (hourly for tier 0, daily
-below), `shape-routing` on new containers, `fleet-review` weekly. This is where
-the agent starts choosing its own lanes.
+and shape-routing proposal tools, shadow mode with the automatic promotion
+envelope from 5.3, the demotion audit, kill switch, and the cron jobs:
+`batch-review` (hourly for tier 0, daily below), `shape-routing` on new
+containers, `fleet-review` weekly. This is where the agent starts choosing its
+own lanes. Promotion is automatic here by decision 6; the manual promote and
+demote UI follows in phase 5, since auto-promotion with a kill switch is
+already safe and the UI is a convenience rather than a control.
 
 **Phase 5. Optional, once the numbers earn it.** GEPA pipeline with holdout
 scoring and PR output; runbooks and the approval queue; persisted matched-log
@@ -857,34 +945,37 @@ The ordering is deliberate: measurement precedes adaptation. A system that
 adapts before it can tell right from wrong optimizes toward whatever it happens
 to be measuring, which is usually volume.
 
-## 11. Decisions needed
+## 11. Decisions made
 
-1. **Where does Hermes run?** Same box, a service in the compose stack, or a
-   separate machine? Decides whether MCP is over localhost, a LAN hostname with
-   TLS, or a tunnel, and whether mTLS is worth it. Also affects the tier-0
-   latency budget.
-2. **Which containers are tier 0?** Name them. The tier table needs seeding and
-   this is the one input the system cannot infer at the start.
-3. **Instant-page delivery target.** ntfy, Telegram, Discord, or push through
-   something you already run? The `deliver_only` path needs a real platform
-   target.
-4. **Model and budget.** Which provider Hermes routes to, a monthly ceiling,
-   and whether tier 0 should use a different model than tiers 1 and 2.
-5. **Fleet size.** Running containers across hosts, so trigger volume, profile
-   count and shadow evaluation cost can be sized.
-6. **Auto-promotion of rules**, or always a click? Auto-promotion above a
-   precision threshold is faster and is what "self-learning" usually means in
-   practice; always-click is slower and fully auditable. Recommend starting
-   with always-click and enabling auto-promotion per tier once you have a month
-   of precision data.
-7. **Batch cadence and `drop`.** Hourly digests for tier 0 and daily below is
-   the proposed default; tell me if you want tighter. Separately: should the
-   `drop` lane exist at all, or should `count` be the floor so nothing is ever
-   discarded? Recommend disabling `drop`, since storage for a counter and five
-   exemplars is free and the audit guarantee is worth more.
-8. **Runbooks (7.3): in or out?** This is the only piece that puts the agent
-   near a control path. Recommend out for now, revisited after phase 3 gives
-   you real precision numbers.
+| # | Decision | Consequence |
+| --- | --- | --- |
+| 1 | Hermes on a separate LAN machine; MCP over the existing web vhost, TLS at Caddy | No new port or container. See 6.3 for the proxy requirements, notably no buffering on `/api/mcp` and no cookie auth on that path. mTLS available but not proposed for v1. |
+| 2 | Container tier is user-configurable | UI setting per container or per stack on `entity_metadata`, fleet default, no seeded list. Phase 2 ships the setting alongside the tiers. |
+| 3 | Instant-page delivery configured in Hermes | Correct. `deliver:` on the webhook route plus the platform adapter, both in Hermes' `config.yaml`. Nothing to build here; `self-hosting/` documents the route config. |
+| 4 | Model and provider are Hermes' concern | Split stated in 11.1 below. |
+| 5 | No static fleet sizing; derive live against a max, scope runs tightly | Dispatcher computes lane widths and budgets from live inventory against an operator-set ceiling. Runs are scoped to one container or one coalesced incident, never the fleet. Incident coalescing added to 6.5. |
+| 6 | Auto-promotion now, manual UI later | Promotion envelope added to 5.3. Tier-0 demotions and fleet-wide rules still require a click; everything else promotes on its gate. |
+| 7 | No discard lane | Four lanes, `count` is the floor. Every line leaves a counter and exemplars, so the missed-incident audit always has an answer. |
+| 8 | Runbooks deferred | Observe and notify only. Revisit after phase 3 produces real precision numbers. |
+
+### 11.1 Who owns cost
+
+Worth being precise, since decision 4 asked the right question:
+
+- **Hermes owns cost per run.** Provider, model, per-route model overrides,
+  fallback providers, credential pools and routing all live in Hermes'
+  configuration. Nothing here should try to manage them, and the plan carries no
+  provider or model settings (which is one of the things the POC got wrong: it
+  had an `ai_providers` table and model settings in the dashboard).
+- **homelab-manager owns the number of runs.** Tier budgets, per-entity
+  cooldowns, in-flight ceilings, lane widths and routing decisions all decide
+  how often Hermes is woken.
+
+Spend is the product of the two, so neither side can bound it alone. The
+practical consequence: the dashboard's budget setting is denominated in **runs
+per day per tier**, not dollars, because dollars are not knowable on this side
+of the split. If you want spend in dollars, that is a Hermes-side observability
+concern and the ecosystem already has plugins for it.
 
 ## References
 
