@@ -166,16 +166,34 @@ Measured against the docs rather than assumed:
 
 | Limit | Reality | Consequence |
 | --- | --- | --- |
-| Webhook rate limit | `platforms.webhook.extra.rate_limit`, **global**, fixed window, no per-route override. Exceeding it returns 429 synchronously with no queue. Default 30/min. | Raising the number does not help. A chatty background container can consume the window and 429 a Jellyfin alert. **Fair queueing must happen on our side.** |
-| Idempotency cache | Keyed on `X-GitHub-Delivery`, then `X-Request-ID`, then a timestamp fallback. 1 hour, not tunable. Duplicates get a silent 200 with `status=duplicate`. | A stable per-(entity, signal) delivery id would swallow a recurring fault for an hour. **Delivery ids must carry an incident id and an occurrence counter.** |
-| Body cap | 1 MB | Excerpts stay small; bulk comes through MCP. |
-| `deliver_only: true` | Rendered template becomes the literal message, dispatched straight to a platform target. Sub-second, zero LLM. HMAC, rate limit, idempotency and body cap still apply. | This is the tier-0 instant page. |
-| Agent run concurrency | Not documented for webhook-triggered runs. `delegation.max_concurrent_children` (default 3) governs subagents, not top-level runs. | Treat top-level concurrency as unknown and control it from our side; measure it during phase 1. |
+Read from `gateway/platforms/webhook.py`, not from the docs, which are vaguer
+and wrong in one place:
 
-The pattern in every row is the same: Hermes' own governance is global and
-coarse, so the dispatcher on our side has to be the thing that understands
-priority. That is better than it sounds, because our side is where the
-criticality tier actually lives.
+| Limit | Reality in the source | Consequence |
+| --- | --- | --- |
+| Rate limit | The limit **value** is platform-wide (`config.extra.rate_limit`, default 30), but the **counter is keyed by route name**: `self._rate_counts.get(route_name)`, 60s fixed window, 429 with no queue. | Separate routes get separate windows. **One webhook route per tier** gives tier 0 its own 30/min that no background traffic can consume. |
+| Idempotency cache | Keyed `X-GitHub-Delivery`, then `svix-id`, then `X-Request-ID`, then a millisecond timestamp fallback. TTL 3600s. Duplicates return 200 with `status=duplicate`. | A stable per-(entity, signal) id would swallow a recurring fault for an hour, silently. **Delivery ids carry an incident id and an occurrence counter.** |
+| Template rendering | `{key}` and `{nested.key}`. A missing key resolves to **the literal placeholder string**: `value.get(part, f"{{{key}}}")`. Nested dicts and lists are JSON-dumped and truncated at 2000 chars; `{__raw__}` is the whole payload at 4000. | **Every templated field must be present on every payload.** A container with no stack must send `stack: ""`, not omit it, or the model reads the literal text `{stack}` as if it were data. The excerpt stays a top-level string; as an array it would be JSON-escaped and cut at 2000 chars. |
+| Body cap | `max_body_bytes`, default 1 MB, 413 when exceeded. Configurable. | Excerpts stay small anyway; bulk comes through MCP. |
+| `deliver_only: true` | Rendered template becomes the literal message, dispatched straight to a platform target. Sub-second, zero LLM. Signature, rate limit, idempotency and body cap still apply. | This is the tier-0 instant page. |
+| Agent run concurrency | **Unbounded.** `asyncio.create_task(self.handle_message(event))` per delivery, tracked in a set, no semaphore. The handler returns **202 Accepted** without awaiting the run. | Hermes will happily run fifty investigations at once. **Our in-flight ceiling is the only thing standing between a signal storm and a very large bill.** The dispatcher must treat 202, not 200, as success. |
+| Session scope | Each delivery gets its own session key, `webhook:{route}:{delivery_id}`. | No cross-run continuity per container, which confirms that per-container knowledge belongs in our database rather than in Hermes' session state. |
+
+Signature schemes available: GitHub (`X-Hub-Signature-256`, hex over the body
+alone), GitLab, Svix, generic V1 (`X-Webhook-Signature`, hex over the body), and
+**generic V2** (`X-Webhook-Signature-V2` plus `X-Webhook-Timestamp`, hex over
+`<timestamp>.<body>`, rejected outside a 300s window). **Use V2.** It is the only
+scheme with replay protection, and the payloads here are instructions to an agent
+that can read every log in the fleet.
+
+There is also an `INSECURE_NO_AUTH` sentinel that disables verification entirely.
+The adapter refuses to start with it on a non-loopback bind, so it is a
+local-testing affordance rather than a live footgun, but never put it in a
+committed config.
+
+The pattern across these rows: Hermes' governance is coarse but per-route, and
+its concurrency is not governed at all. Per-tier routes buy us isolation cheaply;
+everything about volume and spend remains ours to enforce.
 
 ### 4.2 Tiers
 
@@ -195,10 +213,12 @@ entity id, so it survives redeploys the same way the rest of that table does.
 | Daily run budget | reserved allocation | shared pool | shared pool, hard cap |
 | Payload pre-warming | profile digest + recent events inlined | profile version only | minimal |
 
-Tier 0 gets a **reserved lane and a reserved budget**. A crash-looping backup
-container cannot consume the allocation that Jellyfin needs, and cannot fill the
-global Hermes rate window ahead of it, because the dispatcher holds back tier 2
-traffic when tier 0 traffic is in flight.
+Tier 0 gets a **reserved lane and a reserved budget**, and its own Hermes
+webhook route. A crash-looping backup container cannot consume the allocation
+Jellyfin needs, and because the rate-limit counter is keyed by route name, it
+cannot consume tier 0's rate window either. The dispatcher still holds back
+lower-tier traffic when tier 0 work is in flight, since Hermes bounds neither
+spend nor concurrency.
 
 ### 4.3 The Jellyfin timeline
 
@@ -727,11 +747,28 @@ Incident id is also what makes the delivery id work: `X-Request-ID` is
 `<incidentId>-<occurrence>`, so Hermes' one-hour cache deduplicates true retries
 while a recurring fault still gets through as a new occurrence.
 
-Signs the raw body with HMAC-SHA256 keyed by a secret shared with the route
-config and stored encrypted under the master keyring. Sends
-`X-Request-ID: <incidentId>-<occurrence>` so Hermes' 1-hour cache deduplicates
-genuine retries while a recurring fault still gets through. Retries with
-backoff, drops with a logged warning if the gateway is down.
+Signs with Hermes' generic V2 scheme: hex HMAC-SHA256 over
+`<unix-seconds>.<raw body>`, sent as `X-Webhook-Signature-V2` alongside
+`X-Webhook-Timestamp`, keyed by a secret stored encrypted under the master
+keyring. V2 rather than the GitHub-format header because it is the only scheme
+that binds a timestamp and so survives a replay.
+
+Sends `X-Request-ID: <incidentId>-<occurrence>` so the 1-hour cache absorbs
+genuine retries while a recurring fault still gets through as a new occurrence.
+Treats **202** as success, since the adapter answers before the run starts.
+Retries with backoff, drops with a logged warning if the gateway is down.
+
+Two payload invariants the renderer forces, both covered by tests rather than
+convention:
+
+- **Every field the prompt template references is present on every payload**,
+  with an empty string where a value does not apply. A missing key renders as
+  the literal text `{stack}` into the model's prompt, which reads as data.
+- **The excerpt is a top-level string.** Nested values are JSON-dumped and cut
+  at 2000 characters, which would silently halve the evidence.
+
+For tier 0 it fires the `deliver_only` route and the triage route in parallel,
+on separate Hermes routes so their rate windows are independent.
 
 For tier 0 it fires the `deliver_only` route and the triage route in parallel.
 

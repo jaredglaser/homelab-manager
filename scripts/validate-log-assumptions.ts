@@ -8,7 +8,7 @@
  *
  *   bun scripts/validate-log-assumptions.ts docker
  *   bun scripts/validate-log-assumptions.ts agent  --url https://host:9090 --token <jwt>
- *   bun scripts/validate-log-assumptions.ts hermes --webhook http://hermes:8644/homelab-log-triage \
+ *   bun scripts/validate-log-assumptions.ts hermes --webhook http://hermes:8644/homelab-log-triage-t0 \
  *                                                  --secret <hmac> [--mcp https://hlm/api/mcp --mcp-token <t>]
  */
 import Docker from 'dockerode';
@@ -422,45 +422,69 @@ async function validateHermes(): Promise<void> {
     window: { from: new Date(Date.now() - 60000).toISOString(), to: new Date().toISOString() },
     excerpt: 'assumption probe, no action required',
   });
-  const signature = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+
+  /** Generic V2: hex HMAC-SHA256 over `<timestamp>.<body>`, checked against a 300s window. */
+  function signV2(timestamp: string): Record<string, string> {
+    return {
+      'Content-Type': 'application/json',
+      'X-Webhook-Timestamp': timestamp,
+      'X-Webhook-Signature-V2': createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex'),
+    };
+  }
+
+  const nowSeconds = String(Math.floor(Date.now() / 1000));
   const deliveryId = `probe-${Date.now()}`;
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-Request-ID': deliveryId,
-    'X-Hub-Signature-256': signature,
-  };
+  const headers = { ...signV2(nowSeconds), 'X-Request-ID': deliveryId };
 
   const good = await fetch(webhook, { method: 'POST', headers, body });
+  const goodBody = (await good.text()).slice(0, 200);
   record({
     id: 'H0',
-    claim: 'Hermes accepts our HMAC-SHA256 over the raw body',
-    status: good.ok ? 'PASS' : 'FAIL',
-    observed: `status=${good.status} body=${(await good.text()).slice(0, 200)}`,
-    matters: 'If the digest encoding or header name differs, every trigger is silently rejected.',
+    claim: 'Hermes accepts a Generic V2 signature and answers 202 Accepted',
+    status: good.status === 202 ? 'PASS' : good.ok ? 'UNKNOWN' : 'FAIL',
+    observed: `status=${good.status} body=${goodBody}`,
+    matters:
+      'The adapter spawns the run as a detached task and answers 202 without awaiting it. ' +
+      'A dispatcher that treats anything but 200 as failure would retry every successful delivery.',
   });
 
   const bad = await fetch(webhook, {
     method: 'POST', body,
-    headers: { ...headers, 'X-Request-ID': `${deliveryId}-bad`, 'X-Hub-Signature-256': 'sha256=deadbeef' },
+    headers: { ...headers, 'X-Request-ID': `${deliveryId}-bad`, 'X-Webhook-Signature-V2': 'deadbeef' },
   });
   record({
     id: 'H1',
-    claim: 'Hermes rejects a bad signature',
+    claim: 'A bad signature is rejected',
     status: bad.status >= 400 ? 'PASS' : 'FAIL',
     observed: `status=${bad.status}`,
-    matters: 'An endpoint that accepts unsigned bodies lets anyone on the LAN drive the agent.',
+    matters: 'An endpoint that accepts unsigned bodies lets anything on the LAN drive the agent.',
+  });
+
+  const staleSeconds = String(Math.floor(Date.now() / 1000) - 600);
+  const stale = await fetch(webhook, {
+    method: 'POST', body,
+    headers: { ...signV2(staleSeconds), 'X-Request-ID': `${deliveryId}-stale` },
+  });
+  record({
+    id: 'H2',
+    claim: 'A correctly signed but stale timestamp is rejected (replay window)',
+    status: stale.status >= 400 ? 'PASS' : 'FAIL',
+    observed: `status=${stale.status} (signed at now-600s, tolerance is 300s)`,
+    matters:
+      'This is why V2 is worth using over the GitHub-format header, which signs the body alone ' +
+      'and so cannot detect a replay.',
   });
 
   const dup = await fetch(webhook, { method: 'POST', headers, body });
   const dupBody = (await dup.text()).slice(0, 200);
   record({
-    id: 'H2',
+    id: 'H3',
     claim: 'A repeated X-Request-ID inside the hour is swallowed as a duplicate',
     status: /duplicate/i.test(dupBody) ? 'PASS' : 'UNKNOWN',
     observed: `status=${dup.status} body=${dupBody}`,
     matters:
-      'This is the trap the dispatcher works around. Confirming it means the incident+occurrence delivery id ' +
-      'is required, not optional: a stable per-signal id would mute a recurring fault for an hour.',
+      'Confirms the delivery id must carry an occurrence counter. A stable per-signal id would ' +
+      'mute a recurring fault for a full hour, silently, with a 200.',
   });
 
   const burst = 8;
@@ -469,20 +493,19 @@ async function validateHermes(): Promise<void> {
     Array.from({ length: burst }, (_, i) =>
       fetch(webhook, {
         method: 'POST', body,
-        headers: { ...headers, 'X-Request-ID': `${deliveryId}-burst-${i}` },
+        headers: { ...signV2(String(Math.floor(Date.now() / 1000))), 'X-Request-ID': `${deliveryId}-burst-${i}` },
       }).then((res) => res.status),
     ),
   );
-  const accepted = results.filter((status) => status < 400).length;
   const limited = results.filter((status) => status === 429).length;
   record({
-    id: 'H3',
-    claim: `A burst of ${burst} deliveries is accepted without rate limiting`,
+    id: 'H4',
+    claim: `A burst of ${burst} deliveries on ONE route is accepted without rate limiting`,
     status: limited === 0 ? 'PASS' : 'FAIL',
-    observed: `accepted=${accepted} rate_limited=${limited} in ${Date.now() - startedAt}ms`,
+    observed: `accepted=${results.filter((s) => s < 400).length} rate_limited=${limited} in ${Date.now() - startedAt}ms`,
     matters:
-      'The rate limit is global with no per-route override, so any 429 here confirms the dispatcher must own ' +
-      'fair queueing per tier rather than relying on Hermes to prioritise.',
+      'The limit value is platform-wide but the counter is keyed by route name, so per-tier routes get ' +
+      'independent windows. Any 429 here means the per-tier budget is set too low for real volume.',
   });
 
   const mcpUrl = arg('mcp');
@@ -506,13 +529,13 @@ async function validateHermes(): Promise<void> {
   });
   const handshakeBody = (await handshake.text()).slice(0, 400);
   record({
-    id: 'H4',
+    id: 'H5',
     claim: 'The homelab-manager MCP endpoint completes an initialize handshake with a bearer token',
     status: handshake.ok && /serverInfo|protocolVersion/.test(handshakeBody) ? 'PASS' : 'FAIL',
     observed: `status=${handshake.status} body=${handshakeBody}`,
     matters:
-      'Run this THROUGH your reverse proxy, not against localhost. A buffering proxy or a proxy-level auth ' +
-      'layer that demands the session cookie breaks MCP in ways that look like a hang.',
+      'Run this THROUGH your reverse proxy, not against localhost. A buffering proxy or a proxy-level ' +
+      'auth layer that demands the session cookie breaks MCP in ways that look like a hang.',
   });
 }
 
