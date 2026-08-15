@@ -109,8 +109,8 @@ describe('handleLogHistory', () => {
 
     expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
     expect(await ndjson(response)).toEqual([
-      { at: Date.UTC(2026, 7, 14, 10, 0, 0), stream: 'stdout', text: 'started' },
-      { at: Date.UTC(2026, 7, 14, 10, 0, 1), stream: 'stderr', text: 'boom' },
+      { at: '2026-08-14T10:00:00.000000000Z', stream: 'stdout', text: 'started' },
+      { at: '2026-08-14T10:00:01.000000000Z', stream: 'stderr', text: 'boom' },
     ]);
   });
 

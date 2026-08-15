@@ -1,7 +1,7 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
 import { createSseStream, type SseEmitter } from '../lib/sse-stream';
-import { extractTimestamp, parseMuxedChunk, parseTtyChunk, type LogLine } from '../lib/log-parse';
+import { splitTimestamp, parseMuxedChunk, parseTtyChunk, type LogLine } from '../lib/log-parse';
 import { isContainerGone } from './stats';
 
 const DEFAULT_REFRESH_INTERVAL_MS = 60_000;
@@ -71,26 +71,7 @@ export interface FleetLogThrottleEvent {
   windowMs: number;
 }
 
-interface SplitLine {
-  at: string | null;
-  text: string;
-}
-
-/**
- * `agent/src/lib/log-parse.ts` exports `extractTimestamp` (line prefix only) but
- * not this split; kept local rather than extending that shared module so this
- * route stays a single-file change. The RFC3339Nano token is passed through
- * verbatim, never converted to epoch ms or a `Date`: Docker emits nanosecond
- * precision and `Date` truncates to ms, which would collapse ordering between
- * lines emitted inside the same millisecond.
- */
-function splitTimestamp(text: string): SplitLine {
-  const token = extractTimestamp(text);
-  if (token === null) return { at: null, text };
-  return { at: token, text: text.slice(token.length + 1) };
-}
-
-interface Bucket {
+export interface Bucket {
   tokens: number;
   lastRefillMs: number;
   dropped: number;
@@ -104,6 +85,7 @@ interface ContainerState {
   remainder: Buffer;
   lastAt: string | null;
   bucket: Bucket;
+  lastParseOverflowNoticeMs: number;
 }
 
 /** Shared mutable state for a single SSE fleet-log session. */
@@ -115,14 +97,17 @@ interface FleetLogContext {
   /** Survives a container's stream `end`/`error` so reattach resumes instead of replaying or losing the gap. */
   readonly lastAtByContainer: Map<string, string>;
   readonly openFailures: Map<string, number>;
+  /** Ids with a `logs()` call in flight, so a reconcile racing the resolution can't attach the same container twice. */
+  readonly pendingAttach: Set<string>;
   readonly globalBucket: Bucket;
 }
 
-function makeBucket(burst: number): Bucket {
-  return { tokens: burst, lastRefillMs: Date.now(), dropped: 0, lastNoticeMs: 0 };
+export function makeBucket(burst: number): Bucket {
+  const now = Date.now();
+  return { tokens: burst, lastRefillMs: now, dropped: 0, lastNoticeMs: now };
 }
 
-function tryConsume(bucket: Bucket, ratePerSec: number, burst: number, now: number): boolean {
+export function tryConsume(bucket: Bucket, ratePerSec: number, burst: number, now: number): boolean {
   const elapsedSec = (now - bucket.lastRefillMs) / 1000;
   bucket.tokens = Math.min(burst, bucket.tokens + elapsedSec * ratePerSec);
   bucket.lastRefillMs = now;
@@ -202,6 +187,7 @@ function openLogStream(
   sinceSeconds: number,
 ): void {
   const { id, name } = container;
+  ctx.pendingAttach.add(id);
 
   docker.getContainer(id).logs({
     follow: true,
@@ -213,6 +199,7 @@ function openLogStream(
   }).then((logsResult) => {
     // @types/dockerode 4.0.1 types logs() stream result as any; cast required to use Readable API
     const readable = logsResult as unknown as Readable;
+    ctx.pendingAttach.delete(id);
     if (ctx.stopped) {
       if (typeof readable.destroy === 'function') readable.destroy();
       return;
@@ -225,6 +212,7 @@ function openLogStream(
       remainder: Buffer.alloc(0),
       lastAt: null,
       bucket: makeBucket(CONTAINER_BURST_LINES),
+      lastParseOverflowNoticeMs: Date.now(),
     };
     ctx.containers.set(id, state);
     ctx.openFailures.delete(id);
@@ -243,11 +231,15 @@ function openLogStream(
         state.remainder = result.remainder;
         if (state.remainder.length > MAX_REMAINDER_BYTES) {
           state.remainder = Buffer.alloc(0);
-          ctx.emit.event('container-error', {
-            containerId: id,
-            error: 'log parse remainder exceeded MAX_REMAINDER_BYTES',
-            type: 'parse_overflow',
-          } satisfies FleetLogErrorEvent);
+          const now = Date.now();
+          if (now - state.lastParseOverflowNoticeMs >= THROTTLE_NOTICE_INTERVAL_MS) {
+            state.lastParseOverflowNoticeMs = now;
+            ctx.emit.event('container-error', {
+              containerId: id,
+              error: 'log parse remainder exceeded MAX_REMAINDER_BYTES',
+              type: 'parse_overflow',
+            } satisfies FleetLogErrorEvent);
+          }
         }
       }
 
@@ -257,19 +249,25 @@ function openLogStream(
     });
 
     readable.on('error', (error: Error) => {
+      if (ctx.containers.get(id) !== state) return;
       if (isContainerGone(error)) {
+        if (typeof state.stream.destroy === 'function') state.stream.destroy();
         ctx.containers.delete(id);
         return;
       }
       console.error(`Fleet log stream error for container ${id}:`, error.message);
       ctx.emit.event('container-error', { containerId: id, error: error.message, type: 'stream_error' } satisfies FleetLogErrorEvent);
+      if (typeof state.stream.destroy === 'function') state.stream.destroy();
       ctx.containers.delete(id);
     });
 
     readable.on('end', () => {
+      if (ctx.containers.get(id) !== state) return;
       ctx.containers.delete(id);
     });
   }).catch((error: Error) => {
+    ctx.pendingAttach.delete(id);
+    if (ctx.stopped) return;
     if (isContainerGone(error)) return;
     console.error(`Failed to open fleet log stream for container ${id}:`, error.message);
     ctx.emit.event('container-error', { containerId: id, error: error.message, type: 'open_failed' } satisfies FleetLogErrorEvent);
@@ -307,12 +305,21 @@ function reconcileFleetContainers(
     const state = ctx.containers.get(id);
     if (state && typeof state.stream.destroy === 'function') state.stream.destroy();
     ctx.containers.delete(id);
-    ctx.lastAtByContainer.delete(id);
-    ctx.openFailures.delete(id);
+  }
+
+  // Pruned against currentIds directly, not attachedIds: an id whose stream already
+  // ended or errored is absent from attachedIds too, so scoping this to departed
+  // *attached* ids would leave its bookkeeping here forever once it stops reappearing.
+  for (const id of ctx.lastAtByContainer.keys()) {
+    if (!currentIds.has(id)) ctx.lastAtByContainer.delete(id);
+  }
+  for (const id of ctx.openFailures.keys()) {
+    if (!currentIds.has(id)) ctx.openFailures.delete(id);
   }
 
   for (const container of current) {
     if (ctx.containers.has(container.id)) continue;
+    if (ctx.pendingAttach.has(container.id)) continue;
     if ((ctx.openFailures.get(container.id) ?? 0) >= MAX_CONTAINER_OPEN_FAILURES) continue;
 
     const lastAt = ctx.lastAtByContainer.get(container.id);
@@ -358,6 +365,7 @@ function teardownAll(ctx: FleetLogContext): void {
   ctx.containers.clear();
   ctx.lastAtByContainer.clear();
   ctx.openFailures.clear();
+  ctx.pendingAttach.clear();
 }
 
 async function runFleetLogLoop(
@@ -467,6 +475,7 @@ export function handleFleetLogStream(
         containers: new Map(),
         lastAtByContainer: new Map(),
         openFailures: new Map(),
+        pendingAttach: new Set(),
         globalBucket: makeBucket(STREAM_BURST_LINES),
       };
 

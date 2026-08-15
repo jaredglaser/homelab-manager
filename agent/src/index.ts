@@ -134,6 +134,9 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   if (docker) {
     if (url.pathname === '/stats/stream' && request.method === 'GET') return handleStatsStream(docker, request);
 
+    // Must stay above the /logs/:id regex below: 'stream' matches that regex's
+    // id pattern, so a request for /logs/stream would otherwise route into
+    // handleLogStream(docker, 'stream', request) and fail as "container not found".
     if (url.pathname === '/logs/stream' && request.method === 'GET') return handleFleetLogStream(docker, request);
 
     const logsHistoryMatch = /^\/logs\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)\/history$/.exec(url.pathname);

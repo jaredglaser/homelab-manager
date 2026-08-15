@@ -1,5 +1,5 @@
 import type Dockerode from 'dockerode';
-import { extractTimestamp, parseMuxedChunk, parseTtyChunk } from '../lib/log-parse';
+import { splitTimestamp, parseMuxedChunk, parseTtyChunk } from '../lib/log-parse';
 import { isContainerGone } from './stats';
 
 /**
@@ -90,12 +90,8 @@ export async function handleLogHistory(
     const body = parsed
       .slice(-query.maxLines)
       .map((line) => {
-        const stamp = extractTimestamp(line.text);
-        const at = stamp === null ? null : new Date(stamp).getTime();
-        // Docker prefixes each line with the timestamp we just read; strip it so
-        // the consumer gets the container's own output and nothing of ours.
-        const text = stamp === null ? line.text : line.text.slice(stamp.length + 1);
-        return JSON.stringify({ at: Number.isNaN(at as number) ? null : at, stream: line.stream, text });
+        const { at, text } = splitTimestamp(line.text);
+        return JSON.stringify({ at, stream: line.stream, text });
       })
       .join('\n');
 

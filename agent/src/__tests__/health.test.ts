@@ -136,6 +136,7 @@ describe('handleInfo', () => {
       available: true,
       version: '24.0.7',
       apiVersion: '1.43',
+      fleetLogs: true,
     });
     expect(body.capabilities.zfs).toEqual({
       available: true,

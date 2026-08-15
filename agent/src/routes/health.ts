@@ -9,6 +9,7 @@ interface DockerCapability {
   available: boolean;
   version?: string;
   apiVersion?: string;
+  fleetLogs?: boolean;
 }
 
 /**
@@ -23,6 +24,7 @@ async function getDockerCapability(
       available: true,
       version: dockerVersion.Version,
       apiVersion: dockerVersion.ApiVersion,
+      fleetLogs: true,
     };
   } catch {
     return { available: false };
@@ -86,7 +88,6 @@ export async function handleInfo(
       agentImageTag: agentImage?.tag ?? null,
       capabilities: {
         docker: dockerCapability,
-        fleetLogs: dockerCapability.available,
         zfs: zfsAvailable
           ? {
               available: true,

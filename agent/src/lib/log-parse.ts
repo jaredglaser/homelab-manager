@@ -66,3 +66,21 @@ export function extractTimestamp(text: string): string | null {
   }
   return null;
 }
+
+export interface SplitLine {
+  at: string | null;
+  text: string;
+}
+
+/**
+ * Split a Docker-timestamped line into its RFC3339Nano token and body.
+ *
+ * The token is passed through verbatim, never converted to epoch ms or a
+ * `Date`: Docker emits nanosecond precision and `Date` truncates to ms, which
+ * would collapse ordering between lines emitted inside the same millisecond.
+ */
+export function splitTimestamp(text: string): SplitLine {
+  const token = extractTimestamp(text);
+  if (token === null) return { at: null, text };
+  return { at: token, text: text.slice(token.length + 1) };
+}
