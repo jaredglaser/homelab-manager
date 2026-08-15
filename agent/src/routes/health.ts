@@ -86,6 +86,7 @@ export async function handleInfo(
       agentImageTag: agentImage?.tag ?? null,
       capabilities: {
         docker: dockerCapability,
+        fleetLogs: dockerCapability.available,
         zfs: zfsAvailable
           ? {
               available: true,
