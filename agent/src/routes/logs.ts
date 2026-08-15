@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
 import { createSseStream } from '../lib/sse-stream';
+import { extractTimestamp, parseMuxedChunk, parseTtyChunk, type LogLine } from '../lib/log-parse';
 import { isContainerGone } from './stats';
 
 /**
@@ -147,83 +148,4 @@ export function handleLogStream(
       }
     },
   });
-}
-
-/**
- * Extract a Docker timestamp from the beginning of a log line.
- *
- * Docker timestamps appear as the first space-delimited token and look like
- * `2026-03-29T12:30:45.123456789Z`. This function validates basic structure
- * (length > 10, dash at index 4, contains 'T').
- *
- * @param text - A log line potentially prefixed with a Docker timestamp
- * @returns The timestamp string if found, or null
- */
-function extractTimestamp(text: string): string | null {
-  const spaceIdx = text.indexOf(' ');
-  if (spaceIdx <= 10) return null;
-  const token = text.substring(0, spaceIdx);
-  if (token[4] === '-' && token.includes('T')) {
-    return token;
-  }
-  return null;
-}
-
-interface LogLine {
-  stream: 'stdout' | 'stderr';
-  text: string;
-}
-
-/**
- * Parse a TTY-mode Docker log chunk into individual log lines.
- *
- * Splits the chunk by newline, discards empty lines, and marks every line as `stdout`.
- * In TTY mode, Docker multiplexes stdout and stderr into a single stream with no
- * framing headers, so individual lines cannot be attributed to a specific stream.
- *
- * @param chunk - Raw buffer read from a container's TTY log stream
- * @returns An array of `LogLine` objects where `stream` is `'stdout'` and `text` is each non-empty line from the chunk
- */
-function parseTtyChunk(chunk: Buffer): LogLine[] {
-  return chunk
-    .toString()
-    .split('\n')
-    .filter((line) => line.length > 0)
-    .map((text) => ({ stream: 'stdout' as const, text }));
-}
-
-interface MuxedParseResult {
-  lines: LogLine[];
-  remainder: Buffer;
-}
-
-/**
- * Parse a Docker multiplexed log buffer into individual log lines with stream metadata.
- *
- * Returns any incomplete frame bytes as `remainder` so the caller can prepend them
- * to the next chunk, preventing data loss at chunk boundaries.
- *
- * @param chunk - A buffer containing Docker's multiplexed log frames (8-byte headers followed by payloads).
- * @returns An object with parsed `lines` and any incomplete `remainder` bytes.
- */
-function parseMuxedChunk(chunk: Buffer): MuxedParseResult {
-  const lines: LogLine[] = [];
-  let offset = 0;
-
-  while (offset + 8 <= chunk.length) {
-    const streamType = chunk[offset] === 2 ? 'stderr' : 'stdout';
-    const size = chunk.readUInt32BE(offset + 4);
-
-    if (offset + 8 + size > chunk.length) break;
-
-    offset += 8;
-    const text = chunk.subarray(offset, offset + size).toString().trimEnd();
-    if (text.length > 0) {
-      lines.push({ stream: streamType, text });
-    }
-    offset += size;
-  }
-
-  const remainder = offset < chunk.length ? chunk.subarray(offset) : Buffer.alloc(0);
-  return { lines, remainder };
 }
