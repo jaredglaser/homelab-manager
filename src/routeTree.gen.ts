@@ -20,6 +20,7 @@ import { Route as ZfsRouteImport } from './routes/zfs'
 import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
+import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiProxmoxStatsRouteImport } from './routes/api/proxmox-stats'
 import { Route as ApiSettingsRouteImport } from './routes/api/settings'
 import { Route as ApiStackStatusRouteImport } from './routes/api/stack-status'
@@ -87,6 +88,11 @@ const ApiDockerStatsRoute = ApiDockerStatsRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiProxmoxStatsRoute = ApiProxmoxStatsRouteImport.update({
@@ -168,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/stack-status': typeof ApiStackStatusRoute
@@ -193,6 +200,7 @@ export interface FileRoutesByTo {
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/stack-status': typeof ApiStackStatusRoute
@@ -220,6 +228,7 @@ export interface FileRoutesById {
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/stack-status': typeof ApiStackStatusRoute
@@ -248,6 +257,7 @@ export interface FileRouteTypes {
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
+    | '/api/mcp'
     | '/api/proxmox-stats'
     | '/api/settings'
     | '/api/stack-status'
@@ -273,6 +283,7 @@ export interface FileRouteTypes {
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
+    | '/api/mcp'
     | '/api/proxmox-stats'
     | '/api/settings'
     | '/api/stack-status'
@@ -299,6 +310,7 @@ export interface FileRouteTypes {
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
+    | '/api/mcp'
     | '/api/proxmox-stats'
     | '/api/settings'
     | '/api/stack-status'
@@ -326,6 +338,7 @@ export interface RootRouteChildren {
   ApiDockerInventoryRoute: typeof ApiDockerInventoryRoute
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiMcpRoute: typeof ApiMcpRoute
   ApiProxmoxStatsRoute: typeof ApiProxmoxStatsRoute
   ApiSettingsRoute: typeof ApiSettingsRoute
   ApiStackStatusRoute: typeof ApiStackStatusRoute
@@ -414,6 +427,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/proxmox-stats': {
@@ -548,6 +568,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDockerInventoryRoute: ApiDockerInventoryRoute,
   ApiDockerStatsRoute: ApiDockerStatsRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiMcpRoute: ApiMcpRoute,
   ApiProxmoxStatsRoute: ApiProxmoxStatsRoute,
   ApiSettingsRoute: ApiSettingsRoute,
   ApiStackStatusRoute: ApiStackStatusRoute,

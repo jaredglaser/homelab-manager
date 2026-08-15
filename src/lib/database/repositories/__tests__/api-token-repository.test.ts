@@ -26,6 +26,7 @@ const baseTokenDbRow = {
   id: '1',
   label: 'mcp-token',
   scopes: ['stacks:read', 'stacks:deploy'],
+  expires_at: null as Date | null,
   last_used_at: null as Date | null,
   created_at: now,
 };
@@ -34,6 +35,7 @@ const expectedTokenRow: ApiTokenRow = {
   id: 1,
   label: 'mcp-token',
   scopes: ['stacks:read', 'stacks:deploy'],
+  expiresAt: null,
   lastUsedAt: null,
   createdAt: now,
 };
@@ -68,7 +70,21 @@ describe('ApiTokenRepository', () => {
         scopes: ['stacks:read'],
       });
       expect(mock.calls[0].sql).toContain('scopes');
-      expect(mock.calls[0].params).toEqual(['enc:abc123', 'deadbeef', 'mcp-token', ['stacks:read']]);
+      expect(mock.calls[0].params).toEqual(['enc:abc123', 'deadbeef', 'mcp-token', ['stacks:read'], null]);
+    });
+
+    it('passes an explicit expiresAt through to the insert', async () => {
+      const expiresAt = new Date('2026-09-01T00:00:00Z');
+      mock.pushResult([{ ...baseTokenDbRow, expires_at: expiresAt }]);
+      const result = await repo.create({
+        encryptedToken: 'enc:abc123',
+        tokenHash: 'expiring',
+        label: 'mcp-token',
+        scopes: ['stacks:read'],
+        expiresAt,
+      });
+      expect(mock.calls[0].params).toEqual(['enc:abc123', 'expiring', 'mcp-token', ['stacks:read'], expiresAt]);
+      expect(result.expiresAt).toEqual(expiresAt);
     });
 
     it('coerces string id to a number', async () => {
@@ -121,6 +137,12 @@ describe('ApiTokenRepository', () => {
       const result = await repo.findByTokenHash('d'.repeat(64));
       expect(result).toEqual({ id: 1, scopes: ['stacks:read'] });
       expect(mock.calls[0].params).toEqual(['d'.repeat(64)]);
+    });
+
+    it('excludes expired rows in the query itself', async () => {
+      mock.pushResult([{ id: '1', scopes: ['stacks:read'] }]);
+      await repo.findByTokenHash('d'.repeat(64));
+      expect(mock.calls[0].sql).toContain('expires_at IS NULL OR expires_at > now()');
     });
 
     it('returns null when no row matches', async () => {

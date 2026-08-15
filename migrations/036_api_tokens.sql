@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   encrypted_token     TEXT NOT NULL,
   token_hash          TEXT NOT NULL,
   scopes              TEXT[] NOT NULL DEFAULT '{}',
+  expires_at          TIMESTAMPTZ,
   last_used_at        TIMESTAMPTZ,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
