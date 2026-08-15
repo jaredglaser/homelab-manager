@@ -196,6 +196,8 @@ Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular hom
 
 **Keep the dashboard on your LAN.** A reverse proxy does not change the security posture described in the warning above. Do not route this dashboard through a public-facing proxy.
 
+If you connect a Hermes agent, `/api/mcp` adds two further proxy requirements: see [Connecting a Hermes agent](hermes.md).
+
 ### Agent Environment
 
 These variables are set on each **agent** container (not on the dashboard or worker). The Add Host wizard (**Settings → Managed Hosts → Add Host**) generates a ready-to-use compose stack for the agent, including a Docker socket proxy, the agent-updater, and any ZFS device/binary mounts, so you normally never write this by hand. The variables below are for reference when customizing the generated stack.
