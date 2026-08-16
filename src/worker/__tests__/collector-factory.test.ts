@@ -190,3 +190,175 @@ describe('createCollectors', () => {
   });
 
 });
+
+describe('loadHermesEnvConfig', () => {
+  const HERMES_ENV_KEYS = [
+    'HERMES_GATEWAY_URL',
+    'HERMES_DASHBOARD_BASE_URL',
+    'HERMES_MAX_IN_FLIGHT',
+    'HERMES_MAX_DAILY_RUNS',
+    'HERMES_MAX_DAILY_PAGES',
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of HERMES_ENV_KEYS) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of HERMES_ENV_KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  });
+
+  it('defaults to empty urls and DEFAULT_CEILINGS', async () => {
+    const { loadHermesEnvConfig } = await import('../collector-factory');
+    expect(loadHermesEnvConfig()).toEqual({
+      gatewayUrl: '',
+      dashboardBaseUrl: '',
+      ceilings: { maxInFlight: 8, maxDailyRuns: 300, maxDailyPages: 200 },
+    });
+  });
+
+  it('reads overrides from env', async () => {
+    process.env.HERMES_GATEWAY_URL = 'https://gw.example';
+    process.env.HERMES_DASHBOARD_BASE_URL = 'https://dash.example';
+    process.env.HERMES_MAX_IN_FLIGHT = '4';
+    process.env.HERMES_MAX_DAILY_RUNS = '50';
+    process.env.HERMES_MAX_DAILY_PAGES = '10';
+
+    const { loadHermesEnvConfig } = await import('../collector-factory');
+    expect(loadHermesEnvConfig()).toEqual({
+      gatewayUrl: 'https://gw.example',
+      dashboardBaseUrl: 'https://dash.example',
+      ceilings: { maxInFlight: 4, maxDailyRuns: 50, maxDailyPages: 10 },
+    });
+  });
+
+  it('falls back to defaults on invalid or non-positive overrides', async () => {
+    process.env.HERMES_MAX_IN_FLIGHT = 'not-a-number';
+    process.env.HERMES_MAX_DAILY_RUNS = '0';
+    process.env.HERMES_MAX_DAILY_PAGES = '-5';
+
+    const { loadHermesEnvConfig } = await import('../collector-factory');
+    expect(loadHermesEnvConfig().ceilings).toEqual({ maxInFlight: 8, maxDailyRuns: 300, maxDailyPages: 200 });
+  });
+});
+
+describe('createHermesConfigProvider', () => {
+  it('returns the decrypted secret alongside the env-sourced urls', async () => {
+    const { createHermesConfigProvider } = await import('../collector-factory');
+    const provider = createHermesConfigProvider(
+      { get: async () => 'shh-secret' },
+      { gatewayUrl: 'https://gw.example', dashboardBaseUrl: 'https://dash.example', ceilings: { maxInFlight: 1, maxDailyRuns: 1, maxDailyPages: 1 } },
+    );
+
+    expect(await provider()).toEqual({
+      enabled: true,
+      gatewayUrl: 'https://gw.example',
+      secret: 'shh-secret',
+      dashboardBaseUrl: 'https://dash.example',
+    });
+  });
+
+  it('returns an empty secret when the lookup returns null', async () => {
+    const { createHermesConfigProvider } = await import('../collector-factory');
+    const provider = createHermesConfigProvider(
+      { get: async () => null },
+      { gatewayUrl: '', dashboardBaseUrl: '', ceilings: { maxInFlight: 1, maxDailyRuns: 1, maxDailyPages: 1 } },
+    );
+
+    expect((await provider()).secret).toBe('');
+  });
+
+  it('logs and returns an empty secret when the lookup throws', async () => {
+    console.error = mock(() => {});
+    const { createHermesConfigProvider } = await import('../collector-factory');
+    const provider = createHermesConfigProvider(
+      {
+        get: async () => {
+          throw new Error('decrypt failed');
+        },
+      },
+      { gatewayUrl: '', dashboardBaseUrl: '', ceilings: { maxInFlight: 1, maxDailyRuns: 1, maxDailyPages: 1 } },
+    );
+
+    expect((await provider()).secret).toBe('');
+    expect(console.error).toHaveBeenCalled();
+    console.error = originalConsoleError;
+  });
+});
+
+describe('InMemoryHermesBudgetStore', () => {
+  it('loads zeroed buckets for an unseen day', async () => {
+    const { InMemoryHermesBudgetStore } = await import('../collector-factory');
+    const store = new InMemoryHermesBudgetStore();
+    expect(await store.load('2026-08-16')).toEqual({ t0: 0, t1: 0, t2: 0, page: 0 });
+  });
+
+  it('increments a bucket and keeps days isolated', async () => {
+    const { InMemoryHermesBudgetStore } = await import('../collector-factory');
+    const store = new InMemoryHermesBudgetStore();
+    await store.increment('2026-08-16', 't0', 2);
+    await store.increment('2026-08-16', 't0', 1);
+    await store.increment('2026-08-17', 'page', 5);
+
+    expect(await store.load('2026-08-16')).toEqual({ t0: 3, t1: 0, t2: 0, page: 0 });
+    expect(await store.load('2026-08-17')).toEqual({ t0: 0, t1: 0, t2: 0, page: 5 });
+  });
+});
+
+describe('createHermesDispatcher', () => {
+  const HERMES_ENV_KEYS = ['HERMES_PUSH_ENABLED', 'HERMES_MAX_IN_FLIGHT'] as const;
+  const saved: Record<string, string | undefined> = {};
+  let controller: AbortController;
+
+  beforeEach(() => {
+    for (const key of HERMES_ENV_KEYS) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+    controller = new AbortController();
+  });
+
+  afterEach(async () => {
+    for (const key of HERMES_ENV_KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    controller.abort();
+  });
+
+  it('returns null when HERMES_PUSH_ENABLED is unset', async () => {
+    const { createHermesDispatcher } = await import('../collector-factory');
+    expect(createHermesDispatcher({ get: async () => null }, controller.signal)).toBeNull();
+  });
+
+  it('returns null when HERMES_PUSH_ENABLED is not exactly "true"', async () => {
+    process.env.HERMES_PUSH_ENABLED = 'false';
+    const { createHermesDispatcher } = await import('../collector-factory');
+    expect(createHermesDispatcher({ get: async () => null }, controller.signal)).toBeNull();
+  });
+
+  it('returns a dispatcher when the flag is "true"', async () => {
+    process.env.HERMES_PUSH_ENABLED = 'true';
+    const { createHermesDispatcher } = await import('../collector-factory');
+    const dispatcher = createHermesDispatcher({ get: async () => 'secret' }, controller.signal);
+    expect(dispatcher).not.toBeNull();
+    await dispatcher?.[Symbol.asyncDispose]();
+  });
+
+  it('wires the ceilings override through to capacity()', async () => {
+    process.env.HERMES_PUSH_ENABLED = 'true';
+    process.env.HERMES_MAX_IN_FLIGHT = '3';
+    const { createHermesDispatcher } = await import('../collector-factory');
+    const dispatcher = createHermesDispatcher({ get: async () => null }, controller.signal);
+    dispatcher?.setRunningContainerCount('host-a', 10_000);
+    expect(dispatcher?.capacity().maxInFlight).toBe(3);
+    await dispatcher?.[Symbol.asyncDispose]();
+  });
+});

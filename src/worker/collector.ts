@@ -8,7 +8,7 @@ import { SettingsRepository } from '@/lib/database/repositories/settings-reposit
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { createCollectors } from './collector-factory';
+import { createCollectors, createHermesDispatcher } from './collector-factory';
 import { HostCollectorManager, defaultHostCollectorFactory } from './host-collector-manager';
 import { HostsListener } from './hosts-listener';
 import { resolveCollectionInterval } from './resolve-collection-interval';
@@ -114,6 +114,25 @@ async function main() {
         return () => signAgentJwt(privateKey, hostname);
       };
 
+      // Hermes push path: off by default (HERMES_PUSH_ENABLED, same gating
+      // mechanism as MCP_ENABLED for the MCP route). The webhook signing secret
+      // is read the same way every other at-rest secret in this codebase is:
+      // JWE ciphertext decrypted with the master keyring, never plaintext config.
+      const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+      const hermesSecretReader = new StackSecretsRepository(db.getPool(), keyring);
+      const { HermesBudgetRepository } = await import('@/lib/database/repositories/hermes-budget-repository');
+      const hermesBudget = new HermesBudgetRepository(db.getPool());
+      const hermesDispatcher = createHermesDispatcher(
+        hermesSecretReader,
+        shutdownController.signal,
+        hermesBudget,
+      );
+      if (hermesDispatcher) {
+        stack.use(hermesDispatcher);
+        hermesDispatcher.start();
+        console.info('[Worker] Hermes push path enabled (HERMES_PUSH_ENABLED=true)');
+      }
+
       // Manager owns the per-host collector lifecycle. Reconciles on every
       // managed_hosts NOTIFY so adding/removing hosts in the UI takes effect
       // without restarting the worker.
@@ -123,7 +142,7 @@ async function main() {
           shutdownController.signal,
           () => hostRepo.findAll(),
           getSigner,
-          defaultHostCollectorFactory(db, workerConfig),
+          defaultHostCollectorFactory(db, workerConfig, hermesDispatcher ?? undefined),
         ),
       );
 

@@ -5,11 +5,17 @@ import {
   type ManagedHost,
 } from '@/lib/database/repositories/host-repository';
 import { DockerContainerEventRepository } from '@/lib/database/repositories/docker-container-event-repository';
+import { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
+import { LogShapeRepository } from '@/lib/database/repositories/log-shape-repository';
+import { DetectorRuleRepository } from '@/lib/database/repositories/detector-rule-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
 import { ContainerInventoryCollector } from './collectors/container-inventory-collector';
 import { ZFSCollector } from './collectors/zfs-collector';
 import { resolveAgentUrl } from './collector-factory';
+import { LogWatcher } from './log-watcher/log-watcher';
+import type { LogBaselineRepository, LogWatcherDeps } from './log-watcher/log-watcher';
+import type { HermesDispatcher } from './log-watcher/hermes-dispatcher';
 
 export interface HostCollectorBundle {
   collectors: BaseCollector[];
@@ -59,15 +65,61 @@ function shouldStartZfs(workerConfig: WorkerConfig, caps: HostCapabilities | und
   return Boolean(workerConfig.zfs.enabled && caps?.zfs);
 }
 
+const LOG_BASELINE_METADATA_KEY = 'logBaselineState';
+
+/**
+ * Persists LogWatcher's per-entity EWMA baseline through entity_metadata. Migration 037's
+ * own rationale for storing criticality there applies identically here: a generic
+ * (source, entity, key) -> value row keyed by the same host/container_id entity id, no
+ * new table needed.
+ */
+export class EntityMetadataBaselineRepository implements LogBaselineRepository {
+  constructor(private readonly metadata: EntityMetadataRepository) {}
+
+  async loadMany(entityIds: readonly string[]): Promise<Map<string, string>> {
+    const rows = await this.metadata.getEntityMetadata([...entityIds]);
+    const out = new Map<string, string>();
+    for (const [entity, kv] of rows) {
+      const state = kv.get(LOG_BASELINE_METADATA_KEY);
+      if (state !== undefined) out.set(entity, state);
+    }
+    return out;
+  }
+
+  async saveMany(entries: readonly { readonly entityId: string; readonly state: string }[]): Promise<void> {
+    if (entries.length === 0) return;
+    await this.metadata.upsertEntityMetadataBatch(
+      entries.map((e) => ({ entity: e.entityId, key: LOG_BASELINE_METADATA_KEY, value: e.state })),
+    );
+  }
+}
+
 /**
  * Default factory that wires up the real collector classes. Extracted so
  * tests can inject a fake without monkey-patching modules.
+ *
+ * `hermesDispatcher` is omitted when the Hermes push path's feature flag is off
+ * (see createHermesDispatcher in collector-factory.ts); no LogWatcher is built and no
+ * log-watcher repository is constructed in that case.
  */
 export function defaultHostCollectorFactory(
   db: DatabaseClient,
   workerConfig: WorkerConfig,
+  hermesDispatcher?: HermesDispatcher,
 ): HostCollectorFactory {
   const inventoryRepo = new DockerContainerEventRepository(db.getPool());
+  const entityMetadataRepo = hermesDispatcher ? new EntityMetadataRepository(db.getPool()) : null;
+  const logWatcherDeps: Omit<LogWatcherDeps, 'onSignal'> | null =
+    hermesDispatcher && entityMetadataRepo
+      ? {
+          logShapeRepository: new LogShapeRepository(db.getPool()),
+          detectorRuleRepository: new DetectorRuleRepository(db.getPool()),
+          entityMetadataRepository: entityMetadataRepo,
+          containerEventRepository: inventoryRepo,
+          baselineRepository: new EntityMetadataBaselineRepository(entityMetadataRepo),
+        }
+      : null;
+
   return (host, signer, controller, stack) => {
     const collectors: BaseCollector[] = [];
     const runners: Promise<void>[] = [];
@@ -90,6 +142,23 @@ export function defaultHostCollectorFactory(
       );
       collectors.push(inventory);
       runners.push(inventory.run());
+
+      if (hermesDispatcher && logWatcherDeps) {
+        const logWatcher = stack.use(
+          new LogWatcher(
+            { name: host.name, agentUrl: resolved.agentUrl },
+            signer,
+            {
+              ...logWatcherDeps,
+              onSignal: (signal) => hermesDispatcher.submit(signal),
+              onRunningCountChange: (running) => hermesDispatcher.setRunningContainerCount(host.name, running),
+            },
+            controller,
+          ),
+        );
+        collectors.push(logWatcher);
+        runners.push(logWatcher.run());
+      }
     }
 
     if (zfsWanted) {

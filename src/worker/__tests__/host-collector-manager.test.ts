@@ -1,12 +1,18 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import type { Pool } from 'pg';
+import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
 import {
   HostCollectorManager,
+  defaultHostCollectorFactory,
+  EntityMetadataBaselineRepository,
   type HostCollectorBundle,
   type HostCollectorFactory,
 } from '../host-collector-manager';
-import type { BaseCollector } from '../collectors/base-collector';
+import { BaseCollector } from '../collectors/base-collector';
+import type { HermesDispatcher } from '../log-watcher/hermes-dispatcher';
 
 const originalConsoleInfo = console.info;
 const originalConsoleError = console.error;
@@ -439,5 +445,157 @@ describe('HostCollectorManager', () => {
     await manager[Symbol.asyncDispose]();
     // 'a' detaches on dispose
     expect(detached).toBe(3);
+  });
+});
+
+describe('defaultHostCollectorFactory', () => {
+  let runSpy: ReturnType<typeof spyOn>;
+
+  function fakeDb(): DatabaseClient {
+    return {
+      id: 'test',
+      getPool: () => ({}) as unknown as Pool,
+      connect: async () => {},
+      isConnected: () => true,
+      close: async () => {},
+    } as unknown as DatabaseClient;
+  }
+
+  function fakeWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
+    return {
+      docker: { enabled: true },
+      zfs: { enabled: false },
+      proxmox: { enabled: false },
+      collection: { interval: 1000 },
+      ...overrides,
+    } as WorkerConfig;
+  }
+
+  beforeEach(() => {
+    console.info = mock(() => {});
+    console.error = mock(() => {});
+    console.log = mock(() => {});
+    runSpy = spyOn(BaseCollector.prototype, 'run').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    console.info = originalConsoleInfo;
+    console.error = originalConsoleError;
+    console.log = originalConsoleLog;
+    runSpy.mockRestore();
+  });
+
+  it('does not create a LogWatcher when hermesDispatcher is omitted', async () => {
+    const factory = defaultHostCollectorFactory(fakeDb(), fakeWorkerConfig());
+    const controller = new AbortController();
+    const stack = new AsyncDisposableStack();
+
+    const bundle = factory(makeHost('a'), async () => 'jwt', controller, stack);
+
+    expect(bundle.collectors).toHaveLength(2);
+    expect(bundle.collectors.some((c) => c.name.startsWith('LogWatcher'))).toBe(false);
+
+    controller.abort();
+    await stack[Symbol.asyncDispose]();
+  });
+
+  it('creates a LogWatcher per host when hermesDispatcher is provided and docker is wanted', async () => {
+    const submitted: unknown[] = [];
+    const fakeDispatcher = { submit: (signal: unknown) => submitted.push(signal) } as unknown as HermesDispatcher;
+    const factory = defaultHostCollectorFactory(fakeDb(), fakeWorkerConfig(), fakeDispatcher);
+    const controller = new AbortController();
+    const stack = new AsyncDisposableStack();
+
+    const bundle = factory(makeHost('a'), async () => 'jwt', controller, stack);
+
+    expect(bundle.collectors).toHaveLength(3);
+    const logWatcher = bundle.collectors.find((c) => c.name === 'LogWatcher[a]');
+    expect(logWatcher).toBeDefined();
+    expect(bundle.runners).toHaveLength(3);
+
+    controller.abort();
+    await stack[Symbol.asyncDispose]();
+  });
+
+  it('wires LogWatcher onRunningCountChange to hermesDispatcher.setRunningContainerCount for its own host', async () => {
+    const calls: Array<[string, number]> = [];
+    const fakeDispatcher = {
+      submit: () => {},
+      setRunningContainerCount: (host: string, running: number) => calls.push([host, running]),
+    } as unknown as HermesDispatcher;
+    const factory = defaultHostCollectorFactory(fakeDb(), fakeWorkerConfig(), fakeDispatcher);
+    const controller = new AbortController();
+    const stack = new AsyncDisposableStack();
+
+    const bundle = factory(makeHost('a'), async () => 'jwt', controller, stack);
+    const logWatcher = bundle.collectors.find((c) => c.name === 'LogWatcher[a]');
+    expect(logWatcher).toBeDefined();
+    (logWatcher as unknown as { deps: { onRunningCountChange?: (running: number) => void } }).deps.onRunningCountChange?.(7);
+
+    expect(calls).toEqual([['a', 7]]);
+
+    controller.abort();
+    await stack[Symbol.asyncDispose]();
+  });
+
+  it('does not create a LogWatcher when docker capability is not wanted, even with hermesDispatcher', async () => {
+    const fakeDispatcher = { submit: () => {} } as unknown as HermesDispatcher;
+    const factory = defaultHostCollectorFactory(
+      fakeDb(),
+      fakeWorkerConfig({ docker: { enabled: false }, zfs: { enabled: true } }),
+      fakeDispatcher,
+    );
+    const controller = new AbortController();
+    const stack = new AsyncDisposableStack();
+
+    const bundle = factory(
+      makeHost('a', { capabilities: { docker: false, zfs: true } }),
+      async () => 'jwt',
+      controller,
+      stack,
+    );
+
+    expect(bundle.collectors.some((c) => c.name.startsWith('LogWatcher'))).toBe(false);
+
+    controller.abort();
+    await stack[Symbol.asyncDispose]();
+  });
+});
+
+describe('EntityMetadataBaselineRepository', () => {
+  it('loadMany extracts the logBaselineState key per entity, skipping entities without one', async () => {
+    const fakeMetadata = {
+      getEntityMetadata: async () => {
+        const map = new Map<string, Map<string, string>>();
+        map.set('host/a', new Map([['logBaselineState', '{"x":1}'], ['icon', 'plex']]));
+        map.set('host/b', new Map([['icon', 'sonarr']]));
+        return map;
+      },
+      upsertEntityMetadataBatch: async () => {},
+    };
+
+    const repo = new EntityMetadataBaselineRepository(fakeMetadata as unknown as EntityMetadataRepository);
+    const loaded = await repo.loadMany(['host/a', 'host/b']);
+
+    expect(loaded.get('host/a')).toBe('{"x":1}');
+    expect(loaded.has('host/b')).toBe(false);
+  });
+
+  it('saveMany writes through upsertEntityMetadataBatch and no-ops on empty input', async () => {
+    const calls: unknown[] = [];
+    const fakeMetadata = {
+      getEntityMetadata: async () => new Map(),
+      upsertEntityMetadataBatch: async (entries: unknown) => {
+        calls.push(entries);
+      },
+    };
+
+    const repo = new EntityMetadataBaselineRepository(fakeMetadata as unknown as EntityMetadataRepository);
+
+    await repo.saveMany([]);
+    expect(calls).toHaveLength(0);
+
+    await repo.saveMany([{ entityId: 'host/a', state: '{"x":1}' }]);
+    expect(calls).toEqual([[{ entity: 'host/a', key: 'logBaselineState', value: '{"x":1}' }]]);
   });
 });
