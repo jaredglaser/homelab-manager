@@ -77,6 +77,7 @@
     "monaco-editor": "0.55.1",
     "monaco-yaml": "5.5.1",
     "nitro": "npm:nitro-nightly@3.0.1-20260402-182549-a5a3389c",
+    "p-queue": "9.3.3",
     "pg": "8.22.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
