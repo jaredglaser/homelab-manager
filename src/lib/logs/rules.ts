@@ -211,140 +211,19 @@ const KIND_MATCHER_TYPES: Readonly<Record<RuleKind, readonly RuleMatcher['type']
   state: ['event'],
 };
 
-const BACKREFERENCE_RE = /\\[1-9]/;
+const BACKREFERENCE_RE = /\\[1-9]|\\k<[^>]*>/;
 
-function matchQuantifierAt(pattern: string, at: number): number {
-  const ch = pattern[at];
-  if (ch === '+' || ch === '*') {
-    return 1;
-  }
-  if (ch === '{') {
-    const found = /^\{\d+(?:,\d*)?\}/.exec(pattern.slice(at));
-    if (found) {
-      return found[0].length;
-    }
-  }
-  return 0;
-}
-
-function hasTopLevelDuplicateBranch(interior: string): boolean {
-  const branches: string[] = [];
-  let depth = 0;
-  let current = '';
-  let i = 0;
-  while (i < interior.length) {
-    const ch = interior[i];
-    if (ch === '\\') {
-      current += interior.slice(i, i + 2);
-      i += 2;
-      continue;
-    }
-    if (ch === '[') {
-      const start = i;
-      i += 1;
-      while (i < interior.length && interior[i] !== ']') {
-        i += interior[i] === '\\' ? 2 : 1;
-      }
-      i += 1;
-      current += interior.slice(start, i);
-      continue;
-    }
-    if (ch === '(' || ch === ')') {
-      depth += ch === '(' ? 1 : -1;
-      current += ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '|' && depth === 0) {
-      branches.push(current);
-      current = '';
-      i += 1;
-      continue;
-    }
-    current += ch;
-    i += 1;
-  }
-  branches.push(current);
-  return branches.length >= 2 && new Set(branches).size !== branches.length;
-}
-
-interface GroupFrame {
-  readonly start: number;
-  hasQuantifier: boolean;
-}
-
-// A quantified group is unsafe if a quantifier occurs anywhere in its interior at any
-// nesting depth (e.g. "((a+))+"), or if it wraps two identical top-level alternation
-// branches (e.g. "(a|a)+"), which backtracks exponentially with no quantifier inside.
-function scanQuantifiedGroups(pattern: string): { readonly nested: boolean; readonly ambiguous: boolean } {
-  const stack: GroupFrame[] = [];
-  let nested = false;
-  let ambiguous = false;
-  let i = 0;
-  while (i < pattern.length) {
-    const ch = pattern[i];
-    if (ch === '\\') {
-      i += 2;
-      continue;
-    }
-    if (ch === '[') {
-      i += 1;
-      while (i < pattern.length && pattern[i] !== ']') {
-        i += pattern[i] === '\\' ? 2 : 1;
-      }
-      i += 1;
-      continue;
-    }
-    if (ch === '(') {
-      stack.push({ start: i + 1, hasQuantifier: false });
-      i += 1;
-      continue;
-    }
-    if (ch === ')') {
-      const frame = stack.pop();
-      const interiorEnd = i;
-      i += 1;
-      const qLen = frame ? matchQuantifierAt(pattern, i) : 0;
-      if (frame && qLen > 0) {
-        if (frame.hasQuantifier) {
-          nested = true;
-        }
-        if (hasTopLevelDuplicateBranch(pattern.slice(frame.start, interiorEnd))) {
-          ambiguous = true;
-        }
-        if (stack.length > 0) stack[stack.length - 1].hasQuantifier = true;
-        i += qLen;
-        continue;
-      }
-      if (frame?.hasQuantifier && stack.length > 0) {
-        stack[stack.length - 1].hasQuantifier = true;
-      }
-      continue;
-    }
-    const qLen = matchQuantifierAt(pattern, i);
-    if (qLen > 0) {
-      if (stack.length > 0) stack[stack.length - 1].hasQuantifier = true;
-      i += qLen;
-      continue;
-    }
-    i += 1;
-  }
-  return { nested, ambiguous };
-}
-
-export function isSafePattern(pattern: string): { readonly ok: boolean; readonly reason: string | null } {
+/**
+ * Syntactic policy only. Catastrophic backtracking is decided by
+ * `@/lib/logs/pattern-safety`, which is authoritative and runs at rule admission;
+ * every check here is sound alone and rejects no legitimate pattern.
+ */
+export function checkPatternPolicy(pattern: string): { readonly ok: boolean; readonly reason: string | null } {
   if (pattern.length > MAX_PATTERN_CHARS) {
     return { ok: false, reason: 'pattern-too-long' };
   }
   if (BACKREFERENCE_RE.test(pattern)) {
     return { ok: false, reason: 'backreference' };
-  }
-  const groupIssue = scanQuantifiedGroups(pattern);
-  if (groupIssue.nested) {
-    return { ok: false, reason: 'nested-quantifier' };
-  }
-  if (groupIssue.ambiguous) {
-    return { ok: false, reason: 'ambiguous-alternation' };
   }
   const quantifiers = pattern.match(/\{(\d+)(?:,(\d*))?\}/g) ?? [];
   for (const quantifier of quantifiers) {
@@ -353,8 +232,6 @@ export function isSafePattern(pattern: string): { readonly ok: boolean; readonly
     const min = Number(parsed[1]);
     const hasComma = parsed[2] !== undefined;
     if (hasComma && parsed[2] === '') {
-      // A truly open-ended {n,} costs no more backtracking than a bare "+" on the same
-      // atom; scanQuantifiedGroups above already covers what makes repetition dangerous.
       continue;
     }
     const max = hasComma ? Number(parsed[2]) : min;
@@ -370,10 +247,10 @@ export function isSafePattern(pattern: string): { readonly ok: boolean; readonly
   return { ok: true, reason: null };
 }
 
-export function assertSafePattern(pattern: string): void {
-  const result = isSafePattern(pattern);
+export function assertPatternPolicy(pattern: string): void {
+  const result = checkPatternPolicy(pattern);
   if (!result.ok) {
-    throw new Error(`unsafe regex pattern: ${result.reason}`);
+    throw new Error(`rejected regex pattern: ${result.reason}`);
   }
 }
 
@@ -393,7 +270,7 @@ export function compileRule(rule: DetectorRule): CompiledRule {
     throw new Error(`rule ${rule.id}: kind '${rule.kind}' cannot use matcher type '${rule.matcher.type}'`);
   }
   if (rule.matcher.type === 'regex') {
-    assertSafePattern(rule.matcher.pattern);
+    assertPatternPolicy(rule.matcher.pattern);
     const flags = filterRegexFlags(rule.matcher.flags);
     let regex: RegExp;
     try {

@@ -6,7 +6,7 @@ import {
   MAX_SHADOW_COUNTERFACTUALS,
   MAX_SUPPRESSED_RECORDED,
   SEEDED_RULES,
-  assertSafePattern,
+  assertPatternPolicy,
   clampLane,
   compareRuleMatches,
   compileRule,
@@ -14,7 +14,7 @@ import {
   defaultLaneForTier,
   evaluateCompiled,
   evaluateRules,
-  isSafePattern,
+  checkPatternPolicy,
   ruleAppliesTo,
   scopeSpecificity,
   type ContainerStateEvent,
@@ -395,17 +395,17 @@ describe('compileRule / compileRules', () => {
       lane: 'batch',
       kind: 'match',
     });
-    expect(isSafePattern('a{').ok).toBe(true);
+    expect(checkPatternPolicy('a{').ok).toBe(true);
     expect(() => compileRule(rule)).toThrow();
   });
 
-  test('throws when the regex pattern is unsafe', () => {
+  test('throws when the regex pattern violates syntactic policy', () => {
     const rule = makeRule({
-      matcher: { type: 'regex', pattern: '(a+)+', flags: '', target: 'raw', stream: 'any' },
+      matcher: { type: 'regex', pattern: '(a)\\1', flags: '', target: 'raw', stream: 'any' },
       lane: 'batch',
       kind: 'match',
     });
-    expect(() => compileRule(rule)).toThrow();
+    expect(() => compileRule(rule)).toThrow(/backreference/);
   });
 
   test('compiles a shape matcher into a set', () => {
@@ -462,87 +462,54 @@ describe('compileRule / compileRules', () => {
   });
 });
 
-describe('assertSafePattern / isSafePattern', () => {
-  test('an escaped pipe is a literal, not an alternation separator', () => {
-    expect(isSafePattern('(a\\|a)').ok).toBe(true);
-    expect(isSafePattern('(rx\\|tx\\|rx)').ok).toBe(true);
-  });
-
-  test('a pipe inside a character class is a literal, not an alternation separator', () => {
-    expect(isSafePattern('([a|b]|[a|b])+').ok).toBe(false);
-    expect(isSafePattern('(ERROR|[|]|WARN)+').ok).toBe(true);
-  });
-
-  test('duplicate quantified alternation branches are rejected even when the branch is an escape', () => {
-    expect(isSafePattern('(\\.|\\.)+').reason).toBe('ambiguous-alternation');
-    expect(isSafePattern('(\\]|\\])+').reason).toBe('ambiguous-alternation');
-    expect(isSafePattern('(\\.|\\,)+').ok).toBe(true);
-  });
-
-  test('an escaped bracket inside a character class does not end the class early', () => {
-    expect(isSafePattern('([\\]]|[\\]])+').reason).toBe('ambiguous-alternation');
-  });
-
-  test('rejects a nested quantifier', () => {
-    expect(isSafePattern('(a+)+').ok).toBe(false);
-    expect(() => assertSafePattern('(a+)+')).toThrow();
+describe('checkPatternPolicy', () => {
+  test('admits a backtracking pattern, which is pattern-safety\'s call and not policy\'s', () => {
+    expect(checkPatternPolicy('(a+)+').ok).toBe(true);
   });
 
   test('rejects a backreference', () => {
-    expect(isSafePattern('(a)\\1').ok).toBe(false);
-    expect(() => assertSafePattern('(a)\\1')).toThrow();
+    expect(checkPatternPolicy('(a)\\1').ok).toBe(false);
+    expect(() => assertPatternPolicy('(a)\\1')).toThrow();
   });
 
   test('rejects a pattern longer than MAX_PATTERN_CHARS', () => {
     const pattern = 'a'.repeat(MAX_PATTERN_CHARS + 100);
-    expect(isSafePattern(pattern).ok).toBe(false);
-    expect(() => assertSafePattern(pattern)).toThrow();
+    expect(checkPatternPolicy(pattern).ok).toBe(false);
+    expect(() => assertPatternPolicy(pattern)).toThrow();
   });
 
   test('rejects a large bounded quantifier like {0,5000}', () => {
-    expect(isSafePattern('a{0,5000}').ok).toBe(false);
+    expect(checkPatternPolicy('a{0,5000}').ok).toBe(false);
   });
 
   test('accepts a truly open-ended {n,} regardless of n: it costs no more than a bare "+"', () => {
-    expect(isSafePattern('a{2000,}').ok).toBe(true);
-    expect(isSafePattern('\\d{2,}').ok).toBe(true);
-    expect(isSafePattern('\\w{4,}').ok).toBe(true);
+    expect(checkPatternPolicy('a{2000,}').ok).toBe(true);
+    expect(checkPatternPolicy('\\d{2,}').ok).toBe(true);
+    expect(checkPatternPolicy('\\w{4,}').ok).toBe(true);
   });
 
   test('rejects a malformed regex that fails to compile', () => {
-    expect(isSafePattern('(unterminated').ok).toBe(false);
+    expect(checkPatternPolicy('(unterminated').ok).toBe(false);
   });
 
   test('accepts a safe pattern within bounds', () => {
-    const result = isSafePattern('\\bERROR\\b');
+    const result = checkPatternPolicy('\\bERROR\\b');
     expect(result.ok).toBe(true);
     expect(result.reason).toBeNull();
-    expect(() => assertSafePattern('\\bERROR\\b')).not.toThrow();
+    expect(() => assertPatternPolicy('\\bERROR\\b')).not.toThrow();
   });
 
   test('accepts a small bounded quantifier', () => {
-    expect(isSafePattern('a{1,3}').ok).toBe(true);
-    expect(isSafePattern('a{5}').ok).toBe(true);
-  });
-
-  test('rejects a quantifier nested arbitrarily deep, not just one level down', () => {
-    const result = isSafePattern('((a+))+');
-    expect(result.ok).toBe(false);
-    expect(result.reason).toBe('nested-quantifier');
-  });
-
-  test('rejects an ambiguous alternation with a duplicate branch under a quantifier', () => {
-    const result = isSafePattern('(a|a)+');
-    expect(result.ok).toBe(false);
-    expect(result.reason).toBe('ambiguous-alternation');
+    expect(checkPatternPolicy('a{1,3}').ok).toBe(true);
+    expect(checkPatternPolicy('a{5}').ok).toBe(true);
   });
 
   test('a quantified group with distinct, non-duplicate branches is safe', () => {
-    expect(isSafePattern('(GET|POST|PUT)+').ok).toBe(true);
+    expect(checkPatternPolicy('(GET|POST|PUT)+').ok).toBe(true);
   });
 
   test('an un-quantified group with duplicate branches is safe (no repetition to blow up)', () => {
-    expect(isSafePattern('(a|a)').ok).toBe(true);
+    expect(checkPatternPolicy('(a|a)').ok).toBe(true);
   });
 });
 
