@@ -30,13 +30,13 @@ beforeEach(() => {
 })
 
 describe('NAV_ITEMS', () => {
-  it('has exactly 5 entries', () => {
-    expect(NAV_ITEMS.length).toBe(5)
+  it('has exactly 6 entries', () => {
+    expect(NAV_ITEMS.length).toBe(6)
   })
 
   it('has the correct routes', () => {
     const routes = NAV_ITEMS.map((i) => i.to)
-    expect(routes).toEqual(['/docker', '/stacks', '/zfs', '/proxmox', '/settings'])
+    expect(routes).toEqual(['/docker', '/stacks', '/zfs', '/proxmox', '/log-analysis', '/settings'])
   })
 
   it('has correct hasMenu flags', () => {

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DeniedRouteImport } from './routes/denied'
 import { Route as DockerRouteImport } from './routes/docker'
+import { Route as LogAnalysisRouteImport } from './routes/log-analysis'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProxmoxRouteImport } from './routes/proxmox'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -19,6 +20,7 @@ import { Route as StacksRouteImport } from './routes/stacks'
 import { Route as ZfsRouteImport } from './routes/zfs'
 import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
+import { Route as ApiFindingsRouteImport } from './routes/api/findings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiProxmoxStatsRouteImport } from './routes/api/proxmox-stats'
@@ -48,6 +50,11 @@ const DeniedRoute = DeniedRouteImport.update({
 const DockerRoute = DockerRouteImport.update({
   id: '/docker',
   path: '/docker',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LogAnalysisRoute = LogAnalysisRouteImport.update({
+  id: '/log-analysis',
+  path: '/log-analysis',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -83,6 +90,11 @@ const ApiDockerInventoryRoute = ApiDockerInventoryRouteImport.update({
 const ApiDockerStatsRoute = ApiDockerStatsRouteImport.update({
   id: '/api/docker-stats',
   path: '/api/docker-stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiFindingsRoute = ApiFindingsRouteImport.update({
+  id: '/api/findings',
+  path: '/api/findings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -166,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
+  '/log-analysis': typeof LogAnalysisRoute
   '/login': typeof LoginRoute
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
@@ -173,6 +186,7 @@ export interface FileRoutesByFullPath {
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/findings': typeof ApiFindingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
@@ -193,12 +207,14 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
+  '/log-analysis': typeof LogAnalysisRoute
   '/login': typeof LoginRoute
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/findings': typeof ApiFindingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
@@ -220,6 +236,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
+  '/log-analysis': typeof LogAnalysisRoute
   '/login': typeof LoginRoute
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
@@ -227,6 +244,7 @@ export interface FileRoutesById {
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/findings': typeof ApiFindingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp': typeof ApiMcpRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
@@ -249,6 +267,7 @@ export interface FileRouteTypes {
     | '/'
     | '/denied'
     | '/docker'
+    | '/log-analysis'
     | '/login'
     | '/proxmox'
     | '/settings'
@@ -256,6 +275,7 @@ export interface FileRouteTypes {
     | '/zfs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
+    | '/api/findings'
     | '/api/health'
     | '/api/mcp'
     | '/api/proxmox-stats'
@@ -276,12 +296,14 @@ export interface FileRouteTypes {
     | '/'
     | '/denied'
     | '/docker'
+    | '/log-analysis'
     | '/login'
     | '/proxmox'
     | '/settings'
     | '/zfs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
+    | '/api/findings'
     | '/api/health'
     | '/api/mcp'
     | '/api/proxmox-stats'
@@ -302,6 +324,7 @@ export interface FileRouteTypes {
     | '/'
     | '/denied'
     | '/docker'
+    | '/log-analysis'
     | '/login'
     | '/proxmox'
     | '/settings'
@@ -309,6 +332,7 @@ export interface FileRouteTypes {
     | '/zfs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
+    | '/api/findings'
     | '/api/health'
     | '/api/mcp'
     | '/api/proxmox-stats'
@@ -330,6 +354,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DeniedRoute: typeof DeniedRoute
   DockerRoute: typeof DockerRouteWithChildren
+  LogAnalysisRoute: typeof LogAnalysisRoute
   LoginRoute: typeof LoginRoute
   ProxmoxRoute: typeof ProxmoxRoute
   SettingsRoute: typeof SettingsRoute
@@ -337,6 +362,7 @@ export interface RootRouteChildren {
   ZfsRoute: typeof ZfsRoute
   ApiDockerInventoryRoute: typeof ApiDockerInventoryRoute
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
+  ApiFindingsRoute: typeof ApiFindingsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpRoute: typeof ApiMcpRoute
   ApiProxmoxStatsRoute: typeof ApiProxmoxStatsRoute
@@ -371,6 +397,13 @@ declare module '@tanstack/react-router' {
       path: '/docker'
       fullPath: '/docker'
       preLoaderRoute: typeof DockerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/log-analysis': {
+      id: '/log-analysis'
+      path: '/log-analysis'
+      fullPath: '/log-analysis'
+      preLoaderRoute: typeof LogAnalysisRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -420,6 +453,13 @@ declare module '@tanstack/react-router' {
       path: '/api/docker-stats'
       fullPath: '/api/docker-stats'
       preLoaderRoute: typeof ApiDockerStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/findings': {
+      id: '/api/findings'
+      path: '/api/findings'
+      fullPath: '/api/findings'
+      preLoaderRoute: typeof ApiFindingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -560,6 +600,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DeniedRoute: DeniedRoute,
   DockerRoute: DockerRouteWithChildren,
+  LogAnalysisRoute: LogAnalysisRoute,
   LoginRoute: LoginRoute,
   ProxmoxRoute: ProxmoxRoute,
   SettingsRoute: SettingsRoute,
@@ -567,6 +608,7 @@ const rootRouteChildren: RootRouteChildren = {
   ZfsRoute: ZfsRoute,
   ApiDockerInventoryRoute: ApiDockerInventoryRoute,
   ApiDockerStatsRoute: ApiDockerStatsRoute,
+  ApiFindingsRoute: ApiFindingsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiMcpRoute: ApiMcpRoute,
   ApiProxmoxStatsRoute: ApiProxmoxStatsRoute,

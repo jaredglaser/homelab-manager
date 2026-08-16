@@ -2,7 +2,16 @@ import { createFileRoute } from '@tanstack/react-router';
 import type { McpToolContext } from '@/lib/mcp/context';
 
 /** Every scope a token needs at least one of to open an MCP session; mcp:read is the umbrella grant. */
-const MCP_SCOPES = ['mcp:hosts:read', 'mcp:logs:read', 'mcp:events:read', 'mcp:stats:read', 'mcp:stacks:read', 'mcp:read'];
+const MCP_SCOPES = [
+  'mcp:hosts:read',
+  'mcp:logs:read',
+  'mcp:events:read',
+  'mcp:stats:read',
+  'mcp:stacks:read',
+  'mcp:findings:read',
+  'mcp:findings:write',
+  'mcp:read',
+];
 
 function extractBearerToken(request: Request): string | null {
   const header = request.headers.get('Authorization');

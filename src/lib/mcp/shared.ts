@@ -18,6 +18,7 @@ export type McpErrorCode =
   | 'unknown_host'
   | 'unknown_container'
   | 'unknown_stack'
+  | 'unknown_finding'
   | 'host_unreachable'
   | 'agent_error'
   | 'invalid_window'
@@ -57,6 +58,11 @@ export function fail(err: McpToolError) {
 /** `mcp:read` is the umbrella scope: any token carrying it can call every registered tool. */
 export function hasScope(scopes: string[], required: string): boolean {
   return scopes.includes(required) || scopes.includes('mcp:read');
+}
+
+/** No umbrella fallback: used to gate write tools where `mcp:read` must not imply write access. */
+export function hasExactScope(scopes: string[], required: string): boolean {
+  return scopes.includes(required);
 }
 
 export function iso(value: Date | number): string {
