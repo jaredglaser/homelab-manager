@@ -1,9 +1,29 @@
 import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils/cn';
 import type { Finding, FindingSeverity, FindingStatus } from '@/lib/findings/types';
+import type { OperatorVerdict, FindingVerdictSummary, WeakSignalSummary } from '@/lib/feedback/types';
+
+const OPERATOR_VERDICT_ORDER: readonly OperatorVerdict[] = ['actionable', 'noise', 'duplicate', 'wrong'];
+
+const VERDICT_LABEL: Record<OperatorVerdict, string> = {
+  actionable: 'Actionable',
+  noise: 'Noise',
+  duplicate: 'Duplicate',
+  wrong: 'Wrong',
+};
+
+const SIGNAL_LABEL: Record<string, string> = {
+  rollback_after: 'rolled back',
+  nonzero_exit_after: 'exited non-zero',
+  restart_after: 'restarted',
+  redeploy_after: 'redeployed',
+  quiet_24h: 'stayed healthy and untouched for a day',
+  no_outcome_observed: 'no outcome observed',
+};
 
 const SEVERITY_BADGE_VARIANT: Record<FindingSeverity, 'destructive' | 'warning' | 'secondary'> = {
   critical: 'destructive',
@@ -32,12 +52,122 @@ function subjectLine(finding: Finding): string | null {
   return stackEntity ?? null;
 }
 
-export interface FindingCardProps {
-  finding: Finding;
+function formatWeakSignals(weakSignals: WeakSignalSummary): string {
+  const labels = weakSignals.signals.map((signal: string) => SIGNAL_LABEL[signal] ?? signal.replace(/_/g, ' '));
+  const base = labels.length > 0 ? labels.join(', ') : 'no signal yet';
+  if (weakSignals.confounders.length === 0) return base;
+  return `${base} (confounded: ${weakSignals.confounders.join(', ')})`;
 }
 
-export function FindingCard({ finding }: Readonly<FindingCardProps>) {
-  const [expanded, setExpanded] = useState(false);
+export interface OnLabelInput {
+  verdict: OperatorVerdict;
+  note?: string;
+  duplicateOfId?: number;
+}
+
+interface VerdictBlockProps {
+  verdict: FindingVerdictSummary | null;
+  weakSignals: WeakSignalSummary | null;
+  canLabel: boolean;
+  isLabeling: boolean;
+  onLabel?: (input: OnLabelInput) => void;
+}
+
+function VerdictBlock({ verdict, weakSignals, canLabel, isLabeling, onLabel }: Readonly<VerdictBlockProps>) {
+  const [changing, setChanging] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [note, setNote] = useState('');
+
+  if (!canLabel && !verdict && !weakSignals) return null;
+
+  const canWrite = canLabel && onLabel !== undefined;
+  const showButtons = canWrite && (!verdict || verdict.source === 'agent' || changing);
+
+  function pick(next: OperatorVerdict) {
+    onLabel?.({ verdict: next, note: note.trim() ? note.trim() : undefined });
+    setChanging(false);
+    setNoteOpen(false);
+    setNote('');
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-2">
+      {verdict && !changing && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge variant={verdict.source === 'agent' ? 'outline' : verdict.verdict === 'actionable' ? 'success' : 'secondary'}>
+            {verdict.source === 'agent' ? 'Agent retracted this' : VERDICT_LABEL[verdict.verdict]}
+          </Badge>
+          <span className="text-muted-foreground">
+            {verdict.source === 'agent' ? 'agent' : `changed by ${verdict.labeledBy ?? 'unknown'}`} on {formatDate(verdict.labeledAt)}
+          </span>
+          {canWrite && verdict.source === 'operator' && (
+            <button type="button" className="text-primary hover:underline" onClick={() => setChanging(true)}>
+              Change
+            </button>
+          )}
+        </div>
+      )}
+
+      {verdict && verdict.relabelCount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Relabelled {verdict.relabelCount === 1 ? 'once' : `${verdict.relabelCount} times`}, most recently{' '}
+          {VERDICT_LABEL[verdict.verdict].toLowerCase()} on {formatDate(verdict.labeledAt)}.
+        </p>
+      )}
+
+      {showButtons && (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-1.5">
+            {OPERATOR_VERDICT_ORDER.map((option) => (
+              <Button key={option} type="button" variant="outline" size="sm" disabled={isLabeling} onClick={() => pick(option)}>
+                {VERDICT_LABEL[option]}
+              </Button>
+            ))}
+          </div>
+          {noteOpen ? (
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Optional note"
+              rows={2}
+              maxLength={1000}
+              className="w-full rounded-lg border border-foreground/25 bg-transparent px-2 py-1 text-xs outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          ) : (
+            <button type="button" className="self-start text-xs text-primary hover:underline" onClick={() => setNoteOpen(true)}>
+              Add note
+            </button>
+          )}
+        </div>
+      )}
+
+      {weakSignals && weakSignals.signalCount > 0 && (
+        <p className="text-xs text-muted-foreground">Weak signals: {formatWeakSignals(weakSignals)}</p>
+      )}
+    </div>
+  );
+}
+
+export interface FindingCardProps {
+  finding: Finding;
+  verdict?: FindingVerdictSummary | null;
+  weakSignals?: WeakSignalSummary | null;
+  canLabel?: boolean;
+  isLabeling?: boolean;
+  onLabel?: (input: OnLabelInput) => void;
+  defaultExpanded?: boolean;
+}
+
+export function FindingCard({
+  finding,
+  verdict = null,
+  weakSignals = null,
+  canLabel = false,
+  isLabeling = false,
+  onLabel,
+  defaultExpanded = false,
+}: Readonly<FindingCardProps>) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const isClosed = finding.status !== 'open';
   const relatedSubject = subjectLine(finding);
 
@@ -80,6 +210,7 @@ export function FindingCard({ finding }: Readonly<FindingCardProps>) {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="px-3 pb-3 pt-1 flex flex-col gap-3">
+          <VerdictBlock verdict={verdict} weakSignals={weakSignals} canLabel={canLabel} isLabeling={isLabeling} onLabel={onLabel} />
           {finding.detail && (
             <p className="text-sm whitespace-pre-wrap">{finding.detail}</p>
           )}

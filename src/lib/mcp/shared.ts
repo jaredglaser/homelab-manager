@@ -24,7 +24,8 @@ export type McpErrorCode =
   | 'invalid_window'
   | 'window_too_large'
   | 'invalid_cursor'
-  | 'invalid_pattern';
+  | 'invalid_pattern'
+  | 'missing_selector';
 
 export class McpToolError extends Error {
   constructor(

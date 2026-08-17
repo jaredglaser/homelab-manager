@@ -13,6 +13,7 @@ import * as stacksFns from '@/lib/mock/functions/stacks.functions';
 import * as authFns from '@/lib/mock/functions/auth.functions';
 import * as hostsFns from '@/lib/mock/functions/hosts.functions';
 import * as gitTokenFns from '@/lib/mock/functions/git-tokens.functions';
+import * as feedbackFns from '@/lib/mock/functions/feedback.functions';
 import { functionIdFromUrl, resolveFunctionName } from '@/lib/mock/handlers/function-id';
 
 /** A server function invocation as decoded from the wire. */
@@ -100,6 +101,15 @@ const registry: Record<string, ServerFnMock> = {
   listGitTokens: fn(gitTokenFns.listGitTokens),
   createGitToken: fn(gitTokenFns.createGitToken),
   revokeGitToken: fn(gitTokenFns.revokeGitToken),
+
+  // Findings feedback. Demo mode has no findings, so reads are empty and writes refuse.
+  getFeedbackMetrics: fn(feedbackFns.getFeedbackMetrics),
+  listFindingVerdicts: fn(feedbackFns.listFindingVerdicts),
+  listReportedMisses: fn(feedbackFns.listReportedMisses),
+  labelFinding: fn(feedbackFns.labelFinding),
+  reportMiss: fn(feedbackFns.reportMiss),
+  setMissStatus: fn(feedbackFns.setMissStatus),
+  reattributeMiss: fn(feedbackFns.reattributeMiss),
 };
 
 export const registeredServerFnNames: readonly string[] = Object.keys(registry);

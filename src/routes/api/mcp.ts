@@ -10,6 +10,7 @@ const MCP_SCOPES = [
   'mcp:stacks:read',
   'mcp:findings:read',
   'mcp:findings:write',
+  'mcp:feedback:read',
   'mcp:read',
 ];
 
