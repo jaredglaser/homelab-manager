@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useIsTouch } from '@/hooks/useMediaQuery';
 import type { ContainerPort, ContainerMount } from '@/types/docker-inventory';
 
 const WILDCARD_HOST_IPS = new Set(['0.0.0.0', '::']);
@@ -79,13 +81,28 @@ export default function ContainerPortsMounts({ ports, mounts }: Readonly<Contain
 function MountRow({ mount }: { mount: ContainerMount }) {
   const { display, isVolume } = formatMountSource(mount.source, mount.type);
   const fullMapping = `${mount.source} -> ${mount.destination}`;
+  const isTouch = useIsTouch();
+  const [expanded, setExpanded] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const truncateClass = isTouch && expanded ? '' : 'truncate max-w-[45%]';
+
+  useEffect(() => {
+    if (!isTouch || !expanded) return;
+    // Mirrors IconTooltip's dismiss pattern: pointerdown precedes this row's own
+    // toggle click, so an outside tap can collapse without racing a re-expand.
+    function dismissIfOutside(e: PointerEvent) {
+      if (buttonRef.current && !buttonRef.current.contains(e.target as Node)) setExpanded(false);
+    }
+    document.addEventListener('pointerdown', dismissIfOutside);
+    return () => document.removeEventListener('pointerdown', dismissIfOutside);
+  }, [isTouch, expanded]);
 
   const row = (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-xs">
-      <span className="truncate max-w-[45%] min-w-0 font-mono text-foreground">{display}</span>
+      <span className={`${truncateClass} min-w-0 font-mono text-foreground`}>{display}</span>
       {isVolume && <span className="shrink-0 text-(--muted-foreground)">(volume)</span>}
       <span className="shrink-0 text-(--muted-foreground)">-&gt;</span>
-      <span className="truncate max-w-[45%] min-w-0 font-mono text-foreground">{mount.destination}</span>
+      <span className={`${truncateClass} min-w-0 font-mono text-foreground`}>{mount.destination}</span>
       {!mount.rw && (
         <Badge variant="outline" className="h-4 rounded-sm px-1 text-[10px] border-(--warning) text-(--warning) shrink-0">
           ro
@@ -93,6 +110,20 @@ function MountRow({ mount }: { mount: ContainerMount }) {
       )}
     </div>
   );
+
+  if (isTouch) {
+    return (
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        className="text-left"
+      >
+        {row}
+      </button>
+    );
+  }
 
   return (
     <Tooltip>

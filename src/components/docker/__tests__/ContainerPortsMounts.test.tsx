@@ -1,5 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, mock, afterEach } from 'bun:test';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import {
   dedupeWildcardPorts,
@@ -16,6 +16,29 @@ mock.module('@/components/ui/tooltip', () => ({
 }));
 
 const { default: ContainerPortsMounts } = await import('@/components/docker/ContainerPortsMounts');
+
+const originalMatchMedia = window.matchMedia;
+
+function setTouch(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      matches,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+  });
+}
+
+afterEach(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: originalMatchMedia,
+  });
+});
 
 describe('formatPortMapping', () => {
   it('formats a published port with a wildcard bind IP without the IP prefix', () => {
@@ -142,5 +165,62 @@ describe('ContainerPortsMounts', () => {
     render(<ContainerPortsMounts ports={[]} mounts={mounts} />);
 
     expect(screen.getByText('/very/long/path/to/some/data/directory -> /data')).not.toBeNull();
+  });
+});
+
+describe('ContainerPortsMounts mount row on a touch pointer', () => {
+  const mounts: ContainerMount[] = [
+    { type: 'bind', source: '/very/long/path/to/some/data/directory', destination: '/data', rw: true },
+  ];
+
+  it('exposes the full mapping as an accessible label instead of a hover tooltip', () => {
+    setTouch(true);
+    render(<ContainerPortsMounts ports={[]} mounts={mounts} />);
+
+    const trigger = screen.getByRole('button', {
+      name: '/very/long/path/to/some/data/directory -> /data',
+    });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('expands the full mapping on tap and collapses the truncation styling', () => {
+    setTouch(true);
+    render(<ContainerPortsMounts ports={[]} mounts={mounts} />);
+
+    const trigger = screen.getByRole('button', {
+      name: '/very/long/path/to/some/data/directory -> /data',
+    });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('collapses on a second tap of the same row', () => {
+    setTouch(true);
+    render(<ContainerPortsMounts ports={[]} mounts={mounts} />);
+
+    const trigger = screen.getByRole('button', {
+      name: '/very/long/path/to/some/data/directory -> /data',
+    });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('collapses on a tap elsewhere', () => {
+    setTouch(true);
+    render(<ContainerPortsMounts ports={[]} mounts={mounts} />);
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+
+    const trigger = screen.getByRole('button', {
+      name: '/very/long/path/to/some/data/directory -> /data',
+    });
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.pointerDown(outside);
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+
+    outside.remove();
   });
 });

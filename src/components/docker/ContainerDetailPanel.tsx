@@ -89,7 +89,7 @@ function ActionStripButton({ icon, label, onClick, disabled }: ActionStripButton
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-(--muted-foreground) border border-(--border) bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      className="inline-flex items-center gap-1 px-3 min-h-11 rounded text-sm font-medium text-(--muted-foreground) border border-(--border) bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer lg:px-2 lg:min-h-0 lg:h-[28px] lg:text-xs"
     >
       {icon}
       {label}

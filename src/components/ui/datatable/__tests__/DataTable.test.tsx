@@ -621,4 +621,272 @@ describe('DataTable', () => {
       }
     });
   });
+
+  describe('mobile grid template', () => {
+    function withWidth<T>(width: number, run: () => T): T {
+      const originalResizeObserver = globalThis.ResizeObserver;
+      let resizeCallback: ResizeObserverCallback | null = null;
+      globalThis.ResizeObserver = class MockResizeObserver {
+        constructor(cb: ResizeObserverCallback) {
+          resizeCallback = cb;
+        }
+        observe() {
+          resizeCallback?.(
+            [{ contentRect: { width } } as unknown as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          );
+        }
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+      try {
+        return run();
+      } finally {
+        globalThis.ResizeObserver = originalResizeObserver;
+      }
+    }
+
+    const sizedColumns: ColumnDef<TestRow, unknown>[] = [
+      { id: 'name', accessorKey: 'name', header: 'Name', meta: { flex: 'minmax(200px, 1fr)' } },
+      { id: 'metric', header: 'Metric', cell: () => 'm', meta: { sizeCompact: 115, sizeFull: 180 } },
+      { id: 'status', header: 'Status', cell: () => 's', size: 150 },
+    ];
+
+    function gridTemplateOf(container: HTMLElement): string {
+      const grids = container.querySelectorAll('[style*="grid-template-columns"]');
+      expect(grids.length).toBeGreaterThan(0);
+      return (grids[0] as HTMLElement).style.gridTemplateColumns;
+    }
+
+    it('replaces every fixed px track with a proportional one below the breakpoint', () => {
+      const template = withWidth(375, () => {
+        const { container } = render(
+          <DataTable data={testData} columns={sizedColumns} getRowId={(row) => row.id} />,
+        );
+        return gridTemplateOf(container);
+      });
+
+      expect(template).not.toContain('px');
+      expect(template).toBe('minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)');
+    });
+
+    it('keeps the fixed px tracks above the breakpoint', () => {
+      const template = withWidth(1440, () => {
+        const { container } = render(
+          <DataTable data={testData} columns={sizedColumns} getRowId={(row) => row.id} />,
+        );
+        return gridTemplateOf(container);
+      });
+
+      expect(template).toContain('minmax(200px, 1fr)');
+      expect(template).toContain('150px');
+    });
+
+    it('honours an explicit mobileFlex over the derived weight', () => {
+      const columnsWithMobileFlex: ColumnDef<TestRow, unknown>[] = [
+        { id: 'name', accessorKey: 'name', header: 'Name', meta: { flex: 'minmax(200px, 1fr)' } },
+        { id: 'status', header: 'Status', cell: () => 's', size: 150, meta: { mobileFlex: 'minmax(0, 60px)' } },
+      ];
+
+      const template = withWidth(375, () => {
+        const { container } = render(
+          <DataTable data={testData} columns={columnsWithMobileFlex} getRowId={(row) => row.id} />,
+        );
+        return gridTemplateOf(container);
+      });
+
+      expect(template).toBe('minmax(0, 2fr) minmax(0, 60px)');
+    });
+
+    it('clips cells so a long name truncates instead of widening its track', () => {
+      const { container } = withWidth(375, () =>
+        render(
+          <DataTable
+            data={[{ id: '1', name: 'a-very-long-container-name-that-would-widen-the-grid', value: 1 }]}
+            columns={sizedColumns}
+            getRowId={(row) => row.id}
+          />,
+        ),
+      );
+
+      const nameCell = screen.getByText('a-very-long-container-name-that-would-widen-the-grid');
+      expect(nameCell.className).toContain('min-w-0');
+      expect(nameCell.className).toContain('overflow-hidden');
+      expect(container.querySelectorAll('.min-w-0.overflow-hidden').length).toBe(6);
+    });
+
+    it('tightens cell padding below the breakpoint', () => {
+      const { container } = withWidth(375, () =>
+        render(<DataTable data={testData} columns={sizedColumns} getRowId={(row) => row.id} />),
+      );
+
+      expect(container.querySelectorAll('.px-2').length).toBeGreaterThan(0);
+      expect(container.querySelectorAll('.px-3').length).toBe(0);
+    });
+  });
+
+  describe('nested metric group inheritance', () => {
+    function mockNarrowResizeObserver() {
+      const original = globalThis.ResizeObserver;
+      let cb: ResizeObserverCallback | null = null;
+      globalThis.ResizeObserver = class MockResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          cb = callback;
+        }
+        observe() {
+          cb?.(
+            [{ contentRect: { width: 375 } } as unknown as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          );
+        }
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+      return () => {
+        globalThis.ResizeObserver = original;
+      };
+    }
+
+    const nestedColumns: ColumnDef<TestRow, unknown>[] = [
+      { id: 'name', accessorKey: 'name', header: 'Name', meta: { flex: 'minmax(200px, 1fr)' } },
+      { id: 'cpu', header: 'CPU', cell: () => 'c' },
+      { id: 'netRx', header: 'Net RX', cell: () => 'n' },
+    ];
+
+    const groups = [
+      { label: 'CPU', columnIds: ['cpu'] as [string, ...string[]] },
+      { label: 'Network', columnIds: ['netRx'] as [string, ...string[]] },
+    ];
+
+    it('hides the inactive group in a subtable that declares no groups of its own', () => {
+      const restore = mockNarrowResizeObserver();
+      try {
+        render(
+          <DataTable
+            data={testData.slice(0, 1)}
+            columns={nestedColumns}
+            getRowId={(row) => row.id}
+            metricGroups={groups}
+            renderDetailPanel={() => (
+              <DataTable
+                data={testData.slice(0, 1)}
+                columns={nestedColumns}
+                getRowId={(row) => `sub-${row.id}`}
+                showHeader={false}
+              />
+            )}
+            expandedState={{ '1': true }}
+            onExpandedChange={() => {}}
+          />,
+        );
+
+        expect(screen.getAllByText('c').length).toBe(2);
+        expect(screen.queryAllByText('n').length).toBe(0);
+      } finally {
+        restore();
+      }
+    });
+
+    it('follows the parent toolbar when the active group changes', () => {
+      const restore = mockNarrowResizeObserver();
+      try {
+        render(
+          <DataTable
+            data={testData.slice(0, 1)}
+            columns={nestedColumns}
+            getRowId={(row) => row.id}
+            metricGroups={groups}
+            renderDetailPanel={() => (
+              <DataTable
+                data={testData.slice(0, 1)}
+                columns={nestedColumns}
+                getRowId={(row) => `sub-${row.id}`}
+                showHeader={false}
+              />
+            )}
+            expandedState={{ '1': true }}
+            onExpandedChange={() => {}}
+          />,
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: 'Network' }));
+
+        expect(screen.getAllByText('n').length).toBe(2);
+        expect(screen.queryAllByText('c').length).toBe(0);
+      } finally {
+        restore();
+      }
+    });
+
+    it('leaves a standalone table with no groups fully visible', () => {
+      const restore = mockNarrowResizeObserver();
+      try {
+        render(
+          <DataTable data={testData.slice(0, 1)} columns={nestedColumns} getRowId={(row) => row.id} />,
+        );
+
+        expect(screen.getByText('c')).not.toBeNull();
+        expect(screen.getByText('n')).not.toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  });
+});
+
+describe('DataTable container observation', () => {
+  function mockTrackingResizeObserver() {
+    const original = globalThis.ResizeObserver;
+    const observed: Element[] = [];
+    globalThis.ResizeObserver = class MockResizeObserver {
+      observe(el: Element) {
+        observed.push(el);
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    return { observed, restore: () => { globalThis.ResizeObserver = original; } };
+  }
+
+  const groups = [
+    { label: 'CPU', columnIds: ['value'] as [string, ...string[]] },
+  ];
+
+  // Asserts across every observed element, not just the container: the
+  // virtualizer registers a ResizeObserver of its own on the scroll element.
+  it('leaves no observed element detached after rows replace the empty state', () => {
+    const { observed, restore } = mockTrackingResizeObserver();
+    try {
+      const { rerender } = render(
+        <DataTable data={[]} columns={columns} getRowId={(row: TestRow) => row.id} metricGroups={groups} />,
+      );
+
+      rerender(
+        <DataTable data={testData} columns={columns} getRowId={(row: TestRow) => row.id} metricGroups={groups} />,
+      );
+
+      expect(observed.length).toBeGreaterThan(0);
+      expect(observed.filter((el) => !el.isConnected)).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it('leaves no observed element detached after rows drain away', () => {
+    const { observed, restore } = mockTrackingResizeObserver();
+    try {
+      const { rerender } = render(
+        <DataTable data={testData} columns={columns} getRowId={(row: TestRow) => row.id} metricGroups={groups} />,
+      );
+
+      rerender(
+        <DataTable data={[]} columns={columns} getRowId={(row: TestRow) => row.id} metricGroups={groups} />,
+      );
+
+      expect(observed.length).toBeGreaterThan(0);
+      expect(observed.filter((el) => !el.isConnected)).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
 });

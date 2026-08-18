@@ -11,6 +11,7 @@ import ContainerHistoryPage from '@/components/docker/ContainerHistoryPage';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import ContainerActionButtons from '@/components/docker/ContainerActionButtons';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
+import { useIsMobile, useIsTouch } from '@/hooks/useMediaQuery';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 export type ModalTab = 'logs' | 'terminal' | 'history';
@@ -36,10 +37,12 @@ function TabSwitch({
   value,
   onChange,
   isRunning,
+  isTouch,
 }: {
   value: ModalTab;
   onChange: (tab: ModalTab) => void;
   isRunning: boolean;
+  isTouch: boolean;
 }) {
   return (
     <div className="inline-flex gap-0.5 rounded-full p-0.5 bg-(--background)">
@@ -60,6 +63,7 @@ function TabSwitch({
                 : active
                   ? 'text-foreground cursor-pointer'
                   : 'text-(--muted-foreground) cursor-pointer',
+              isTouch ? 'tap-target' : '',
             ].join(' ')}
           >
             <Icon size={12} />
@@ -68,6 +72,93 @@ function TabSwitch({
         );
       })}
     </div>
+  );
+}
+
+function ModalIdentity({
+  inventory,
+  iconUrl,
+  iconError,
+  onIconError,
+}: {
+  inventory: DockerInventorySnapshotContainer;
+  iconUrl: string;
+  iconError: boolean;
+  onIconError: () => void;
+}) {
+  const shortId = inventory.containerId.slice(-8);
+
+  return (
+    <div className="flex items-center gap-3 min-w-0">
+      <img
+        src={iconError ? FALLBACK_ICON_URL : iconUrl}
+        alt=""
+        className="w-6 h-6 shrink-0 rounded-sm"
+        onError={onIconError}
+      />
+      <div className="flex flex-col gap-0 min-w-0 shrink-0">
+        <span className="text-sm font-semibold leading-tight truncate max-w-[160px]">
+          {inventory.name}
+        </span>
+        <span className="font-mono text-[10px] leading-tight text-(--text-disabled)">
+          {inventory.host} / {shortId}
+        </span>
+      </div>
+      <ContainerStateChip state={inventory.state} />
+    </div>
+  );
+}
+
+function HeaderActionControls({
+  containerId,
+  host,
+  isRunning,
+  activeTab,
+  resolvedShell,
+  shell,
+  onShellChange,
+  wordWrap,
+  onWrapToggle,
+  isTouch,
+}: {
+  containerId: string;
+  host: string;
+  isRunning: boolean;
+  activeTab: ModalTab;
+  resolvedShell: string | undefined;
+  shell: string;
+  onShellChange: (shell: string) => void;
+  wordWrap: boolean;
+  onWrapToggle: () => void;
+  isTouch: boolean;
+}) {
+  return (
+    <>
+      {activeTab === 'terminal' && (
+        <ShellSelect
+          value={shell}
+          onChange={onShellChange}
+          resolvedShell={resolvedShell}
+          className="shrink-0"
+        />
+      )}
+
+      {(activeTab === 'logs' || activeTab === 'terminal') && (
+        <IconTooltip label={wordWrap ? 'Disable word wrap' : 'Enable word wrap'}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onWrapToggle}
+            className={`p-1! shrink-0 ${isTouch ? 'tap-target ' : ''}${wordWrap ? 'text-(--primary)!' : 'text-(--text-disabled)!'}`}
+            aria-label="Toggle word wrap"
+          >
+            <WrapText size={16} />
+          </Button>
+        </IconTooltip>
+      )}
+
+      <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
+    </>
   );
 }
 
@@ -103,65 +194,78 @@ function ModalHeader({
   onClose: () => void;
 }) {
   const isRunning = inventory.state === 'running';
-  const shortId = inventory.containerId.slice(-8);
+  const isMobile = useIsMobile();
+  const isTouch = useIsTouch();
+
+  const closeButton = (
+    <IconTooltip label="Close">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={onClose}
+        aria-label="Close modal"
+        className={`p-1! shrink-0 ${isTouch ? 'tap-target' : ''}`}
+      >
+        <X size={16} />
+      </Button>
+    </IconTooltip>
+  );
+
+  const identity = (
+    <ModalIdentity
+      inventory={inventory}
+      iconUrl={iconUrl}
+      iconError={iconError}
+      onIconError={onIconError}
+    />
+  );
+
+  const actionControls = (
+    <HeaderActionControls
+      containerId={containerId}
+      host={host}
+      isRunning={isRunning}
+      activeTab={activeTab}
+      resolvedShell={resolvedShell}
+      shell={shell}
+      onShellChange={onShellChange}
+      wordWrap={wordWrap}
+      onWrapToggle={onWrapToggle}
+      isTouch={isTouch}
+    />
+  );
+
+  // grid-template-columns below has no minmax(0, ...), so its tracks can't shrink
+  // below content width; below lg the header stacks into rows instead.
+  if (isMobile) {
+    return (
+      <div className="flex flex-col gap-2 px-3 py-2 border-b border-(--border) shrink-0 bg-(--popover)">
+        <div className="flex items-center justify-between gap-2">
+          {identity}
+          {closeButton}
+        </div>
+
+        <TabSwitch value={activeTab} onChange={onTabChange} isRunning={isRunning} isTouch={isTouch} />
+
+        <div className="flex items-center flex-wrap gap-2">{actionControls}</div>
+      </div>
+    );
+  }
 
   return (
     <div
       className="grid [grid-template-columns:1fr_auto_1fr] px-3 py-2 border-b border-(--border) shrink-0 bg-(--popover) min-h-[52px] items-center gap-2"
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <img
-          src={iconError ? FALLBACK_ICON_URL : iconUrl}
-          alt=""
-          className="w-6 h-6 shrink-0 rounded-sm"
-          onError={onIconError}
-        />
-        <div className="flex flex-col gap-0 min-w-0 shrink-0">
-          <span className="text-sm font-semibold leading-tight truncate max-w-[160px]">
-            {inventory.name}
-          </span>
-          <span className="font-mono text-[10px] leading-tight text-(--text-disabled)">
-            {inventory.host} / {shortId}
-          </span>
-        </div>
-        <ContainerStateChip state={inventory.state} />
-      </div>
+      {identity}
 
-      <TabSwitch value={activeTab} onChange={onTabChange} isRunning={isRunning} />
+      <TabSwitch value={activeTab} onChange={onTabChange} isRunning={isRunning} isTouch={isTouch} />
 
       <div className="flex items-center justify-end gap-2">
-      {activeTab === 'terminal' && (
-        <ShellSelect
-          value={shell}
-          onChange={onShellChange}
-          resolvedShell={resolvedShell}
-          className="shrink-0"
-        />
-      )}
+        {actionControls}
 
-      {(activeTab === 'logs' || activeTab === 'terminal') && (
-        <IconTooltip label={wordWrap ? 'Disable word wrap' : 'Enable word wrap'}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onWrapToggle}
-            className={`p-1! shrink-0 ${wordWrap ? 'text-(--primary)!' : 'text-(--text-disabled)!'}`}
-            aria-label="Toggle word wrap"
-          >
-            <WrapText size={16} />
-          </Button>
-        </IconTooltip>
-      )}
+        <div className="w-px h-5 shrink-0 bg-(--border)" />
 
-      <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
-
-      <div className="w-px h-5 shrink-0 bg-(--border)" />
-
-      <IconTooltip label="Close">
-        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close modal" className="p-1! shrink-0">
-          <X size={16} />
-        </Button>
-      </IconTooltip>
+        {closeButton}
       </div>
     </div>
   );
@@ -227,7 +331,7 @@ export default memo(function ContainerModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <DialogContent className="flex flex-col min-h-0 overflow-hidden rounded-lg bg-(--popover) w-[calc(100%-64px)] max-w-[1200px] h-[calc(100vh-80px)] p-0">
+      <DialogContent className="flex flex-col min-h-0 overflow-hidden rounded-none max-h-none w-full max-w-none h-full bg-(--popover) lg:rounded-lg lg:max-h-[calc(100%-64px)] lg:w-[calc(100%-64px)] lg:max-w-[1200px] lg:h-[calc(100vh-80px)] p-0">
       <ModalHeader
         inventory={inventory}
         containerId={containerId}
