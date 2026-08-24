@@ -1,6 +1,13 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import type { StackSummary, StackDetail, StackDeployRecord, DeployStatus, StackDriftReport } from '@/types/stacks';
+import type {
+  StackSummary,
+  StackDetail,
+  StackDeployRecord,
+  DeployStatus,
+  StackDriftReport,
+  StackDriftResolutionResult,
+} from '@/types/stacks';
 import { stackSecretsMiddleware } from '@/middleware/stack-secrets-middleware';
 import type { StackControlRequest } from '@/lib/clients/agent-client';
 import { authMiddleware } from '@/middleware/auth-middleware';
@@ -13,6 +20,7 @@ import {
   resumeDeploySchema,
   rejectDeploySchema,
   controlStackSchema,
+  resolveDriftSchema,
 } from '@/data/stacks/schemas';
 
 /**
@@ -83,6 +91,18 @@ export const scanDrift = createServerFn({ method: 'GET' })
     requireRole('admin', 'operator')(context.user);
     const { scanStackDrift } = await import('@/lib/stacks/stack-service');
     return scanStackDrift();
+  });
+
+/**
+ * Apply a resolution to one drifted stack.
+ */
+export const resolveDrift = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .inputValidator(resolveDriftSchema)
+  .handler(async ({ data, context }): Promise<StackDriftResolutionResult> => {
+    requireRole('admin', 'operator')(context.user);
+    const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+    return resolveStackDriftItem(data);
   });
 
 /**

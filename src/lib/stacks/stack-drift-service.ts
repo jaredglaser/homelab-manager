@@ -9,6 +9,7 @@ import type {
   StackDriftItem,
   StackDriftKind,
   StackDriftReport,
+  StackDriftResolution,
   StackDriftScanError,
 } from '@/types/stacks';
 import { computeSyncStatus } from '@/lib/stacks/stack-mappers';
@@ -43,6 +44,51 @@ const KIND_LABELS: Record<StackDriftKind, string> = {
 
 export function getStackDriftKindLabel(kind: StackDriftKind): string {
   return KIND_LABELS[kind];
+}
+
+/**
+ * Resolutions offered per drift kind, in the order the UI lists them.
+ * `untracked` has no `trust_repo` entry: the repo says nothing about the stack,
+ * so "the repo wins" and "remove it from the host" are the same operation, and
+ * `remove` names it without pretending the repo holds a version to restore.
+ */
+const KIND_RESOLUTIONS: Record<StackDriftKind, StackDriftResolution[]> = {
+  ghost: ['trust_repo', 'trust_agent'],
+  untracked: ['trust_agent', 'remove'],
+  content: ['trust_repo', 'trust_agent'],
+};
+
+const RESOLUTION_LABELS: Record<StackDriftKind, Record<StackDriftResolution, string>> = {
+  ghost: {
+    trust_repo: 'Redeploy from repo',
+    trust_agent: 'Drop from repo',
+    remove: 'Drop from repo',
+  },
+  untracked: {
+    trust_repo: 'Tear down on host',
+    trust_agent: 'Adopt into repo',
+    remove: 'Tear down on host',
+  },
+  content: {
+    trust_repo: 'Redeploy repo version',
+    trust_agent: 'Adopt host version',
+    remove: 'Tear down on host',
+  },
+};
+
+export function getAllowedStackDriftResolutions(kind: StackDriftKind): StackDriftResolution[] {
+  return KIND_RESOLUTIONS[kind];
+}
+
+export function getStackDriftResolutionLabel(kind: StackDriftKind, resolution: StackDriftResolution): string {
+  return RESOLUTION_LABELS[kind][resolution];
+}
+
+/** The two resolutions that only add state: deploying to a host that has nothing, and committing a stack git does not yet track. */
+const NON_DESTRUCTIVE = new Set(['ghost:trust_repo', 'untracked:trust_agent']);
+
+export function isDestructiveStackDriftResolution(kind: StackDriftKind, resolution: StackDriftResolution): boolean {
+  return !NON_DESTRUCTIVE.has(`${kind}:${resolution}`);
 }
 
 export function buildStackDriftReport(input: BuildStackDriftReportInput): StackDriftReport {
