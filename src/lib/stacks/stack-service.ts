@@ -3,16 +3,27 @@
  * Called by server functions in src/data/stacks/functions.tsx.
  */
 
-import type { StackSummary, StackDetail, StackDeployRecord, StackDriftReport, StackDriftScanError } from '@/types/stacks';
+import type {
+  StackSummary,
+  StackDetail,
+  StackDeployRecord,
+  StackDriftItem,
+  StackDriftKind,
+  StackDriftReport,
+  StackDriftResolution,
+  StackDriftResolutionResult,
+  StackDriftScanError,
+} from '@/types/stacks';
 import type { DeployAction, DeployRecord, DeployRequest, DeployStatus } from '@/lib/deploy/types';
 import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-client';
 import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { RepoStackSnapshot } from '@/lib/stacks/stack-drift-service';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
-import { MANIFEST, composePath, serializeManifest } from '@/lib/stacks/stack-repo-layout';
+import { MANIFEST, composePath, driftRecoveryPath, serializeManifest } from '@/lib/stacks/stack-repo-layout';
 import { createStackRepoWriter } from '@/lib/deploy/stack-repo-writer';
 import {
   manifestEntryToSummary,
@@ -526,16 +537,18 @@ async function loadRepoStacks(): Promise<RepoStackSnapshot[]> {
   );
 }
 
-/**
- * Compare the repo manifest against each Docker host's on-disk stack inventory.
- * Read-only: one agent inventory call per host, no writes anywhere.
- */
-export async function scanStackDrift(): Promise<StackDriftReport> {
+interface DriftScanInputs {
+  repoStacks: RepoStackSnapshot[];
+  hosts: ManagedHost[];
+  latestDeploys: DeployRecord[];
+  currentHeadSha: string | null;
+}
+
+async function loadDriftScanInputs(): Promise<DriftScanInputs> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
   const { HostRepository } = await import('@/lib/database/repositories/host-repository');
-  const { buildStackDriftReport } = await import('@/lib/stacks/stack-drift-service');
   const { default: git } = await import('isomorphic-git');
   const fs = await import('node:fs');
 
@@ -548,6 +561,17 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
     new DeployRepository(pool).getLatestDeployPerStack(),
     git.resolveRef({ fs, gitdir: getRepoPath(), ref: 'HEAD' }).catch(() => null),
   ]);
+
+  return { repoStacks, hosts, latestDeploys, currentHeadSha };
+}
+
+/**
+ * Compare the repo manifest against each Docker host's on-disk stack inventory.
+ * Read-only: one agent inventory call per host, no writes anywhere.
+ */
+export async function scanStackDrift(): Promise<StackDriftReport> {
+  const { buildStackDriftReport } = await import('@/lib/stacks/stack-drift-service');
+  const { repoStacks, hosts, latestDeploys, currentHeadSha } = await loadDriftScanInputs();
 
   const dockerHosts = hosts
     .filter((host) => host.capabilities.docker === true)
@@ -588,4 +612,206 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
     agentStackErrorsByHost,
     scanErrors,
   });
+}
+
+/**
+ * Re-classify drift for one stack on one host. Runs the same
+ * `buildStackDriftReport` gate the full scan runs, so a resolution can never act
+ * on a stack the scan would not report as drifted.
+ */
+async function rescanDriftItem(
+  agent: AgentClient,
+  host: string,
+  stack: string,
+): Promise<StackDriftItem | null> {
+  const { buildStackDriftReport } = await import('@/lib/stacks/stack-drift-service');
+  const [{ repoStacks, hosts, latestDeploys, currentHeadSha }, inventory] = await Promise.all([
+    loadDriftScanInputs(),
+    agent.getStackInventory(),
+  ]);
+
+  const managedHost = hosts.find((entry) => entry.name === host);
+  if (!managedHost || managedHost.capabilities.docker !== true) {
+    throw new Error(`Host "${host}" is not a Docker-capable managed host.`);
+  }
+
+  const report = buildStackDriftReport({
+    repoStacks: repoStacks.filter((entry) => entry.host === host),
+    hosts: [{ name: host, dockerEnabled: true }],
+    latestDeploys,
+    currentHeadSha,
+    agentStacksByHost: new Map([[host, inventory.stacks]]),
+    agentStackErrorsByHost: new Map([[host, inventory.errors]]),
+    scanErrors: [],
+  });
+
+  const unreadable = report.scanErrors.find((error) => error.stack === stack);
+  if (unreadable) {
+    throw new Error(
+      `The agent on "${host}" could not read "${host}/${stack}": ${unreadable.message}. Refresh the drift scan and retry.`,
+    );
+  }
+
+  return report.items.find((item) => item.stack === stack) ?? null;
+}
+
+/**
+ * Commit the host's copy of a compose file into the repo before a resolution
+ * destroys it. Every failure here throws, and every caller awaits it before the
+ * destructive step, so a failed capture aborts the resolution with the host
+ * untouched.
+ */
+async function captureAgentCompose(
+  agent: AgentClient,
+  host: string,
+  stack: string,
+  kind: StackDriftKind,
+  resolution: StackDriftResolution,
+): Promise<string> {
+  const capturedAt = new Date().toISOString();
+  try {
+    const { composeContent } = await agent.getStackCompose(stack);
+    if (!composeContent.trim()) {
+      throw new Error('The agent returned an empty compose file, so there is nothing to recover from.');
+    }
+    return await commitFiles(getRepoPath(), () => ({
+      files: [{ path: driftRecoveryPath(host, stack, capturedAt), content: composeContent }],
+      message: `Archive ${host}/${stack} compose before ${resolution} of ${kind} drift (${capturedAt})`,
+      author: SYSTEM_AUTHOR,
+    }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[StackService] drift capture failed for "${host}/${stack}":`, err);
+    throw new Error(
+      `Could not archive the host copy of "${host}/${stack}"; ${resolution} aborted and the host was left untouched. ${message}`,
+      { cause: err },
+    );
+  }
+}
+
+async function adoptAgentCompose(
+  agent: AgentClient,
+  host: string,
+  stack: string,
+  kind: StackDriftKind,
+): Promise<string> {
+  const { composeContent } = await agent.getStackCompose(stack);
+
+  return commitFiles(getRepoPath(), (existingFiles) => {
+    const manifestContent = existingFiles.get(MANIFEST);
+    const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
+    manifest.stacks[stack] = manifest.stacks[stack] ?? { host, autoDeploy: false };
+
+    return {
+      files: [
+        { path: composePath(stack), content: composeContent },
+        { path: MANIFEST, content: serializeManifest(manifest) },
+      ],
+      message: `Adopt ${host}/${stack} compose from the host (${kind} drift)`,
+      author: SYSTEM_AUTHOR,
+    };
+  });
+}
+
+async function teardownOnAgent(
+  agent: AgentClient,
+  host: string,
+  stack: string,
+  recoveryCommitSha: string,
+): Promise<void> {
+  const result = await agent.teardown(stack);
+  if (!result.success) {
+    throw new Error(
+      `docker compose down failed for "${host}/${stack}"; the host may be partly torn down, and re-running this resolution is safe. The host copy is archived in ${recoveryCommitSha.slice(0, 7)}. ${result.logs}`,
+    );
+  }
+}
+
+async function deployAfterCapture(
+  host: string,
+  stack: string,
+  recoveryCommitSha: string,
+): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
+  try {
+    return await triggerStackDeploy({ stack, host, action: 'deploy', forceRecreate: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[StackService] drift redeploy failed for "${host}/${stack}":`, err);
+    throw new Error(
+      `Could not start the redeploy of "${host}/${stack}"; the host compose file may already be overwritten, and re-running this resolution is safe. The host copy is archived in ${recoveryCommitSha.slice(0, 7)}. ${message}`,
+      { cause: err },
+    );
+  }
+}
+
+const EMPTY_RESOLUTION = {
+  recoveryCommitSha: null,
+  commitSha: null,
+  deployId: null,
+  deployStatus: null,
+} satisfies Omit<StackDriftResolutionResult, 'host' | 'stack' | 'kind' | 'resolution'>;
+
+/**
+ * Apply a resolution to a single drifted stack.
+ *
+ * Re-scans before acting so a stale click from an old report cannot drive a
+ * destructive resolution against state that has since changed, and archives the
+ * host's compose into the repo before any step that would otherwise leave it
+ * unrecoverable (`untracked` teardown, `content` overwrite).
+ */
+export async function resolveStackDriftItem(input: {
+  host: string;
+  stack: string;
+  kind: StackDriftKind;
+  resolution: StackDriftResolution;
+}): Promise<StackDriftResolutionResult> {
+  const { host, stack, kind, resolution } = input;
+
+  if (!SAFE_PATH_SEGMENT_PATTERN.test(stack)) {
+    throw new Error(`Invalid stack name "${stack}": must contain only letters, numbers, hyphens, and underscores`);
+  }
+
+  const agent = await getAgentClientForHost(host);
+  const current = await rescanDriftItem(agent, host, stack);
+
+  if (!current) {
+    throw new Error(`"${host}/${stack}" is no longer drifted. Refresh the drift scan and retry.`);
+  }
+  if (current.kind !== kind) {
+    throw new Error(
+      `"${host}/${stack}" drift changed from ${kind} to ${current.kind} since the scan. Refresh the drift scan and retry.`,
+    );
+  }
+
+  const base = { host, stack, kind, resolution };
+
+  if (kind === 'ghost' && resolution === 'trust_repo') {
+    const deploy = await triggerStackDeploy({ stack, host, action: 'deploy' });
+    return { ...base, ...EMPTY_RESOLUTION, deployId: deploy.deployId, deployStatus: deploy.status };
+  }
+
+  if (kind === 'ghost' && resolution === 'trust_agent') {
+    const { commitSha } = await createStackRepoWriter().removeStackFromManifest(stack);
+    return { ...base, ...EMPTY_RESOLUTION, commitSha };
+  }
+
+  if (kind !== 'ghost' && resolution === 'trust_agent') {
+    return { ...base, ...EMPTY_RESOLUTION, commitSha: await adoptAgentCompose(agent, host, stack, kind) };
+  }
+
+  // `trust_repo` and `remove` are the same operation on an untracked stack: the
+  // repo tracks no version to restore, so trusting it means the stack should not run.
+  if (kind === 'untracked') {
+    const recoveryCommitSha = await captureAgentCompose(agent, host, stack, kind, resolution);
+    await teardownOnAgent(agent, host, stack, recoveryCommitSha);
+    return { ...base, ...EMPTY_RESOLUTION, recoveryCommitSha };
+  }
+
+  if (resolution === 'remove') {
+    throw new Error(`Resolution "remove" does not apply to ${kind} drift on "${host}/${stack}".`);
+  }
+
+  const recoveryCommitSha = await captureAgentCompose(agent, host, stack, kind, resolution);
+  const deploy = await deployAfterCapture(host, stack, recoveryCommitSha);
+  return { ...base, ...EMPTY_RESOLUTION, recoveryCommitSha, deployId: deploy.deployId, deployStatus: deploy.status };
 }

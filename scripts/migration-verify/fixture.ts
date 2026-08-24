@@ -102,8 +102,6 @@ export const EXPECTED_TABLES = [
   'zfs_stats',
 ];
 
-export const DROPPED_TABLES = ['stack_status'];
-
 export const EXPECTED_HYPERTABLES = [
   'docker_container_events',
   'docker_stats',

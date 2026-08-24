@@ -2,6 +2,7 @@ import { RefreshCw } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import StackDriftActions from '@/components/stacks/StackDriftActions';
 import type { StackDriftReport } from '@/types/stacks';
 import { getStackDriftKindLabel } from '@/lib/stacks/stack-drift-service';
 
@@ -50,6 +51,7 @@ export default function StackDriftSummary({ report, isLoading, onRefresh }: Stac
               {item.host}/{item.stack}
             </span>
             <span className="text-xs opacity-70">{getStackDriftKindLabel(item.kind)}</span>
+            <StackDriftActions item={item} />
           </div>
         ))}
       </div>

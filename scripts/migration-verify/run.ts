@@ -44,6 +44,12 @@ type MigrationRunner = (db: DatabaseClient) => Promise<void>;
 const REPO_ROOT = join(import.meta.dir, '..', '..');
 const DB_PREFIX = process.env.MIGRATION_DB_PREFIX ?? 'migverify';
 
+/**
+ * A removed migration keeps its ledger row and no check below flags it, so this
+ * list is all that separates a deliberate deletion from an accidental one.
+ */
+const ACKNOWLEDGED_REMOVALS = ['013_stack_status.sql', '019_drop_stack_status.sql'];
+
 async function main(): Promise<void> {
   const scenario = process.argv[2];
   await waitForDatabase();
@@ -98,6 +104,12 @@ async function runUpgrade(): Promise<void> {
     if (!baseRoot) {
       console.info('[upgrade] MIGRATION_BASE_ROOT unset, base and head are the same revision');
     }
+
+    checks.sameSet(
+      'every removed migration is acknowledged',
+      removed.filter(file => !ACKNOWLEDGED_REMOVALS.includes(file)),
+      []
+    );
 
     const baseRunner = baseRoot ? await loadBaseRunner(baseRoot) : runMigrations;
     await baseRunner(asDatabaseClient(pool));

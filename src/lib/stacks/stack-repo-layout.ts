@@ -26,6 +26,26 @@ function stackDirPrefix(stackName: string): string {
   return `${stackName}/`;
 }
 
+/** Root of the drift-recovery archive. Leading dot keeps it out of the stack namespace: stack names cannot contain a dot, so `identifyChangedStacks` never matches it against the manifest and a push carrying an archive never triggers a deploy. */
+export const DRIFT_RECOVERY_DIR = '.drift-recovery';
+
+function safeSegment(value: string): string {
+  const replaced = value.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  return /^\.+$/.test(replaced) ? replaced.replace(/\./g, '_') : replaced;
+}
+
+/**
+ * Path for an archived copy of a host's compose file, taken before a drift
+ * resolution destroys it. Colons and dots in the timestamp become hyphens so the
+ * path stays checkout-safe on every platform.
+ */
+export function driftRecoveryPath(host: string, stackName: string, capturedAt: string): string {
+  const safeHost = safeSegment(host);
+  const safeStackName = safeSegment(stackName);
+  const safeTimestamp = capturedAt.replace(/[:.]/g, '-');
+  return `${DRIFT_RECOVERY_DIR}/${safeHost}/${safeStackName}/${safeTimestamp}-docker-compose.yml`;
+}
+
 /** Filter a set of repo paths down to the ones that belong to a stack, for deletion. */
 export function stackFiles(existingPaths: Iterable<string>, stackName: string): string[] {
   const prefix = stackDirPrefix(stackName);

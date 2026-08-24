@@ -9,6 +9,7 @@ const mockScanDrift = mock(() => Promise.resolve({
   summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
   scanErrors: [],
 }));
+const mockResolveDrift = mock(() => Promise.resolve({}));
 
 let mockListContext = {
   stacks: [] as { host: string; name: string }[],
@@ -29,6 +30,7 @@ mock.module('@tanstack/react-router', () => ({
 mock.module('@/data/stacks/functions', () => ({
   createStack: mockCreateStack,
   scanDrift: mockScanDrift,
+  resolveDrift: mockResolveDrift,
 }));
 
 let mockCanWrite = true;
