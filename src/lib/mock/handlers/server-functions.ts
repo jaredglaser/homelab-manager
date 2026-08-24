@@ -69,6 +69,7 @@ const registry: Record<string, ServerFnMock> = {
   resumeDeploy: fn(stacksFns.resumeDeploy),
   rejectDeploy: fn(stacksFns.rejectDeploy),
   scanDrift: fn(stacksFns.scanDrift),
+  resolveDrift: fn(stacksFns.resolveDrift),
   getDeployHistory: fn(stacksFns.getDeployHistory),
   saveComposeFile: fn(stacksFns.saveComposeFile),
   getStackVariableValues: fn(stacksFns.getStackVariableValues),
