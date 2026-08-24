@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
     tags:
       - 'v*.*.*'
   # No branches filter: a mid-stack PR targets its parent PR's branch, not main, and a
@@ -397,9 +397,10 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
             type=sha,prefix=,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Extract metadata for worker image
         id: meta-worker
@@ -409,9 +410,10 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
             type=sha,prefix=,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Extract metadata for agent image
         id: meta-agent
@@ -421,9 +423,10 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
             type=sha,prefix=,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Extract metadata for agent-updater image
         id: meta-agent-updater
@@ -433,9 +436,26 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
             type=sha,prefix=,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Resolve the agent channel for the web image
+        id: agent-channel
+        env:
+          AGENT_VERSION: ${{ steps.meta-agent.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            TAG=main
+          else
+            case "$AGENT_VERSION" in
+              *-*) TAG="$AGENT_VERSION" ;;
+              0.*) TAG="${AGENT_VERSION%.*}" ;;
+              *)   TAG="${AGENT_VERSION%%.*}" ;;
+            esac
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build and push web image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -444,11 +464,11 @@ jobs:
           target: production
           push: true
           # A release must enroll agents from its own release: the updater tracks a mutable
-          # tag, so a v1.2.3 dashboard pinning :latest lets its agents roll forward past it.
-          # Taken from meta-agent rather than github.ref_name, which would pin v1.2.3 while
-          # type=semver,pattern={{version}} publishes the agent as 1.2.3.
+          # tag, so a release dashboard pinning :latest lets its agents roll forward past it.
+          # The pin is the minor line while pre-1.0, because a 0.x minor may break the agent
+          # protocol, and widens to the major line at 1.0.0 with no edit here.
           build-args: |
-            VITE_AGENT_IMAGE_TAG=${{ startsWith(github.ref, 'refs/tags/v') && steps.meta-agent.outputs.version || (github.ref == 'refs/heads/dev' && 'dev' || 'latest') }}
+            VITE_AGENT_IMAGE_TAG=${{ steps.agent-channel.outputs.tag }}
           tags: ${{ steps.meta-web.outputs.tags }}
           labels: ${{ steps.meta-web.outputs.labels }}
           cache-from: type=gha
