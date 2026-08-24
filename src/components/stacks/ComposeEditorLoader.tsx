@@ -11,7 +11,7 @@ export default function ComposeEditorLoader(props: Readonly<ComposeEditorLoaderP
   return (
     <Suspense
       fallback={
-        <div className="p-8 mb-4 bg-chart-bg rounded-sm flex items-center justify-center gap-3">
+        <div className="p-8 flex-1 min-h-0 bg-chart-bg rounded-sm flex items-center justify-center gap-3">
           <Spinner className="size-5" />
           <p className="text-sm opacity-60">
             Loading editor...

@@ -68,9 +68,9 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
     && document.documentElement.dataset.colorScheme === 'dark';
 
   return (
-    <div className="mb-4 bg-chart-bg rounded-sm overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 bg-chart-bg rounded-sm overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-3 py-2 border-b border-(--border)">
+      <div className="flex shrink-0 items-center gap-3 px-3 py-2 border-b border-(--border)">
         <p className="text-sm font-medium flex-1">
           docker-compose.yml
         </p>
@@ -91,9 +91,9 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
       </div>
 
       {/* Editor */}
-      <div className="min-h-[400px]">
+      <div className="flex-1 min-h-0">
         {monacoLoadFailed ? (
-          <div className="flex items-center justify-center h-[400px]">
+          <div className="flex items-center justify-center h-full">
             <p className="text-sm opacity-50">
               Failed to load editor. Please refresh the page.
             </p>
@@ -104,7 +104,7 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
             name="compose"
             render={({ field }) => (
               <Editor
-                height="400px"
+                height="100%"
                 language="yaml"
                 theme={isDark ? 'vs-dark' : 'light'}
                 value={field.value}
@@ -131,7 +131,7 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
             )}
           />
         ) : (
-          <div className="flex items-center justify-center h-[400px]">
+          <div className="flex items-center justify-center h-full">
             <Spinner className="size-6" />
           </div>
         )}

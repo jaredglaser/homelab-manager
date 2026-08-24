@@ -362,9 +362,9 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
           </Tabs>
         </div>
 
-        {/* Tab content, scrollable */}
-        <div className="flex-1 overflow-y-auto themed-scrollbar">
-          <div className="flex flex-col gap-4 py-4">
+        {/* Tab content: compose fills the remaining height, other panels scroll */}
+        <div className={panel === 'compose' ? 'flex-1 min-h-0 flex flex-col' : 'flex-1 min-h-0 overflow-y-auto themed-scrollbar'}>
+          <div className={panel === 'compose' ? 'flex flex-col flex-1 min-h-0 gap-4 py-4' : 'flex flex-col gap-4 py-4'}>
             {panel === 'compose' && (
               <ComposeEditorLoader stackName={stackName} />
             )}
