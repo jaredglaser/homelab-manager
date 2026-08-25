@@ -5,7 +5,6 @@ import {
   COUNTER_BUCKET_SAMPLES,
   COUNTER_GUEST,
   DOCKER_HOST,
-  DROPPED_TABLES,
   EXPECTED_HYPERTABLES,
   EXPECTED_TABLES,
   IDLE_CONTAINER,
@@ -104,10 +103,7 @@ export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
     `SELECT table_name FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`
   );
-  checks.containsAll('expected tables exist', tables, EXPECTED_TABLES);
-  for (const dropped of DROPPED_TABLES) {
-    checks.equal(`table ${dropped} was dropped`, tables.includes(dropped), false);
-  }
+  checks.sameSet('public tables match the expected set exactly', tables, EXPECTED_TABLES);
 
   const hypertables = await selectColumn<string>(
     pool,

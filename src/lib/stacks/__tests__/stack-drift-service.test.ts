@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import type { DeployRecord } from '@/lib/deploy/types';
-import { buildStackDriftReport, getStackDriftKindLabel } from '@/lib/stacks/stack-drift-service';
+import {
+  buildStackDriftReport,
+  getAllowedStackDriftResolutions,
+  getStackDriftKindLabel,
+  getStackDriftResolutionLabel,
+  isDestructiveStackDriftResolution,
+} from '@/lib/stacks/stack-drift-service';
 
 const HEAD_SHA = 'sha-head';
 
@@ -331,5 +337,38 @@ describe('getStackDriftKindLabel', () => {
     expect(getStackDriftKindLabel('ghost')).toBe('Ghost');
     expect(getStackDriftKindLabel('untracked')).toBe('Untracked');
     expect(getStackDriftKindLabel('content')).toBe('Content Drift');
+  });
+});
+
+describe('getAllowedStackDriftResolutions', () => {
+  it('offers both sides for a stack the repo and the host both know about', () => {
+    expect(getAllowedStackDriftResolutions('ghost')).toEqual(['trust_repo', 'trust_agent']);
+    expect(getAllowedStackDriftResolutions('content')).toEqual(['trust_repo', 'trust_agent']);
+  });
+
+  it('offers adopt or remove for a stack the repo does not track', () => {
+    expect(getAllowedStackDriftResolutions('untracked')).toEqual(['trust_agent', 'remove']);
+  });
+
+  it('labels every offered resolution', () => {
+    for (const kind of ['ghost', 'untracked', 'content'] as const) {
+      for (const resolution of getAllowedStackDriftResolutions(kind)) {
+        expect(getStackDriftResolutionLabel(kind, resolution)).toBeString();
+      }
+    }
+  });
+});
+
+describe('isDestructiveStackDriftResolution', () => {
+  it('treats deploying to an empty host and adopting an untracked stack as additive', () => {
+    expect(isDestructiveStackDriftResolution('ghost', 'trust_repo')).toBe(false);
+    expect(isDestructiveStackDriftResolution('untracked', 'trust_agent')).toBe(false);
+  });
+
+  it('treats everything that discards a version as destructive', () => {
+    expect(isDestructiveStackDriftResolution('ghost', 'trust_agent')).toBe(true);
+    expect(isDestructiveStackDriftResolution('untracked', 'remove')).toBe(true);
+    expect(isDestructiveStackDriftResolution('content', 'trust_repo')).toBe(true);
+    expect(isDestructiveStackDriftResolution('content', 'trust_agent')).toBe(true);
   });
 });

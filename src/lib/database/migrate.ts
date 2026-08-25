@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 // Get the root directory of the project (3 levels up from this file)
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(currentDir, '..', '..', '..');
-const migrationsDir = join(projectRoot, 'migrations');
+export const MIGRATIONS_DIR = join(projectRoot, 'migrations');
 
 /**
  * Advisory lock key ("hlm1" in ASCII) that serializes runMigrations. Web and
@@ -47,7 +47,7 @@ async function applyPendingMigrations(client: PoolClient): Promise<void> {
   `);
 
   // Get list of migration files from migrations directory
-  const migrationFiles = readdirSync(migrationsDir)
+  const migrationFiles = readdirSync(MIGRATIONS_DIR)
     .filter(file => file.endsWith('.sql'))
     .sort(); // Ensure migrations run in order
 
@@ -67,7 +67,7 @@ async function applyPendingMigrations(client: PoolClient): Promise<void> {
 
     // Run migration in a transaction
     console.log(`[Migrations] Running ${migrationFile}...`);
-    const migrationPath = join(migrationsDir, migrationFile);
+    const migrationPath = join(MIGRATIONS_DIR, migrationFile);
     const sql = readFileSync(migrationPath, 'utf-8');
 
     try {

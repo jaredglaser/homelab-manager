@@ -1,4 +1,5 @@
 import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { StackDriftResolutionResult } from '@/types/stacks';
 import type { ToastSeverity } from '@/hooks/toastAtom';
 
 export interface DeployOutcomeEvent {
@@ -69,6 +70,35 @@ export function formatDeployOutcome(evt: DeployOutcomeEvent): DeployOutcomeToast
 
   const detail = evt.message ? `: ${truncateDeployMessage(evt.message)}` : '';
   return { message: `${base} failed${detail}`, severity: 'error' };
+}
+
+/**
+ * A resolution that ran a deploy reports that deploy's outcome, because the
+ * deploy can fail after the destructive step has already overwritten or torn
+ * down the host's copy.
+ */
+export function formatDriftResolutionOutcome(
+  target: string,
+  result: Pick<StackDriftResolutionResult, 'recoveryCommitSha' | 'deployStatus'>,
+): DeployOutcomeToast {
+  const archived = result.recoveryCommitSha
+    ? ` Host copy archived in ${result.recoveryCommitSha.slice(0, 7)}.`
+    : '';
+
+  if (!result.deployStatus) {
+    return { message: `Resolved drift for ${target}.${archived}`, severity: 'success' };
+  }
+
+  const outcome = formatDeployOutcome({
+    stack: target,
+    action: 'deploy',
+    status: result.deployStatus,
+    trigger: 'ui',
+  });
+  if (!outcome) {
+    return { message: `Drift resolution for ${target} is still deploying.${archived}`, severity: 'info' };
+  }
+  return { message: `${outcome.message}.${archived}`, severity: outcome.severity };
 }
 
 export interface DeployToastGate {
