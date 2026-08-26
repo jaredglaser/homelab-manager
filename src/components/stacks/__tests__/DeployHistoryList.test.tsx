@@ -471,4 +471,68 @@ describe('DeployHistoryList', () => {
     });
   });
 
+  describe('narrow-viewport layout', () => {
+    const awaitingApproval: StackDeployRecord = {
+      id: 78,
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha: 'pending98765',
+      envHash: 'envhash',
+      status: 'pending',
+      trigger: 'git_push',
+      action: 'deploy',
+      forceRecreate: false,
+      logs: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    it('wraps the row instead of pushing the actions off-screen', () => {
+      render(
+        <DeployHistoryList records={mockRecords} isLoading={false} stackName="plex" host="homeserver" />,
+        { wrapper: createWrapper() },
+      );
+      const row = screen.getByText('Rollback').closest('.flex-wrap');
+      expect(row).not.toBeNull();
+      expect(row?.textContent).toContain('a1b2c3d');
+    });
+
+    it('groups the row actions so they stay right-aligned on their own line', () => {
+      render(
+        <DeployHistoryList records={mockRecords} isLoading={false} stackName="plex" host="homeserver" />,
+        { wrapper: createWrapper() },
+      );
+      const group = screen.getByText('Rollback').closest('button')?.parentElement;
+      expect(group?.className).toContain('ml-auto');
+    });
+
+    it('gives the row actions a touch height below lg', () => {
+      const onApprove = mock(() => {});
+      const onReject = mock(() => {});
+      render(
+        <DeployHistoryList
+          records={[awaitingApproval]}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+          onApprove={onApprove}
+          onReject={onReject}
+        />,
+        { wrapper: createWrapper() },
+      );
+      for (const label of ['Approve', 'Reject']) {
+        const button = screen.getByText(label).closest('button');
+        expect(button?.className).toContain('h-11');
+        expect(button?.className).toContain('lg:h-6');
+      }
+    });
+
+    it('renders no action group at all when a row has neither approval nor rollback', () => {
+      render(<DeployHistoryList records={[mockRecords[1]]} isLoading={false} />, {
+        wrapper: createWrapper(),
+      });
+      expect(screen.queryByText('Rollback')).toBeNull();
+      expect(screen.queryByText('Approve')).toBeNull();
+    });
+  });
+
 });

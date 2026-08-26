@@ -15,6 +15,7 @@ import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ShellSelect from '@/components/docker/ShellSelect';
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 
 interface StackContainersPanelProps {
   containers: StackContainer[];
@@ -37,6 +38,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
   const [modalState, setModalState] = useState<{ container: StackContainer; view: ModalView } | null>(null);
   const [activeKey, setActiveKey] = useState<ActiveKey | null>(null);
   const [recreateConfirmOpen, setRecreateConfirmOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   const controlMutation = useMutation({
     mutationFn: ({ action, target }: { action: ControlAction; target: ControlTarget }) => {
@@ -66,11 +68,12 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
 
   return (
     <div className="flex flex-col gap-4 py-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs opacity-50 mr-1">Stack</span>
         <Button
           size="sm"
           variant="outline"
+          className={STACK_CONTROL_CLASS}
           disabled={controlMutation.isPending || isDeploying || containers.length === 0}
           onClick={() => trigger('start', { scope: 'stack' })}
           aria-label="Start"
@@ -81,6 +84,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         <Button
           size="sm"
           variant="outline"
+          className={STACK_CONTROL_CLASS}
           disabled={controlMutation.isPending || isDeploying || containers.length === 0}
           onClick={() => trigger('stop', { scope: 'stack' })}
           aria-label="Stop"
@@ -91,6 +95,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         <Button
           size="sm"
           variant="outline"
+          className={STACK_CONTROL_CLASS}
           disabled={controlMutation.isPending || isDeploying || containers.length === 0}
           onClick={() => trigger('restart', { scope: 'stack' })}
           aria-label="Restart"
@@ -101,6 +106,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         <Button
           size="sm"
           variant="outline"
+          className={STACK_CONTROL_CLASS}
           disabled={controlMutation.isPending || isDeploying}
           onClick={() => setRecreateConfirmOpen(true)}
           aria-label="Recreate"
@@ -119,7 +125,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           {containers.map((container) => (
             <div
               key={container.id}
-              className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-(--accent) group"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 px-2 rounded hover:bg-(--accent) group"
             >
               <span
                 className={`w-2 h-2 rounded-full flex-shrink-0 ${container.status === 'running' ? 'bg-green-500' : 'bg-red-500'}`}
@@ -145,16 +151,16 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
       )}
 
       <Dialog open={modalState !== null} onOpenChange={(o) => { if (!o) setModalState(null); }}>
-        <DialogContent className="w-[calc(100%-64px)] max-w-[1200px] h-[70vh] flex flex-col min-h-0 p-2">
+        <DialogContent className="w-[calc(100%-16px)] max-w-[1200px] max-h-none h-[calc(100dvh-16px)] lg:w-[calc(100%-64px)] lg:max-h-[calc(100%-64px)] lg:h-[70vh] flex flex-col min-h-0 p-2">
           <DialogTitle className="flex items-center justify-between px-1 py-2 text-sm font-medium">
-            <span>{modalState?.container.name}</span>
-            <Button variant="ghost" size="icon-sm" onClick={() => setModalState(null)} aria-label="Close">
+            <span className="truncate">{modalState?.container.name}</span>
+            <Button variant="ghost" size="icon-sm" className="size-11 shrink-0 lg:size-8" onClick={() => setModalState(null)} aria-label="Close">
               <X size={16} />
             </Button>
           </DialogTitle>
           <div className="flex flex-col min-h-0 flex-1">
             {modalState?.view === 'logs' && (
-              <ContainerLogViewer containerId={modalState.container.id} host={host} wordWrap={false} />
+              <ContainerLogViewer containerId={modalState.container.id} host={host} wordWrap={isMobile} />
             )}
             {modalState?.view === 'terminal' && (
               <TerminalDialogContent container={modalState.container} host={host} />
@@ -186,6 +192,9 @@ const ACTION_PAST: Record<ControlAction, string> = {
 };
 
 const MAX_VISIBLE_PORT_CHIPS = 4;
+
+const STACK_CONTROL_CLASS = 'h-11 lg:h-8';
+const SERVICE_CONTROL_CLASS = 'size-11 lg:size-8';
 
 function portKey(port: ContainerPort, idx: number): string {
   return `${port.containerPort}/${port.protocol}/${port.hostIp ?? ''}/${port.hostPort ?? ''}/${idx}`;
@@ -282,13 +291,14 @@ function ServiceControls({
 }) {
   return (
     <TooltipProvider>
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="ml-auto flex items-center gap-1 lg:gap-0.5">
         <Tooltip>
           <TooltipTrigger
             render={
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className={SERVICE_CONTROL_CLASS}
                 disabled={isPending}
                 onClick={() => trigger('start', { scope: 'service', service })}
                 aria-label={`Start ${service}`}
@@ -305,6 +315,7 @@ function ServiceControls({
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className={SERVICE_CONTROL_CLASS}
                 disabled={isPending}
                 onClick={() => trigger('stop', { scope: 'service', service })}
                 aria-label={`Stop ${service}`}
@@ -321,6 +332,7 @@ function ServiceControls({
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className={SERVICE_CONTROL_CLASS}
                 disabled={isPending}
                 onClick={() => trigger('restart', { scope: 'service', service })}
                 aria-label={`Restart ${service}`}
@@ -333,7 +345,7 @@ function ServiceControls({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger
-            render={<Button variant="ghost" size="icon-sm" onClick={onOpenLogs} aria-label="Logs" />}
+            render={<Button variant="ghost" size="icon-sm" className={SERVICE_CONTROL_CLASS} onClick={onOpenLogs} aria-label="Logs" />}
           >
             <ScrollText size={13} />
           </TooltipTrigger>
@@ -341,7 +353,7 @@ function ServiceControls({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger
-            render={<Button variant="ghost" size="icon-sm" onClick={onOpenTerminal} aria-label="Terminal" />}
+            render={<Button variant="ghost" size="icon-sm" className={SERVICE_CONTROL_CLASS} onClick={onOpenTerminal} aria-label="Terminal" />}
           >
             <Terminal size={13} />
           </TooltipTrigger>
@@ -354,6 +366,7 @@ function ServiceControls({
 
 function TerminalDialogContent({ container, host }: { container: StackContainer; host: string }) {
   const { getContainerShell, setContainerShell } = useDockerSettings();
+  const isMobile = useIsMobile();
   const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
   const shellKey = `${host}/${container.name}`;
   const savedShell = getContainerShell(shellKey);
@@ -383,7 +396,7 @@ function TerminalDialogContent({ container, host }: { container: StackContainer;
           host={host}
           shell={effectiveShell}
           frozen={frozen}
-          wordWrap={false}
+          wordWrap={isMobile}
           onShellResolved={handleShellResolved}
         />
       </div>

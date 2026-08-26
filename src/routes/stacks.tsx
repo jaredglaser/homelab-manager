@@ -60,7 +60,7 @@ function StacksLayout() {
   return (
     <StackListContext value={{ stacks: stacks ?? [], hosts: hosts ?? [], isLoading }}>
       <StackStatusContext value={{ statusMap, deployVersion }}>
-        <div className="flex-1 min-h-0 flex flex-col p-6">
+        <div className="flex-1 min-h-0 flex flex-col p-3 lg:p-6">
           <Outlet />
         </div>
       </StackStatusContext>

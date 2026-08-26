@@ -410,4 +410,26 @@ describe('StackContainersPanel', () => {
     renderPanel();
     expect(screen.queryByLabelText(/mounts/i)).toBeNull();
   });
+
+  it('lets the stack control row wrap and gives each button a touch height below lg', () => {
+    renderPanel();
+    const startButton = screen.getByRole('button', { name: 'Start' });
+    expect(startButton.parentElement?.className).toContain('flex-wrap');
+    expect(startButton.className).toContain('h-11');
+    expect(startButton.className).toContain('lg:h-8');
+  });
+
+  it('lets a container row wrap its actions onto a second line', () => {
+    renderPanel();
+    const row = screen.getByRole('button', { name: 'Start web' }).closest('.flex-wrap');
+    expect(row).not.toBeNull();
+    expect(row?.textContent).toContain('plex-web-1');
+  });
+
+  it('sizes the per-service icon buttons for touch below lg', () => {
+    renderPanel();
+    const serviceStart = screen.getByRole('button', { name: 'Start web' });
+    expect(serviceStart.className).toContain('size-11');
+    expect(serviceStart.className).toContain('lg:size-8');
+  });
 });
