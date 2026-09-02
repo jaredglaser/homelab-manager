@@ -174,7 +174,7 @@ export class DeployPipeline {
       if (request.trigger === 'git_push') {
         return this.queueBlockedPush(request, insertParams, queuedAt);
       }
-      return { status: 'failed', logs: `Stack "${request.stack}" already has an active deploy` };
+      return { status: 'failed', logs: await this.describeActiveDeploy(request.stack, request.host) };
     }
 
     // Deduplicate older pending deploys for this stack+host
@@ -202,6 +202,7 @@ export class DeployPipeline {
       }
       return { status: 'failed', logs: errorMsg, deployId };
     }
+    await this.notifyInProgress(request, deployId);
 
     // 7. Dispatch to agent
     return this.dispatch(host, request, resolvedEnvContent, deployId);
@@ -216,6 +217,7 @@ export class DeployPipeline {
     if (!claimed) {
       return { status: 'failed', logs: `Deploy ${deployId} is not in pending state or was already approved`, deployId };
     }
+    await this.notifyInProgress(request, deployId);
 
     let resolvedEnvContent: string;
     try {
@@ -244,6 +246,34 @@ export class DeployPipeline {
     }
 
     return this.dispatch(host, request, resolvedEnvContent, deployId);
+  }
+
+  // The agent call can hold the triggering request for up to 16 minutes; a client
+  // that reloads in that window only learns the deploy is running from this frame.
+  private async notifyInProgress(request: DeployRequest, deployId: number): Promise<void> {
+    try {
+      await this.deployRepo.notifyStackChange(request.stack, request.host, {
+        deployId,
+        status: 'in_progress',
+        action: request.action,
+        trigger: request.trigger,
+      });
+    } catch (err) {
+      console.error(`Failed to notify deploy ${deployId} start for "${request.stack}" on "${request.host}":`, err);
+    }
+  }
+
+  private async describeActiveDeploy(stack: string, host: string): Promise<string> {
+    const active = await this.deployRepo.getActiveDeploy(stack, host).catch((err: unknown) => {
+      console.error(`[Pipeline] Failed to look up the active deploy for "${stack}" on "${host}":`, err);
+      return null;
+    });
+    if (!active) return `Stack "${stack}" already has an active deploy`;
+    const noun = ACTIVE_DEPLOY_NOUNS[active.action];
+    if (active.status === 'pending') {
+      return `Stack "${stack}" has ${noun} (#${active.id}) awaiting approval. Approve or reject it in the Deploys tab first.`;
+    }
+    return `Stack "${stack}" already has ${noun} (#${active.id}) in progress, running for ${formatElapsed(active.createdAt)}. Wait for it to finish before starting another.`;
   }
 
   private async queueBlockedPush(
@@ -497,6 +527,18 @@ export class DeployPipeline {
 
     return { status: finalStatus, logs: result.logs, deployId };
   }
+}
+
+const ACTIVE_DEPLOY_NOUNS: Record<DeployRequest['action'], string> = {
+  deploy: 'a deploy',
+  update: 'an image update',
+  teardown: 'a teardown',
+};
+
+function formatElapsed(since: Date): string {
+  const seconds = Math.max(0, Math.round((Date.now() - since.getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m`;
 }
 
 /**

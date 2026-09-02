@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test';
 import { DeployPipeline, type StackRepoWriter } from '../pipeline';
 import type { DeployRecord, DeployRequest, ManagedHost, SecretResolver } from '@/lib/deploy/types';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
@@ -36,6 +36,7 @@ function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): Deploy
     getById: mock().mockResolvedValue(defaultPendingRecord),
     getLatestSuccessful: mock().mockResolvedValue(null),
     hasActiveDeployForStack: mock().mockResolvedValue(false),
+    getActiveDeploy: mock().mockResolvedValue(null),
     deduplicatePending: mock().mockResolvedValue(undefined),
     enqueueDeploy: mock().mockResolvedValue(true),
     dequeueDeploy: mock().mockResolvedValue(null),
@@ -428,6 +429,83 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('failed');
       expect(result.logs).toContain('active deploy');
       expect(deployRepo.enqueueDeploy).not.toHaveBeenCalled();
+    });
+
+    it('names the in-progress deploy that blocks a UI trigger', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        getActiveDeploy: mock().mockResolvedValue({
+          ...defaultPendingRecord,
+          id: 42,
+          status: 'in_progress',
+          action: 'update',
+          createdAt: new Date(Date.now() - 3 * 60_000),
+        }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute({ ...testRequest, trigger: 'ui' });
+      expect(result.status).toBe('failed');
+      expect(result.deployId).toBeUndefined();
+      expect(result.logs).toBe(
+        'Stack "plex" already has an image update (#42) in progress, running for 3m. Wait for it to finish before starting another.',
+      );
+    });
+
+    it('points a blocked UI trigger at the Deploys tab when the active row awaits approval', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        getActiveDeploy: mock().mockResolvedValue({ ...defaultPendingRecord, id: 7, status: 'pending' }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute({ ...testRequest, trigger: 'ui' });
+      expect(result.logs).toBe(
+        'Stack "plex" has a deploy (#7) awaiting approval. Approve or reject it in the Deploys tab first.',
+      );
+    });
+
+    it('falls back to the generic conflict message when the active row cannot be read', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        getActiveDeploy: mock().mockRejectedValue(new Error('db down')) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute({ ...testRequest, trigger: 'ui' });
+      expect(result.logs).toBe('Stack "plex" already has an active deploy');
+      errorSpy.mockRestore();
+    });
+
+    it('broadcasts the in_progress transition before dispatching', async () => {
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('succeeded');
+      const statuses = (deployRepo.notifyStackChange as ReturnType<typeof mock>).mock.calls.map(
+        (call) => (call as [string, string, { status: string }])[2].status,
+      );
+      expect(statuses).toEqual(['in_progress', 'succeeded']);
     });
 
     it('returns failed when queueing a blocked git push fails', async () => {
@@ -1313,6 +1391,12 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('succeeded');
       expect(deployRepo.claimPending).toHaveBeenCalledWith(42);
       expect(agentClientFactory).toHaveBeenCalled();
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 42,
+        status: 'in_progress',
+        action: 'deploy',
+        trigger: 'git_push',
+      });
     });
 
     it('rejects resume when claimPending returns false (already claimed or not found)', async () => {

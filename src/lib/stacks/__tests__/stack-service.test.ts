@@ -194,7 +194,7 @@ describe('handleTriggerDeploy', () => {
     });
     await expect(
       handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' })
-    ).rejects.toThrow(/Deploy could not be queued/);
+    ).rejects.toThrow(/Deploy could not be started: no active host/);
   });
 
   test('passes compose content and commit SHA to buildRequest', async () => {

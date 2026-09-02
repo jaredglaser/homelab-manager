@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFormContext } from 'react-hook-form';
-import type { StackDetail, DeployStatus } from '@/types/stacks';
+import type { StackDetail, StackDeployRecord, DeployStatus } from '@/types/stacks';
 
 // Router hooks are the only things StackEditorForm needs from the router; stub
 // them so we can drive the blocker state and observe navigation.
@@ -56,21 +56,23 @@ mock.module('@/components/stacks/DeployHistoryList', () => ({
   ),
 }));
 mock.module('@/components/stacks/StackContainersPanel', () => ({
-  default: ({ onRecreate }: { onRecreate: () => void }) => (
+  default: ({ onRecreate, isDeploying }: { onRecreate: () => void; isDeploying: boolean }) => (
     <div>
       containers-panel
       <button onClick={onRecreate}>containers-recreate</button>
+      <span data-testid="containers-is-deploying">{String(isDeploying)}</span>
     </div>
   ),
 }));
 mock.module('@/components/stacks/StackActionBar', () => ({
-  default: ({ onDeploy, onUpdate, onTeardown, onDelete, isDeploying }: { onDeploy: () => void; onUpdate: () => void; onTeardown: () => void; onDelete: () => void; isDeploying: boolean }) => (
+  default: ({ onDeploy, onUpdate, onTeardown, onDelete, isDeploying, activeDeploy }: { onDeploy: () => void; onUpdate: () => void; onTeardown: () => void; onDelete: () => void; isDeploying: boolean; activeDeploy: { status: string; action: string } | null }) => (
     <div>
       <button onClick={onDeploy}>action-deploy</button>
       <button onClick={onUpdate}>action-update</button>
       <button onClick={onTeardown}>action-teardown</button>
       <button onClick={onDelete}>action-delete</button>
       <span data-testid="is-deploying">{String(isDeploying)}</span>
+      <span data-testid="active-deploy">{activeDeploy ? `${activeDeploy.status}:${activeDeploy.action}` : 'none'}</span>
     </div>
   ),
 }));
@@ -99,10 +101,11 @@ const mockScanDrift = mock(() => Promise.resolve({
   summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
   scanErrors: [],
 }));
+const mockGetDeployHistory = mock((_args: unknown): Promise<StackDeployRecord[]> => Promise.resolve([]));
 const realFns = await import('@/data/stacks/functions');
 mock.module('@/data/stacks/functions', () => ({
   ...realFns,
-  getDeployHistory: mock(() => Promise.resolve([])),
+  getDeployHistory: mockGetDeployHistory,
   listManagedHostNames: mock(() => Promise.resolve([])),
   triggerDeploy: mockTriggerDeploy,
   deleteStack: mockDeleteStack,
@@ -158,6 +161,53 @@ describe('StackEditorForm', () => {
     blockerReturn = { status: 'idle', proceed: proceedSpy, reset: resetSpy };
     mockCanWrite = true;
     mockScanDrift.mockClear();
+    mockGetDeployHistory.mockClear();
+    mockGetDeployHistory.mockImplementation(() => Promise.resolve([]));
+  });
+
+  function deployRecord(overrides: Partial<StackDeployRecord>): StackDeployRecord {
+    return {
+      id: 7,
+      stack: 'web',
+      host: 'host1',
+      commitSha: 'abc',
+      envHash: '',
+      status: 'succeeded',
+      trigger: 'ui',
+      action: 'deploy',
+      forceRecreate: false,
+      logs: null,
+      createdAt: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
+  it('blocks the actions while the history holds an active row for this host', async () => {
+    mockGetDeployHistory.mockImplementation(() => Promise.resolve([
+      deployRecord({ id: 9, status: 'in_progress', action: 'update' }),
+      deployRecord({ id: 8, status: 'succeeded' }),
+    ]));
+    await renderForm();
+    await waitFor(() => expect(screen.getByTestId('active-deploy').textContent).toBe('in_progress:update'));
+    expect(screen.getByTestId('is-deploying').textContent).toBe('false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'action-update' }));
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Containers' }));
+    await waitFor(() => expect(screen.getByTestId('containers-is-deploying').textContent).toBe('true'));
+  });
+
+  it('ignores active rows that belong to another host', async () => {
+    mockGetDeployHistory.mockImplementation(() => Promise.resolve([
+      deployRecord({ id: 9, status: 'in_progress', host: 'host2' }),
+    ]));
+    await renderForm();
+    await waitFor(() => expect(mockGetDeployHistory).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('active-deploy').textContent).toBe('none'));
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    expect(mockTriggerDeploy).toHaveBeenCalledTimes(1);
   });
 
   it('does not scan for drift without deploy permission', async () => {

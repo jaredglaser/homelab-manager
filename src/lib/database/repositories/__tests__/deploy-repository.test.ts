@@ -178,6 +178,33 @@ describe('DeployRepository', () => {
     });
   });
 
+  describe('getActiveDeploy', () => {
+    it('returns null when no pending or in_progress row exists', async () => {
+      mock.pushResult([]);
+      expect(await repo.getActiveDeploy('plex', 'homeserver')).toBeNull();
+      expect(mock.queries[0].sql).toContain("status IN ('pending', 'in_progress')");
+      expect(mock.queries[0].params).toEqual(['plex', 'homeserver']);
+    });
+
+    it('returns the active row as a DeployRecord', async () => {
+      mock.pushResult([{
+        id: '12',
+        stack: 'plex',
+        host: 'homeserver',
+        commit_sha: 'abc123',
+        compose_hash: 'hash1',
+        env_hash: 'hash2',
+        status: 'in_progress',
+        trigger: 'ui',
+        action: 'update',
+        logs: null,
+        created_at: new Date('2026-01-01T00:00:00Z'),
+      }]);
+      const result = await repo.getActiveDeploy('plex', 'homeserver');
+      expect(result).toMatchObject({ id: 12, status: 'in_progress', action: 'update', trigger: 'ui' });
+    });
+  });
+
   describe('insertDeployIfNoActive', () => {
     const insertParams = {
       stack: 'plex',

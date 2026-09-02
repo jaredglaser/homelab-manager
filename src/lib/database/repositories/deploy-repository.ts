@@ -151,6 +151,18 @@ export class DeployRepository {
     return Number(result.rows[0].count) > 0;
   }
 
+  async getActiveDeploy(stack: string, host: string): Promise<DeployRecord | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM deploy_history
+       WHERE stack = $1 AND host = $2 AND status IN ('pending', 'in_progress')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [stack, host]
+    );
+    if (result.rows.length === 0) return null;
+    return toDeployRecord(result.rows[0]);
+  }
+
   async getDeployHistory(stack: string, host: string, limit: number): Promise<DeployRecord[]> {
     const result = await this.pool.query(
       `SELECT * FROM deploy_history
