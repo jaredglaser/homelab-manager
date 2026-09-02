@@ -384,6 +384,7 @@ function toDeployRecord(row: Record<string, unknown>): DeployRecord {
     forceRecreate: row.force_recreate === true,
     logs: (row.logs as string) ?? null,
     createdAt: row.created_at as Date,
+    startedAt: (row.started_at as Date | null) ?? null,
     postSuccess: (row.post_success as DeployRecord['postSuccess']) ?? null,
   };
 }

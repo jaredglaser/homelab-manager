@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFormContext } from 'react-hook-form';
 import type { StackDetail, StackDeployRecord, DeployStatus } from '@/types/stacks';
+import { DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys';
 
 // Router hooks are the only things StackEditorForm needs from the router; stub
 // them so we can drive the blocker state and observe navigation.
@@ -138,7 +139,7 @@ async function renderForm() {
     </QueryClientProvider>
   );
   const result = render(ui(detail));
-  return { ...result, rerenderWith: (d: StackDetail) => result.rerender(ui(d)) };
+  return { ...result, queryClient, rerenderWith: (d: StackDetail) => result.rerender(ui(d)) };
 }
 
 describe('StackEditorForm', () => {
@@ -380,6 +381,24 @@ describe('StackEditorForm', () => {
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Update anyway' })); });
     await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+  });
+
+  it('drops a confirmed update when a deploy became active while the warning was open', async () => {
+    const { queryClient } = await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'action-update' }));
+    expect(screen.getByRole('heading', { name: 'Update images with unsaved changes?' })).toBeDefined();
+
+    act(() => {
+      queryClient.setQueryData([...DEPLOY_HISTORY_QUERY_KEY, 'web'], [deployRecord({ id: 9, status: 'in_progress' })]);
+    });
+    await waitFor(() => expect(screen.getByTestId('active-deploy').textContent).toBe('in_progress:deploy'));
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Update anyway' })); });
+    expect(screen.queryByRole('heading', { name: 'Update images with unsaved changes?' })).toBeNull();
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
   });
 
   it('does not update when the unsaved-changes warning is cancelled', async () => {

@@ -199,9 +199,16 @@ describe('DeployRepository', () => {
         action: 'update',
         logs: null,
         created_at: new Date('2026-01-01T00:00:00Z'),
+        started_at: new Date('2026-01-01T00:05:00Z'),
       }]);
       const result = await repo.getActiveDeploy('plex', 'homeserver');
-      expect(result).toMatchObject({ id: 12, status: 'in_progress', action: 'update', trigger: 'ui' });
+      expect(result).toMatchObject({
+        id: 12,
+        status: 'in_progress',
+        action: 'update',
+        trigger: 'ui',
+        startedAt: new Date('2026-01-01T00:05:00Z'),
+      });
     });
   });
 

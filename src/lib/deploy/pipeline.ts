@@ -273,7 +273,7 @@ export class DeployPipeline {
     if (active.status === 'pending') {
       return `Stack "${stack}" has ${noun} (#${active.id}) awaiting approval. Approve or reject it in the Deploys tab first.`;
     }
-    return `Stack "${stack}" already has ${noun} (#${active.id}) in progress, running for ${formatElapsed(active.createdAt)}. Wait for it to finish before starting another.`;
+    return `Stack "${stack}" already has ${noun} (#${active.id}) in progress, running for ${formatElapsed(active.startedAt ?? active.createdAt)}. Wait for it to finish before starting another.`;
   }
 
   private async queueBlockedPush(

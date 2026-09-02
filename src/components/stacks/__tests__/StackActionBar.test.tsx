@@ -88,7 +88,9 @@ describe('StackActionBar', () => {
   it('points at the Deploys tab when the active row is awaiting approval', () => {
     render(<StackActionBar {...defaultProps} activeDeploy={{ status: 'pending', action: 'deploy' }} />);
     expect(screen.getByRole('status').textContent).toBe('Deploy awaiting approval in the Deploys tab');
-    expect(screen.getByText('Update images').closest('button')?.disabled).toBe(true);
+    for (const label of ['Deploy', 'Update images', 'Teardown', 'Delete Stack']) {
+      expect(screen.getByText(label).closest('button')?.disabled).toBe(true);
+    }
   });
 
   it('renders no status note without an active deploy', () => {

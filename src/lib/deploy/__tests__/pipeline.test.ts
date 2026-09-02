@@ -18,6 +18,7 @@ const defaultPendingRecord = {
   forceRecreate: false,
   logs: null,
   createdAt: new Date(),
+  startedAt: null,
   postSuccess: null,
 };
 
@@ -153,6 +154,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        startedAt: null,
         postSuccess: null,
       };
       // We need the hashes to match -- compute from the same content
@@ -197,6 +199,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        startedAt: null,
         postSuccess: null,
       };
       const { computeHash } = await import('../change-detection');
@@ -236,6 +239,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        startedAt: null,
         postSuccess: null,
       };
       const { computeHash } = await import('../change-detection');
@@ -278,6 +282,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        startedAt: null,
         postSuccess: null,
       };
       const { computeHash } = await import('../change-detection');
@@ -439,7 +444,8 @@ describe('DeployPipeline', () => {
           id: 42,
           status: 'in_progress',
           action: 'update',
-          createdAt: new Date(Date.now() - 3 * 60_000),
+          createdAt: new Date(Date.now() - 10 * 60_000),
+          startedAt: new Date(Date.now() - 3 * 60_000),
         }) as any,
       });
       pipeline = new DeployPipeline({
@@ -457,6 +463,30 @@ describe('DeployPipeline', () => {
       expect(result.logs).toBe(
         'Stack "plex" already has an image update (#42) in progress, running for 3m. Wait for it to finish before starting another.',
       );
+    });
+
+    it('ages a legacy row without started_at from its creation time', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        getActiveDeploy: mock().mockResolvedValue({
+          ...defaultPendingRecord,
+          id: 43,
+          status: 'in_progress',
+          createdAt: new Date(Date.now() - 5 * 60_000),
+          startedAt: null,
+        }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute({ ...testRequest, trigger: 'ui' });
+      expect(result.logs).toContain('a deploy (#43) in progress, running for 5m');
     });
 
     it('points a blocked UI trigger at the Deploys tab when the active row awaits approval', async () => {
@@ -993,6 +1023,7 @@ describe('DeployPipeline', () => {
           forceRecreate: false,
           logs: null,
           createdAt: new Date(),
+          startedAt: null,
           postSuccess: null,
         }) as any,
       });
@@ -1040,6 +1071,7 @@ describe('DeployPipeline', () => {
           forceRecreate: false,
           logs: null,
           createdAt: new Date(),
+          startedAt: null,
           postSuccess: null,
         }) as any,
       });
@@ -1260,6 +1292,7 @@ describe('DeployPipeline', () => {
           forceRecreate: false,
           logs: null,
           createdAt: new Date(),
+          startedAt: null,
           postSuccess: null,
         }) as any,
       });

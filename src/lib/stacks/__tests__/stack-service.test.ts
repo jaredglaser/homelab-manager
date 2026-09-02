@@ -66,6 +66,7 @@ describe('toStackDeployRecord', () => {
     forceRecreate: false,
     logs: 'deploy ok',
     createdAt: new Date('2026-03-01T12:00:00Z'),
+    startedAt: null,
     postSuccess: null,
   };
 
@@ -638,6 +639,7 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
       forceRecreate: false,
       logs: null,
       createdAt: new Date(),
+      startedAt: null,
       postSuccess: null,
     };
 

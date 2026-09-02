@@ -228,7 +228,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   }
 
   function confirmPendingAction() {
-    if (pendingConfirmAction && !deployMutation.isPending) deployMutation.mutate(pendingConfirmAction)
+    if (pendingConfirmAction && !isDeploying) deployMutation.mutate(pendingConfirmAction)
     setPendingConfirmAction(null)
   }
 
