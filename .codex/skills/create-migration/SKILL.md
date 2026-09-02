@@ -9,7 +9,7 @@ Use this when the user wants a new SQL migration in `migrations/`.
 
 Before editing:
 
-1. Read `CLAUDE.md` for project constraints and migration guidance.
+1. Read `AGENTS.md` for project constraints and migration guidance.
 2. Inspect existing files in `migrations/` to verify numeric prefixes are unique, then determine the next zero-padded number. If duplicates exist, report the ordering conflict before creating a new migration.
 3. Read nearby migrations that touch the same table or domain so the new file matches local patterns.
 
