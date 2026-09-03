@@ -91,6 +91,7 @@ function buildSocketProxy(): Record<string, unknown> {
       EVENTS: 1,
       INFO: 1,
       IMAGES: 1,
+      ALLOW_LOGS: 1,
       NETWORKS: 1,
       VOLUMES: 1,
       VERSION: 1,

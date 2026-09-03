@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "dockerode": "5.0.1",
-    "jose": "6.2.8",
+    "jose": "6.2.9",
     "zod": "4.4.3"
   },
   "devDependencies": {
