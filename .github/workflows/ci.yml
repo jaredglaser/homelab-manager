@@ -473,6 +473,8 @@ jobs:
           push: true
           tags: ${{ steps.meta-agent.outputs.tags }}
           labels: ${{ steps.meta-agent.outputs.labels }}
+          build-args: |
+            AGENT_VERSION=${{ steps.meta-agent.outputs.version }}
           cache-from: type=gha,scope=agent
           cache-to: type=gha,mode=max,scope=agent
 
