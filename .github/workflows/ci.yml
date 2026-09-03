@@ -463,10 +463,8 @@ jobs:
           context: .
           target: production
           push: true
-          # A release must enroll agents from its own release: the updater tracks a mutable
-          # tag, so a release dashboard pinning :latest lets its agents roll forward past it.
-          # The pin is the minor line while pre-1.0, because a 0.x minor may break the agent
-          # protocol, and widens to the major line at 1.0.0 with no edit here.
+          # The updater tracks a mutable tag, so a release pins its own agent line: the
+          # minor line pre-1.0 (a 0.x minor may break the protocol), the major line after.
           build-args: |
             VITE_AGENT_IMAGE_TAG=${{ steps.agent-channel.outputs.tag }}
           tags: ${{ steps.meta-web.outputs.tags }}

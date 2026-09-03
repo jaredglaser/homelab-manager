@@ -102,7 +102,7 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 
 | Tag | Built from | Use it for |
 |-----|-----------|-----------|
-| `latest` | the newest release | Normal self-hosting. Moves only when a release is cut. |
+| `latest` | the newest stable release | Normal self-hosting. Prereleases do not advance it, so it stays on the prior stable until the next stable is cut. |
 | `0.1` | the newest `v0.1.x` release | Staying on one minor line and taking its patches automatically. |
 | `0.1.0` | `v0.1.0` | Pinning to an exact release, e.g. to roll back after a bad `latest`. |
 | `main` | every push to `main` | Early access to work that has not been released yet. Expect breakage; run it on a throwaway stack, not your only one. |
