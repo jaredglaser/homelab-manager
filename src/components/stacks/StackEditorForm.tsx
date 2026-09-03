@@ -193,6 +193,8 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
       // terminal frame for this deployId, not from this response. The gate is
       // one claim per deployId, so claiming here would silence that later SSE
       // toast. Claim only when this response itself produces a toast.
+      // 'queued' is unreachable here: only git_push triggers queue, and a
+      // blocked ui/manual_rollback trigger fails immediately instead.
       if (outcome && deployToastGate.shouldToast(data.deployId)) {
         showToast(outcome.message, outcome.severity)
       }
