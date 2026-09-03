@@ -28,6 +28,9 @@ interface PipelineDeps {
   tokenResolver: (host: ManagedHost) => Promise<() => Promise<string>>;
   /** Writes to the stacks git repo for postSuccess hooks. */
   stackRepoWriter: StackRepoWriter;
+  /** Runs the background dispatch for update actions. Defaults to fire-and-forget.
+   *  Tests inject a collector so terminal-state assertions can await completions. */
+  runDetached?: (fn: () => Promise<void>) => void;
 }
 
 /**
@@ -41,6 +44,7 @@ export class DeployPipeline {
   private readonly secretResolver: SecretResolver;
   private readonly tokenResolver: PipelineDeps['tokenResolver'];
   private readonly stackRepoWriter: StackRepoWriter;
+  private readonly runDetached: PipelineDeps['runDetached'];
 
   constructor(deps: PipelineDeps) {
     this.deployRepo = deps.deployRepo;
@@ -49,6 +53,7 @@ export class DeployPipeline {
     this.secretResolver = deps.secretResolver;
     this.tokenResolver = deps.tokenResolver;
     this.stackRepoWriter = deps.stackRepoWriter;
+    this.runDetached = deps.runDetached;
   }
 
   /**
@@ -204,7 +209,15 @@ export class DeployPipeline {
     }
     await this.notifyInProgress(request, deployId);
 
-    // 7. Dispatch to agent
+    // 7. Dispatch to agent. Image updates hold the agent call for up to 16 min
+    // (10-min pull budget + 5-min up). A request held that long is treated as
+    // replayable by proxies/browsers and a replay is rejected by the unique
+    // index. Acknowledge immediately and let the terminal outcome reach clients
+    // through the stack-status channel.
+    if (request.action === 'update') {
+      this.dispatchDetached(host, request, resolvedEnvContent, deployId);
+      return { status: 'in_progress', logs: 'Image update started', deployId };
+    }
     return this.dispatch(host, request, resolvedEnvContent, deployId);
   }
 
@@ -245,11 +258,56 @@ export class DeployPipeline {
       return { status: 'failed', logs: errorMsg, deployId };
     }
 
+    if (request.action === 'update') {
+      this.dispatchDetached(host, request, resolvedEnvContent, deployId);
+      return { status: 'in_progress', logs: 'Image update started', deployId };
+    }
     return this.dispatch(host, request, resolvedEnvContent, deployId);
   }
 
-  // The agent call can hold the triggering request for up to 16 minutes; a client
-  // that reloads in that window only learns the deploy is running from this frame.
+  /** Fire-and-forget dispatch. dispatch() records expected failures itself.
+   *  A crash outside that (bug, OOM, unhandled rejection) fails the row here
+   *  so the user can retry immediately instead of waiting out the watchdog. */
+  private dispatchDetached(
+    host: ManagedHost,
+    request: DeployRequest,
+    envContent: string,
+    deployId: number,
+  ): void {
+    const run = () =>
+      this.dispatch(host, request, envContent, deployId)
+        .then(() => undefined)
+        .catch(async (err: unknown) => {
+          console.error(
+            `Background dispatch crashed for deploy ${deployId} ("${request.stack}" on "${host.name}"):`,
+            err,
+          );
+          const message = err instanceof Error ? err.message : String(err);
+          try {
+            await this.deployRepo.updateStatus(deployId, 'failed', `Background dispatch crashed: ${message}`);
+          } catch (dbErr) {
+            console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
+          }
+          try {
+            await this.deployRepo.notifyStackChange(request.stack, host.name, {
+              deployId,
+              status: 'failed',
+              action: request.action,
+              trigger: request.trigger,
+              message: `Background dispatch crashed: ${message}`,
+            });
+          } catch (notifyErr) {
+            console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${host.name}"):`, notifyErr);
+          }
+          await this.drainQueue(request.stack, host.name);
+        });
+    if (this.runDetached) {
+      this.runDetached(run);
+    } else {
+      void run();
+    }
+  }
+
   private async notifyInProgress(request: DeployRequest, deployId: number): Promise<void> {
     try {
       await this.deployRepo.notifyStackChange(request.stack, request.host, {
