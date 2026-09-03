@@ -189,7 +189,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
 
-**Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work.
+**Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work. `ALLOW_LOGS=1` is required for container log streaming; without it the proxy returns 403 on `/containers/{id}/logs`.
 
 ### Agent-Updater Sidecar (`agent-updater/`)
 
