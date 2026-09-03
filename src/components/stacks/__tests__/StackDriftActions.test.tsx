@@ -83,6 +83,9 @@ describe('StackDriftActions', () => {
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/donetick succeeded.', 'success');
+    // The mutation consumed the one-shot claim, so the SSE terminal frame for
+    // the same deployId stays silent.
+    expect(deployToastGate.shouldToast(deployId)).toBe(false);
   });
 
   it('toasts without claiming the gate when the resolution ran no deploy', async () => {
