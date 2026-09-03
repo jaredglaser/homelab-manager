@@ -9,7 +9,6 @@ import { handleContainerStart, handleContainerStop, handleContainerRestart } fro
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver } from './lib/agent-image';
-import { handleAgentUpdate } from './routes/agent-update';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 
 const portEnv = process.env.AGENT_PORT;
@@ -157,7 +156,6 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
 
   if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);
   if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
-  if (url.pathname === '/agent/update' && request.method === 'POST') return handleAgentUpdate(docker, AGENT_CONTAINER_NAME);
 
   return null;
 }

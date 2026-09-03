@@ -49,7 +49,7 @@ orchestrator's call.
 
 ## Reporting
 
-- CLAUDE.md rule 14: no explanatory comments in the code. Rule 15: no em dashes, en dashes, `--` as
+- AGENTS.md rule 14: no explanatory comments in the code. Rule 15: no em dashes, en dashes, `--` as
   a dash, or the vocabulary tells, in commit messages or in your report.
 - Report **where the dispatching brief is wrong** rather than coding to it. A brief is a hypothesis.
   A SHA that does not exist, a conflict that is not there, a base that was already retargeted: say
