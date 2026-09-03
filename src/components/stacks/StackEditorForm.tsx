@@ -188,9 +188,11 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         trigger: 'ui',
         message: data.logs,
       })
-      // Claim only when a toast is shown: the in_progress ack from a background
-      // image update must not consume the deployId's one-shot gate, or the SSE
-      // terminal toast is suppressed.
+      // For updates the server replies in_progress right away and the deploy
+      // finishes later, so the success/failure toast comes from the SSE
+      // terminal frame for this deployId, not from this response. The gate is
+      // one claim per deployId, so claiming here would silence that later SSE
+      // toast. Claim only when this response itself produces a toast.
       if (outcome && deployToastGate.shouldToast(data.deployId)) {
         showToast(outcome.message, outcome.severity)
       }
