@@ -181,15 +181,22 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     mutationFn: ({ action, forceRecreate }: DeployMutationParams) =>
       triggerDeploy({ data: { stack: stackName, host: detail.host, action, forceRecreate: action === 'deploy' ? (forceRecreate ?? false) : undefined } }),
     onSuccess: (data, { action }) => {
-      if (deployToastGate.shouldToast(data.deployId)) {
-        const outcome = formatDeployOutcome({
-          stack: stackName,
-          action,
-          status: data.status,
-          trigger: 'ui',
-          message: data.logs,
-        })
-        if (outcome) showToast(outcome.message, outcome.severity)
+      const outcome = formatDeployOutcome({
+        stack: stackName,
+        action,
+        status: data.status,
+        trigger: 'ui',
+        message: data.logs,
+      })
+      // For updates the server replies in_progress right away and the deploy
+      // finishes later, so the success/failure toast comes from the SSE
+      // terminal frame for this deployId, not from this response. The gate is
+      // one claim per deployId, so claiming here would silence that later SSE
+      // toast. Claim only when this response itself produces a toast.
+      // 'queued' is unreachable here: only git_push triggers queue, and a
+      // blocked ui/manual_rollback trigger fails immediately instead.
+      if (outcome && deployToastGate.shouldToast(data.deployId)) {
+        showToast(outcome.message, outcome.severity)
       }
       invalidateDeployAndStacks()
     },
@@ -276,7 +283,10 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         trigger: 'ui',
         message: data.logs,
       })
+      // An in_progress ack (resumed image update) shows nothing here. Release
+      // the pre-claim so the terminal SSE outcome can still toast.
       if (outcome) showToast(outcome.message, outcome.severity)
+      else deployToastGate.release(data.deployId)
       invalidateDeployAndStacks()
     },
     // Release the pre-claim: if the server did resume the deploy, its terminal SSE
@@ -398,15 +408,15 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 stackName={stackName}
                 host={detail.host}
                 onRollbackComplete={(result) => {
-                  if (deployToastGate.shouldToast(result.deployId)) {
-                    const outcome = formatDeployOutcome({
-                      stack: stackName,
-                      action: 'deploy',
-                      status: result.status,
-                      trigger: 'manual_rollback',
-                      message: result.logs,
-                    })
-                    if (outcome) showToast(outcome.message, outcome.severity)
+                  const outcome = formatDeployOutcome({
+                    stack: stackName,
+                    action: 'deploy',
+                    status: result.status,
+                    trigger: 'manual_rollback',
+                    message: result.logs,
+                  })
+                  if (outcome && deployToastGate.shouldToast(result.deployId)) {
+                    showToast(outcome.message, outcome.severity)
                   }
                   queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                   queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })

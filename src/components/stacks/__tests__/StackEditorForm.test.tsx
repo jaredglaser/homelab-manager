@@ -510,6 +510,31 @@ describe('StackEditorForm', () => {
     expect(deployToastGate.shouldToast(secondId)).toBe(false);
   });
 
+  it('does not consume the gate on an in_progress trigger ack, leaving the terminal toast to SSE', async () => {
+    const { deployToastGate } = await import('@/lib/stacks/deploy-outcome-toast');
+    mockTriggerDeploy.mockImplementation(() => Promise.resolve({ deployId: 810001, status: 'in_progress' as DeployStatus, logs: 'Image update started' }));
+    await renderForm();
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockShowToast).not.toHaveBeenCalled();
+
+    // The one-shot gate is untouched, so the SSE terminal frame can still toast.
+    expect(deployToastGate.shouldToast(810001)).toBe(true);
+  });
+
+  it('releases the approve pre-claim when the resume returns in_progress so SSE can toast', async () => {
+    const { deployToastGate } = await import('@/lib/stacks/deploy-outcome-toast');
+    mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: 810002, status: 'in_progress' as DeployStatus, logs: 'Image update started' }));
+    await renderForm();
+    fireEvent.click(screen.getByRole('tab', { name: /Deploys/ }));
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'approve' })); });
+    await waitFor(() => expect(mockResumeDeploy).toHaveBeenCalledWith({ data: { deployId: 7 } }));
+    expect(mockShowToast).not.toHaveBeenCalled();
+    expect(deployToastGate.shouldToast(810002)).toBe(true);
+  });
+
   it('reports rollback outcomes via toast', async () => {
     await renderForm();
     fireEvent.click(screen.getByRole('tab', { name: /Deploys/ }));
