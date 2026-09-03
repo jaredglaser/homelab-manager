@@ -97,7 +97,13 @@ everything else belongs in `bun test`. Selection rule and authoring conventions:
     - The same explanatory block pasted at several sites; if it matters, state it once at the definition.
     - Reviewer-directed justification: why the change is correct, what it replaced, bare issue/PR numbers. Commit message, not code.
     - Restating framework/language behavior (`useRef`, `useEffect` deps, `??`/`?.`, discriminated unions, JSX semantics): knowable from docs, pure noise.
-    Before committing, scan the diff's added comment lines (`git diff | grep -E "^\+\s*(//|\*|/\*)"`) and prune against this rule; a follow-up "style: trim comments" commit means this rule was ignored. When dispatching subagents that write code, never instruct them to "add an explanatory comment"; point them at this rule instead.
+    Before committing, scan the diff's added comment lines (`git diff | grep -E "^\+\s*(//|\*|/\*)"`) and prune against this rule; a follow-up "style: trim comments" commit means this rule was ignored. Run the style scan mechanically, not from memory:
+
+    ```bash
+    git diff main | grep -E "^\+" | grep -E "//|/\*|\* " | grep -E ";.*[a-z]"
+    ```
+
+    Any hit is either a list separator (allowed) or a clause splice (rewrite with a period). The same scan applies to commit messages and PR bodies before `git commit`/`gh pr create`. When dispatching subagents that write code, never instruct them to "add an explanatory comment"; point them at this rule instead.
 15. **No claudisms in written output**: Avoid LLM stylistic tells in code, comments, JSDoc, commit messages, PR descriptions, and docs. Banned: em dashes (`—`), en dashes (`–`), and double-hyphen `--` used as a dash substitute; vocabulary tells ("delve", "tapestry", "intricate", "robust", "comprehensive", "meticulous", "leverage", "utilize", "facilitate", "it's worth noting", "it's important to note", "essentially", "fundamentally"); performative qualifiers in comments and commits ("carefully", "thoroughly", "comprehensively"); boilerplate sign-offs in docs/PRs ("Hope this helps!", "Feel free to reach out"); excessive emojis (✅🎉🚀✨). Use plain alternatives: "use" not "leverage"/"utilize", "help" not "facilitate", "explore" not "delve", commas/parens/colons instead of em dashes.
 
 ## Tech Stack
