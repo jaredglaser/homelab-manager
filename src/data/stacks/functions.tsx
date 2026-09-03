@@ -51,7 +51,7 @@ export const getStackDetail = createServerFn()
  * Trigger a deploy or teardown for a stack.
  * Pass an optional commitSha to perform a rollback to that specific commit.
  */
-export const triggerDeploy = createServerFn()
+export const triggerDeploy = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .inputValidator(triggerDeploySchema)
   .handler(async ({ data, context }): Promise<{ deployId: number; status: DeployStatus; logs: string }> => {
