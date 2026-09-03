@@ -9,7 +9,7 @@ import {
   getStackDriftResolutionLabel,
   isDestructiveStackDriftResolution,
 } from '@/lib/stacks/stack-drift-service';
-import { formatDriftResolutionOutcome } from '@/lib/stacks/deploy-outcome-toast';
+import { deployToastGate, formatDriftResolutionOutcome } from '@/lib/stacks/deploy-outcome-toast';
 import { resolveDrift } from '@/data/stacks/functions';
 import { STACKS_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys';
 import { useToast } from '@/hooks/toastAtom';
@@ -30,6 +30,18 @@ export default function StackDriftActions({ item }: Readonly<StackDriftActionsPr
       setPendingResolution(null);
       queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY });
+      // The deploy's terminal NOTIFY also toasts through the stack-status
+      // channel; whichever source resolves first claims the deployId's gate so
+      // the same outcome is not shown twice.
+      if (
+        result.deployId !== null &&
+        result.deployStatus !== null &&
+        result.deployStatus !== 'pending' &&
+        result.deployStatus !== 'in_progress' &&
+        !deployToastGate.shouldToast(result.deployId)
+      ) {
+        return;
+      }
       const { message, severity } = formatDriftResolutionOutcome(`${item.host}/${item.stack}`, result);
       showToast(message, severity);
     },
