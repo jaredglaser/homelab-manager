@@ -31,7 +31,7 @@ export default function StackDriftActions({ item }: Readonly<StackDriftActionsPr
       queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY });
       // The deploy's terminal NOTIFY also toasts through the stack-status
-      // channel; whichever source resolves first claims the deployId's gate so
+      // channel. Whichever source resolves first claims the deployId's gate so
       // the same outcome is not shown twice.
       if (
         result.deployId !== null &&

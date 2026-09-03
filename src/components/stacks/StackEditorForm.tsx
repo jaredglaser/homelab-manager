@@ -181,15 +181,18 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     mutationFn: ({ action, forceRecreate }: DeployMutationParams) =>
       triggerDeploy({ data: { stack: stackName, host: detail.host, action, forceRecreate: action === 'deploy' ? (forceRecreate ?? false) : undefined } }),
     onSuccess: (data, { action }) => {
-      if (deployToastGate.shouldToast(data.deployId)) {
-        const outcome = formatDeployOutcome({
-          stack: stackName,
-          action,
-          status: data.status,
-          trigger: 'ui',
-          message: data.logs,
-        })
-        if (outcome) showToast(outcome.message, outcome.severity)
+      const outcome = formatDeployOutcome({
+        stack: stackName,
+        action,
+        status: data.status,
+        trigger: 'ui',
+        message: data.logs,
+      })
+      // Claim only when a toast is shown: the in_progress ack from a background
+      // image update must not consume the deployId's one-shot gate, or the SSE
+      // terminal toast is suppressed.
+      if (outcome && deployToastGate.shouldToast(data.deployId)) {
+        showToast(outcome.message, outcome.severity)
       }
       invalidateDeployAndStacks()
     },
@@ -276,7 +279,10 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         trigger: 'ui',
         message: data.logs,
       })
+      // An in_progress ack (resumed image update) shows nothing here. Release
+      // the pre-claim so the terminal SSE outcome can still toast.
       if (outcome) showToast(outcome.message, outcome.severity)
+      else deployToastGate.release(data.deployId)
       invalidateDeployAndStacks()
     },
     // Release the pre-claim: if the server did resume the deploy, its terminal SSE
@@ -398,15 +404,15 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 stackName={stackName}
                 host={detail.host}
                 onRollbackComplete={(result) => {
-                  if (deployToastGate.shouldToast(result.deployId)) {
-                    const outcome = formatDeployOutcome({
-                      stack: stackName,
-                      action: 'deploy',
-                      status: result.status,
-                      trigger: 'manual_rollback',
-                      message: result.logs,
-                    })
-                    if (outcome) showToast(outcome.message, outcome.severity)
+                  const outcome = formatDeployOutcome({
+                    stack: stackName,
+                    action: 'deploy',
+                    status: result.status,
+                    trigger: 'manual_rollback',
+                    message: result.logs,
+                  })
+                  if (outcome && deployToastGate.shouldToast(result.deployId)) {
+                    showToast(outcome.message, outcome.severity)
                   }
                   queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                   queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
