@@ -193,7 +193,7 @@ export async function probeShell(container: Dockerode.Container, preferred: stri
       // A missing shell binary is an expected probe outcome (Docker answers 400
       // "OCI runtime exec failed: exec: \"bash\": executable file not found"),
       // not a daemon problem; only surface real failures as errors.
-      if (/executable file not found/.test(message)) {
+      if (message.includes(`exec: "${shell}": executable file not found`)) {
         console.info('exec probe: shell not present in container', {
           shell,
           containerId: container.id,
