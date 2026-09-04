@@ -96,6 +96,7 @@ function deployRecord(commitSha: string, overrides?: Partial<DeployRecord>): Dep
     forceRecreate: false,
     logs: null,
     createdAt: new Date('2026-05-01T00:00:00Z'),
+    startedAt: null,
     postSuccess: null,
     ...overrides,
   };

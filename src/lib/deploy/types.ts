@@ -82,6 +82,7 @@ export interface DeployRecord {
   forceRecreate: boolean;
   logs: string | null;
   createdAt: Date;
+  startedAt: Date | null;
   postSuccess: DeployPostSuccess | null;
 }
 
