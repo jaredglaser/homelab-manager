@@ -22,19 +22,19 @@ describe('agentTagTooltip', () => {
   })
 
   it('explains the mismatch when the host is off channel', () => {
-    const host = makeHost({ agentImage: 'ghcr.io/x/agent:dev', agentImageTag: 'dev' })
-    expect(agentTagTooltip(host, 'latest')).toBe(
-      "ghcr.io/x/agent:dev does not match this dashboard's latest channel",
+    const host = makeHost({ agentImage: 'ghcr.io/x/agent:main', agentImageTag: 'main' })
+    expect(agentTagTooltip(host, '0.1')).toBe(
+      "ghcr.io/x/agent:main does not match this dashboard's 0.1 channel",
     )
   })
 
   it('names the dashboard channel it compared against', () => {
-    const host = makeHost({ agentImage: 'ghcr.io/x/agent:latest', agentImageTag: 'latest' })
-    expect(agentTagTooltip(host, 'dev')).toContain("dashboard's dev channel")
+    const host = makeHost({ agentImage: 'ghcr.io/x/agent:0.1', agentImageTag: '0.1' })
+    expect(agentTagTooltip(host, 'main')).toContain("dashboard's main channel")
   })
 
   it('falls back to the tag when only the tag is known', () => {
-    const host = makeHost({ agentImage: null, agentImageTag: 'dev' })
-    expect(agentTagTooltip(host, 'dev')).toBe('dev')
+    const host = makeHost({ agentImage: null, agentImageTag: 'main' })
+    expect(agentTagTooltip(host, 'main')).toBe('main')
   })
 })
