@@ -8,7 +8,7 @@ description: Orchestrate the open PR queue for this repo - track state in a per-
 You hold the queue; subagents do the code work. Durable state lives in a GitHub issue, never in this
 repo and never only in your context, so a compaction costs nothing.
 
-Everything you write on GitHub follows CLAUDE.md rule 15: no em dashes, no en dashes, no `--`
+Everything you write on GitHub follows AGENTS.md rule 15: no em dashes, no en dashes, no `--`
 standing in for one, none of the vocabulary tells. You write more prose here than in any other role,
 so this is the rule to watch.
 
@@ -190,7 +190,7 @@ Two bots review here: CodeRabbit (walkthrough plus line findings) and SonarCloud
 Unqualified, "the bot" is unactionable; name which one. Expect a real false-positive rate;
 `reference.md` lists the shapes that recur and the rules about the review process.
 
-**Verify every finding against current code before acting** (CLAUDE.md rule 13), then give the
+**Verify every finding against current code before acting** (AGENTS.md rule 13), then give the
 thread a disposition, `valid | invalid | duplicate | fixed | uncertain`, and a confidence. **The
 action policy splits by author:**
 
@@ -222,7 +222,7 @@ cost more to delegate than to do.
 
 Four definitions in `.claude/agents/` carry the standing brief material, so the dispatch carries
 only the task. Do not retype worktree discipline, `bun run setup`, the off-limits gate files, or the
-CLAUDE.md rules; they are already in there.
+AGENTS.md rules; they are already in there.
 
 | Agent | For |
 |---|---|
@@ -235,7 +235,7 @@ What a dispatch must still supply:
 
 - **Exact branch, base and head SHA, and the worktree path to create**, `git worktree add --detach
   <scratchpad>/wt-<n> <sha>`. `isolation: "worktree"` branches from the default branch, not the
-  feature branch (CLAUDE.md gotcha 14), so an agent told only "fix PR N" rebuilds the feature and
+  feature branch (AGENTS.md gotcha 14), so an agent told only "fix PR N" rebuilds the feature and
   then conflicts.
 - **Which findings are in scope and which are explicitly not**, with reasons, or agents helpfully
   fix the declined ones.
@@ -251,7 +251,7 @@ them against the pushed branch. Agents report optimistically.
 - **CI is the authority, not local runs.** Read `get_check_runs`, never `get_status`, which sees
   only CodeRabbit and has reported green over failing jobs.
 - **Every GitHub fact comes from `mcp__github__*`.** `gh` is not installed and `api.github.com`
-  answers 403 at the agent proxy, REST and GraphQL alike, so CLAUDE.md's `gh run view` and `gh pr
+  answers 403 at the agent proxy, REST and GraphQL alike, so AGENTS.md's `gh run view` and `gh pr
   checks` advice does not apply. Git works, through a separate local proxy.
 - **The MCP GitHub tools are scoped to this repo, and not uniformly.** `list_issues` and its
   siblings refuse a foreign repo with an explicit access-denied error naming the allowed one.
@@ -283,5 +283,5 @@ against a pre-retarget SHA. `scripts/restack.sh <branch> <new-base> <old-parent-
 ## Migration numbering
 
 You are the last gate. Before merging anything carrying a migration, check its number against the
-default branch and every other open PR, and renumber on the way in. CLAUDE.md gotcha 23 covers why
+default branch and every other open PR, and renumber on the way in. AGENTS.md gotcha 23 covers why
 the collision is silent.

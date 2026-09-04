@@ -1,0 +1,34 @@
+[
+  {
+    "label": "dev",
+    "command": "bun run dev"
+  },
+  {
+    "label": "dev:demo",
+    "command": "bun run dev:demo"
+  },
+  {
+    "label": "worker",
+    "command": "bun run worker"
+  },
+  {
+    "label": "typecheck:all",
+    "command": "bun run typecheck:all"
+  },
+  {
+    "label": "test:all",
+    "command": "bun run test:all"
+  },
+  {
+    "label": "test:watch",
+    "command": "bun run test:watch"
+  },
+  {
+    "label": "test current file",
+    "command": "bun test --isolate $ZED_FILE"
+  },
+  {
+    "label": "test:e2e:run",
+    "command": "bun run test:e2e:run"
+  }
+]

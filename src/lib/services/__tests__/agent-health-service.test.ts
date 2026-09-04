@@ -2,7 +2,7 @@ import { describe, it, expect, mock, spyOn } from 'bun:test';
 import { checkAgentHealth } from '../agent-health-service';
 
 // Use dependency injection (fetchFn parameter) instead of global fetch mock
-// per CLAUDE.md rule 7: avoid globalThis mocks, use narrow-scope DI instead.
+// per AGENTS.md rule 7: avoid globalThis mocks, use narrow-scope DI instead.
 
 const healthBody = JSON.stringify({ status: 'healthy' });
 
