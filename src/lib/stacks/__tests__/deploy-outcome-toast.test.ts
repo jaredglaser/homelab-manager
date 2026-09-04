@@ -8,135 +8,135 @@ import {
 
 describe('formatDeployOutcome', () => {
   test('returns null for pending status', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'pending', trigger: 'ui' })).toBeNull();
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'pending', trigger: 'ui' })).toBeNull();
   });
 
   test('returns null for in_progress status', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'in_progress', trigger: 'ui' })).toBeNull();
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'in_progress', trigger: 'ui' })).toBeNull();
   });
 
   test('returns null for no_change with a git_push trigger', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'no_change', trigger: 'git_push' })).toBeNull();
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'no_change', trigger: 'git_push' })).toBeNull();
   });
 
   test('returns null for no_change with a manual_rollback trigger', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'no_change', trigger: 'manual_rollback' })).toBeNull();
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'no_change', trigger: 'manual_rollback' })).toBeNull();
   });
 
   test('returns an info toast for no_change with a ui trigger', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'no_change', trigger: 'ui' })).toEqual({
-      message: 'No changes detected for plex',
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'no_change', trigger: 'ui' })).toEqual({
+      message: 'No changes detected for alpha/plex',
       severity: 'info',
     });
   });
 
   test('formats a successful ui deploy', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'succeeded', trigger: 'ui' })).toEqual({
-      message: 'Deploy of plex succeeded',
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'succeeded', trigger: 'ui' })).toEqual({
+      message: 'Deploy of alpha/plex succeeded',
       severity: 'success',
     });
   });
 
   test('formats a successful teardown', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'teardown', status: 'succeeded', trigger: 'ui' })).toEqual({
-      message: 'Teardown of plex succeeded',
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'teardown', status: 'succeeded', trigger: 'ui' })).toEqual({
+      message: 'Teardown of alpha/plex succeeded',
       severity: 'success',
     });
   });
 
   test('formats a successful rollback', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'succeeded', trigger: 'manual_rollback' })).toEqual({
-      message: 'Rollback of plex succeeded',
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'succeeded', trigger: 'manual_rollback' })).toEqual({
+      message: 'Rollback of alpha/plex succeeded',
       severity: 'success',
     });
   });
 
   test('formats a successful git-push deploy with the "(git push)" suffix', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'succeeded', trigger: 'git_push' })).toEqual({
-      message: 'Deploy of plex (git push) succeeded',
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'succeeded', trigger: 'git_push' })).toEqual({
+      message: 'Deploy of alpha/plex (git push) succeeded',
       severity: 'success',
     });
   });
 
   test('formats a failed ui deploy without a message', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui' })).toEqual({
-      message: 'Deploy of plex failed',
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui' })).toEqual({
+      message: 'Deploy of alpha/plex failed',
       severity: 'error',
     });
   });
 
   test('formats a failed ui deploy with a message', () => {
     expect(formatDeployOutcome({
-      stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui', message: 'image not found',
+      host: 'alpha', stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui', message: 'image not found',
     })).toEqual({
-      message: 'Deploy of plex failed: image not found',
+      message: 'Deploy of alpha/plex failed: image not found',
       severity: 'error',
     });
   });
 
   test('formats a failed rollback with a message', () => {
     expect(formatDeployOutcome({
-      stack: 'plex', action: 'deploy', status: 'failed', trigger: 'manual_rollback', message: 'agent unreachable',
+      host: 'alpha', stack: 'plex', action: 'deploy', status: 'failed', trigger: 'manual_rollback', message: 'agent unreachable',
     })).toEqual({
-      message: 'Rollback of plex failed: agent unreachable',
+      message: 'Rollback of alpha/plex failed: agent unreachable',
       severity: 'error',
     });
   });
 
   test('formats a failed teardown with a message', () => {
     expect(formatDeployOutcome({
-      stack: 'plex', action: 'teardown', status: 'failed', trigger: 'ui', message: 'compose down failed',
+      host: 'alpha', stack: 'plex', action: 'teardown', status: 'failed', trigger: 'ui', message: 'compose down failed',
     })).toEqual({
-      message: 'Teardown of plex failed: compose down failed',
+      message: 'Teardown of alpha/plex failed: compose down failed',
       severity: 'error',
     });
   });
 
   test('formats a successful update', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'update', status: 'succeeded', trigger: 'ui' })).toEqual({
-      message: 'Image update of plex succeeded',
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'update', status: 'succeeded', trigger: 'ui' })).toEqual({
+      message: 'Image update of alpha/plex succeeded',
       severity: 'success',
     });
   });
 
   test('formats a failed update with a message', () => {
     expect(formatDeployOutcome({
-      stack: 'plex', action: 'update', status: 'failed', trigger: 'ui', message: 'pull failed: image not found',
+      host: 'alpha', stack: 'plex', action: 'update', status: 'failed', trigger: 'ui', message: 'pull failed: image not found',
     })).toEqual({
-      message: 'Image update of plex failed: pull failed: image not found',
+      message: 'Image update of alpha/plex failed: pull failed: image not found',
       severity: 'error',
     });
   });
 
   test('formats a failed update without a message', () => {
-    expect(formatDeployOutcome({ stack: 'plex', action: 'update', status: 'failed', trigger: 'ui' })).toEqual({
-      message: 'Image update of plex failed',
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'update', status: 'failed', trigger: 'ui' })).toEqual({
+      message: 'Image update of alpha/plex failed',
       severity: 'error',
     });
   });
 
   test('formats a failed git-push deploy with the "(git push)" suffix and a message', () => {
     expect(formatDeployOutcome({
-      stack: 'plex', action: 'deploy', status: 'failed', trigger: 'git_push', message: 'image not found',
+      host: 'alpha', stack: 'plex', action: 'deploy', status: 'failed', trigger: 'git_push', message: 'image not found',
     })).toEqual({
-      message: 'Deploy of plex (git push) failed: image not found',
+      message: 'Deploy of alpha/plex (git push) failed: image not found',
       severity: 'error',
     });
   });
 
   test('treats a null message the same as no message', () => {
     expect(formatDeployOutcome({
-      stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui', message: null,
+      host: 'alpha', stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui', message: null,
     })).toEqual({
-      message: 'Deploy of plex failed',
+      message: 'Deploy of alpha/plex failed',
       severity: 'error',
     });
   });
 
   test('truncates the message to the first line and 200 chars', () => {
     const raw = 'x'.repeat(250) + '\nsecond line';
-    const result = formatDeployOutcome({ stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui', message: raw });
-    expect(result?.message).toBe(`Deploy of plex failed: ${'x'.repeat(200)}`);
+    const result = formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui', message: raw });
+    expect(result?.message).toBe(`Deploy of alpha/plex failed: ${'x'.repeat(200)}`);
   });
 });
 
@@ -229,7 +229,7 @@ describe('createDeployToastGate', () => {
 
 describe('formatDriftResolutionOutcome', () => {
   test('reports a failed deploy as an error instead of claiming the drift was resolved', () => {
-    const toast = formatDriftResolutionOutcome('alpha/plex', {
+    const toast = formatDriftResolutionOutcome('alpha', 'plex', {
       recoveryCommitSha: 'abc1234def5678',
       deployStatus: 'failed',
     });
@@ -239,19 +239,32 @@ describe('formatDriftResolutionOutcome', () => {
 
   test('reports a succeeded deploy as success and names the archive commit', () => {
     expect(
-      formatDriftResolutionOutcome('alpha/plex', { recoveryCommitSha: 'abc1234def5678', deployStatus: 'succeeded' }),
+      formatDriftResolutionOutcome('alpha', 'plex', { recoveryCommitSha: 'abc1234def5678', deployStatus: 'succeeded' }),
     ).toEqual({ message: 'Deploy of alpha/plex succeeded. Host copy archived in abc1234.', severity: 'success' });
   });
 
+  test('formats a queued git-push deploy with host/stack and the suffix', () => {
+    expect(formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'queued', trigger: 'git_push' })).toEqual({
+      message: 'Deploy of alpha/plex (git push) queued behind an active deploy',
+      severity: 'info',
+    });
+  });
+
+  test('reports a terminal deploy with no recovery commit without a dangling separator', () => {
+    expect(
+      formatDriftResolutionOutcome('alpha', 'plex', { recoveryCommitSha: null, deployStatus: 'succeeded' }),
+    ).toEqual({ message: 'Deploy of alpha/plex succeeded', severity: 'success' });
+  });
+
   test('reports a queued deploy as info', () => {
-    const toast = formatDriftResolutionOutcome('alpha/plex', { recoveryCommitSha: null, deployStatus: 'queued' });
+    const toast = formatDriftResolutionOutcome('alpha', 'plex', { recoveryCommitSha: null, deployStatus: 'queued' });
     expect(toast.severity).toBe('info');
     expect(toast.message).toContain('queued behind an active deploy');
   });
 
   test('reports a non-terminal deploy without claiming it finished', () => {
     expect(
-      formatDriftResolutionOutcome('alpha/plex', { recoveryCommitSha: 'abc1234def5678', deployStatus: 'in_progress' }),
+      formatDriftResolutionOutcome('alpha', 'plex', { recoveryCommitSha: 'abc1234def5678', deployStatus: 'in_progress' }),
     ).toEqual({
       message: 'Drift resolution for alpha/plex is still deploying. Host copy archived in abc1234.',
       severity: 'info',
@@ -260,13 +273,13 @@ describe('formatDriftResolutionOutcome', () => {
 
   test('reports success for a resolution that runs no deploy', () => {
     expect(
-      formatDriftResolutionOutcome('alpha/grafana', { recoveryCommitSha: 'abc1234def5678', deployStatus: null }),
+      formatDriftResolutionOutcome('alpha', 'grafana', { recoveryCommitSha: 'abc1234def5678', deployStatus: null }),
     ).toEqual({ message: 'Resolved drift for alpha/grafana. Host copy archived in abc1234.', severity: 'success' });
   });
 
   test('omits the archive clause when the resolution archived nothing', () => {
-    expect(formatDriftResolutionOutcome('alpha/plex', { recoveryCommitSha: null, deployStatus: null })).toEqual({
-      message: 'Resolved drift for alpha/plex.',
+    expect(formatDriftResolutionOutcome('alpha', 'plex', { recoveryCommitSha: null, deployStatus: null })).toEqual({
+      message: 'Resolved drift for alpha/plex',
       severity: 'success',
     });
   });

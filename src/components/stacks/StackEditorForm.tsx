@@ -182,6 +182,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
       triggerDeploy({ data: { stack: stackName, host: detail.host, action, forceRecreate: action === 'deploy' ? (forceRecreate ?? false) : undefined } }),
     onSuccess: (data, { action }) => {
       const outcome = formatDeployOutcome({
+        host: detail.host,
         stack: stackName,
         action,
         status: data.status,
@@ -271,28 +272,23 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const approveMutation = useMutation({
     mutationFn: (deployId: number) => resumeDeploy({ data: { deployId } }),
-    // Claim before the SSE outcome for the same deployId can arrive.
-    onMutate: (deployId: number) => {
-      deployToastGate.claim(deployId)
-    },
     onSuccess: (data) => {
       const outcome = formatDeployOutcome({
+        host: detail.host,
         stack: stackName,
         action: 'deploy',
         status: data.status,
         trigger: 'ui',
         message: data.logs,
       })
-      // An in_progress ack (resumed image update) shows nothing here. Release
-      // the pre-claim so the terminal SSE outcome can still toast.
-      if (outcome) showToast(outcome.message, outcome.severity)
-      else deployToastGate.release(data.deployId)
+      // No pre-claim: claiming in onMutate and releasing on a non-toast response
+      // erases a terminal SSE frame that arrived during the await, losing the toast.
+      if (outcome && deployToastGate.shouldToast(data.deployId)) {
+        showToast(outcome.message, outcome.severity)
+      }
       invalidateDeployAndStacks()
     },
-    // Release the pre-claim: if the server did resume the deploy, its terminal SSE
-    // outcome must still be free to toast rather than being suppressed by the claim.
-    onError: (err, deployId) => {
-      deployToastGate.release(deployId)
+    onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
@@ -305,7 +301,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
       deployToastGate.claim(deployId)
     },
     onSuccess: () => {
-      showToast(`Deploy rejected for ${stackName}`, 'success')
+      showToast(`Deploy rejected for ${detail.host}/${stackName}`, 'success')
       invalidateDeployAndStacks()
     },
     onError: (err, deployId) => {
@@ -409,6 +405,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 host={detail.host}
                 onRollbackComplete={(result) => {
                   const outcome = formatDeployOutcome({
+                    host: detail.host,
                     stack: stackName,
                     action: 'deploy',
                     status: result.status,

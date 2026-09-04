@@ -46,12 +46,12 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
       return controlStack({ data });
     },
     onSuccess: (_, { action, target }) => {
-      const targetName = target.scope === 'stack' ? stackName : `${target.service} (in ${stackName})`;
+      const targetName = target.scope === 'stack' ? `${host}/${stackName}` : `${target.service} in ${host}/${stackName}`;
       toast.success(`${targetName} ${ACTION_PAST[action]} successfully`);
       setActiveKey(null);
     },
     onError: (err, { action, target }) => {
-      const targetName = target.scope === 'stack' ? stackName : `${target.service} (in ${stackName})`;
+      const targetName = target.scope === 'stack' ? `${host}/${stackName}` : `${target.service} in ${host}/${stackName}`;
       console.error(`[StackContainersPanel] ${action} failed for ${targetName}:`, err);
       toast.error(`Failed to ${action} ${targetName}: ${err instanceof Error ? err.message : String(err)}`);
       setActiveKey(null);

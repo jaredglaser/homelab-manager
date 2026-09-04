@@ -109,7 +109,7 @@ export async function handleTriggerDeploy(
     composeContent = await deps.readCompose(params.stack);
   } catch {
     if (params.action === 'deploy' || params.action === 'update') {
-      throw new Error(`No compose file found for stack "${params.stack}"`);
+      throw new Error(`No compose file found for stack "${params.host}/${params.stack}"`);
     }
   }
 
@@ -126,7 +126,7 @@ export async function handleTriggerDeploy(
 
   const result = await deps.executePipeline(request);
   if (result.deployId === undefined) {
-    throw new Error(`${TRIGGER_ACTION_NOUNS[params.action]} could not be started: ${result.logs}`);
+    throw new Error(`${TRIGGER_ACTION_NOUNS[params.action]} of ${params.host}/${params.stack} could not be started: ${result.logs}`);
   }
   return { deployId: result.deployId, status: result.status, logs: result.logs };
 }
