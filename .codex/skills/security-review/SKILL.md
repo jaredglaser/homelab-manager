@@ -7,7 +7,7 @@ description: Review this homelab-management codebase for security issues when th
 
 Use this when the user asks for a security-oriented code review.
 
-Start with `CLAUDE.md`, then inspect the requested files or the relevant recent diff.
+Start with `AGENTS.md`, then inspect the requested files or the relevant recent diff.
 
 ## Focus areas
 
@@ -23,7 +23,7 @@ Start with `CLAUDE.md`, then inspect the requested files or the relevant recent 
 - Only `VITE_*` env vars should be client-visible.
 - `createServerFn()` paths should use the expected middleware and validation.
 - SSE endpoints should respect `request.signal` and avoid leaking server-only imports into the client bundle.
-- Dynamic imports are required for server-only modules such as `pg`, `dockerode`, `ssh2`, subscription services, and database clients in the sensitive paths called out by `CLAUDE.md`.
+- Dynamic imports are required for server-only modules such as `pg`, `dockerode`, `ssh2`, subscription services, and database clients in the sensitive paths called out by `AGENTS.md`.
 - Docker or entity operations should use validated host-prefixed IDs, not display names.
 
 ## Search patterns

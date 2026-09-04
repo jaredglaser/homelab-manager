@@ -47,7 +47,7 @@ sets and its reasons. Agents that helpfully fix the declined ones create a secon
 
 ## Reporting
 
-- CLAUDE.md rule 14: no explanatory comments in the code, including "to explain the change". If the
+- AGENTS.md rule 14: no explanatory comments in the code, including "to explain the change". If the
   change needs explaining, that belongs in the commit message. Rule 15 governs the prose you write:
   no em dashes, en dashes, `--` as a dash, or the vocabulary tells.
 - Audit your own diff before committing: `git diff | grep -E "^\+\s*(//|\*|/\*)"`, pruned against

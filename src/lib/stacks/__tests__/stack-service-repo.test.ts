@@ -108,6 +108,7 @@ function deployRecord(overrides?: Partial<DeployRecord>): DeployRecord {
     forceRecreate: false,
     logs: null,
     createdAt: new Date('2026-05-01T00:00:00Z'),
+    startedAt: null,
     postSuccess: null,
     ...overrides,
   };

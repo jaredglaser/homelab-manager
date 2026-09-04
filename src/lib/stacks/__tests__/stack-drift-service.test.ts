@@ -23,6 +23,7 @@ const deploy = (overrides?: Partial<DeployRecord>): DeployRecord => ({
   forceRecreate: false,
   logs: null,
   createdAt: new Date('2026-04-21T00:00:00Z'),
+  startedAt: null,
   postSuccess: null,
   ...overrides,
 });
