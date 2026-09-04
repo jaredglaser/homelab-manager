@@ -273,6 +273,7 @@ jobs:
   migrations:
     name: Migration Verification
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     # Pinned by digest: a floating tag (latest-pg16) lets an upstream image push
     # break main with no commit in this repo. This digest is what latest-pg16
@@ -286,12 +287,16 @@ jobs:
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
+        # The log cap is not cosmetic: CI dumps this container's whole log after the last step, and
+        # the policy schedulers write a line per chunk they touch, which pushed the harness's own
+        # check report thousands of lines out of the job log tail.
         options: >-
           --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
           --health-start-period 30s
+          --log-opt max-size=8k
 
     env:
       POSTGRES_HOST: localhost
