@@ -395,12 +395,10 @@ describe('handleContainerEvents: multiple subscribers', () => {
 
     await dataListenerAttached;
 
-    // Abort first subscriber
     ac1.abort();
     const reader1 = resp1.body!.getReader();
     while (!(await reader1.read()).done);
 
-    // Emit destroy; subscriber2 should still receive it
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'destroy',

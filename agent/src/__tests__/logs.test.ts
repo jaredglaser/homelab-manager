@@ -398,7 +398,6 @@ describe('handleLogStream', () => {
 
       await waitFor(() => heartbeatCb !== null);
 
-      // Fire the heartbeat callback
       expect(heartbeatCb).not.toBeNull();
       expect(heartbeatDelays).toEqual([5000]);
       heartbeatCb!();
@@ -469,7 +468,6 @@ describe('handleLogStream', () => {
 
     await waitFor(() => resolveLogsPromise !== null);
 
-    // Now resolve the logs promise with our emitter, then immediately abort
     resolveLogsPromise!(liveEmitter);
     await waitFor(() => liveEmitter.listenerCount('data') > 0);
     abortController.abort();
