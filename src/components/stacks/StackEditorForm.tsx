@@ -432,7 +432,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         </div>
 
         {/* Sticky Action Bar */}
-        <div className="shrink-0 border-t border-(--border) bg-(--background) px-1 py-3">
+        <div className="shrink-0 border-t border-border bg-background px-1 py-3">
           <StackActionBar
             onDeploy={handleDeploy}
             onUpdate={handleUpdate}

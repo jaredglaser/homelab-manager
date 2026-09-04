@@ -119,10 +119,10 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           {containers.map((container) => (
             <div
               key={container.id}
-              className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-(--accent) group"
+              className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-accent group"
             >
               <span
-                className={`w-2 h-2 rounded-full flex-shrink-0 ${container.status === 'running' ? 'bg-green-500' : 'bg-red-500'}`}
+                className={`w-2 h-2 rounded-full shrink-0 ${container.status === 'running' ? 'bg-green-500' : 'bg-red-500'}`}
                 aria-label={`status: ${container.status}`}
               />
               <span className="font-medium text-sm truncate min-w-0">{container.name}</span>
@@ -145,7 +145,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
       )}
 
       <Dialog open={modalState !== null} onOpenChange={(o) => { if (!o) setModalState(null); }}>
-        <DialogContent className="w-[calc(100%-64px)] max-w-[1200px] h-[70vh] flex flex-col min-h-0 p-2">
+        <DialogContent className="w-[calc(100%-64px)] max-w-300 h-[70vh] flex flex-col min-h-0 p-2">
           <DialogTitle className="flex items-center justify-between px-1 py-2 text-sm font-medium">
             <span>{modalState?.container.name}</span>
             <Button variant="ghost" size="icon-sm" onClick={() => setModalState(null)} aria-label="Close">
@@ -207,7 +207,7 @@ function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[];
           return (
             <span
               key={portKey(port, idx)}
-              className={`font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) shrink-0 ${published ? 'text-foreground' : 'text-(--muted-foreground)'}`}
+              className={`font-mono text-[10px] px-1 py-0.5 rounded bg-chart-bg shrink-0 ${published ? 'text-foreground' : 'text-muted-foreground'}`}
             >
               {formatPortMapping(port)}
             </span>
@@ -218,7 +218,7 @@ function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[];
             <TooltipTrigger
               render={
                 <span
-                  className="font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) text-(--muted-foreground) shrink-0"
+                  className="font-mono text-[10px] px-1 py-0.5 rounded bg-chart-bg text-muted-foreground shrink-0"
                   tabIndex={0}
                   aria-label={`${overflowPorts.length} more ports`}
                 >
@@ -240,7 +240,7 @@ function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[];
             <TooltipTrigger
               render={
                 <span
-                  className="shrink-0 text-(--muted-foreground) hover:text-foreground"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
                   tabIndex={0}
                   aria-label={mountLabel}
                 >
@@ -369,7 +369,7 @@ function TerminalDialogContent({ container, host }: { container: StackContainer;
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center px-1 py-1 border-b border-(--border)">
+      <div className="flex items-center px-1 py-1 border-b border-border">
         <ShellSelect
           value={effectiveShell}
           onChange={handleShellChange}
