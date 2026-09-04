@@ -42,7 +42,7 @@ export default function StackDriftActions({ item }: Readonly<StackDriftActionsPr
       ) {
         return;
       }
-      const { message, severity } = formatDriftResolutionOutcome(`${item.host}/${item.stack}`, result);
+      const { message, severity } = formatDriftResolutionOutcome(item.host, item.stack, result);
       showToast(message, severity);
     },
     onError: (err) => {

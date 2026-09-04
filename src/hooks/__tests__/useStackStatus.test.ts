@@ -100,7 +100,45 @@ describe('useStackStatus', () => {
 
     expect(result.current.deployVersion).toBe(1);
     expect(mockShowToast).toHaveBeenCalledTimes(1);
-    expect(mockShowToast).toHaveBeenCalledWith('Deploy of plex succeeded', 'success');
+    expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/plex succeeded', 'success');
+  });
+
+  it('toasts the host from the SSE frame, not a cached default', () => {
+    renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.onopen?.();
+      es.onmessage?.({
+        data: JSON.stringify({
+          type: 'deploy_changed',
+          stack: 'plex',
+          host: 'server2',
+          outcome: { deployId: 106, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+        }),
+      });
+    });
+
+    expect(mockShowToast).toHaveBeenCalledWith('Deploy of server2/plex succeeded', 'success');
+  });
+
+  it('toasts the no_change ui-trigger outcome as an info with host/stack', () => {
+    renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.onopen?.();
+      es.onmessage?.({
+        data: JSON.stringify({
+          type: 'deploy_changed',
+          stack: 'plex',
+          host: 'server1',
+          outcome: { deployId: 105, status: 'no_change', action: 'deploy', trigger: 'ui' },
+        }),
+      });
+    });
+
+    expect(mockShowToast).toHaveBeenCalledWith('No changes detected for server1/plex', 'info');
   });
 
   it('toasts a failed outcome with the sanitized message', () => {
@@ -120,7 +158,7 @@ describe('useStackStatus', () => {
     });
 
     expect(result.current.deployVersion).toBe(1);
-    expect(mockShowToast).toHaveBeenCalledWith('Deploy of plex (git push) failed: image not found', 'error');
+    expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/plex (git push) failed: image not found', 'error');
   });
 
   it('drops a frame whose outcome is missing a required field: no version bump, no toast', () => {
@@ -191,7 +229,7 @@ describe('useStackStatus', () => {
 
     expect(result.current.deployVersion).toBe(2);
     expect(mockShowToast).toHaveBeenCalledTimes(1);
-    expect(mockShowToast).toHaveBeenCalledWith('Deploy of plex succeeded', 'success');
+    expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/plex succeeded', 'success');
   });
 
   it('never toasts for the init status-entries array', () => {

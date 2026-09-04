@@ -369,7 +369,7 @@ export async function createStackInRepo(
     const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
 
     if (manifest.stacks[stackName]) {
-      throw new Error(`Stack "${stackName}" already exists`);
+      throw new Error(`Stack "${host}/${stackName}" already exists`);
     }
 
     manifest.stacks[stackName] = { host, autoDeploy };
@@ -412,7 +412,7 @@ export async function deleteStackFromRepo(
   const deployRepo = new DeployRepository(pool);
   const hasActive = await deployRepo.hasActiveDeployForStack(stackName, host);
   if (hasActive) {
-    throw new Error(`Stack "${stackName}" has an active deploy in progress, cannot delete`);
+    throw new Error(`Stack "${host}/${stackName}" has an active deploy in progress, cannot delete`);
   }
 
   return resolveDeleteStack(stackName, host, teardown, {
