@@ -188,9 +188,8 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/stacks/status` | List stacks in working directory |
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
-| POST | `/agent/update` | Self-update: pull new image, recreate container, verify health |
 
-**Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work.
+**Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work. `ALLOW_LOGS=1` is required for container log streaming; without it the proxy returns 403 on `/containers/{id}/logs`.
 
 ### Agent-Updater Sidecar (`agent-updater/`)
 
@@ -217,8 +216,8 @@ DeployRequest -> Validate -> Resolve Secrets -> Dispatch to Agent -> Record Resu
 
 - **Change detection:** Content hashing to skip no-op deploys
 - **Secret resolution:** Pluggable `SecretResolver` interface. Resolves `${SECRET:name}` variable references in compose files; values are stored JWE-encrypted in the `stack_secrets` table
-- **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host. A git push blocked by an active deploy is persisted in `deploy_queue` (newest per stack+host wins) and dispatched once the active deploy reaches a terminal state, unless a newer commit already deployed successfully in the meantime; blocked UI deploys still get an immediate failed response
-- **Stuck-deploy recovery:** `startup-recovery.ts` fails stranded `in_progress` rows at boot; `DeployWatchdog` rescans on an interval (default 20-minute threshold via `DEPLOY_WATCHDOG_TIMEOUT_MINUTES`)
+- **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host. A git push blocked by an active deploy is persisted in `deploy_queue` (newest per stack+host wins) and dispatched once the active deploy reaches a terminal state, unless a newer commit already deployed successfully in the meantime; blocked UI deploys still get an immediate failed response that names the blocking deploy (awaiting approval, or in progress and for how long). The pipeline also broadcasts the `in_progress` transition on the stack-status channel, so the stack editor disables its actions while a pending or in-progress row exists instead of letting the click fail server-side. Image-update dispatch runs in the background: the trigger request returns `in_progress` as soon as the row is marked, because the agent call can hold for up to 16 minutes and a request held that long invites replay by proxies/browsers; the terminal outcome reaches clients through the stack-status channel (`triggerDeploy` is a POST server function for the same reason)
+- **Stuck-deploy recovery:** `startup-recovery.ts` fails stranded `in_progress` rows at boot; `DeployWatchdog` rescans on an interval (default 20-minute threshold via `DEPLOY_WATCHDOG_TIMEOUT_MINUTES`). The watchdog is the last line of defense only: a background image-update dispatch that crashes in-process fails its row immediately (status + NOTIFY + queue drain), so the user can retry right away instead of waiting out the threshold. The watchdog covers only a crashed server process, where nothing is left to fail the row
 - **Agent client:** HTTP wrapper for communicating with agents (deploy/teardown/restart)
 
 **Database tables:**

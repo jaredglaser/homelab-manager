@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test';
 import { DeployPipeline, type StackRepoWriter } from '../pipeline';
 import type { DeployRecord, DeployRequest, ManagedHost, SecretResolver } from '@/lib/deploy/types';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
@@ -18,6 +18,7 @@ const defaultPendingRecord = {
   forceRecreate: false,
   logs: null,
   createdAt: new Date(),
+  startedAt: null,
   postSuccess: null,
 };
 
@@ -36,6 +37,7 @@ function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): Deploy
     getById: mock().mockResolvedValue(defaultPendingRecord),
     getLatestSuccessful: mock().mockResolvedValue(null),
     hasActiveDeployForStack: mock().mockResolvedValue(false),
+    getActiveDeploy: mock().mockResolvedValue(null),
     deduplicatePending: mock().mockResolvedValue(undefined),
     enqueueDeploy: mock().mockResolvedValue(true),
     dequeueDeploy: mock().mockResolvedValue(null),
@@ -105,8 +107,22 @@ describe('DeployPipeline', () => {
   let agentClientFactory: ReturnType<typeof mock>;
   let secretResolver: SecretResolver;
   let pipeline: DeployPipeline;
+  let detached: Array<Promise<void>>;
+
+  function detachCollector() {
+    return (fn: () => Promise<void>) => {
+      detached.push(fn());
+    };
+  }
+
+  async function drainDetached() {
+    const pending = detached;
+    detached = [];
+    await Promise.all(pending);
+  }
 
   beforeEach(() => {
+    detached = [];
     deployRepo = createMockDeployRepo();
     hostsRepo = createMockHostsRepo(testHost);
     const mockAgent = createMockAgentClient(true);
@@ -119,6 +135,7 @@ describe('DeployPipeline', () => {
       secretResolver,
       tokenResolver: async () => async () => 'mock-jwt',
       stackRepoWriter: createMockStackRepoWriter(),
+      runDetached: detachCollector(),
     });
   });
 
@@ -152,6 +169,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        startedAt: null,
         postSuccess: null,
       };
       // We need the hashes to match -- compute from the same content
@@ -196,6 +214,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        startedAt: null,
         postSuccess: null,
       };
       const { computeHash } = await import('../change-detection');
@@ -235,6 +254,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        startedAt: null,
         postSuccess: null,
       };
       const { computeHash } = await import('../change-detection');
@@ -277,6 +297,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        startedAt: null,
         postSuccess: null,
       };
       const { computeHash } = await import('../change-detection');
@@ -428,6 +449,108 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('failed');
       expect(result.logs).toContain('active deploy');
       expect(deployRepo.enqueueDeploy).not.toHaveBeenCalled();
+    });
+
+    it('names the in-progress deploy that blocks a UI trigger', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        getActiveDeploy: mock().mockResolvedValue({
+          ...defaultPendingRecord,
+          id: 42,
+          status: 'in_progress',
+          action: 'update',
+          createdAt: new Date(Date.now() - 10 * 60_000),
+          startedAt: new Date(Date.now() - 3 * 60_000),
+        }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute({ ...testRequest, trigger: 'ui' });
+      expect(result.status).toBe('failed');
+      expect(result.deployId).toBeUndefined();
+      expect(result.logs).toBe(
+        'Stack "plex" already has an image update (#42) in progress, running for 3m. Wait for it to finish before starting another.',
+      );
+    });
+
+    it('ages a legacy row without started_at from its creation time', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        getActiveDeploy: mock().mockResolvedValue({
+          ...defaultPendingRecord,
+          id: 43,
+          status: 'in_progress',
+          createdAt: new Date(Date.now() - 5 * 60_000),
+          startedAt: null,
+        }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute({ ...testRequest, trigger: 'ui' });
+      expect(result.logs).toContain('a deploy (#43) in progress, running for 5m');
+    });
+
+    it('points a blocked UI trigger at the Deploys tab when the active row awaits approval', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        getActiveDeploy: mock().mockResolvedValue({ ...defaultPendingRecord, id: 7, status: 'pending' }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute({ ...testRequest, trigger: 'ui' });
+      expect(result.logs).toBe(
+        'Stack "plex" has a deploy (#7) awaiting approval. Approve or reject it in the Deploys tab first.',
+      );
+    });
+
+    it('falls back to the generic conflict message when the active row cannot be read', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        getActiveDeploy: mock().mockRejectedValue(new Error('db down')) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute({ ...testRequest, trigger: 'ui' });
+      expect(result.logs).toBe('Stack "plex" already has an active deploy');
+      errorSpy.mockRestore();
+    });
+
+    it('broadcasts the in_progress transition before dispatching', async () => {
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('succeeded');
+      const statuses = (deployRepo.notifyStackChange as ReturnType<typeof mock>).mock.calls.map(
+        (call) => (call as [string, string, { status: string }])[2].status,
+      );
+      expect(statuses).toEqual(['in_progress', 'succeeded']);
     });
 
     it('returns failed when queueing a blocked git push fails', async () => {
@@ -915,6 +1038,7 @@ describe('DeployPipeline', () => {
           forceRecreate: false,
           logs: null,
           createdAt: new Date(),
+          startedAt: null,
           postSuccess: null,
         }) as any,
       });
@@ -962,6 +1086,7 @@ describe('DeployPipeline', () => {
           forceRecreate: false,
           logs: null,
           createdAt: new Date(),
+          startedAt: null,
           postSuccess: null,
         }) as any,
       });
@@ -972,17 +1097,20 @@ describe('DeployPipeline', () => {
         secretResolver,
         tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
       });
 
       const result = await pipeline.execute(testUpdateRequest);
-      expect(result.status).toBe('succeeded');
+      expect(result.status).toBe('in_progress');
+      expect(result.deployId).toBe(1);
+      await drainDetached();
       expect(deployRepo.getLatestSuccessful).not.toHaveBeenCalled();
     });
 
     it('records composeHash/envHash computed exactly like the deploy path', async () => {
       const { computeHash } = await import('../change-detection');
       const result = await pipeline.execute(testUpdateRequest);
-      expect(result.status).toBe('succeeded');
+      expect(result.status).toBe('in_progress');
 
       const insertCall = (deployRepo.insertDeployIfNoActive as ReturnType<typeof mock>).mock.calls[0][0];
       expect(insertCall.composeHash).toBe(computeHash(testUpdateRequest.composeContent));
@@ -1002,11 +1130,12 @@ describe('DeployPipeline', () => {
         secretResolver: resolver,
         tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
       });
 
       const { computeHash } = await import('../change-detection');
       const result = await pipeline.execute(requestWithVars);
-      expect(result.status).toBe('succeeded');
+      expect(result.status).toBe('in_progress');
 
       const insertCall = (deployRepo.insertDeployIfNoActive as ReturnType<typeof mock>).mock.calls[0][0];
       expect(insertCall.composeHash).toBe(computeHash(composeWithVars));
@@ -1028,9 +1157,11 @@ describe('DeployPipeline', () => {
         secretResolver: resolver,
         tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
       });
 
       await pipeline.execute(requestWithVars);
+      await drainDetached();
       expect(resolver.resolve).toHaveBeenCalledWith('plex', ['API_TOKEN']);
       const updateCall = (mockAgent.update as ReturnType<typeof mock>).mock.calls[0][0];
       expect(updateCall.envContent).toContain("API_TOKEN='secret-value'");
@@ -1046,9 +1177,11 @@ describe('DeployPipeline', () => {
         secretResolver,
         tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
       });
 
       await pipeline.execute(testUpdateRequest);
+      await drainDetached();
       expect(mockAgent.update).toHaveBeenCalledWith({
         stack: 'plex',
         composeContent: testUpdateRequest.composeContent,
@@ -1091,11 +1224,12 @@ describe('DeployPipeline', () => {
         secretResolver,
         tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
       });
 
-      const result = await pipeline.execute(testUpdateRequest);
-      expect(result.status).toBe('failed');
-      expect(result.logs).toBe('update failed');
+      await pipeline.execute(testUpdateRequest);
+      await drainDetached();
+      expect(deployRepo.updateStatus).toHaveBeenCalledWith(1, 'failed', 'update failed');
       expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
         deployId: 1,
         status: 'failed',
@@ -1119,11 +1253,49 @@ describe('DeployPipeline', () => {
         secretResolver,
         tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
       });
 
-      const result = await pipeline.execute(testUpdateRequest);
-      expect(result.status).toBe('failed');
-      expect(result.logs).toContain('does not support image updates');
+      await pipeline.execute(testUpdateRequest);
+      await drainDetached();
+      expect(deployRepo.updateStatus).toHaveBeenCalledWith(
+        1,
+        'failed',
+        expect.stringContaining('does not support image updates'),
+      );
+    });
+    it('fails the row immediately when the detached dispatch rejects outside its own error handling', async () => {
+      const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
+      });
+      spyOn(pipeline as unknown as { dispatch: () => Promise<void> }, 'dispatch').mockRejectedValue(
+        new Error('unexpected crash'),
+      );
+
+      try {
+        await pipeline.execute(testUpdateRequest);
+        await drainDetached();
+        expect(deployRepo.updateStatus).toHaveBeenCalledWith(
+          1,
+          'failed',
+          expect.stringContaining('Background dispatch crashed'),
+        );
+        expect(deployRepo.notifyStackChange).toHaveBeenCalledWith(
+          'plex',
+          'homeserver',
+          expect.objectContaining({ status: 'failed', deployId: 1 }),
+        );
+        expect(deployRepo.dequeueDeploy).toHaveBeenCalledWith('plex', 'homeserver');
+      } finally {
+        errSpy.mockRestore();
+      }
     });
   });
 
@@ -1182,6 +1354,7 @@ describe('DeployPipeline', () => {
           forceRecreate: false,
           logs: null,
           createdAt: new Date(),
+          startedAt: null,
           postSuccess: null,
         }) as any,
       });
@@ -1313,6 +1486,12 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('succeeded');
       expect(deployRepo.claimPending).toHaveBeenCalledWith(42);
       expect(agentClientFactory).toHaveBeenCalled();
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 42,
+        status: 'in_progress',
+        action: 'deploy',
+        trigger: 'git_push',
+      });
     });
 
     it('rejects resume when claimPending returns false (already claimed or not found)', async () => {

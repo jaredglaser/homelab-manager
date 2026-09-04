@@ -189,14 +189,22 @@ export async function probeShell(container: Dockerode.Container, preferred: stri
         });
       }
     } catch (err) {
-      // Surface the actual error so an operator can diagnose Docker daemon
-      // problems (ECONNREFUSED, EPIPE, broken socket) instead of seeing
-      // "No supported shell found in container" 3 swallowed failures later.
-      console.error('exec probe failed', {
-        shell,
-        containerId: container.id,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      const message = err instanceof Error ? err.message : String(err);
+      // A missing shell binary is an expected probe outcome (Docker answers 400
+      // "OCI runtime exec failed: exec: \"bash\": executable file not found"),
+      // not a daemon problem; only surface real failures as errors.
+      if (message.includes(`exec: "${shell}": executable file not found`)) {
+        console.info('exec probe: shell not present in container', {
+          shell,
+          containerId: container.id,
+        });
+      } else {
+        console.error('exec probe failed', {
+          shell,
+          containerId: container.id,
+          err: message,
+        });
+      }
     }
   }
 

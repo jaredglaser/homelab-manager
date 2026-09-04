@@ -66,6 +66,7 @@ describe('toStackDeployRecord', () => {
     forceRecreate: false,
     logs: 'deploy ok',
     createdAt: new Date('2026-03-01T12:00:00Z'),
+    startedAt: null,
     postSuccess: null,
   };
 
@@ -194,7 +195,7 @@ describe('handleTriggerDeploy', () => {
     });
     await expect(
       handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' })
-    ).rejects.toThrow(/Deploy could not be queued/);
+    ).rejects.toThrow(/Deploy could not be started: no active host/);
   });
 
   test('passes compose content and commit SHA to buildRequest', async () => {
@@ -638,6 +639,7 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
       forceRecreate: false,
       logs: null,
       createdAt: new Date(),
+      startedAt: null,
       postSuccess: null,
     };
 

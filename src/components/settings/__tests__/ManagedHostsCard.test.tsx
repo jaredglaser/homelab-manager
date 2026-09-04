@@ -139,7 +139,7 @@ describe('ManagedHostsCard', () => {
     })
 
     it('marks an off-channel tag chip as a warning', () => {
-      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ agentImageTag: 'dev' })] })} />)
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ agentImageTag: 'main' })] })} />)
       expect(screen.getByLabelText('agent image tag').className).toContain('bg-warning')
     })
 
@@ -466,11 +466,11 @@ describe('ManagedHostsCard', () => {
 
 describe('bucketHostsByAgentChannel', () => {
   it('splits hosts by reported tag', () => {
-    const onChannel = makeHost({ id: 1, name: 'a', agentImageTag: 'latest' })
-    const offChannel = makeHost({ id: 2, name: 'b', agentImageTag: 'dev' })
+    const onChannel = makeHost({ id: 1, name: 'a', agentImageTag: '0.1' })
+    const offChannel = makeHost({ id: 2, name: 'b', agentImageTag: 'main' })
     const silent = makeHost({ id: 3, name: 'c', agentImage: null, agentImageTag: null })
 
-    const buckets = bucketHostsByAgentChannel([onChannel, offChannel, silent], 'latest')
+    const buckets = bucketHostsByAgentChannel([onChannel, offChannel, silent], '0.1')
 
     expect(buckets.mismatched.map((h) => h.name)).toEqual(['b'])
     expect(buckets.unreported.map((h) => h.name)).toEqual(['c'])
@@ -480,7 +480,7 @@ describe('bucketHostsByAgentChannel', () => {
     'does not call a %s host unreported, since we never heard from it',
     (status) => {
       const host = makeHost({ id: 4, name: 'offline', agentImage: null, agentImageTag: null, status })
-      const buckets = bucketHostsByAgentChannel([host], 'latest')
+      const buckets = bucketHostsByAgentChannel([host], '0.1')
       expect(buckets.unreported).toEqual([])
       expect(buckets.mismatched).toEqual([])
     },
@@ -493,7 +493,7 @@ describe('bucketHostsByAgentChannel', () => {
       agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent@sha256:abc123',
       agentImageTag: null,
     })
-    const buckets = bucketHostsByAgentChannel([pinned], 'latest')
+    const buckets = bucketHostsByAgentChannel([pinned], '0.1')
     expect(buckets.unreported).toEqual([])
     expect(buckets.mismatched).toEqual([])
   })
@@ -501,29 +501,29 @@ describe('bucketHostsByAgentChannel', () => {
   it.each([
     ['a malformed tag the agent could not parse', 'ghcr.io/x/agent:-bad'],
     ['an empty tag', 'ghcr.io/x/agent:'],
-    ['a tag this app rejected as oversized', 'ghcr.io/x/agent:dev'],
+    ['a tag this app rejected as oversized', 'ghcr.io/x/agent:main'],
   ])('reports a host whose image is known but whose tag is not (%s)', (_label, image) => {
     const host = makeHost({ id: 8, name: 'untagged', agentImage: image, agentImageTag: null })
-    const buckets = bucketHostsByAgentChannel([host], 'latest')
+    const buckets = bucketHostsByAgentChannel([host], '0.1')
     expect(buckets.unreported.map((h) => h.name)).toEqual(['untagged'])
     expect(buckets.mismatched).toEqual([])
   })
 
-  it('flags a dev host against a latest dashboard and the reverse', () => {
-    const devHost = makeHost({ id: 5, name: 'devbox', agentImageTag: 'dev' })
-    expect(bucketHostsByAgentChannel([devHost], 'latest').mismatched).toHaveLength(1)
-    expect(bucketHostsByAgentChannel([devHost], 'dev').mismatched).toHaveLength(0)
+  it('flags a main host against a 0.1 dashboard and the reverse', () => {
+    const trunkHost = makeHost({ id: 5, name: 'devbox', agentImageTag: 'main' })
+    expect(bucketHostsByAgentChannel([trunkHost], '0.1').mismatched).toHaveLength(1)
+    expect(bucketHostsByAgentChannel([trunkHost], 'main').mismatched).toHaveLength(0)
 
-    const latestHost = makeHost({ id: 6, name: 'prod', agentImageTag: 'latest' })
-    expect(bucketHostsByAgentChannel([latestHost], 'dev').mismatched).toHaveLength(1)
+    const releaseHost = makeHost({ id: 6, name: 'relbox', agentImageTag: '0.1' })
+    expect(bucketHostsByAgentChannel([releaseHost], 'main').mismatched).toHaveLength(1)
   })
 })
 
 describe('agent channel notice', () => {
   const noticeProps = {
-    expectedTag: 'dev',
-    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
-    agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:dev',
+    expectedTag: '0.1',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:0.1',
+    agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:0.1',
     mismatched: [],
     unreported: [],
   }
@@ -534,19 +534,19 @@ describe('agent channel notice', () => {
   })
 
   it('surfaces hosts on the wrong channel from the card', () => {
-    const hosts = [makeHost({ id: 9, name: 'oddball', agentImage: 'ghcr.io/x/agent:dev', agentImageTag: 'dev' })]
+    const hosts = [makeHost({ id: 9, name: 'oddball', agentImage: 'ghcr.io/x/agent:main', agentImageTag: 'main' })]
     render(<ManagedHostsCardView {...makeProps({ hosts })} />)
     const alert = within(screen.getByRole('alert'))
     expect(alert.getByText('1 host is not on the latest channel')).toBeTruthy()
     expect(alert.getByText('oddball')).toBeTruthy()
-    expect(alert.getByText('ghcr.io/x/agent:dev')).toBeTruthy()
+    expect(alert.getByText('ghcr.io/x/agent:main')).toBeTruthy()
   })
 
   it('names the channel and the images new hosts get', () => {
     render(<AgentChannelNotice {...noticeProps} />)
-    expect(screen.getByText('Agents pinned to the dev channel')).toBeTruthy()
-    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent:dev')).toBeTruthy()
-    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent-updater:dev')).toBeTruthy()
+    expect(screen.getByText('Agents pinned to the 0.1 channel')).toBeTruthy()
+    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent:0.1')).toBeTruthy()
+    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent-updater:0.1')).toBeTruthy()
   })
 
   it('lists each mismatched host with the image it actually runs', () => {
@@ -555,7 +555,7 @@ describe('agent channel notice', () => {
       makeHost({ id: 2, name: 'beta', agentImage: 'ghcr.io/x/agent:v0.9', agentImageTag: 'v0.9' }),
     ]
     render(<AgentChannelNotice {...noticeProps} mismatched={mismatched} />)
-    expect(screen.getByText('2 hosts are not on the dev channel')).toBeTruthy()
+    expect(screen.getByText('2 hosts are not on the 0.1 channel')).toBeTruthy()
     expect(screen.getByText('alpha')).toBeTruthy()
     expect(screen.getByText('ghcr.io/x/agent:latest')).toBeTruthy()
     expect(screen.getByText('beta')).toBeTruthy()
