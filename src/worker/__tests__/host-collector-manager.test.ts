@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { waitForCondition } from '@/lib/test/wait-for-condition';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import {
@@ -394,7 +395,7 @@ describe('HostCollectorManager', () => {
 
     await manager.reconcile();
     rejectFn(new Error('stream died'));
-    await new Promise((r) => setTimeout(r, 0));
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
     expect(console.error).toHaveBeenCalled();
 
     await manager[Symbol.asyncDispose]();

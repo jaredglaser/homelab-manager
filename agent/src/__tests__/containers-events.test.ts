@@ -4,6 +4,7 @@ import { handleContainerEvents } from '../routes/containers-events';
 import { _resetBroadcasterForTesting } from '../lib/docker-events-broadcaster';
 import { zInventorySnapshotContainer } from '../types/protocol';
 import { readUntil, parseDataFrames } from '../lib/test/sse-test-utils';
+import { waitFor } from '../lib/test/wait-for';
 
 const originalConsoleError = console.error;
 
@@ -203,12 +204,17 @@ describe('handleContainerEvents: start event produces upsert', () => {
     const containers = [makeContainer('c1', 'app1', 'running')];
     const docker = makeDocker(containers, eventsEmitter);
 
+    const dataListenerAttached = new Promise<void>((resolve) => {
+      eventsEmitter.once('newListener', (eventName) => {
+        if (eventName === 'data') resolve();
+      });
+    });
+
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
     const response = await handleContainerEvents(docker as any, request);
 
-    // Wait for the broadcaster to start and the events stream to be established
-    await new Promise((r) => setTimeout(r, 50));
+    await dataListenerAttached;
 
     // Emit a start event
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
@@ -248,11 +254,17 @@ describe('handleContainerEvents: die event produces upsert with exited state', (
       })),
     };
 
+    const dataListenerAttached = new Promise<void>((resolve) => {
+      eventsEmitter.once('newListener', (eventName) => {
+        if (eventName === 'data') resolve();
+      });
+    });
+
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
     const response = await handleContainerEvents(docker as any, request);
 
-    await new Promise((r) => setTimeout(r, 50));
+    await dataListenerAttached;
 
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
@@ -279,11 +291,17 @@ describe('handleContainerEvents: destroy event', () => {
     const containers = [makeContainer('c1', 'app1')];
     const docker = makeDocker(containers, eventsEmitter);
 
+    const dataListenerAttached = new Promise<void>((resolve) => {
+      eventsEmitter.once('newListener', (eventName) => {
+        if (eventName === 'data') resolve();
+      });
+    });
+
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
     const response = await handleContainerEvents(docker as any, request);
 
-    await new Promise((r) => setTimeout(r, 50));
+    await dataListenerAttached;
 
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
@@ -332,7 +350,14 @@ describe('handleContainerEvents: multiple subscribers', () => {
   });
 
   test('getEvents called only once for multiple subscribers (shared broadcaster)', async () => {
-    const docker = makeDocker([]);
+    const eventsEmitter = new EventEmitter();
+    const docker = makeDocker([], eventsEmitter);
+
+    const dataListenerAttached = new Promise<void>((resolve) => {
+      eventsEmitter.once('newListener', (eventName) => {
+        if (eventName === 'data') resolve();
+      });
+    });
 
     const ac1 = new AbortController();
     const ac2 = new AbortController();
@@ -340,9 +365,8 @@ describe('handleContainerEvents: multiple subscribers', () => {
     const req2 = new Request('http://localhost/containers/events', { signal: ac2.signal });
 
     await handleContainerEvents(docker as any, req1);
-    await new Promise((r) => setTimeout(r, 20));
+    await dataListenerAttached;
     await handleContainerEvents(docker as any, req2);
-    await new Promise((r) => setTimeout(r, 20));
 
     ac1.abort();
     ac2.abort();
@@ -355,19 +379,26 @@ describe('handleContainerEvents: multiple subscribers', () => {
     const containers = [makeContainer('c1', 'app1')];
     const docker = makeDocker(containers, eventsEmitter);
 
+    const dataListenerAttached = new Promise<void>((resolve) => {
+      eventsEmitter.once('newListener', (eventName) => {
+        if (eventName === 'data') resolve();
+      });
+    });
+
     const ac1 = new AbortController();
     const ac2 = new AbortController();
     const req1 = new Request('http://localhost/containers/events', { signal: ac1.signal });
     const req2 = new Request('http://localhost/containers/events', { signal: ac2.signal });
 
-    await handleContainerEvents(docker as any, req1);
+    const resp1 = await handleContainerEvents(docker as any, req1);
     const resp2 = await handleContainerEvents(docker as any, req2);
 
-    await new Promise((r) => setTimeout(r, 30));
+    await dataListenerAttached;
 
     // Abort first subscriber
     ac1.abort();
-    await new Promise((r) => setTimeout(r, 20));
+    const reader1 = resp1.body!.getReader();
+    while (!(await reader1.read()).done);
 
     // Emit destroy; subscriber2 should still receive it
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
@@ -385,14 +416,20 @@ describe('handleContainerEvents: multiple subscribers', () => {
 
 describe('handleContainerEvents: request abort cleanup', () => {
   test('stream closes when request is aborted', async () => {
-    const docker = makeDocker([]);
+    const eventsEmitter = new EventEmitter();
+    const docker = makeDocker([], eventsEmitter);
+    const dataListenerAttached = new Promise<void>((resolve) => {
+      eventsEmitter.once('newListener', (eventName) => {
+        if (eventName === 'data') resolve();
+      });
+    });
+
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
     const response = await handleContainerEvents(docker as any, request);
 
-    await new Promise((r) => setTimeout(r, 20));
+    await dataListenerAttached;
     ac.abort();
-    await new Promise((r) => setTimeout(r, 20));
 
     const reader = response.body!.getReader();
     let done = false;
@@ -440,7 +477,7 @@ describe('handleContainerEvents: request abort cleanup', () => {
     const response = await handleContainerEvents(docker as any, request);
     const reader = response.body!.getReader();
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => listHolder.resolve !== null);
     ac.abort();
     listHolder.resolve?.([]);
 
@@ -457,14 +494,19 @@ describe('handleContainerEvents: error resilience', () => {
     const eventsEmitter = new EventEmitter();
     const docker = makeDocker([], eventsEmitter);
 
+    const dataListenerAttached = new Promise<void>((resolve) => {
+      eventsEmitter.once('newListener', (eventName) => {
+        if (eventName === 'data') resolve();
+      });
+    });
+
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
     const response = await handleContainerEvents(docker as any, request);
     expect(response.status).toBe(200);
 
-    await new Promise((r) => setTimeout(r, 20));
+    await dataListenerAttached;
     eventsEmitter.emit('error', new Error('stream dropped'));
-    await new Promise((r) => setTimeout(r, 20));
 
     ac.abort();
   });
@@ -480,7 +522,7 @@ describe('handleContainerEvents: error resilience', () => {
     const response = await handleContainerEvents(docker as any, request);
 
     expect(response.status).toBe(200);
-    await new Promise((r) => setTimeout(r, 20));
+    await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
   });
 });

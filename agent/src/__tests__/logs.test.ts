@@ -1,6 +1,7 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { handleLogStream } from '../routes/logs';
+import { waitFor } from '../lib/test/wait-for';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -73,7 +74,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
 
@@ -90,7 +91,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
 
@@ -111,7 +112,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
 
@@ -128,7 +129,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     const fullFrame = buildMuxedFrame(1, 'split across chunks');
 
@@ -150,7 +151,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
 
@@ -165,7 +166,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('error', new Error('socket hang up'));
 
@@ -218,10 +219,10 @@ describe('handleLogStream', () => {
     const request = makeRequest(abortController);
     handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     abortController.abort();
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => destroySpy.mock.calls.length > 0);
 
     expect(destroySpy).toHaveBeenCalledTimes(1);
   });
@@ -235,15 +236,13 @@ describe('handleLogStream', () => {
     const request = makeRequest(abortController);
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     // Stream error closes the controller
     liveEmitter.emit('error', new Error('pipe broken'));
-    await new Promise((r) => setTimeout(r, 10));
 
     // Abort after error; controller.close() will throw TypeError (already closed)
     abortController.abort();
-    await new Promise((r) => setTimeout(r, 10));
 
     const body = await drainStream(response);
     expect(body).toContain('event: error');
@@ -259,7 +258,7 @@ describe('handleLogStream', () => {
     const request = makeRequest(abortController);
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     // Send some data before abort
     liveEmitter.emit('data', Buffer.from('before abort\n'));
@@ -282,7 +281,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
 
@@ -308,7 +307,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
     await drainStream(response);
@@ -328,7 +327,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('data', Buffer.from('live line\n'));
     liveEmitter.emit('end');
@@ -397,13 +396,14 @@ describe('handleLogStream', () => {
       const request = makeRequest();
       const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-      await new Promise((r) => setTimeout(r, 20));
+      await waitFor(() => heartbeatCb !== null);
 
       // Fire the heartbeat callback
       expect(heartbeatCb).not.toBeNull();
       expect(heartbeatDelays).toEqual([5000]);
       heartbeatCb!();
 
+      await waitFor(() => liveEmitter.listenerCount('data') > 0);
       liveEmitter.emit('end');
 
       const body = await drainStream(response);
@@ -435,11 +435,10 @@ describe('handleLogStream', () => {
       const request = makeRequest(abortController);
       handleLogStream(mockDocker as any, 'abc123', request);
 
-      await new Promise((r) => setTimeout(r, 20));
+      await waitFor(() => heartbeatCb !== null);
 
       // Close the stream, then fire heartbeat; it should clearInterval
       abortController.abort();
-      await new Promise((r) => setTimeout(r, 10));
       heartbeatCb!();
       expect(clearedIds).toContain(fakeTimerId);
     } finally {
@@ -468,13 +467,13 @@ describe('handleLogStream', () => {
     const request = makeRequest(abortController);
     handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() => resolveLogsPromise !== null);
 
     // Now resolve the logs promise with our emitter, then immediately abort
     resolveLogsPromise!(liveEmitter);
-    await new Promise((r) => setTimeout(r, 5));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
     abortController.abort();
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() => destroySpy.mock.calls.length > 0);
 
     // The liveStream.destroy should have been called via the abort handler or post-await check
     expect(destroySpy).toHaveBeenCalled();
@@ -501,8 +500,7 @@ describe('handleLogStream', () => {
     const request = makeRequest(abortController);
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    // Wait for the stream to process
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => destroySpy.mock.calls.length > 0);
 
     const body = await drainStream(response, 200);
     expect(body).toContain('event: backlog_done');
@@ -520,7 +518,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
     await drainStream(response);
@@ -541,7 +539,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
     await drainStream(response);
@@ -561,7 +559,7 @@ describe('handleLogStream', () => {
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await waitFor(() => liveEmitter.listenerCount('data') > 0);
 
     liveEmitter.emit('end');
     await drainStream(response);

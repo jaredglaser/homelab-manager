@@ -2,6 +2,7 @@ import { describe, expect, test, mock, beforeEach, afterEach, spyOn } from 'bun:
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import type net from 'node:net';
+import { waitFor } from '../lib/test/wait-for';
 
 /** Readable stream whose data/end/error can be driven from outside. */
 function makeControllableStream() {
@@ -404,8 +405,9 @@ describe('handleExecSocket', () => {
 
     await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
 
+    const sendsBeforePush = mockWs.send.mock.calls.length;
     push(Buffer.from('hello'));
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() => mockWs.send.mock.calls.length > sendsBeforePush);
 
     expect(startStream).toHaveBeenCalledWith('docker', 2375, 'exec-id-xyz');
     expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('hello'));
@@ -454,7 +456,7 @@ describe('handleExecSocket', () => {
     await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
 
     push(null); // end the stream
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() => mockWs.close.mock.calls.length > 0);
 
     expect(mockWs.close).toHaveBeenCalledWith(1000, 'Shell exited');
   });
@@ -472,7 +474,7 @@ describe('handleExecSocket', () => {
     await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
 
     errorStream(new Error('pipe broken'));
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() => mockWs.close.mock.calls.length > 0);
 
     expect(mockWs.close).toHaveBeenCalledWith(1011, 'Exec stream error');
   });
@@ -509,8 +511,9 @@ describe('handleExecSocket', () => {
 
     await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
 
+    const sendsBeforePush = mockWs.send.mock.calls.length;
     push(Buffer.from('output-after-resize-deferred'));
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() => mockWs.send.mock.calls.length > sendsBeforePush);
 
     expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('output-after-resize-deferred'));
     // Sanity: resize WAS dispatched on the TTY exec instance the handler
@@ -538,9 +541,12 @@ describe('handleExecSocket', () => {
 
     await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
 
+    const sendsBeforePush = mockWs.send.mock.calls.length;
     push(Buffer.from('still-flowing'));
-    // Allow the rejected resize promise's .catch handler to settle.
-    await new Promise((r) => setTimeout(r, 20));
+    await waitFor(() => mockWs.send.mock.calls.length > sendsBeforePush);
+    // Settle the rejected resize promise deterministically before asserting the session stayed open.
+    const execInstance = await (ttyContainer.exec.mock.results[0]!.value as Promise<{ resize: ReturnType<typeof mock> }>);
+    await (execInstance.resize.mock.results[0]!.value as Promise<void>).catch(() => {});
 
     expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('still-flowing'));
     // The session must NOT have been closed by the resize rejection.
