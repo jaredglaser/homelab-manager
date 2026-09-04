@@ -92,10 +92,11 @@ mock.module('@/hooks/toastAtom', () => ({ useToast: () => ({ showToast: mockShow
 type DeleteResult = { status: 'removed'; commitSha: string } | { status: 'teardown-pending'; deployId: number };
 // Fresh id per call: the deployToastGate singleton dedupes by id across this whole file.
 let nextDeployId = 1;
+let nextResumeDeployId = 5000;
 const mockTriggerDeploy = mock((_args: unknown): Promise<{ deployId: number; status: DeployStatus; logs: string }> => Promise.resolve({ deployId: nextDeployId++, status: 'succeeded', logs: '' }));
 const mockDeleteStack = mock((_args: unknown): Promise<DeleteResult> => Promise.resolve({ status: 'removed', commitSha: 'x' }));
 const mockUpdateSettings = mock((_args: unknown) => Promise.resolve({ commitSha: 'x' }));
-const mockResumeDeploy = mock((_args: unknown): Promise<{ deployId: number; status: DeployStatus; logs: string }> => Promise.resolve({ deployId: 1, status: 'succeeded', logs: '' }));
+const mockResumeDeploy = mock((_args: unknown): Promise<{ deployId: number; status: DeployStatus; logs: string }> => Promise.resolve({ deployId: nextResumeDeployId++, status: 'succeeded', logs: '' }));
 const mockRejectDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
 const mockScanDrift = mock(() => Promise.resolve({
   items: [],
@@ -156,7 +157,7 @@ describe('StackEditorForm', () => {
     mockTriggerDeploy.mockImplementation(() => Promise.resolve({ deployId: nextDeployId++, status: 'succeeded' as const, logs: '' }));
     mockDeleteStack.mockImplementation(() => Promise.resolve({ status: 'removed', commitSha: 'x' }));
     mockUpdateSettings.mockImplementation(() => Promise.resolve({ commitSha: 'x' }));
-    mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: 1, status: 'succeeded' as const, logs: '' }));
+    mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: nextResumeDeployId++, status: 'succeeded' as const, logs: '' }));
     mockRejectDeploy.mockImplementation(() => Promise.resolve({ deployId: 1 }));
     capturedBlockerOpts = undefined;
     blockerReturn = { status: 'idle', proceed: proceedSpy, reset: resetSpy };
@@ -329,11 +330,11 @@ describe('StackEditorForm', () => {
     await renderForm();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
     await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
-    expect(mockShowToast).toHaveBeenCalledWith('Deploy of web succeeded', 'success');
+    expect(mockShowToast).toHaveBeenCalledWith('Deploy of host1/web succeeded', 'success');
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-teardown' })); });
     await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(2));
-    expect(mockShowToast).toHaveBeenCalledWith('Teardown of web succeeded', 'success');
+    expect(mockShowToast).toHaveBeenCalledWith('Teardown of host1/web succeeded', 'success');
   });
 
   it('warns before deploying with unsaved changes and deploys on confirm', async () => {
@@ -367,7 +368,7 @@ describe('StackEditorForm', () => {
     expect(mockTriggerDeploy).toHaveBeenCalledWith({
       data: { stack: 'web', host: 'host1', action: 'update', forceRecreate: undefined },
     });
-    expect(mockShowToast).toHaveBeenCalledWith('Image update of web succeeded', 'success');
+    expect(mockShowToast).toHaveBeenCalledWith('Image update of host1/web succeeded', 'success');
   });
 
   it('warns before updating with unsaved changes and updates on confirm', async () => {
@@ -469,7 +470,7 @@ describe('StackEditorForm', () => {
     mockTriggerDeploy.mockImplementation(() => Promise.resolve({ deployId: nextDeployId++, status: 'failed' as const, logs: 'image not found' }));
     await renderForm();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
-    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of web failed: image not found', 'error'));
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of host1/web failed: image not found', 'error'));
   });
 
   it('approves and rejects pending deploys from the deploys panel', async () => {
@@ -478,19 +479,19 @@ describe('StackEditorForm', () => {
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'approve' })); });
     await waitFor(() => expect(mockResumeDeploy).toHaveBeenCalledWith({ data: { deployId: 7 } }));
-    expect(mockShowToast).toHaveBeenCalledWith('Deploy of web succeeded', 'success');
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of host1/web succeeded', 'success'));
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'reject' })); });
     await waitFor(() => expect(mockRejectDeploy).toHaveBeenCalledWith({ data: { deployId: 7 } }));
   });
 
   it('formats a failed outcome when the approve request resolves with status failed', async () => {
-    mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: 1, status: 'failed' as const, logs: 'agent down' }));
+    mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: nextResumeDeployId++, status: 'failed' as const, logs: 'agent down' }));
     await renderForm();
     fireEvent.click(screen.getByRole('tab', { name: /Deploys/ }));
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'approve' })); });
-    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of web failed: agent down', 'error'));
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of host1/web failed: agent down', 'error'));
   });
 
   it('cross-source dedupe through the real gate: a pre-claim suppresses the mutation toast, and the mutation claiming first suppresses a later check for the same id', async () => {
@@ -501,12 +502,12 @@ describe('StackEditorForm', () => {
     deployToastGate.claim(preClaimedId);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
     await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
-    expect(mockShowToast).not.toHaveBeenCalledWith('Deploy of web succeeded', 'success');
+    expect(mockShowToast).not.toHaveBeenCalledWith('Deploy of host1/web succeeded', 'success');
 
     mockShowToast.mockClear();
     const secondId = nextDeployId;
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
-    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of web succeeded', 'success'));
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of host1/web succeeded', 'success'));
     expect(deployToastGate.shouldToast(secondId)).toBe(false);
   });
 
@@ -523,7 +524,7 @@ describe('StackEditorForm', () => {
     expect(deployToastGate.shouldToast(810001)).toBe(true);
   });
 
-  it('releases the approve pre-claim when the resume returns in_progress so SSE can toast', async () => {
+  it('never touches the gate on an in_progress approve ack, leaving the terminal toast to SSE', async () => {
     const { deployToastGate } = await import('@/lib/stacks/deploy-outcome-toast');
     mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: 810002, status: 'in_progress' as DeployStatus, logs: 'Image update started' }));
     await renderForm();
@@ -540,7 +541,7 @@ describe('StackEditorForm', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Deploys/ }));
 
     fireEvent.click(screen.getByRole('button', { name: 'rollback-ok' }));
-    expect(mockShowToast).toHaveBeenCalledWith('Rollback of web succeeded', 'success');
+    expect(mockShowToast).toHaveBeenCalledWith('Rollback of host1/web succeeded', 'success');
 
     fireEvent.click(screen.getByRole('button', { name: 'rollback-err' }));
     expect(mockShowToast).toHaveBeenCalledWith('rollback boom', 'error');

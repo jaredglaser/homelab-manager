@@ -72,7 +72,7 @@ describe('StackDriftActions', () => {
     await renderActions();
     await triggerResolution();
 
-    expect(mockShowToast).not.toHaveBeenCalledWith('Deploy of server1/donetick succeeded.', 'success');
+    expect(mockShowToast).not.toHaveBeenCalledWith('Deploy of server1/donetick succeeded', 'success');
   });
 
   it('toasts the deploy outcome when the mutation wins the gate', async () => {
@@ -82,7 +82,7 @@ describe('StackDriftActions', () => {
     await renderActions();
     await triggerResolution();
 
-    expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/donetick succeeded.', 'success');
+    expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/donetick succeeded', 'success');
     // The mutation consumed the one-shot claim, so the SSE terminal frame for
     // the same deployId stays silent.
     expect(deployToastGate.shouldToast(deployId)).toBe(false);
@@ -91,10 +91,10 @@ describe('StackDriftActions', () => {
   it('toasts without claiming the gate when the resolution ran no deploy', async () => {
     resolveResult = resolutionResult({ deployId: null, deployStatus: null });
 
-    await renderActions();
+    await renderActions({ ...ghostItem, host: 'server2' });
     await triggerResolution();
 
-    expect(mockShowToast).toHaveBeenCalledWith('Resolved drift for server1/donetick.', 'success');
+    expect(mockShowToast).toHaveBeenCalledWith('Resolved drift for server2/donetick', 'success');
   });
 
   it('toasts the still-deploying info without consuming the gate for a non-terminal deploy', async () => {
@@ -105,7 +105,7 @@ describe('StackDriftActions', () => {
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith(
-      'Drift resolution for server1/donetick is still deploying.',
+      'Drift resolution for server1/donetick is still deploying',
       'info',
     );
     // The later terminal SSE frame must still be able to toast.
