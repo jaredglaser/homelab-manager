@@ -1,9 +1,18 @@
 import type Dockerode from 'dockerode';
 import type { AgentImageInfo } from '../lib/agent-image';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
-import pkg from '../../package.json';
-
-const { version } = pkg;
+// CI stamps AGENT_VERSION from the release tag at image build time. Local dev
+// falls back to the short commit hash, matching what non-tag CI images report.
+const resolveAgentVersion = (): string => {
+  if (process.env.AGENT_VERSION) return process.env.AGENT_VERSION;
+  try {
+    const { stdout, exitCode } = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD']);
+    if (exitCode === 0) return stdout.toString().trim();
+  } catch {
+    // No git binary or repo (e.g. running outside a checkout)
+  }
+  return 'dev';
+};
 
 interface DockerCapability {
   available: boolean;
@@ -81,7 +90,7 @@ export async function handleInfo(
   return Response.json(
     {
       status: isHealthy ? 'healthy' : 'unhealthy',
-      agentVersion: version,
+      agentVersion: resolveAgentVersion(),
       agentImage: agentImage?.image ?? null,
       agentImageTag: agentImage?.tag ?? null,
       capabilities: {
