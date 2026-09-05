@@ -3,11 +3,11 @@
  * The agent is not a workspace member and cannot import web code, so the
  * helper exists once on each side of the split (same seam as sse-stream.ts).
  */
-export async function waitFor(
+export async function waitForCondition(
   predicate: () => boolean,
   opts: { timeoutMs?: number; intervalMs?: number; message?: string } = {},
 ): Promise<void> {
-  const { timeoutMs = 1000, intervalMs = 5, message = 'waitFor: condition not met within timeout' } = opts;
+  const { timeoutMs = 1000, intervalMs = 5, message = 'waitForCondition: condition not met within timeout' } = opts;
   const start = Date.now();
   while (!predicate()) {
     if (Date.now() - start > timeoutMs) {

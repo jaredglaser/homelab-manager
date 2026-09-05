@@ -2,7 +2,7 @@ import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { handleStatsStream, computeMetrics, type StatsStreamOptions, type ComputedStats } from '../routes/stats';
 import { readUntil } from '../lib/test/sse-test-utils';
-import { waitFor } from '../lib/test/wait-for';
+import { waitForCondition } from '../lib/test/wait-for-condition';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -208,7 +208,7 @@ describe('handleStatsStream', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request);
 
-    await waitFor(() => statsEmitter.listenerCount('data') > 0);
+    await waitForCondition(() => statsEmitter.listenerCount('data') > 0);
 
     statsEmitter.emit('data', Buffer.from(makeStatsJson() + '\n'));
 
@@ -256,12 +256,12 @@ describe('handleStatsStream', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request);
 
-    await waitFor(() => statsEmitter.listenerCount('data') > 0);
+    await waitForCondition(() => statsEmitter.listenerCount('data') > 0);
 
     statsEmitter.emit('data', Buffer.from(makeStatsJson() + '\n'));
 
     ac.abort();
-    await waitFor(() => destroySpy.mock.calls.length > 0);
+    await waitForCondition(() => destroySpy.mock.calls.length > 0);
 
     expect(destroySpy).toHaveBeenCalledTimes(1);
 
@@ -310,7 +310,7 @@ describe('handleStatsStream', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request);
 
-    await waitFor(() => goodEmitter.listenerCount('data') > 0);
+    await waitForCondition(() => goodEmitter.listenerCount('data') > 0);
 
     goodEmitter.emit('data', Buffer.from(makeStatsJson() + '\n'));
 
@@ -340,7 +340,7 @@ describe('handleStatsStream', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request);
 
-    await waitFor(() => statsEmitter.listenerCount('data') > 0);
+    await waitForCondition(() => statsEmitter.listenerCount('data') > 0);
 
     statsEmitter.emit('error', new Error('connection reset'));
 
@@ -369,7 +369,7 @@ describe('handleStatsStream', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     handleStatsStream(mockDocker as any, request);
 
-    await waitFor(() => statsEmitter.listenerCount('data') > 0);
+    await waitForCondition(() => statsEmitter.listenerCount('data') > 0);
 
     // Emit end; the stream should be cleaned up
     statsEmitter.emit('end');
@@ -400,7 +400,7 @@ describe('handleStatsStream', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request);
 
-    await waitFor(() => statsEmitter.listenerCount('data') > 0);
+    await waitForCondition(() => statsEmitter.listenerCount('data') > 0);
 
     statsEmitter.emit('data', Buffer.from(makeStatsJson() + '\n'));
 
@@ -426,7 +426,7 @@ describe('handleStatsStream', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request);
 
-    await waitFor(() => statsEmitter.listenerCount('data') > 0);
+    await waitForCondition(() => statsEmitter.listenerCount('data') > 0);
 
     // Send malformed JSON followed by valid JSON
     statsEmitter.emit('data', Buffer.from('not valid json\n' + makeStatsJson() + '\n'));
@@ -454,7 +454,7 @@ describe('handleStatsStream', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request);
 
-    await waitFor(() => statsEmitter.listenerCount('data') > 0);
+    await waitForCondition(() => statsEmitter.listenerCount('data') > 0);
 
     // Send two JSON frames in a single chunk
     const twoFrames = makeStatsJson() + '\n' + makeStatsJson() + '\n';
@@ -496,7 +496,7 @@ describe('handleStatsStream: container refresh', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request, fastOptions);
 
-    await waitFor(() => emitter2.listenerCount('data') > 0);
+    await waitForCondition(() => emitter2.listenerCount('data') > 0);
 
     // Emit data from the new container
     emitter2.emit('data', Buffer.from(makeStatsJson() + '\n'));
@@ -532,7 +532,7 @@ describe('handleStatsStream: container refresh', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request, fastOptions);
 
-    await waitFor(() => emitter1.listenerCount('data') > 0);
+    await waitForCondition(() => emitter1.listenerCount('data') > 0);
 
     // Emit a stats frame so prevFrames has an entry for rm1
     emitter1.emit('data', Buffer.from(makeStatsJson() + '\n'));

@@ -11,7 +11,7 @@ import {
   portCandidatesFromList,
 } from '../docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../docker-events-broadcaster';
-import { waitFor } from '../test/wait-for';
+import { waitForCondition } from '../test/wait-for-condition';
 
 const originalConsoleError = console.error;
 
@@ -171,7 +171,7 @@ describe('subscribe: multiple subscribers', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received2.some((e) => e.op === 'upsert'));
+    await waitForCondition(() => received2.some((e) => e.op === 'upsert'));
     unsub2();
 
     const upserts = received2.filter((e) => e.op === 'upsert');
@@ -193,7 +193,7 @@ describe('subscribe: upsert events', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received.some((e) => e.op === 'upsert'));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -227,7 +227,7 @@ describe('subscribe: upsert events', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received.some((e) => e.op === 'upsert'));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -261,7 +261,7 @@ describe('subscribe: upsert events', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received.some((e) => e.op === 'upsert'));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -290,7 +290,7 @@ describe('subscribe: upsert events', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received.some((e) => e.op === 'destroy'));
+    await waitForCondition(() => received.some((e) => e.op === 'destroy'));
     unsub();
 
     const destroys = received.filter((e) => e.op === 'destroy');
@@ -314,7 +314,7 @@ describe('subscribe: destroy events', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received.some((e) => e.op === 'destroy'));
+    await waitForCondition(() => received.some((e) => e.op === 'destroy'));
     unsub();
 
     const destroys = received.filter((e) => e.op === 'destroy');
@@ -336,7 +336,7 @@ describe('subscribe: destroy events', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received.some((e) => e.op === 'destroy'));
+    await waitForCondition(() => received.some((e) => e.op === 'destroy'));
 
     // A second subscriber should see an init without c1
     const received2: BroadcasterEvent[] = [];
@@ -358,7 +358,7 @@ describe('subscribe: stream reconnect', () => {
 
     // Emit stream error; broadcaster should log and schedule reconnect
     eventsEmitter.emit('error', new Error('stream error'));
-    await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
     unsub();
 
@@ -372,7 +372,7 @@ describe('subscribe: stream reconnect', () => {
     const unsub = await subscribe(docker as any, () => {});
 
     eventsEmitter.emit('end');
-    await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
     unsub();
 
@@ -410,7 +410,7 @@ describe('subscribe: stream reconnect', () => {
       };
 
       const unsub = await subscribe(docker as any, () => {});
-      await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       expect(console.error).toHaveBeenCalled();
       expect(timerCallbacks.length).toBeGreaterThan(0);
@@ -446,7 +446,7 @@ describe('subscribe: stream reconnect', () => {
 
     try {
       eventsEmitter.emit('error', new Error('disconnect'));
-      await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       for (const cb of timerCallbacks) {
         await (cb as () => Promise<void> | void)();
@@ -476,7 +476,7 @@ describe('subscribe: stream reconnect', () => {
 
     try {
       eventsEmitter.emit('error', new Error('disconnect'));
-      await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       // Unsubscribe before the timer fires
       unsub();
@@ -617,7 +617,7 @@ describe('subscribe: error handling', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
     unsub();
   });
 });
@@ -651,7 +651,7 @@ describe('broadcastToAll: subscriber isolation', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received1.some((e) => e.op === 'destroy'));
+    await waitForCondition(() => received1.some((e) => e.op === 'destroy'));
     unsubA();
     unsubB();
     unsubC();
@@ -703,7 +703,7 @@ describe('subscribe: error handling (data handler catch path)', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
     unsub();
 
     // The .catch on the handleDockerEvent call should have logged the error
@@ -737,7 +737,7 @@ describe('subscribe: pause and unpause events (Fix 2)', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received.some((e) => e.op === 'upsert'));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -771,7 +771,7 @@ describe('subscribe: pause and unpause events (Fix 2)', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await waitFor(() => received.some((e) => e.op === 'upsert'));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -821,7 +821,7 @@ describe('subscribe: reconnect fresh init (Fix 3)', () => {
 
       // Simulate stream error to trigger scheduleReconnect
       eventsEmitter.emit('error', new Error('disconnected'));
-      await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       // Verify we captured the reconnect callback
       expect(capturedReconnectCallback).not.toBeNull();
@@ -1081,7 +1081,7 @@ describe('_resetBroadcasterForTesting: with active reconnect timer', () => {
     try {
       // Trigger a stream error; scheduleReconnect will capture a timer via mocked setTimeout
       eventsEmitter.emit('error', new Error('disconnect'));
-      await waitFor(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       // Reset while the timer is pending; exercises lines 224-225
       _resetBroadcasterForTesting();

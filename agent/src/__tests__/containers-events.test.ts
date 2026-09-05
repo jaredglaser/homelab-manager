@@ -4,7 +4,7 @@ import { handleContainerEvents } from '../routes/containers-events';
 import { _resetBroadcasterForTesting } from '../lib/docker-events-broadcaster';
 import { zInventorySnapshotContainer } from '../types/protocol';
 import { readUntil, parseDataFrames } from '../lib/test/sse-test-utils';
-import { waitFor } from '../lib/test/wait-for';
+import { waitForCondition } from '../lib/test/wait-for-condition';
 
 const originalConsoleError = console.error;
 
@@ -475,7 +475,7 @@ describe('handleContainerEvents: request abort cleanup', () => {
     const response = await handleContainerEvents(docker as any, request);
     const reader = response.body!.getReader();
 
-    await waitFor(() => listHolder.resolve !== null);
+    await waitForCondition(() => listHolder.resolve !== null);
     ac.abort();
     listHolder.resolve?.([]);
 
