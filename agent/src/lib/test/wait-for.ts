@@ -1,10 +1,18 @@
-/** Poll a real condition until it holds or the timeout elapses (bun:test stand-in for Testing Library waitFor). */
-export async function waitFor(condition: () => boolean, timeoutMs = 1000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
-    if (Date.now() >= deadline) {
-      throw new Error(`waitFor timed out after ${timeoutMs}ms`);
+/**
+ * Bun:test counterpart of the web app's `src/lib/test/wait-for-condition.ts`.
+ * The agent is not a workspace member and cannot import web code, so the
+ * helper exists once on each side of the split (same seam as sse-stream.ts).
+ */
+export async function waitFor(
+  predicate: () => boolean,
+  opts: { timeoutMs?: number; intervalMs?: number; message?: string } = {},
+): Promise<void> {
+  const { timeoutMs = 1000, intervalMs = 5, message = 'waitFor: condition not met within timeout' } = opts;
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(message);
     }
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
