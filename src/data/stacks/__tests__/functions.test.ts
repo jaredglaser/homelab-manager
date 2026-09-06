@@ -94,6 +94,7 @@ const mockScanStackDrift = mock(() => Promise.resolve({
   items: [],
   summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
   scanErrors: [],
+  hostAnomalies: [],
 }));
 const mockResolveStackDriftItem = mock((input: { host: string; stack: string; kind: string; resolution: string }) =>
   Promise.resolve({

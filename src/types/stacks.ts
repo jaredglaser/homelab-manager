@@ -41,10 +41,16 @@ export interface StackDriftScanError {
   message: string;
 }
 
+export interface StackDriftHostAnomaly {
+  host: string;
+  message: string;
+}
+
 export interface StackDriftReport {
   items: StackDriftItem[];
   summary: StackDriftSummary;
   scanErrors: StackDriftScanError[];
+  hostAnomalies: StackDriftHostAnomaly[];
 }
 
 /**

@@ -6,6 +6,7 @@
 import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
 import type { DeployRecord } from '@/lib/deploy/types';
 import type {
+  StackDriftHostAnomaly,
   StackDriftItem,
   StackDriftKind,
   StackDriftReport,
@@ -44,6 +45,14 @@ const KIND_LABELS: Record<StackDriftKind, string> = {
 
 export function getStackDriftKindLabel(kind: StackDriftKind): string {
   return KIND_LABELS[kind];
+}
+
+function buildEmptyInventoryMessage(repoStackCount: number): string {
+  return (
+    `Agent returned an empty stack inventory while the repo tracks ${repoStackCount} stack(s) on this host. ` +
+    "The agent's stacks directory may be missing, misconfigured, or wiped by a container recreation. " +
+    'Ghost items for this host may be false.'
+  );
 }
 
 /**
@@ -96,6 +105,7 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
   const scanErrorHosts = new Set(input.scanErrors.map((error) => error.host));
   const items: StackDriftItem[] = [];
   const stackScanErrors: StackDriftScanError[] = [];
+  const hostAnomalies: StackDriftHostAnomaly[] = [];
 
   for (const host of input.hosts) {
     if (!host.dockerEnabled || scanErrorHosts.has(host.name)) continue;
@@ -154,6 +164,10 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
         agentComposeHash: agentStack.composeHash,
       });
     }
+
+    if (repoStacks.length > 0 && agentStacks.length === 0) {
+      hostAnomalies.push({ host: host.name, message: buildEmptyInventoryMessage(repoStacks.length) });
+    }
   }
 
   items.sort((a, b) =>
@@ -171,5 +185,6 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
       content: items.filter((item) => item.kind === 'content').length,
     },
     scanErrors: [...input.scanErrors, ...stackScanErrors],
+    hostAnomalies,
   };
 }

@@ -331,6 +331,66 @@ describe('buildStackDriftReport', () => {
 
     expect(report.items).toEqual([]);
   });
+
+  it('flags an empty agent inventory on a host with repo stacks and no scan error', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack(), repoStack({ stack: 'grafana' })],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy(), deploy({ id: 2, stack: 'grafana' })],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      scanErrors: [],
+    });
+
+    expect(report.hostAnomalies).toEqual([
+      {
+        host: 'alpha',
+        message:
+          'Agent returned an empty stack inventory while the repo tracks 2 stack(s) on this host. ' +
+          "The agent's stacks directory may be missing, misconfigured, or wiped by a container recreation. " +
+          'Ghost items for this host may be false.',
+      },
+    ]);
+  });
+
+  it('does not flag the anomaly when the host scan errored', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack()],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      scanErrors: [{ host: 'alpha', message: 'agent unreachable' }],
+    });
+
+    expect(report.hostAnomalies).toEqual([]);
+  });
+
+  it('does not flag the anomaly when the repo has no stacks on the host', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      scanErrors: [],
+    });
+
+    expect(report.hostAnomalies).toEqual([]);
+  });
+
+  it('does not flag the anomaly when the agent inventory is non-empty', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack()],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', [{ name: 'plex', hasComposeFile: true, composeHash: 'hash' }]]]),
+      scanErrors: [],
+    });
+
+    expect(report.hostAnomalies).toEqual([]);
+  });
 });
 
 describe('getStackDriftKindLabel', () => {
