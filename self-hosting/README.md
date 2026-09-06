@@ -409,3 +409,16 @@ The worker applies any pending database migrations when it starts, so it must co
 
 **Port conflict on 3000**
 - Set `WEB_PORT` to any available port in your `.env`.
+
+The agent writes each deployed stack's files into `/opt/homelab-manager/stacks` inside its container. The generated compose bind-mounts that path from the host (`HLM_STACKS_DIR`, default `/opt/homelab-manager/stacks`) so the agent-updater recreating the agent container does not delete deployed stacks' `docker-compose.yml` files. Agents enrolled before this mount existed: add the volume to the `agent` service and recreate the container once, or the next agent image update wipes the files of every deployed stack on that host. Pre-create the host directory with ownership matching the agent container user (uid/gid 1000 in the default image) so the agent can write into it:
+
+```sh
+mkdir -p /opt/homelab-manager/stacks && chown 1000:1000 /opt/homelab-manager/stacks
+```
+
+```yaml
+services:
+  agent:
+    volumes:
+      - ${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
+```
