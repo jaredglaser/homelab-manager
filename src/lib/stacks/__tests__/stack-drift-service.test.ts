@@ -28,11 +28,14 @@ const deploy = (overrides?: Partial<DeployRecord>): DeployRecord => ({
   ...overrides,
 });
 
-const repoStack = (overrides?: Partial<{ stack: string; host: string; autoDeploy: boolean; composeHash: string }>) => ({
+const repoStack = (
+  overrides?: Partial<{ stack: string; host: string; autoDeploy: boolean; composeHash: string; composeMissing: boolean }>,
+) => ({
   stack: 'plex',
   host: 'alpha',
   autoDeploy: false,
   composeHash: 'repo-hash',
+  composeMissing: false,
   ...overrides,
 });
 
@@ -57,6 +60,45 @@ describe('buildStackDriftReport', () => {
       },
     ]);
     expect(report.summary).toEqual({ total: 1, ghost: 1, untracked: 0, content: 0 });
+  });
+
+  it('reports a missing repo compose as a scan error instead of content drift', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack({ composeMissing: true })],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', [{ name: 'plex', hasComposeFile: true, composeHash: 'agent-hash' }]]]),
+      scanErrors: [],
+    });
+
+    expect(report.items).toEqual([]);
+    expect(report.summary.total).toBe(0);
+    expect(report.scanErrors).toEqual([
+      {
+        host: 'alpha',
+        stack: 'plex',
+        message:
+          'Compose file is missing in the repo. Commit it or remove the stack from the manifest; ' +
+          'the drift resolutions are unavailable until the repo copy exists.',
+      },
+    ]);
+  });
+
+  it('reports a missing repo compose as a scan error instead of ghost drift', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack({ composeMissing: true })],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      scanErrors: [],
+    });
+
+    expect(report.items).toEqual([]);
+    expect(report.summary.total).toBe(0);
+    expect(report.scanErrors).toHaveLength(1);
+    expect(report.scanErrors[0]).toMatchObject({ host: 'alpha', stack: 'plex' });
   });
 
   it('does not report a never-deployed repo stack as ghost', () => {

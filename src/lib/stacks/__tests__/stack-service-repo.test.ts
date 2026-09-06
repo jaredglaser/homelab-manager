@@ -549,6 +549,55 @@ describe('stack-service repo-backed operations', () => {
       warnSpy.mockRestore();
     });
 
+    test('reports a manifest entry with no compose file as a scan error, not drift', async () => {
+      const headSha = await seed({ plex: { host: 'alpha', autoDeploy: true } });
+      latestDeploys = [deployRecord({ commitSha: headSha })];
+      inventoryByHost.set('alpha', [
+        { name: 'plex', hasComposeFile: true, composeHash: await hashOf(PLEX_COMPOSE) },
+      ]);
+
+      const { scanStackDrift } = await import('@/lib/stacks/stack-service');
+      const report = await scanStackDrift();
+
+      expect(report.items).toEqual([]);
+      expect(report.summary.total).toBe(0);
+      expect(report.scanErrors).toEqual([
+        {
+          host: 'alpha',
+          stack: 'plex',
+          message:
+            'Compose file is missing in the repo. Commit it or remove the stack from the manifest; ' +
+            'the drift resolutions are unavailable until the repo copy exists.',
+        },
+      ]);
+    });
+
+    test('reports a missing repo compose as a scan error even when the agent lacks the stack too', async () => {
+      const headSha = await seed({ plex: { host: 'alpha', autoDeploy: true } });
+      latestDeploys = [deployRecord({ commitSha: headSha })];
+      inventoryByHost.set('alpha', []);
+
+      const { scanStackDrift } = await import('@/lib/stacks/stack-service');
+      const report = await scanStackDrift();
+
+      expect(report.items).toEqual([]);
+      expect(report.scanErrors).toHaveLength(1);
+      expect(report.scanErrors[0]).toMatchObject({ host: 'alpha', stack: 'plex' });
+    });
+
+    test('refuses to resolve a stack whose repo compose is missing', async () => {
+      const headSha = await seed({ plex: { host: 'alpha', autoDeploy: true } });
+      latestDeploys = [deployRecord({ commitSha: headSha })];
+      inventoryByHost.set('alpha', [
+        { name: 'plex', hasComposeFile: true, composeHash: await hashOf(PLEX_COMPOSE) },
+      ]);
+
+      const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+      await expect(
+        resolveStackDriftItem({ host: 'alpha', stack: 'plex', kind: 'content', resolution: 'trust_repo' }),
+      ).rejects.toThrow(/no longer drifted/);
+    });
+
     test('rethrows when the manifest read fails for a reason other than absence', async () => {
       const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
       const readSpy = spyOn(repoModule, 'readFileFromRepo').mockRejectedValue(

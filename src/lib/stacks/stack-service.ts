@@ -521,10 +521,12 @@ async function loadRepoStacks(): Promise<RepoStackSnapshot[]> {
   return Promise.all(
     Object.entries(manifest.stacks).map(async ([stack, entry]) => {
       let composeContent = '';
+      let composeMissing = false;
       try {
         composeContent = await readFileFromRepo(repoPath, composePath(stack));
       } catch (err) {
         if (!(err instanceof FileNotFoundError)) throw err;
+        composeMissing = true;
       }
 
       return {
@@ -532,6 +534,7 @@ async function loadRepoStacks(): Promise<RepoStackSnapshot[]> {
         host: entry.host,
         autoDeploy: entry.autoDeploy,
         composeHash: computeHash(composeContent),
+        composeMissing,
       } satisfies RepoStackSnapshot;
     }),
   );
@@ -651,7 +654,7 @@ async function rescanDriftItem(
     scanErrors: [],
   });
 
-  const unreadable = report.scanErrors.find((error) => error.stack === stack);
+  const unreadable = inventory.errors.find((error) => error.name === stack);
   if (unreadable) {
     throw new Error(
       `The agent on "${host}" could not read "${host}/${stack}": ${unreadable.message}. Refresh the drift scan and retry.`,
