@@ -86,9 +86,31 @@ describe('StackDriftSummary', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('renders nothing when there is no drift and no scan errors', () => {
+  it('renders nothing when there is no drift, no scan errors and no host anomalies', () => {
     const { container } = renderSummary({ report: emptyReport });
     expect(container.textContent).toBe('');
+  });
+
+  it('renders a warning with the host name and message when host anomalies exist', () => {
+    renderSummary({
+      report: { ...emptyReport, hostAnomalies: [{ host: 'alpha', message: 'agent returned an empty inventory' }] },
+    });
+    expect(screen.getByText('Agent inventory looks wrong')).toBeDefined();
+    expect(screen.getByText('alpha')).toBeDefined();
+    expect(screen.getByText('agent returned an empty inventory')).toBeDefined();
+  });
+
+  it('does not render the anomaly section when the host anomaly list is empty', () => {
+    renderSummary();
+    expect(screen.queryByText('Agent inventory looks wrong')).toBeNull();
+  });
+
+  it('still renders when only host anomalies exist', () => {
+    renderSummary({
+      report: { ...emptyReport, hostAnomalies: [{ host: 'beta', message: 'agent unreachable from collector' }] },
+    });
+    expect(screen.getByText('Agent inventory looks wrong')).toBeDefined();
+    expect(screen.getByText('beta')).toBeDefined();
   });
 
   it('renders the loading alert when the first scan is in flight', () => {
