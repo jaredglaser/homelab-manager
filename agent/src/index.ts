@@ -1,4 +1,5 @@
 import Dockerode from 'dockerode';
+import { existsSync, statSync } from 'node:fs';
 import { authenticateRequest } from './middleware';
 import { handleHealth, handleInfo } from './routes/health';
 import { handleStatsStream } from './routes/stats';
@@ -227,4 +228,10 @@ else console.info('Docker capability: disabled (DOCKER_HOST not set)');
 if (zfsCapabilities.available) console.info(`ZFS capability: tier ${zfsCapabilities.tier} (v${zfsCapabilities.version ?? 'unknown'})`);
 else console.info('ZFS capability: disabled (zpool not found)');
 console.info(`Using stacks directory: ${STACKS_DIR}`);
+const stacksStat = existsSync(STACKS_DIR) ? statSync(STACKS_DIR) : null;
+if (!stacksStat?.isDirectory()) {
+  console.warn(
+    `Stacks directory '${STACKS_DIR}' does not exist or is not a directory; deployed stack files will not persist across agent container recreation. Ensure a volume or bind mount covers this path.`,
+  );
+}
 console.info(`Agent listening on port ${PORT} (${tlsConfig ? 'HTTPS' : 'HTTP'})`);
