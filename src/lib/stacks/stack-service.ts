@@ -614,10 +614,7 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
   });
 
   for (const anomaly of report.hostAnomalies) {
-    const repoCount = repoStacks.filter((stack) => stack.host === anomaly.host).length;
-    console.warn(
-      `[StackService] host "${anomaly.host}" returned an empty stack inventory while the repo tracks ${repoCount} stack(s) on it. Ghost drift items for this host may be false`,
-    );
+    console.warn(`[StackService] ${anomaly.message}`);
   }
 
   return report;

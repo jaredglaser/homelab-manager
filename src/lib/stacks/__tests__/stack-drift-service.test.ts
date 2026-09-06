@@ -346,7 +346,7 @@ describe('buildStackDriftReport', () => {
       {
         host: 'alpha',
         message:
-          'Agent returned an empty stack inventory while the repo tracks 2 stack(s) on this host. ' +
+          'Agent for host "alpha" returned an empty stack inventory while the repo tracks 2 stack(s) on it. ' +
           "The agent's stacks directory may be missing, misconfigured, or wiped by a container recreation. " +
           'Ghost items for this host may be false.',
       },

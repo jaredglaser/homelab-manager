@@ -524,7 +524,7 @@ describe('stack-service repo-backed operations', () => {
 
       expect(report.hostAnomalies).toHaveLength(1);
       expect(report.hostAnomalies[0]).toMatchObject({ host: 'alpha' });
-      expect(report.hostAnomalies[0].message).toContain('repo tracks 1 stack(s) on this host');
+      expect(report.hostAnomalies[0].message).toContain('repo tracks 1 stack(s) on it');
       expect(warnSpy).toHaveBeenCalledTimes(1);
       expect(String(warnSpy.mock.calls[0][0])).toContain('alpha');
       expect(String(warnSpy.mock.calls[0][0])).toContain('1 stack(s)');
