@@ -10,6 +10,7 @@ import * as gitConfig from '@/lib/config/git-config';
 import * as pipelineFactory from '@/lib/deploy/pipeline-factory';
 import * as repoModule from '@/lib/git/repo';
 import { initBareRepo, commitFiles, readFileFromRepo, FileNotFoundError } from '@/lib/git/repo';
+import { MISSING_REPO_COMPOSE_MESSAGE } from '@/lib/stacks/stack-drift-service';
 import { parseManifest } from '@/lib/git/manifest';
 import { MANIFEST, composePath, serializeManifest } from '@/lib/stacks/stack-repo-layout';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
@@ -565,9 +566,7 @@ describe('stack-service repo-backed operations', () => {
         {
           host: 'alpha',
           stack: 'plex',
-          message:
-            'Compose file is missing in the repo. Commit it or remove the stack from the manifest; ' +
-            'the drift resolutions are unavailable until the repo copy exists.',
+          message: MISSING_REPO_COMPOSE_MESSAGE,
         },
       ]);
     });

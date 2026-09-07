@@ -6,6 +6,7 @@ import {
   getStackDriftKindLabel,
   getStackDriftResolutionLabel,
   isDestructiveStackDriftResolution,
+  MISSING_REPO_COMPOSE_MESSAGE,
 } from '@/lib/stacks/stack-drift-service';
 
 const HEAD_SHA = 'sha-head';
@@ -78,9 +79,7 @@ describe('buildStackDriftReport', () => {
       {
         host: 'alpha',
         stack: 'plex',
-        message:
-          'Compose file is missing in the repo. Commit it or remove the stack from the manifest; ' +
-          'the drift resolutions are unavailable until the repo copy exists.',
+        message: MISSING_REPO_COMPOSE_MESSAGE,
       },
     ]);
   });

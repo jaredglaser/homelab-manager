@@ -23,6 +23,10 @@ export interface RepoStackSnapshot {
   composeMissing: boolean;
 }
 
+export const MISSING_REPO_COMPOSE_MESSAGE =
+  'Compose file is missing in the repo. Commit it or remove the stack from the manifest; ' +
+  'the drift resolutions are unavailable until the repo copy exists.';
+
 interface ScanHost {
   name: string;
   dockerEnabled: boolean;
@@ -139,9 +143,7 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
         stackScanErrors.push({
           host: repoStack.host,
           stack: repoStack.stack,
-          message:
-            'Compose file is missing in the repo. Commit it or remove the stack from the manifest; ' +
-            'the drift resolutions are unavailable until the repo copy exists.',
+          message: MISSING_REPO_COMPOSE_MESSAGE,
         });
         continue;
       }
