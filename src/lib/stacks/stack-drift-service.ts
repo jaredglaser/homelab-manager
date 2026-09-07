@@ -165,7 +165,10 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
       });
     }
 
-    if (repoStacks.length > 0 && agentStacks.length === 0) {
+    // When the agent reports read errors, the empty inventory is already explained by
+    // the per-stack scan errors and ghost classification is skipped; the anomaly would
+    // be doubly misleading.
+    if (repoStacks.length > 0 && agentStacks.length === 0 && agentStackErrors.length === 0) {
       hostAnomalies.push({ host: host.name, message: buildEmptyInventoryMessage(host.name, repoStacks.length) });
     }
   }

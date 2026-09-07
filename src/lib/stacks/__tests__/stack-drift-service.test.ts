@@ -353,6 +353,21 @@ describe('buildStackDriftReport', () => {
     ]);
   });
 
+  it('does not flag the anomaly when the agent reports per-stack read errors', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack()],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      agentStackErrorsByHost: new Map([['alpha', [{ name: 'plex', message: 'EACCES' }]]]),
+      scanErrors: [],
+    });
+
+    expect(report.hostAnomalies).toEqual([]);
+    expect(report.scanErrors).toEqual([{ host: 'alpha', stack: 'plex', message: 'EACCES' }]);
+  });
+
   it('does not flag the anomaly when the host scan errored', () => {
     const report = buildStackDriftReport({
       repoStacks: [repoStack()],
