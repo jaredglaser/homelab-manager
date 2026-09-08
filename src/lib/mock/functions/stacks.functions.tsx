@@ -456,7 +456,7 @@ export async function controlStack(_opts: {
 }
 
 export async function scanDrift(): Promise<StackDriftReport> {
-  return { items: [], summary: { total: 0, ghost: 0, untracked: 0, content: 0 }, scanErrors: [] };
+  return { items: [], summary: { total: 0, ghost: 0, untracked: 0, content: 0 }, scanErrors: [], hostAnomalies: [] };
 }
 
 export async function resolveDrift(opts: {

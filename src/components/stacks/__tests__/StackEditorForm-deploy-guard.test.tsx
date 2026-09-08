@@ -41,6 +41,7 @@ mock.module('@/data/stacks/functions', () => ({
     items: [],
     summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
     scanErrors: [],
+  hostAnomalies: [],
   })),
 }));
 

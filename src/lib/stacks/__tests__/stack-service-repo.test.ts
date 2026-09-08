@@ -511,6 +511,44 @@ describe('stack-service repo-backed operations', () => {
       ]);
     });
 
+    test('warns and reports a host anomaly when an in-sync stack host returns an empty inventory', async () => {
+      const headSha = await seed({ plex: { host: 'alpha', autoDeploy: true } }, [
+        { path: composePath('plex'), content: PLEX_COMPOSE },
+      ]);
+      latestDeploys = [deployRecord({ commitSha: headSha })];
+      inventoryByHost.set('alpha', []);
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { scanStackDrift } = await import('@/lib/stacks/stack-service');
+      const report = await scanStackDrift();
+
+      expect(report.hostAnomalies).toHaveLength(1);
+      expect(report.hostAnomalies[0]).toMatchObject({ host: 'alpha' });
+      expect(report.hostAnomalies[0].message).toContain('repo tracks 1 stack(s) on it');
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(String(warnSpy.mock.calls[0][0])).toContain('alpha');
+      expect(String(warnSpy.mock.calls[0][0])).toContain('1 stack(s)');
+      warnSpy.mockRestore();
+    });
+
+    test('does not warn when the agent inventory is non-empty', async () => {
+      const headSha = await seed({ plex: { host: 'alpha', autoDeploy: true } }, [
+        { path: composePath('plex'), content: PLEX_COMPOSE },
+      ]);
+      latestDeploys = [deployRecord({ commitSha: headSha })];
+      inventoryByHost.set('alpha', [
+        { name: 'plex', hasComposeFile: true, composeHash: await hashOf(PLEX_COMPOSE) },
+      ]);
+      const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { scanStackDrift } = await import('@/lib/stacks/stack-service');
+      const report = await scanStackDrift();
+
+      expect(report.hostAnomalies).toEqual([]);
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
     test('rethrows when the manifest read fails for a reason other than absence', async () => {
       const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
       const readSpy = spyOn(repoModule, 'readFileFromRepo').mockRejectedValue(

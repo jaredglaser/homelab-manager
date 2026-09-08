@@ -18,12 +18,14 @@ const report: StackDriftReport = {
   ],
   summary: { total: 2, ghost: 1, untracked: 1, content: 0 },
   scanErrors: [],
+  hostAnomalies: [],
 };
 
 const emptyReport: StackDriftReport = {
   items: [],
   summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
   scanErrors: [],
+  hostAnomalies: [],
 };
 
 function createWrapper() {

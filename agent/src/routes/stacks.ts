@@ -676,6 +676,7 @@ export async function handleStackStatus(
 
 export async function handleStackInventory(stacksDir: string): Promise<Response> {
   if (!existsSync(stacksDir)) {
+    console.warn(`[stacks] configured stacks directory '${stacksDir}' does not exist; stack inventory will be empty`);
     return Response.json({ stacks: [] } satisfies AgentStackInventoryResponse);
   }
 
@@ -690,9 +691,15 @@ export async function handleStackInventory(stacksDir: string): Promise<Response>
 
   const stacks: AgentStackInventoryEntry[] = [];
   const errors: AgentStackInventoryError[] = [];
+  const skippedNames: string[] = [];
+  const missingComposeNames: string[] = [];
 
   for (const entry of entries) {
-    if (!entry.isDirectory() || !VALID_STACK_NAME.test(entry.name)) continue;
+    if (!entry.isDirectory()) continue;
+    if (!VALID_STACK_NAME.test(entry.name)) {
+      skippedNames.push(entry.name);
+      continue;
+    }
     const composePath = getComposePath(stacksDir, entry.name);
     // Only ENOENT means genuinely absent. Any other read failure is reported, never omitted:
     // absent from the inventory a stack is indistinguishable from a deleted one.
@@ -700,7 +707,10 @@ export async function handleStackInventory(stacksDir: string): Promise<Response>
     try {
       composeContent = readFileSync(composePath, 'utf-8');
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        missingComposeNames.push(entry.name);
+        continue;
+      }
       console.error(`Failed to read compose file for stack '${entry.name}':`, err);
       errors.push({ name: entry.name, message: err instanceof Error ? err.message : String(err) });
       continue;
@@ -714,6 +724,13 @@ export async function handleStackInventory(stacksDir: string): Promise<Response>
 
   stacks.sort((a, b) => a.name.localeCompare(b.name));
   errors.sort((a, b) => a.name.localeCompare(b.name));
+
+  if (skippedNames.length > 0) {
+    console.info(`[stacks] inventory skipped ${skippedNames.length} directory name(s) failing stack name validation: ${skippedNames.join(', ')}`);
+  }
+  if (missingComposeNames.length > 0) {
+    console.info(`[stacks] inventory skipped ${missingComposeNames.length} stack directory(ies) without a compose file: ${missingComposeNames.join(', ')}`);
+  }
 
   return Response.json({ stacks, ...(errors.length > 0 ? { errors } : {}) } satisfies AgentStackInventoryResponse);
 }

@@ -603,7 +603,7 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
     }
   }));
 
-  return buildStackDriftReport({
+  const report = buildStackDriftReport({
     repoStacks,
     hosts: dockerHosts,
     latestDeploys,
@@ -612,6 +612,12 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
     agentStackErrorsByHost,
     scanErrors,
   });
+
+  for (const anomaly of report.hostAnomalies) {
+    console.warn(`[StackService] ${anomaly.message}`);
+  }
+
+  return report;
 }
 
 /**

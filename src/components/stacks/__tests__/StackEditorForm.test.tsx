@@ -102,6 +102,7 @@ const mockScanDrift = mock(() => Promise.resolve({
   items: [],
   summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
   scanErrors: [],
+  hostAnomalies: [],
 }));
 const mockGetDeployHistory = mock((_args: unknown): Promise<StackDeployRecord[]> => Promise.resolve([]));
 const realFns = await import('@/data/stacks/functions');
