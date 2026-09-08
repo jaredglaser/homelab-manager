@@ -4,7 +4,6 @@ type ValueRow = { value: string };
 type EntityValueRow = { entity: string; value: string };
 type EntityKeyValueRow = { entity: string; key: string; value: string };
 type ContainerIdRow = { container_id: string };
-type ServiceInfoRow = { service_key: string; icon: string | null };
 type ContainerMetadataRow = { container_entity: string; service_key_entity: string; icon_slug: string | null };
 
 /**
@@ -206,35 +205,6 @@ export class EntityMetadataRepository {
        ON CONFLICT (source, entity, key) DO NOTHING`,
       [from, to]
     );
-  }
-
-  /**
-   * Return the service_key and resolved icon for a single container entity in one query.
-   * Uses the same JOIN + COALESCE pattern as getDockerContainerMetadata but for a single entity.
-   * Returns null if the entity has no service_key set.
-   */
-  async getContainerServiceInfo(
-    entity: string,
-  ): Promise<{ serviceKey: string; icon: string | null } | null> {
-    const result = await this.pool.query(
-      `SELECT
-         sk.value AS service_key,
-         COALESCE(icon.value, legacy_icon.value) AS icon
-       FROM entity_metadata sk
-       LEFT JOIN entity_metadata icon
-         ON  icon.source = sk.source
-         AND icon.key    = 'icon'
-         AND icon.entity = SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value
-       LEFT JOIN entity_metadata legacy_icon
-         ON  legacy_icon.source = sk.source
-         AND legacy_icon.key    = 'icon'
-         AND legacy_icon.entity = sk.entity
-       WHERE sk.source = 'docker' AND sk.entity = $1 AND sk.key = 'service_key'`,
-      [entity]
-    );
-    const row = result.rows[0] as ServiceInfoRow | undefined;
-    if (!row) return null;
-    return { serviceKey: row.service_key, icon: row.icon ?? null };
   }
 
   /**

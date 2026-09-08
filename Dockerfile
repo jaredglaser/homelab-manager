@@ -2,13 +2,13 @@
 # Multi-stage build: deps (dev), base (worker/cleanup), production (web)
 
 # Dependencies only - used for dev containers (source mounted via volume)
-FROM oven/bun:1.3.14 AS deps
+FROM oven/bun:1.4.0 AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
-RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-1.3.14 \
+RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-1.4.0 \
     bun install --frozen-lockfile --ignore-scripts
 EXPOSE 3000
 
@@ -23,6 +23,12 @@ ENV NODE_ENV=production
 
 # git is needed at runtime for git-upload-pack and git-receive-pack (Git HTTP smart protocol)
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+# Tag the Add Host wizard pins new agents to. Declared after apt so a channel switch
+# does not invalidate that layer. Vite inlines it at build, so the copy that survives
+# into the runtime image does nothing.
+ARG VITE_AGENT_IMAGE_TAG=latest
+ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
 
 RUN bun run build
 

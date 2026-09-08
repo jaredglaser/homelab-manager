@@ -18,6 +18,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 import { DataTableToolbar } from '@/components/ui/datatable/DataTableToolbar';
+import { MOBILE_BREAKPOINT } from '@/lib/constants/breakpoints';
 import { useGeneralSettings } from '@/hooks/useSettings';
 
 export interface MetricGroup {
@@ -109,9 +110,6 @@ function buildGridTemplate<TRow>(
     })
     .join(' ');
 }
-
-/** Width threshold (px) below which the table is considered mobile. */
-const MOBILE_BREAKPOINT = 1024;
 
 /**
  * Generic data table component with TanStack Table v8 column management,

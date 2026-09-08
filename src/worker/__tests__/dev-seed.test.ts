@@ -57,6 +57,8 @@ function mockHost(overrides: Partial<ManagedHost> & Pick<ManagedHost, 'id' | 'na
   return {
     capabilities: { docker: true, zfs: false },
     agentVersion: null,
+    agentImage: null,
+    agentImageTag: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     ...overrides,

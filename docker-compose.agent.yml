@@ -12,6 +12,7 @@ services:
       EVENTS: 1
       INFO: 1
       IMAGES: 1
+      ALLOW_LOGS: 1
       NETWORKS: 1
       VOLUMES: 1
       VERSION: 1
@@ -42,6 +43,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./agent-token:/run/secrets/agent_token:ro
+      - agent-stacks-local:/opt/homelab-manager/stacks
     networks:
       - agent-internal
       - homelab-network
@@ -57,3 +59,5 @@ networks:
     internal: true
   homelab-network:
     driver: bridge
+volumes:
+  agent-stacks-local:

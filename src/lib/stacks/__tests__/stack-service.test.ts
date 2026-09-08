@@ -66,6 +66,7 @@ describe('toStackDeployRecord', () => {
     forceRecreate: false,
     logs: 'deploy ok',
     createdAt: new Date('2026-03-01T12:00:00Z'),
+    startedAt: null,
     postSuccess: null,
   };
 
@@ -194,7 +195,7 @@ describe('handleTriggerDeploy', () => {
     });
     await expect(
       handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' })
-    ).rejects.toThrow(/Deploy could not be queued/);
+    ).rejects.toThrow(/Deploy of server1\/myapp could not be started: no active host/);
   });
 
   test('passes compose content and commit SHA to buildRequest', async () => {
@@ -512,6 +513,26 @@ describe('controlStackForHost', () => {
       controlStackForHost('server1', 'start', { stack: 'myapp', scope: 'stack' })
     ).rejects.toThrow(/docker compose start failed/);
   });
+
+  test('rethrows when the agent call itself fails', async () => {
+    mockStop.mockRejectedValueOnce(new Error('agent unreachable'));
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    await expect(
+      controlStackForHost('server1', 'stop', { stack: 'myapp', scope: 'stack' })
+    ).rejects.toThrow('agent unreachable');
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  test('throws on an action outside the start/stop/restart set', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    await expect(
+      controlStackForHost('server1', 'pause' as never, { stack: 'myapp', scope: 'stack' })
+    ).rejects.toThrow(/Unknown action: pause/);
+    errorSpy.mockRestore();
+  });
 });
 
 describe('resolveDeleteStack', () => {
@@ -618,6 +639,7 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
       forceRecreate: false,
       logs: null,
       createdAt: new Date(),
+      startedAt: null,
       postSuccess: null,
     };
 
@@ -686,5 +708,62 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
       trigger: 'git_push',
       message: 'Manually rejected',
     });
+  });
+
+  test('resumePendingDeploy builds a teardown request with no compose content', async () => {
+    pendingRecord = { ...pendingRecord, action: 'teardown', postSuccess: 'removeFromManifest' };
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    await resumePendingDeploy(42);
+
+    const [, , request] = mockResumePending.mock.calls[0] as [number, unknown, DeployRequest];
+    expect(request).toEqual({
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha,
+      trigger: 'git_push',
+      autoApproved: true,
+      postSuccess: 'removeFromManifest',
+      action: 'teardown',
+    });
+  });
+
+  test('resumePendingDeploy proceeds with empty compose when the file is absent at that commit', async () => {
+    pendingRecord = { ...pendingRecord, stack: 'sonarr' };
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    await resumePendingDeploy(42);
+
+    const [, , request] = mockResumePending.mock.calls[0] as [number, unknown, DeployRequest];
+    expect(request).toMatchObject({ action: 'deploy', composeContent: '' });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test('resumePendingDeploy throws when the deploy is no longer pending', async () => {
+    pendingRecord = { ...pendingRecord, status: 'succeeded' };
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    await expect(resumePendingDeploy(42)).rejects.toThrow(/not pending \(status: succeeded\)/);
+  });
+
+  test('rejectPendingDeploy throws when the deploy is no longer pending', async () => {
+    pendingRecord = { ...pendingRecord, status: 'failed' };
+    const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
+    await expect(rejectPendingDeploy(42)).rejects.toThrow(/not pending \(status: failed\)/);
+  });
+
+  test('rejectPendingDeploy throws when another client already claimed the deploy', async () => {
+    mockRejectPending.mockImplementationOnce(() => Promise.resolve(false));
+    const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
+    await expect(rejectPendingDeploy(42)).rejects.toThrow(/no longer pending/);
+    expect(mockNotifyStackChange).not.toHaveBeenCalled();
+  });
+
+  test('rejectPendingDeploy still succeeds when the change notification fails', async () => {
+    mockNotifyStackChange.mockImplementationOnce(() => Promise.reject(new Error('NOTIFY failed')));
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
+    expect(await rejectPendingDeploy(42)).toEqual({ deployId: 42 });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });

@@ -41,10 +41,35 @@ export interface StackDriftScanError {
   message: string;
 }
 
+export interface StackDriftHostAnomaly {
+  host: string;
+  message: string;
+}
+
 export interface StackDriftReport {
   items: StackDriftItem[];
   summary: StackDriftSummary;
   scanErrors: StackDriftScanError[];
+  hostAnomalies: StackDriftHostAnomaly[];
+}
+
+/**
+ * Which side of a drift wins. `remove` is neither side: it discards the stack
+ * from the host without adopting it into the repo.
+ */
+export type StackDriftResolution = 'trust_repo' | 'trust_agent' | 'remove';
+
+export interface StackDriftResolutionResult {
+  host: string;
+  stack: string;
+  kind: StackDriftKind;
+  resolution: StackDriftResolution;
+  /** Commit archiving the agent's compose before it was overwritten or torn down. Null when the resolution discards nothing git does not already hold. */
+  recoveryCommitSha: string | null;
+  /** Commit the resolution itself made in the stack repo (adopt or manifest removal). */
+  commitSha: string | null;
+  deployId: number | null;
+  deployStatus: DeployStatus | null;
 }
 
 /** Summary of a stack as shown in the list view */

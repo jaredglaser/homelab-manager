@@ -14,7 +14,7 @@ something else gates it anyway.
 
 When the input is a thought rather than a queue item, treat it as an invitation to shape it, not an
 instruction to implement it: bounce the options back with a recommendation, then dispatch. Once a
-direction is approved, execute without re-confirming at each step (CLAUDE.md rule 11). Send the
+direction is approved, execute without re-confirming at each step (AGENTS.md rule 11). Send the
 survey to `pr-research` rather than spending orchestrator context on it.
 
 This does not contradict "dispatch, do not report" in SKILL.md. A confirmed finding on an open PR
@@ -37,7 +37,7 @@ has no design question left in it; a new idea is nothing but design questions.
 - **Do not challenge a walkthrough while the run still says "review in progress".** A completed one
   can still be wrong.
 - **Docstring Coverage is a standing decline here.** It scores a PR down for removing the JSDoc that
-  CLAUDE.md rule 14 forbids.
+  AGENTS.md rule 14 forbids.
 - **CodeRabbit skips stacked PRs entirely**, so a PR based on another branch may never be reviewed
   at all. Say that, rather than reporting the silence as approval.
 
@@ -50,13 +50,13 @@ has no design question left in it; a new idea is nothing but design questions.
   restore, including the index entry that `git checkout <sha> -- <file>` leaves behind.
 - **A zero grep count is a claim about absence.** Check case and spelling before publishing it.
 - **Audit your own added comments before committing**, `git diff | grep -E "^\+\s*(//|\*|/\*)"`,
-  pruned against CLAUDE.md rule 14.
+  pruned against AGENTS.md rule 14.
 - **A newly merged CI job is a suspect, not an oracle.** Check whether it carries a registry or
   fixture the queued PRs must feed, then whether the harness it feeds is usable at all.
 - Never `git checkout <file>` to undo a probe while you hold uncommitted edits in that file, and
   never `git stash`: `.git/refs/stash` is shared across every worktree, and several are usually live.
 
-When the local suite cannot be made green (CLAUDE.md gotcha 21 is the usual cause), compare failure
+When the local suite cannot be made green (AGENTS.md gotcha 21 is the usual cause), compare failure
 sets instead of chasing zero: `scripts/failure-set-diff.sh <base-sha> <fix-worktree>` builds the base
 worktree, runs `test:all` in both, and prints the fails-only-on-branch and fails-only-on-base sets.
 Report the raw numbers and the delta. Never report a green you did not observe.

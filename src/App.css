@@ -200,6 +200,22 @@ body {
   display: none !important;
 }
 
+/* Expands a control's hit area to the 44px WCAG target-size minimum without
+   changing its painted size. The overlay is centered on the control, so a
+   32px icon button gains 6px of slop on every side. */
+.tap-target {
+  position: relative;
+}
+.tap-target::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+}
+
 /* Themed scrollbar for drawer panels: tints the foreground token for theme adaptation */
 .themed-scrollbar {
   &::-webkit-scrollbar {

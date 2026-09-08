@@ -292,7 +292,10 @@ describe('useTimeSeriesStream preload', () => {
     expect(result.current.rows.map(r => r.key)).toEqual(['seed-1']);
 
     // Stale initialData schedules a refresh through the same no-revive path.
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await act(async () => {
+      await waitFor(() => preloadFn.mock.calls.length > 0);
+      await preloadFn.mock.results[0]?.value;
+    });
     expect(preloadFn).toHaveBeenCalledTimes(1);
     expect(result.current.rows.map(r => r.key)).toContain('fresh-1');
   });

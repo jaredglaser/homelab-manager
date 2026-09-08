@@ -93,6 +93,12 @@ export interface DeployDeps {
   executePipeline: (request: DeployRequest) => Promise<{ deployId?: number; logs: string; status: DeployStatus }>;
 }
 
+const TRIGGER_ACTION_NOUNS: Record<DeployAction, string> = {
+  deploy: 'Deploy',
+  update: 'Image update',
+  teardown: 'Teardown',
+};
+
 /** Testable deploy handler: takes deps instead of importing them. */
 export async function handleTriggerDeploy(
   deps: DeployDeps,
@@ -103,7 +109,7 @@ export async function handleTriggerDeploy(
     composeContent = await deps.readCompose(params.stack);
   } catch {
     if (params.action === 'deploy' || params.action === 'update') {
-      throw new Error(`No compose file found for stack "${params.stack}"`);
+      throw new Error(`No compose file found for stack "${params.host}/${params.stack}"`);
     }
   }
 
@@ -120,7 +126,7 @@ export async function handleTriggerDeploy(
 
   const result = await deps.executePipeline(request);
   if (result.deployId === undefined) {
-    throw new Error(`Deploy could not be queued: ${result.logs}`);
+    throw new Error(`${TRIGGER_ACTION_NOUNS[params.action]} of ${params.host}/${params.stack} could not be started: ${result.logs}`);
   }
   return { deployId: result.deployId, status: result.status, logs: result.logs };
 }

@@ -1,4 +1,14 @@
-import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest, DeployStatus, StackDriftReport } from '@/types/stacks';
+import type {
+  StackSummary,
+  StackDetail,
+  StackDeployRecord,
+  UIDeployRequest,
+  DeployStatus,
+  StackDriftKind,
+  StackDriftReport,
+  StackDriftResolution,
+  StackDriftResolutionResult,
+} from '@/types/stacks';
 
 const MOCK_STACKS: StackSummary[] = [
   // nas01
@@ -349,18 +359,6 @@ export async function saveComposeFile(_opts: {
   return { commitSha: 'mock' + Date.now().toString(36) };
 }
 
-export async function updateStackIcon(_opts: {
-  data: { stackName: string; iconSlug: string };
-}): Promise<void> {
-  // No-op in demo mode
-}
-
-export async function getStackVariables(opts: {
-  data: { stackName: string };
-}): Promise<string[]> {
-  return Object.keys(MOCK_VARIABLE_VALUES[opts.data.stackName] ?? {});
-}
-
 const MOCK_VARIABLE_VALUES: Record<string, Record<string, string>> = {
   traefik: {
     CF_DNS_API_TOKEN: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
@@ -393,12 +391,6 @@ const MOCK_VARIABLE_VALUES: Record<string, Record<string, string>> = {
   },
   portainer: {},
 };
-
-export async function getVariableValue(opts: {
-  data: { stackName: string; variableName: string };
-}): Promise<string | null> {
-  return MOCK_VARIABLE_VALUES[opts.data.stackName]?.[opts.data.variableName] ?? '';
-}
 
 export async function getStackVariableValues(opts: {
   data: { stackName: string };
@@ -449,10 +441,6 @@ export async function ensureVariablesExist(_opts: {
   // No-op in demo mode
 }
 
-export async function scanDrift(): Promise<StackDriftReport> {
-  return { items: [], summary: { total: 0, ghost: 0, untracked: 0, content: 0 }, scanErrors: [] };
-}
-
 export async function controlStack(_opts: {
   data:
     | { host: string; stack: string; action: 'start' | 'stop' | 'restart'; scope: 'stack' }
@@ -465,4 +453,21 @@ export async function controlStack(_opts: {
       };
 }): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 300));
+}
+
+export async function scanDrift(): Promise<StackDriftReport> {
+  return { items: [], summary: { total: 0, ghost: 0, untracked: 0, content: 0 }, scanErrors: [], hostAnomalies: [] };
+}
+
+export async function resolveDrift(opts: {
+  data: { stack: string; host: string; kind: StackDriftKind; resolution: StackDriftResolution };
+}): Promise<StackDriftResolutionResult> {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  return {
+    ...opts.data,
+    recoveryCommitSha: null,
+    commitSha: null,
+    deployId: null,
+    deployStatus: null,
+  };
 }

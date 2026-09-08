@@ -6,9 +6,11 @@
 import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
 import type { DeployRecord } from '@/lib/deploy/types';
 import type {
+  StackDriftHostAnomaly,
   StackDriftItem,
   StackDriftKind,
   StackDriftReport,
+  StackDriftResolution,
   StackDriftScanError,
 } from '@/types/stacks';
 import { computeSyncStatus } from '@/lib/stacks/stack-mappers';
@@ -18,7 +20,12 @@ export interface RepoStackSnapshot {
   host: string;
   autoDeploy: boolean;
   composeHash: string;
+  composeMissing: boolean;
 }
+
+export const MISSING_REPO_COMPOSE_MESSAGE =
+  'Compose file is missing in the repo. Commit it or remove the stack from the manifest; ' +
+  'the drift resolutions are unavailable until the repo copy exists.';
 
 interface ScanHost {
   name: string;
@@ -45,11 +52,65 @@ export function getStackDriftKindLabel(kind: StackDriftKind): string {
   return KIND_LABELS[kind];
 }
 
+export function buildEmptyInventoryMessage(host: string, repoStackCount: number): string {
+  return (
+    `Agent for host "${host}" returned an empty stack inventory while the repo tracks ${repoStackCount} stack(s) on it. ` +
+    "The agent's stacks directory may be missing, misconfigured, or wiped by a container recreation. " +
+    'Ghost items for this host may be false.'
+  );
+}
+
+/**
+ * Resolutions offered per drift kind, in the order the UI lists them.
+ * `untracked` has no `trust_repo` entry: the repo says nothing about the stack,
+ * so "the repo wins" and "remove it from the host" are the same operation, and
+ * `remove` names it without pretending the repo holds a version to restore.
+ */
+const KIND_RESOLUTIONS: Record<StackDriftKind, StackDriftResolution[]> = {
+  ghost: ['trust_repo', 'trust_agent'],
+  untracked: ['trust_agent', 'remove'],
+  content: ['trust_repo', 'trust_agent'],
+};
+
+const RESOLUTION_LABELS: Record<StackDriftKind, Record<StackDriftResolution, string>> = {
+  ghost: {
+    trust_repo: 'Redeploy from repo',
+    trust_agent: 'Drop from repo',
+    remove: 'Drop from repo',
+  },
+  untracked: {
+    trust_repo: 'Tear down on host',
+    trust_agent: 'Adopt into repo',
+    remove: 'Tear down on host',
+  },
+  content: {
+    trust_repo: 'Redeploy repo version',
+    trust_agent: 'Adopt host version',
+    remove: 'Tear down on host',
+  },
+};
+
+export function getAllowedStackDriftResolutions(kind: StackDriftKind): StackDriftResolution[] {
+  return KIND_RESOLUTIONS[kind];
+}
+
+export function getStackDriftResolutionLabel(kind: StackDriftKind, resolution: StackDriftResolution): string {
+  return RESOLUTION_LABELS[kind][resolution];
+}
+
+/** The two resolutions that only add state: deploying to a host that has nothing, and committing a stack git does not yet track. */
+const NON_DESTRUCTIVE = new Set(['ghost:trust_repo', 'untracked:trust_agent']);
+
+export function isDestructiveStackDriftResolution(kind: StackDriftKind, resolution: StackDriftResolution): boolean {
+  return !NON_DESTRUCTIVE.has(`${kind}:${resolution}`);
+}
+
 export function buildStackDriftReport(input: BuildStackDriftReportInput): StackDriftReport {
   const latestDeployMap = new Map(input.latestDeploys.map((deploy) => [`${deploy.host}/${deploy.stack}`, deploy]));
   const scanErrorHosts = new Set(input.scanErrors.map((error) => error.host));
   const items: StackDriftItem[] = [];
   const stackScanErrors: StackDriftScanError[] = [];
+  const hostAnomalies: StackDriftHostAnomaly[] = [];
 
   for (const host of input.hosts) {
     if (!host.dockerEnabled || scanErrorHosts.has(host.name)) continue;
@@ -74,6 +135,18 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
       // (createStackInRepo commits without deploying), failed, and edited-since-deploy
       // stacks are already reported through computeSyncStatus, not as drift.
       if (!latestDeploy || computeSyncStatus(latestDeploy, input.currentHeadSha) !== 'in_sync') continue;
+
+      // A manifest entry whose compose file is gone has no repo version to drift from or
+      // restore. Classifying it would lie (content drift) or offer a trust_repo resolution
+      // that deploys an empty compose, so it is excluded and reported as a scan error.
+      if (repoStack.composeMissing) {
+        stackScanErrors.push({
+          host: repoStack.host,
+          stack: repoStack.stack,
+          message: MISSING_REPO_COMPOSE_MESSAGE,
+        });
+        continue;
+      }
 
       const agentStack = agentByName.get(repoStack.stack);
       if (!agentStack) {
@@ -108,6 +181,13 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
         agentComposeHash: agentStack.composeHash,
       });
     }
+
+    // When the agent reports read errors, the empty inventory is already explained by
+    // the per-stack scan errors and ghost classification is skipped; the anomaly would
+    // be doubly misleading.
+    if (repoStacks.length > 0 && agentStacks.length === 0 && agentStackErrors.length === 0) {
+      hostAnomalies.push({ host: host.name, message: buildEmptyInventoryMessage(host.name, repoStacks.length) });
+    }
   }
 
   items.sort((a, b) =>
@@ -125,5 +205,6 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
       content: items.filter((item) => item.kind === 'content').length,
     },
     scanErrors: [...input.scanErrors, ...stackScanErrors],
+    hostAnomalies,
   };
 }

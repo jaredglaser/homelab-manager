@@ -1,11 +1,17 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, spyOn } from 'bun:test';
 import { abortableSleep, isAbortError } from '../abortable-sleep';
 
 describe('abortableSleep', () => {
   it('should resolve after the specified duration', async () => {
-    const start = Date.now();
-    await abortableSleep(50, new AbortController().signal);
-    expect(Date.now() - start).toBeGreaterThanOrEqual(40);
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout,
+    );
+    try {
+      await abortableSleep(50, new AbortController().signal);
+      expect(setTimeoutSpy.mock.calls[0]?.[1]).toBe(50);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 
   it('should reject immediately if signal is already aborted', async () => {

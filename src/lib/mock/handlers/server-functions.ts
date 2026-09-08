@@ -48,7 +48,6 @@ const registry: Record<string, ServerFnMock> = {
   getHistoricalDockerStats: fn(dockerFns.getHistoricalDockerStats),
   getDockerEntityIcons: fn(dockerFns.getDockerEntityIcons),
   getContainerHistory: fn(dockerFns.getContainerHistory),
-  getContainerInfo: fn(dockerFns.getContainerInfo),
   updateContainerIcon: fn(dockerFns.updateContainerIcon),
   clearContainerIcon: fn(dockerFns.clearContainerIcon),
   controlContainer: fn(dockerFns.controlContainer),
@@ -70,12 +69,10 @@ const registry: Record<string, ServerFnMock> = {
   resumeDeploy: fn(stacksFns.resumeDeploy),
   rejectDeploy: fn(stacksFns.rejectDeploy),
   scanDrift: fn(stacksFns.scanDrift),
+  resolveDrift: fn(stacksFns.resolveDrift),
   getDeployHistory: fn(stacksFns.getDeployHistory),
   saveComposeFile: fn(stacksFns.saveComposeFile),
-  updateStackIcon: fn(stacksFns.updateStackIcon),
-  getStackVariables: fn(stacksFns.getStackVariables),
   getStackVariableValues: fn(stacksFns.getStackVariableValues),
-  getVariableValue: fn(stacksFns.getVariableValue),
   setVariableValue: fn(stacksFns.setVariableValue),
   deleteVariable: fn(stacksFns.deleteVariable),
   listManagedHostNames: fn(stacksFns.listManagedHostNames),
@@ -96,11 +93,8 @@ const registry: Record<string, ServerFnMock> = {
   // Managed hosts (mocks take the raw data object)
   listHosts: fn(hostsFns.listHosts),
   verifyHost: withData(hostsFns.verifyHost),
-  addHost: withData(hostsFns.addHost),
-  registerExistingHost: withData(hostsFns.registerExistingHost),
   updateHost: withData(hostsFns.updateHost),
   removeHost: withData(hostsFns.removeHost),
-  updateAgent: withData(hostsFns.updateAgent),
   checkHostHealth: withData(hostsFns.checkHostHealth),
 
   // Git tokens

@@ -50,36 +50,6 @@ export const getContainerHistory = async (opts: {
 };
 
 /**
- * Mock: Get container info (name, image, host, icon, service key).
- */
-export const getContainerInfo = async (opts: {
-  data: {
-    containerId: string;
-    host?: string;
-  };
-}): Promise<{
-  containerName: string;
-  image: string;
-  host: string;
-  icon: string | null;
-  serviceKey: string | null;
-} | null> => {
-  const { containerId, host } = opts.data;
-  const entity = DOCKER_ENTITIES.find(
-    (e) => e.containerId === containerId && (!host || e.host === host),
-  );
-  if (!entity) return null;
-
-  return {
-    containerName: entity.containerName,
-    image: entity.image,
-    host: entity.host,
-    icon: entity.iconSlug,
-    serviceKey: entity.serviceKey,
-  };
-};
-
-/**
  * Mock: Update container icon - no-op in demo mode.
  */
 export const updateContainerIcon = async (_opts: {

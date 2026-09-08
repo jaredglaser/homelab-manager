@@ -73,38 +73,6 @@ export interface ZFSStatsRow {
 }
 
 /**
- * Configuration for ZFS monitoring
- */
-export interface ZFSMonitorConfig {
-  /** SSH connection details */
-  ssh: {
-    host: string;
-    port: number;
-    username: string;
-    privateKeyPath?: string;
-    password?: string;
-  };
-
-  /** Pool names to monitor (empty = all pools) */
-  pools?: string[];
-
-  /** Update interval in seconds (for iostat -v 1) */
-  interval?: number;
-}
-
-/**
- * ZFS pool information (from zpool list)
- */
-export interface ZFSPool {
-  name: string;
-  size: string;
-  allocated: string;
-  free: string;
-  capacity: string;
-  health: string;
-}
-
-/**
  * Hierarchical data structures for ZFS dashboard
  */
 

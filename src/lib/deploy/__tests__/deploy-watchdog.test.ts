@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { DeployWatchdog, loadDeployWatchdogConfig, type WatchdogRepo } from '../deploy-watchdog';
+import { waitForCondition } from '@/lib/test/wait-for-condition';
 
 interface IntervalHandle {
   cb: () => void;
@@ -267,7 +268,7 @@ describe('DeployWatchdog', () => {
       expect(harness.intervals).toHaveLength(1);
 
       harness.intervals[0].cb();
-      await new Promise((r) => setTimeout(r, 0));
+      await waitForCondition(() => notifyStackChange.mock.calls.length > 0);
 
       expect(timeoutStuckDeploys).toHaveBeenCalledTimes(1);
       expect(notifyStackChange).toHaveBeenCalledWith('a', 'h', {

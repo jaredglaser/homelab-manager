@@ -277,3 +277,30 @@ For production or untrusted networks, provision a certificate from your own CA (
 
 - Set `TLS_CERT_PATH` and `TLS_KEY_PATH` on the agent container to point at the certificate and private key.
 - Set `NODE_EXTRA_CA_CERTS` on the web server and worker containers to trust your internal CA.
+
+## Editor Setup (Zed)
+
+MCP servers are the one piece Zed configures at the user level (`~/.config/zed/settings.json`) rather than per project. To match the repo's Playwright MCP setup (`.mcp.json`, used by Claude Code), add:
+
+```json
+{
+  "context_servers": {
+    "playwright": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "--network=host",
+        "mcr.microsoft.com/playwright/mcp:latest",
+        "--headless",
+        "--browser",
+        "chromium",
+        "--no-sandbox",
+        "--isolated"
+      ]
+    }
+  }
+}
+```

@@ -41,7 +41,7 @@ An empty list is a real answer; a missing list is not.
   you would pick and why. Never present options without a recommendation.
 - Contradictory sources are a finding, not a problem to smooth over. Report both and say which is
   better supported.
-- CLAUDE.md rule 15 governs your prose: no em dashes, en dashes, `--` as a dash, or the vocabulary
+- AGENTS.md rule 15 governs your prose: no em dashes, en dashes, `--` as a dash, or the vocabulary
   tells ("leverage", "robust", "comprehensive", "delve", "it's worth noting").
 - Report **where the dispatching brief is wrong**: a premise that does not hold, a project that was
   renamed or archived, a claim that the sources contradict. That is more valuable than the survey.

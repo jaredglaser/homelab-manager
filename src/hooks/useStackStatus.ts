@@ -36,7 +36,7 @@ export function useStackStatus() {
     if (isDeployChanged(data)) {
       setDeployVersion((v) => v + 1);
       if (data.outcome !== undefined) {
-        const outcome = formatDeployOutcome({ stack: data.stack, ...data.outcome });
+        const outcome = formatDeployOutcome({ host: data.host, stack: data.stack, ...data.outcome });
         // Gate only when there is a toast to show; a non-terminal frame must not
         // consume the deployId's one-shot gate and suppress the later terminal toast.
         if (outcome && deployToastGate.shouldToast(data.outcome.deployId)) {

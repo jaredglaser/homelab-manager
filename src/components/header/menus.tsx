@@ -13,7 +13,7 @@ import type { MenuRouteKey } from '@/components/header/nav-config'
 export const NavMenuCloseContext = createContext<() => void>(() => {})
 
 const MENU_ITEM_CLASSES =
-  'flex items-center gap-2 px-3 py-2 text-sm no-underline text-inherit ' +
+  'flex items-center gap-2 min-h-11 px-3 py-2 text-sm no-underline text-inherit ' +
   'hover:bg-accent transition-colors'
 
 export function SettingsMenuContent() {
