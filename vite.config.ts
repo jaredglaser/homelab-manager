@@ -12,11 +12,11 @@ const customLogger = {
   ...logger,
   warn(msg: string, options?: any) {
     // Suppress "use client" directive warnings from MUI and other libraries
-    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('"use client"')) {
+    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('\"use client\"')) {
       return
     }
     logger.warn(msg, options)
-  },
+  }
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -76,6 +76,8 @@ export default defineConfig(({ mode }) => {
       // already-loaded dynamic imports). MSW is lazy-loaded, so without this Vite
       // only discovers it after the first navigation.
       include: ['msw', 'msw/browser'],
+      // FIX: Vite 8 holdUntilCrawlEnd deadlock - this app never fires the crawl end signal, so setting it to false commits immediately after bundling (pre-Vite8 behavior)
+      holdUntilCrawlEnd: false,
     },
     preview: {
       host: true,
@@ -95,7 +97,7 @@ export default defineConfig(({ mode }) => {
         external: ['undici'],
         onwarn(warning, warn) {
           // Suppress "use client" directive warnings from MUI and other libraries
-          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {
+          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('\"use client\"')) {
             return
           }
           warn(warning)
