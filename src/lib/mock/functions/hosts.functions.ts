@@ -90,8 +90,6 @@ export async function listHosts(): Promise<HostListItem[]> {
   return [...mockHosts];
 }
 
-
-/** Deterministic demo public JWK; demo mode has no real keypairs. */
 const MOCK_PUBLIC_JWK = { kty: 'OKP', crv: 'Ed25519', x: 'mock-public-key-x' };
 
 export async function getHostPublicJwk(_data: {
@@ -100,7 +98,6 @@ export async function getHostPublicJwk(_data: {
   return { publicJwk: MOCK_PUBLIC_JWK };
 }
 
-/** Intentionally stateless: returns a fresh-looking JWK without mutating mockHosts. */
 export async function rotateHostKeypair(_data: {
   hostId: number;
 }): Promise<{ hostId: number; publicJwk: typeof MOCK_PUBLIC_JWK }> {

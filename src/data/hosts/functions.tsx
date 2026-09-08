@@ -68,7 +68,6 @@ async function buildProbeCheckHealth(): Promise<
   }
 }
 
-/** Build the KeypairsDep adapter for a loaded AgentKeypairsRepository. */
 function makeKeypairsDep(
   keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
 ) {
