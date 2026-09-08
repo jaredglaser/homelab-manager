@@ -66,6 +66,7 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
     `AGENT_IMAGE=${config.agentImage}`,
     `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,
+    `HLM_STACKS_DIR=/opt/homelab-manager/stacks`,
   ];
 
   if (zfs) {
@@ -131,7 +132,11 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     volumes: [] as string[],
   };
 
-  const volumes: string[] = [];
+  const volumes: string[] = [
+    // Bind-mounted host dir: the agent-updater recreates this container on image
+    // updates, so stack files in the container's writable layer would be lost.
+    '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks',
+  ];
 
   if (zfs) {
     volumes.push(

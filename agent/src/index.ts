@@ -1,4 +1,5 @@
 import Dockerode from 'dockerode';
+import { accessSync, constants, statSync } from 'node:fs';
 import { authenticateRequest } from './middleware';
 import { handleHealth, handleInfo } from './routes/health';
 import { handleStatsStream } from './routes/stats';
@@ -227,4 +228,25 @@ else console.info('Docker capability: disabled (DOCKER_HOST not set)');
 if (zfsCapabilities.available) console.info(`ZFS capability: tier ${zfsCapabilities.tier} (v${zfsCapabilities.version ?? 'unknown'})`);
 else console.info('ZFS capability: disabled (zpool not found)');
 console.info(`Using stacks directory: ${STACKS_DIR}`);
+let stacksStat: ReturnType<typeof statSync> | null = null;
+try {
+  stacksStat = statSync(STACKS_DIR);
+} catch {
+  stacksStat = null;
+}
+if (!stacksStat?.isDirectory()) {
+  console.warn(
+    `Stacks directory '${STACKS_DIR}' does not exist or is not a directory; deployed stack files will not persist across agent container recreation. Ensure a volume or bind mount covers this path.`,
+  );
+} else {
+  try {
+    accessSync(STACKS_DIR, constants.W_OK);
+  } catch {
+    // Docker auto-creates a missing bind-mount host dir as root, which passes the
+    // stat above but makes every stack deploy fail with EACCES at write time.
+    console.warn(
+      `Stacks directory '${STACKS_DIR}' is not writable by this process; stack deploys will fail until the host directory is owned or chowned for the agent user.`,
+    );
+  }
+}
 console.info(`Agent listening on port ${PORT} (${tlsConfig ? 'HTTPS' : 'HTTP'})`);
