@@ -1,11 +1,11 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
-import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema } from '@/data/hosts/schemas';
+import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleVerifyHost,
+  handleUpdateHost, handleVerifyHost, handleGetHostPublicJwk, handleRotateHostKeypair,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
@@ -68,6 +68,17 @@ async function buildProbeCheckHealth(): Promise<
   }
 }
 
+/** Build the KeypairsDep adapter for a loaded AgentKeypairsRepository. */
+function makeKeypairsDep(
+  keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
+) {
+  return {
+    createForHost: (name: string) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
+    deleteForHost: (name: string) => keypairs.deleteForHost(name),
+    getPublicJwkForHost: (name: string) => keypairs.getPublicJwkForHost(name),
+  };
+}
+
 export const verifyHost = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(verifyHostSchema)
@@ -77,10 +88,7 @@ export const verifyHost = createServerFn()
     const keypairs = await loadKeypairsRepo();
     return handleVerifyHost({
       ...baseDeps,
-      keypairs: {
-        createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
-        deleteForHost: (name) => keypairs.deleteForHost(name),
-      },
+      keypairs: makeKeypairsDep(keypairs),
     }, data);
   });
 
@@ -127,4 +135,24 @@ export const updateHost = createServerFn()
     requireRole('admin')(context.user);
     const deps = await loadDeps();
     return handleUpdateHost(deps, data);
+  });
+
+export const getHostPublicJwk = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(getHostPublicJwkSchema)
+  .handler(async ({ data, context }): Promise<{ publicJwk: import('jose').JWK }> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    return handleGetHostPublicJwk({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
+  });
+
+export const rotateHostKeypair = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(rotateHostKeypairSchema)
+  .handler(async ({ data, context }): Promise<{ hostId: number; publicJwk: import('jose').JWK }> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    return handleRotateHostKeypair({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
   });

@@ -7,6 +7,7 @@ export type { HostListItem } from '@/lib/hosts/host-utils';
 export interface KeypairsDep {
   createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
+  getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
 }
 
 export interface AddHostResult {
@@ -120,6 +121,41 @@ export async function handleUpdateHost(
 
   const updated = await deps.repo.update(data.hostId, fields);
   return toHostListItem(updated);
+}
+
+/**
+ * Return the host's current public JWK so the operator can (re)install it as
+ * AGENT_TRUSTED_PUBKEY on the agent. Read-only; works for any enrolled host.
+ */
+export async function handleGetHostPublicJwk(
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { hostId: number },
+): Promise<{ publicJwk: import('jose').JWK }> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const publicJwk = await deps.keypairs.getPublicJwkForHost(host.name);
+  if (!publicJwk) {
+    throw new Error(`No agent keypair found for host ${host.name}`);
+  }
+  return { publicJwk };
+}
+
+/**
+ * Rotate a host's agent keypair. createForHost is an UPSERT keyed on host name,
+ * so this replaces the stored keypair and stamps rotated_at. The operator must
+ * install the returned JWK as AGENT_TRUSTED_PUBKEY on the agent; until then
+ * every authenticated call to that agent fails.
+ */
+export async function handleRotateHostKeypair(
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { hostId: number },
+): Promise<{ hostId: number; publicJwk: import('jose').JWK }> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const { publicJwk } = await deps.keypairs.createForHost(host.name);
+  return { hostId: host.id, publicJwk };
 }
 
 /**

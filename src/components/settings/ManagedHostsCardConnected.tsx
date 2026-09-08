@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost } from '@/data/hosts/functions'
+import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost, getHostPublicJwk, rotateHostKeypair } from '@/data/hosts/functions'
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
 import { useToast } from '@/hooks/toastAtom'
 
@@ -12,6 +12,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const { showToast } = useToast()
   const [addError, setAddError] = useState<string | null>(null)
   const [verifyResult, setVerifyResult] = useState<{ publicJwk: unknown } | null>(null)
+  const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
 
   const { data: hosts = [], isLoading } = useQuery({
     queryKey: HOSTS_QUERY_KEY,
@@ -70,6 +71,30 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     },
   })
 
+  const viewKeypairMutation = useMutation({
+    mutationFn: (hostId: number) => getHostPublicJwk({ data: { hostId } }),
+    onSuccess: (result) => {
+      setKeypairJwkJson(JSON.stringify(result.publicJwk))
+    },
+    onError: (err: unknown) => {
+      setKeypairJwkJson(null)
+      const message = err instanceof Error ? err.message : 'Failed to load keypair'
+      showToast(message, 'error')
+    },
+  })
+
+  const rotateKeypairMutation = useMutation({
+    mutationFn: (hostId: number) => rotateHostKeypair({ data: { hostId } }),
+    onSuccess: (result) => {
+      setKeypairJwkJson(JSON.stringify(result.publicJwk))
+      showToast('Keypair rotated. Update AGENT_TRUSTED_PUBKEY on the agent and restart it.', 'warning')
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : 'Failed to rotate keypair'
+      showToast(message, 'error')
+    },
+  })
+
   const healthMutation = useMutation({
     mutationFn: (hostId: number) => {
       setCheckingHostIds(prev => new Set(prev).add(hostId))
@@ -109,6 +134,14 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       isUpdating={updateMutation.isPending}
       onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
       checkingHostIds={checkingHostIds}
+      onViewKeypair={(hostId) => {
+        setKeypairJwkJson(null)
+        viewKeypairMutation.mutate(hostId)
+      }}
+      keypairLoading={viewKeypairMutation.isPending}
+      onRotateKeypair={(hostId) => rotateKeypairMutation.mutate(hostId)}
+      keypairRotating={rotateKeypairMutation.isPending}
+      keypairJwkJson={keypairJwkJson}
     />
   )
 }
