@@ -12,11 +12,11 @@ const customLogger = {
   ...logger,
   warn(msg: string, options?: any) {
     // Suppress "use client" directive warnings from MUI and other libraries
-    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('"use client"')) {
+    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('\"use client\"')) {
       return
     }
     logger.warn(msg, options)
-  },
+  }
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -76,6 +76,15 @@ export default defineConfig(({ mode }) => {
       // already-loaded dynamic imports). MSW is lazy-loaded, so without this Vite
       // only discovers it after the first navigation.
       include: ['msw', 'msw/browser'],
+      // FIX: Vite 8's holdUntilCrawlEnd default is true, which waits for the
+      // optimizer's cold-start bundle to commit at "crawl end" (no pending module
+      // requests for X ms). In this app the crawl-end signal never fires (the
+      // dev server's request tracker never transitions to idle during cold start),
+      // so the optimizer deadlocks: it resolves the bundle but never commits
+      // deps_temp_* -> deps, and every dep import hangs forever. Disabling this
+      // makes the optimizer commit immediately after bundling, which is the
+      // behavior older Vite versions had before holdUntilCrawlEnd was added.
+      holdUntilCrawlEnd: false,
     },
     preview: {
       host: true,
@@ -95,7 +104,7 @@ export default defineConfig(({ mode }) => {
         external: ['undici'],
         onwarn(warning, warn) {
           // Suppress "use client" directive warnings from MUI and other libraries
-          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {
+          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('\"use client\"')) {
             return
           }
           warn(warning)
