@@ -13,7 +13,7 @@
  *
  * Outputs (gitignored, under e2e-build/auth/):
  * - oidc.env  : OIDC_CLIENT_ID / OIDC_CLIENT_SECRET, sourced by the app servers.
- * - oidc.json : { clientId, issuerUrl, email, oneTimeLoginUrl }, read by the specs.
+ * - oidc.json : { clientId, issuerUrl, email, userId }, read by the specs.
  *
  * Env: POCKET_ID_URL (default http://localhost:1411), POCKET_ID_API_KEY,
  *      plus POSTGRES_* for migrations.
@@ -115,16 +115,14 @@ async function ensureClient(): Promise<string> {
 
 await waitForHealth();
 
-// Migrations: import lazily so a Pocket-ID-only failure surfaces before DB work.
-const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-const { runMigrations } = await import('@/lib/database/migrate');
-const db = await databaseConnectionManager.getClient(loadDatabaseConfig());
-try {
-  await runMigrations(db);
-} finally {
-  await databaseConnectionManager.closeAll();
-}
+// Migrations via the shared entry point (single migration-invocation path; runs
+// after the Pocket-ID health check so Pocket-ID-only failures surface first).
+await Bun.spawn(['bun', path.resolve('scripts/run-migrations.ts')], {
+  stdout: 'inherit',
+  stderr: 'inherit',
+}).exited.then((code) => {
+  if (code !== 0) throw new Error(`run-migrations exited with code ${code}`);
+});
 
 const groupId = await ensureGroup('homelab-admins', 'Homelab Admins');
 const userId = await ensureUser('e2e-admin', groupId);

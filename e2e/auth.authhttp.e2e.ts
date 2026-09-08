@@ -49,8 +49,13 @@ test('the session persists into a fresh context (cookie is sent back and validat
 test('logout clears the session cookie', async ({ page, context }) => {
   await login(page, BASE);
 
-  const logout = await page.goto(`${BASE}/api/auth/logout`);
-  const cleared = (await setCookieValues(logout!)).find((c) => c.startsWith('session='));
+  // The logout handler 302-redirects to the IdP end_session endpoint, so
+  // page.goto resolves to the FINAL response of the redirect chain, not the
+  // logout response that carries the clearing Set-Cookie. Capture it explicitly.
+  const logoutPromise = page.waitForResponse((r) => r.url().includes('/api/auth/logout'));
+  await page.goto(`${BASE}/api/auth/logout`);
+  const logout = await logoutPromise;
+  const cleared = (await setCookieValues(logout)).find((c) => c.startsWith('session='));
   expect(cleared).toContain('Max-Age=0');
 
   expect((await context.cookies()).find((c) => c.name === 'session')).toBeUndefined();

@@ -31,7 +31,18 @@ test('login issues a __Host-session cookie with Secure and Max-Age', async ({ pa
 });
 
 test('a planted plain session cookie does not authenticate on https', async ({ page, context }) => {
-  // No login: forge a plain `session` cookie (the kind a subdomain could plant).
+  // Positive control first: a real login proves auth works on this server
+  // instance, so the forged-cookie check below can't pass because auth is
+  // broken for an unrelated reason.
+  await login(page, BASE);
+  await page.goto(`${BASE}/`);
+  await expect(page).not.toHaveURL(/\/login/);
+
+  // Now drop the real __Host-session cookie and plant a plain `session` cookie
+  // (the kind a subdomain could plant). Note for this test's contract: the app
+  // reads only the single name `__Host-session` on https, so the plain name is
+  // never consulted and this request must be unauthenticated.
+  await context.clearCookies();
   await context.addCookies([
     { name: 'session', value: 'forged-token', domain: 'localhost', path: '/' },
   ]);
@@ -44,8 +55,12 @@ test('a planted plain session cookie does not authenticate on https', async ({ p
 test('logout clears the __Host-session cookie', async ({ page, context }) => {
   await login(page, BASE);
 
-  const logout = await page.goto(`${BASE}/api/auth/logout`);
-  const cleared = (await setCookieValues(logout!)).find((c) => c.startsWith('__Host-session='));
+  // Capture the logout response explicitly — page.goto resolves to the final
+  // redirect (the IdP end_session endpoint), not the response that clears the cookie.
+  const logoutPromise = page.waitForResponse((r) => r.url().includes('/api/auth/logout'));
+  await page.goto(`${BASE}/api/auth/logout`);
+  const logout = await logoutPromise;
+  const cleared = (await setCookieValues(logout)).find((c) => c.startsWith('__Host-session='));
   expect(cleared).toContain('Max-Age=0');
 
   expect((await context.cookies()).find((c) => c.name === '__Host-session')).toBeUndefined();

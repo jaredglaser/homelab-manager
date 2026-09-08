@@ -66,6 +66,6 @@ export async function login(page: Page, baseURL: string): Promise<Response> {
   await consent.click({ timeout: 3000 }).catch(() => {});
 
   const callback = await callbackPromise;
-  await page.waitForURL(`${baseURL}/`);
+  await page.waitForURL(`${baseURL}/docker`);
   return callback;
 }

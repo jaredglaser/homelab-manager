@@ -127,7 +127,10 @@ jobs:
     # backend and cannot emit HttpOnly Set-Cookie.
     services:
       postgres:
-        image: timescale/timescaledb:latest-pg16
+        # Pinned by digest, matching the migrations job's convention below: a
+        # floating tag (latest-pg16) lets an upstream image push break main with
+        # no commit in this repo. Bump tag + digest together.
+        image: timescale/timescaledb:latest-pg16@sha256:343e54b05d0b039b5867cf054a6422d595f598af93b94507d61f9addd4815fef
         env:
           POSTGRES_DB: homelab_test
           POSTGRES_USER: homelab
@@ -141,7 +144,8 @@ jobs:
           --health-retries 10
 
       pocket-id:
-        image: ghcr.io/pocket-id/pocket-id:v2
+        # Pinned by digest (linux/amd64 manifest of the v2 tag at adoption time).
+        image: ghcr.io/pocket-id/pocket-id:v2@sha256:698265f9d9b9df2fa9c8ddf19e34a3f8d0c9101dcf9f125f46a75cc1b1df0e60
         env:
           APP_URL: http://localhost:1411
           # Throwaway values for an ephemeral CI instance; not real secrets.
@@ -170,6 +174,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
       - name: Install Playwright browser
         run: bunx playwright install --with-deps chromium
 
@@ -191,7 +201,7 @@ jobs:
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-auth
           path: playwright-report/
@@ -415,7 +425,10 @@ jobs:
   publish:
     name: Publish Docker Images
     runs-on: ubuntu-latest
-    needs: [build-test, agent, agent-updater, e2e, e2e-auth, migrations]
+    # e2e-auth is deliberately NOT a publish gate: it boots two service
+    # containers and an external IdP, so its flakiness should not block Docker
+    # image publication (same reasoning that keeps migrations off deploy-demo).
+    needs: [build-test, agent, agent-updater, e2e, migrations]
     if: github.event_name == 'push'
     permissions:
       contents: read

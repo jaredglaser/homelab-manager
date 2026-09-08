@@ -48,7 +48,9 @@ delete commonEnv.AUTH_DISABLED; // auth required
 const children: import('bun').Subprocess[] = [];
 function startNitro(port: number, redirectUri: string) {
   children.push(
-    Bun.spawn(['node', serverEntry], {
+    // Bun, not node: production runs the Nitro output under bun (Dockerfile CMD),
+    // and this lane's subject is Set-Cookie emission, so exercise the same runtime.
+    Bun.spawn(['bun', serverEntry], {
       env: { ...commonEnv, PORT: String(port), OIDC_REDIRECT_URI: redirectUri },
       stdout: 'inherit',
       stderr: 'inherit',
