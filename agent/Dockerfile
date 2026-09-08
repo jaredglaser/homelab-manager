@@ -20,6 +20,11 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.14 \
 COPY src ./src
 COPY tsconfig.json ./tsconfig.json
 
+# Stamped by CI from the release tag (steps.meta-agent.outputs.version). Falls
+# back to package.json locally, which is not rebuilt on release.
+ARG AGENT_VERSION
+ENV AGENT_VERSION=${AGENT_VERSION}
+
 ENV AGENT_PORT=9090
 ENV STACKS_DIR=/opt/homelab-manager/stacks
 # DOCKER_HOST must be set at runtime (e.g., tcp://socket-proxy:2375).

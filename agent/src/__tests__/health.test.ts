@@ -1,7 +1,6 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { handleHealth, handleInfo } from '../routes/health';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
-import pkg from '../../package.json';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -125,13 +124,42 @@ describe('handleInfo', () => {
     expect(second.agentImageTag).toBe('dev');
   });
 
+  test('prefers the AGENT_VERSION build stamp over package.json', async () => {
+    const original = process.env.AGENT_VERSION;
+    process.env.AGENT_VERSION = '1.2.3';
+    try {
+      const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
+      const body = await response.json();
+
+      expect(body.agentVersion).toBe('1.2.3');
+    } finally {
+      if (original === undefined) delete process.env.AGENT_VERSION;
+      else process.env.AGENT_VERSION = original;
+    }
+  });
+
+  test('falls back to the short commit hash when AGENT_VERSION is unset', async () => {
+    const original = process.env.AGENT_VERSION;
+    delete process.env.AGENT_VERSION;
+    try {
+      const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
+      const body = await response.json();
+      const expected = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD']).stdout.toString().trim();
+
+      expect(body.agentVersion).toBe(expected);
+    } finally {
+      if (original !== undefined) process.env.AGENT_VERSION = original;
+    }
+  });
+
   test('reports Docker and ZFS capabilities when both available', async () => {
     const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.status).toBe('healthy');
-    expect(body.agentVersion).toBe(pkg.version);
+    const expected = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD']).stdout.toString().trim();
+    expect(body.agentVersion).toBe(expected);
     expect(body.capabilities.docker).toEqual({
       available: true,
       version: '24.0.7',
