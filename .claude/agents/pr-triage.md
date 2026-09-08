@@ -36,13 +36,13 @@ The disposition drives what the orchestrator may do without asking, so calibrate
   reverse. The `agent/` package is deliberately separate.
 - The finding is right and its suggested diff is still wrong. Judge those separately.
 - Docstring Coverage is a standing decline in this repo: it scores a PR down for removing the JSDoc
-  that CLAUDE.md rule 14 forbids. Mark it `invalid` with that reason.
+  that AGENTS.md rule 14 forbids. Mark it `invalid` with that reason.
 - An "Addressed in commit" marker is not a review. CodeRabbit writes those without re-reading.
 
 ## Reporting
 
 - A zero grep count is a claim about absence. Check case and spelling before publishing it.
-- CLAUDE.md rule 15 governs your prose: no em dashes, en dashes, `--` as a dash, or the vocabulary
+- AGENTS.md rule 15 governs your prose: no em dashes, en dashes, `--` as a dash, or the vocabulary
   tells.
 - Report **where the dispatching brief is wrong** rather than working around it: a finding that does
   not exist at the SHA you were given, a file that moved, a thread that is already resolved.

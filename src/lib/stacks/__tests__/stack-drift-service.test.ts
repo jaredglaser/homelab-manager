@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import type { DeployRecord } from '@/lib/deploy/types';
-import { buildStackDriftReport, getStackDriftKindLabel } from '@/lib/stacks/stack-drift-service';
+import {
+  buildStackDriftReport,
+  getAllowedStackDriftResolutions,
+  getStackDriftKindLabel,
+  getStackDriftResolutionLabel,
+  isDestructiveStackDriftResolution,
+  MISSING_REPO_COMPOSE_MESSAGE,
+} from '@/lib/stacks/stack-drift-service';
 
 const HEAD_SHA = 'sha-head';
 
@@ -17,15 +24,19 @@ const deploy = (overrides?: Partial<DeployRecord>): DeployRecord => ({
   forceRecreate: false,
   logs: null,
   createdAt: new Date('2026-04-21T00:00:00Z'),
+  startedAt: null,
   postSuccess: null,
   ...overrides,
 });
 
-const repoStack = (overrides?: Partial<{ stack: string; host: string; autoDeploy: boolean; composeHash: string }>) => ({
+const repoStack = (
+  overrides?: Partial<{ stack: string; host: string; autoDeploy: boolean; composeHash: string; composeMissing: boolean }>,
+) => ({
   stack: 'plex',
   host: 'alpha',
   autoDeploy: false,
   composeHash: 'repo-hash',
+  composeMissing: false,
   ...overrides,
 });
 
@@ -50,6 +61,43 @@ describe('buildStackDriftReport', () => {
       },
     ]);
     expect(report.summary).toEqual({ total: 1, ghost: 1, untracked: 0, content: 0 });
+  });
+
+  it('reports a missing repo compose as a scan error instead of content drift', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack({ composeMissing: true })],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', [{ name: 'plex', hasComposeFile: true, composeHash: 'agent-hash' }]]]),
+      scanErrors: [],
+    });
+
+    expect(report.items).toEqual([]);
+    expect(report.summary.total).toBe(0);
+    expect(report.scanErrors).toEqual([
+      {
+        host: 'alpha',
+        stack: 'plex',
+        message: MISSING_REPO_COMPOSE_MESSAGE,
+      },
+    ]);
+  });
+
+  it('reports a missing repo compose as a scan error instead of ghost drift', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack({ composeMissing: true })],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      scanErrors: [],
+    });
+
+    expect(report.items).toEqual([]);
+    expect(report.summary.total).toBe(0);
+    expect(report.scanErrors).toHaveLength(1);
+    expect(report.scanErrors[0]).toMatchObject({ host: 'alpha', stack: 'plex' });
   });
 
   it('does not report a never-deployed repo stack as ghost', () => {
@@ -324,6 +372,81 @@ describe('buildStackDriftReport', () => {
 
     expect(report.items).toEqual([]);
   });
+
+  it('flags an empty agent inventory on a host with repo stacks and no scan error', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack(), repoStack({ stack: 'grafana' })],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy(), deploy({ id: 2, stack: 'grafana' })],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      scanErrors: [],
+    });
+
+    expect(report.hostAnomalies).toEqual([
+      {
+        host: 'alpha',
+        message:
+          'Agent for host "alpha" returned an empty stack inventory while the repo tracks 2 stack(s) on it. ' +
+          "The agent's stacks directory may be missing, misconfigured, or wiped by a container recreation. " +
+          'Ghost items for this host may be false.',
+      },
+    ]);
+  });
+
+  it('does not flag the anomaly when the agent reports per-stack read errors', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack()],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      agentStackErrorsByHost: new Map([['alpha', [{ name: 'plex', message: 'EACCES' }]]]),
+      scanErrors: [],
+    });
+
+    expect(report.hostAnomalies).toEqual([]);
+    expect(report.scanErrors).toEqual([{ host: 'alpha', stack: 'plex', message: 'EACCES' }]);
+  });
+
+  it('does not flag the anomaly when the host scan errored', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack()],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      scanErrors: [{ host: 'alpha', message: 'agent unreachable' }],
+    });
+
+    expect(report.hostAnomalies).toEqual([]);
+  });
+
+  it('does not flag the anomaly when the repo has no stacks on the host', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      scanErrors: [],
+    });
+
+    expect(report.hostAnomalies).toEqual([]);
+  });
+
+  it('does not flag the anomaly when the agent inventory is non-empty', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack()],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', [{ name: 'plex', hasComposeFile: true, composeHash: 'hash' }]]]),
+      scanErrors: [],
+    });
+
+    expect(report.hostAnomalies).toEqual([]);
+  });
 });
 
 describe('getStackDriftKindLabel', () => {
@@ -331,5 +454,38 @@ describe('getStackDriftKindLabel', () => {
     expect(getStackDriftKindLabel('ghost')).toBe('Ghost');
     expect(getStackDriftKindLabel('untracked')).toBe('Untracked');
     expect(getStackDriftKindLabel('content')).toBe('Content Drift');
+  });
+});
+
+describe('getAllowedStackDriftResolutions', () => {
+  it('offers both sides for a stack the repo and the host both know about', () => {
+    expect(getAllowedStackDriftResolutions('ghost')).toEqual(['trust_repo', 'trust_agent']);
+    expect(getAllowedStackDriftResolutions('content')).toEqual(['trust_repo', 'trust_agent']);
+  });
+
+  it('offers adopt or remove for a stack the repo does not track', () => {
+    expect(getAllowedStackDriftResolutions('untracked')).toEqual(['trust_agent', 'remove']);
+  });
+
+  it('labels every offered resolution', () => {
+    for (const kind of ['ghost', 'untracked', 'content'] as const) {
+      for (const resolution of getAllowedStackDriftResolutions(kind)) {
+        expect(getStackDriftResolutionLabel(kind, resolution)).toBeString();
+      }
+    }
+  });
+});
+
+describe('isDestructiveStackDriftResolution', () => {
+  it('treats deploying to an empty host and adopting an untracked stack as additive', () => {
+    expect(isDestructiveStackDriftResolution('ghost', 'trust_repo')).toBe(false);
+    expect(isDestructiveStackDriftResolution('untracked', 'trust_agent')).toBe(false);
+  });
+
+  it('treats everything that discards a version as destructive', () => {
+    expect(isDestructiveStackDriftResolution('ghost', 'trust_agent')).toBe(true);
+    expect(isDestructiveStackDriftResolution('untracked', 'remove')).toBe(true);
+    expect(isDestructiveStackDriftResolution('content', 'trust_repo')).toBe(true);
+    expect(isDestructiveStackDriftResolution('content', 'trust_agent')).toBe(true);
   });
 });

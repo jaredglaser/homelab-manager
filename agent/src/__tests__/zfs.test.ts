@@ -167,13 +167,10 @@ describe('handleZfsStatsStream', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/zfs/stats/stream', { signal: ac.signal });
-    handleZfsStatsStream(request, zfsAvailable);
-
-    // Give the stream time to start
-    await new Promise((r) => setTimeout(r, 20));
+    const response = handleZfsStatsStream(request, zfsAvailable);
+    await readUntil(response, (s) => s.includes(': ok'));
 
     ac.abort();
-    await new Promise((r) => setTimeout(r, 20));
 
     expect(killMock).toHaveBeenCalled();
   });
@@ -208,11 +205,9 @@ describe('handleZfsStatsStream', () => {
     // Wait for the first chunk to be processed, then abort to close controller
     await readUntil(response, (s) => s.includes('line1'), 2000);
     ac.abort();
-    await new Promise((r) => setTimeout(r, 20));
 
     // Now release the second chunk; enqueue should catch
     resolveSecondChunk?.();
-    await new Promise((r) => setTimeout(r, 20));
 
     // Stream should be closed without errors
     expect(killMock).toHaveBeenCalled();

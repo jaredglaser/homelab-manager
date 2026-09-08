@@ -24,16 +24,25 @@ import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
 import DeployHistoryList from '@/components/stacks/DeployHistoryList'
 import StackContainersPanel from '@/components/stacks/StackContainersPanel'
-import StackActionBar from '@/components/stacks/StackActionBar'
+import StackActionBar, { type ActiveDeployInfo } from '@/components/stacks/StackActionBar'
 import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
 import StackDriftWarning from '@/components/stacks/StackDriftWarning'
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
 import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
-import type { StackDetail } from '@/types/stacks'
+import type { StackDetail, StackDeployRecord } from '@/types/stacks'
 import type { StackFormValues } from '@/components/stacks/stack-form'
 
 type Panel = 'compose' | 'secrets' | 'containers' | 'deploys'
+
+// The server rejects every deploy while such a row exists, so the buttons follow it.
+function findActiveDeploy(records: StackDeployRecord[] | undefined, host: string): ActiveDeployInfo | null {
+  for (const r of records ?? []) {
+    if (r.host !== host) continue
+    if (r.status === 'pending' || r.status === 'in_progress') return { status: r.status, action: r.action }
+  }
+  return null
+}
 
 type ConfirmableDeployAction = { action: 'deploy' | 'update'; forceRecreate?: boolean }
 type DeployMutationParams = { action: 'deploy' | 'teardown' | 'update'; forceRecreate?: boolean }
@@ -157,6 +166,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const statusKey = `${detail.host}/${detail.name}`
   const containers = statusMap.get(statusKey)?.containers ?? []
+  const activeDeploy = findActiveDeploy(history, detail.host)
   const driftItem = canWrite
     ? driftReport?.items.find((item) => item.host === detail.host && item.stack === detail.name) ?? null
     : null
@@ -171,15 +181,23 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     mutationFn: ({ action, forceRecreate }: DeployMutationParams) =>
       triggerDeploy({ data: { stack: stackName, host: detail.host, action, forceRecreate: action === 'deploy' ? (forceRecreate ?? false) : undefined } }),
     onSuccess: (data, { action }) => {
-      if (deployToastGate.shouldToast(data.deployId)) {
-        const outcome = formatDeployOutcome({
-          stack: stackName,
-          action,
-          status: data.status,
-          trigger: 'ui',
-          message: data.logs,
-        })
-        if (outcome) showToast(outcome.message, outcome.severity)
+      const outcome = formatDeployOutcome({
+        host: detail.host,
+        stack: stackName,
+        action,
+        status: data.status,
+        trigger: 'ui',
+        message: data.logs,
+      })
+      // For updates the server replies in_progress right away and the deploy
+      // finishes later, so the success/failure toast comes from the SSE
+      // terminal frame for this deployId, not from this response. The gate is
+      // one claim per deployId, so claiming here would silence that later SSE
+      // toast. Claim only when this response itself produces a toast.
+      // 'queued' is unreachable here: only git_push triggers queue, and a
+      // blocked ui/manual_rollback trigger fails immediately instead.
+      if (outcome && deployToastGate.shouldToast(data.deployId)) {
+        showToast(outcome.message, outcome.severity)
       }
       invalidateDeployAndStacks()
     },
@@ -187,11 +205,12 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
       showToast(err instanceof Error ? err.message : String(err), 'error')
     },
   })
+  const isDeploying = deployMutation.isPending || activeDeploy !== null
 
   // Deploy, update, and recreate all use the git-committed compose and the saved
   // secrets, so unsaved editor edits would silently ship the previous version.
   function triggerDeployOrUpdate(action: 'deploy' | 'update', forceRecreate?: boolean) {
-    if (deployMutation.isPending) return
+    if (isDeploying) return
     // Read dirtiness live at click time (same per-field signal as the compose
     // "Unsaved changes" label and the tab dots) so the guard never lags a render
     // or disagrees with what the user sees.
@@ -217,7 +236,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   }
 
   function confirmPendingAction() {
-    if (pendingConfirmAction && !deployMutation.isPending) deployMutation.mutate(pendingConfirmAction)
+    if (pendingConfirmAction && !isDeploying) deployMutation.mutate(pendingConfirmAction)
     setPendingConfirmAction(null)
   }
 
@@ -253,25 +272,23 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const approveMutation = useMutation({
     mutationFn: (deployId: number) => resumeDeploy({ data: { deployId } }),
-    // Claim before the SSE outcome for the same deployId can arrive.
-    onMutate: (deployId: number) => {
-      deployToastGate.claim(deployId)
-    },
     onSuccess: (data) => {
       const outcome = formatDeployOutcome({
+        host: detail.host,
         stack: stackName,
         action: 'deploy',
         status: data.status,
         trigger: 'ui',
         message: data.logs,
       })
-      if (outcome) showToast(outcome.message, outcome.severity)
+      // No pre-claim: claiming in onMutate and releasing on a non-toast response
+      // erases a terminal SSE frame that arrived during the await, losing the toast.
+      if (outcome && deployToastGate.shouldToast(data.deployId)) {
+        showToast(outcome.message, outcome.severity)
+      }
       invalidateDeployAndStacks()
     },
-    // Release the pre-claim: if the server did resume the deploy, its terminal SSE
-    // outcome must still be free to toast rather than being suppressed by the claim.
-    onError: (err, deployId) => {
-      deployToastGate.release(deployId)
+    onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
@@ -284,7 +301,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
       deployToastGate.claim(deployId)
     },
     onSuccess: () => {
-      showToast(`Deploy rejected for ${stackName}`, 'success')
+      showToast(`Deploy rejected for ${detail.host}/${stackName}`, 'success')
       invalidateDeployAndStacks()
     },
     onError: (err, deployId) => {
@@ -377,7 +394,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 stackName={stackName}
                 host={detail.host}
                 onRecreate={handleRecreate}
-                isDeploying={deployMutation.isPending}
+                isDeploying={isDeploying}
               />
             )}
             {panel === 'deploys' && (
@@ -387,15 +404,16 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 stackName={stackName}
                 host={detail.host}
                 onRollbackComplete={(result) => {
-                  if (deployToastGate.shouldToast(result.deployId)) {
-                    const outcome = formatDeployOutcome({
-                      stack: stackName,
-                      action: 'deploy',
-                      status: result.status,
-                      trigger: 'manual_rollback',
-                      message: result.logs,
-                    })
-                    if (outcome) showToast(outcome.message, outcome.severity)
+                  const outcome = formatDeployOutcome({
+                    host: detail.host,
+                    stack: stackName,
+                    action: 'deploy',
+                    status: result.status,
+                    trigger: 'manual_rollback',
+                    message: result.logs,
+                  })
+                  if (outcome && deployToastGate.shouldToast(result.deployId)) {
+                    showToast(outcome.message, outcome.severity)
                   }
                   queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                   queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
@@ -414,13 +432,14 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         </div>
 
         {/* Sticky Action Bar */}
-        <div className="shrink-0 border-t border-(--border) bg-(--background) px-1 py-3">
+        <div className="shrink-0 border-t border-border bg-background px-1 py-3">
           <StackActionBar
             onDeploy={handleDeploy}
             onUpdate={handleUpdate}
             onTeardown={() => deployMutation.mutate({ action: 'teardown' })}
             onDelete={() => setDeleteDialogOpen(true)}
             isDeploying={deployMutation.isPending}
+            activeDeploy={activeDeploy}
           />
         </div>
 

@@ -72,7 +72,7 @@ export default function IconPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
-      <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-(--popover) w-[720px] max-w-[calc(100%-64px)] max-h-[600px] p-0">
+      <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-(--popover) w-[720px] max-w-[calc(100%-64px)] max-h-[min(600px,calc(100%-64px))] p-0">
         <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-(--border) shrink-0 bg-(--popover)">
           <h2 className="text-sm font-semibold">
             Select Icon for {containerName}
@@ -109,7 +109,7 @@ export default function IconPickerDialog({
           </span>
         </div>
 
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 pb-4">
           <IconGrid
             filteredIcons={filteredIcons}
             currentIcon={displayedIcon}

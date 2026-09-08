@@ -1,8 +1,8 @@
 # Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
-FROM docker:29.6.1-cli AS toolchain
+FROM docker:29.7.2-cli AS toolchain
 
 # Application stage
-FROM oven/bun:1.3.14 AS base
+FROM oven/bun:1.4.0 AS base
 
 COPY --from=toolchain /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=toolchain /usr/local/libexec/docker/cli-plugins /usr/local/lib/docker/cli-plugins
@@ -19,6 +19,11 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.14 \
 
 COPY src ./src
 COPY tsconfig.json ./tsconfig.json
+
+# Stamped by CI from the release tag (steps.meta-agent.outputs.version). Falls
+# back to package.json locally, which is not rebuilt on release.
+ARG AGENT_VERSION
+ENV AGENT_VERSION=${AGENT_VERSION}
 
 ENV AGENT_PORT=9090
 ENV STACKS_DIR=/opt/homelab-manager/stacks

@@ -75,8 +75,6 @@ describe('StatsPollService', () => {
     const tick = harness.intervals[0].cb;
 
     const first = tick();
-    // Let the first tick reach its awaited (hanging) loadRows call.
-    await new Promise((r) => setTimeout(r, 0));
 
     // Second tick must early-return without starting another poll.
     await tick();

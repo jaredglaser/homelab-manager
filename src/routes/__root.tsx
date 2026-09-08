@@ -39,7 +39,7 @@ export const Route = createRootRoute({
       },
       {
         name: 'viewport',
-        content: 'initial-scale=1, width=device-width',
+        content: 'initial-scale=1, width=device-width, viewport-fit=cover',
       },
       {
         title: 'Homelab Manager',

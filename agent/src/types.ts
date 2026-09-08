@@ -59,6 +59,9 @@ export interface AgentZfsCapability {
 export interface AgentInfoResponse {
   status: 'healthy' | 'unhealthy';
   agentVersion: string;
+  // Absent on agents predating image reporting; null means the agent looked and could not tell.
+  agentImage?: string | null;
+  agentImageTag?: string | null;
   capabilities: {
     docker: AgentDockerCapability;
     zfs: AgentZfsCapability;

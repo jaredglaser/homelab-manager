@@ -9,7 +9,3 @@ export async function getOidcClientSecret(): Promise<string> {
   }
   return secret.trim();
 }
-
-export function resetOidcSecretsCache(): void {
-  // No-op: env var reading is stateless
-}

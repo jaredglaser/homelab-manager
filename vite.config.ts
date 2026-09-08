@@ -12,11 +12,11 @@ const customLogger = {
   ...logger,
   warn(msg: string, options?: any) {
     // Suppress "use client" directive warnings from MUI and other libraries
-    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('"use client"')) {
+    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('\"use client\"')) {
       return
     }
     logger.warn(msg, options)
-  },
+  }
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -67,15 +67,17 @@ export default defineConfig(({ mode }) => {
       viteReact(),
     ],
     ssr: {
-      external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
+      external: ['undici'],
     },
     optimizeDeps: {
-      exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams', '@tanstack/start-server-core'],
+      exclude: ['@tanstack/start-server-core'],
       // Pre-bundle MSW so demo/e2e mode does not trigger a mid-session dep
       // re-optimization (which invalidates in-flight module hashes and 404s
       // already-loaded dynamic imports). MSW is lazy-loaded, so without this Vite
       // only discovers it after the first navigation.
       include: ['msw', 'msw/browser'],
+      // FIX: Vite 8 holdUntilCrawlEnd deadlock - this app never fires the crawl end signal, so setting it to false commits immediately after bundling (pre-Vite8 behavior)
+      holdUntilCrawlEnd: false,
     },
     preview: {
       host: true,
@@ -92,10 +94,10 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       rolldownOptions: {
-        external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
+        external: ['undici'],
         onwarn(warning, warn) {
           // Suppress "use client" directive warnings from MUI and other libraries
-          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {
+          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('\"use client\"')) {
             return
           }
           warn(warning)

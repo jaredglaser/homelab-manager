@@ -57,6 +57,8 @@ const sampleHost: ManagedHost = {
   agentUrl: 'http://192.168.1.10:9090',
   capabilities: { docker: true },
   agentVersion: '0.1.0',
+  agentImage: null,
+  agentImageTag: null,
   status: 'healthy',
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),

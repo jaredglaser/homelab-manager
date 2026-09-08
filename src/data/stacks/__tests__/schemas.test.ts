@@ -4,8 +4,8 @@ import {
   triggerDeploySchema,
   getDeployHistorySchema,
   saveComposeFileSchema,
-  updateStackIconSchema,
   controlStackSchema,
+  resolveDriftSchema,
 } from '../schemas';
 
 describe('getStackDetailSchema', () => {
@@ -86,17 +86,6 @@ describe('saveComposeFileSchema', () => {
 
   it('rejects empty stackName', () => {
     expect(() => saveComposeFileSchema.parse({ stackName: '', content: '' })).toThrow();
-  });
-});
-
-describe('updateStackIconSchema', () => {
-  it('accepts valid input', () => {
-    expect(updateStackIconSchema.parse({ stackName: 'web', iconSlug: 'nginx' }).iconSlug).toBe('nginx');
-  });
-
-  it('rejects empty fields', () => {
-    expect(() => updateStackIconSchema.parse({ stackName: '', iconSlug: 'x' })).toThrow();
-    expect(() => updateStackIconSchema.parse({ stackName: 'x', iconSlug: '' })).toThrow();
   });
 });
 
@@ -182,5 +171,33 @@ describe('controlStackSchema', () => {
     expect(() =>
       controlStackSchema.parse({ stack: 's', host: '', action: 'start', scope: 'stack' })
     ).toThrow();
+  });
+});
+
+describe('resolveDriftSchema', () => {
+  const valid = { stack: 'plex', host: 'alpha', kind: 'untracked', resolution: 'remove' };
+
+  it('accepts every drift kind and resolution pair', () => {
+    for (const kind of ['ghost', 'untracked', 'content'] as const) {
+      for (const resolution of ['trust_repo', 'trust_agent', 'remove'] as const) {
+        expect(resolveDriftSchema.parse({ ...valid, kind, resolution })).toEqual({ ...valid, kind, resolution });
+      }
+    }
+  });
+
+  it('rejects an unknown resolution', () => {
+    expect(() => resolveDriftSchema.parse({ ...valid, resolution: 'wipe' })).toThrow();
+  });
+
+  it('rejects an unknown drift kind', () => {
+    expect(() => resolveDriftSchema.parse({ ...valid, kind: 'missing' })).toThrow();
+  });
+
+  it('rejects a stack name that escapes its directory', () => {
+    expect(() => resolveDriftSchema.parse({ ...valid, stack: '../etc' })).toThrow();
+  });
+
+  it('rejects an empty host', () => {
+    expect(() => resolveDriftSchema.parse({ ...valid, host: '' })).toThrow();
   });
 });

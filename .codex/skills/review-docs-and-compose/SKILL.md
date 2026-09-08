@@ -7,7 +7,7 @@ description: Audit this repo's documentation and Docker Compose files when the u
 
 Use this when documentation or compose files may be stale.
 
-Start by reading `CLAUDE.md`, then inspect only the files relevant to the request.
+Start by reading `AGENTS.md`, then inspect only the files relevant to the request.
 
 ## Primary targets
 
@@ -19,7 +19,7 @@ Start by reading `CLAUDE.md`, then inspect only the files relevant to the reques
 - `docs/tech-stack.md`
 - `docs/project-structure.md`
 - `docs/git-stacks-repo.md`
-- `CLAUDE.md`
+- `AGENTS.md`
 - `AGENTS.md`
 - `docker-compose.yml`
 - `docker-compose.dev.yml`

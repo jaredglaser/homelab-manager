@@ -1,6 +1,13 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import type { StackSummary, StackDetail, StackDeployRecord, DeployStatus, StackDriftReport } from '@/types/stacks';
+import type {
+  StackSummary,
+  StackDetail,
+  StackDeployRecord,
+  DeployStatus,
+  StackDriftReport,
+  StackDriftResolutionResult,
+} from '@/types/stacks';
 import { stackSecretsMiddleware } from '@/middleware/stack-secrets-middleware';
 import type { StackControlRequest } from '@/lib/clients/agent-client';
 import { authMiddleware } from '@/middleware/auth-middleware';
@@ -10,10 +17,10 @@ import {
   triggerDeploySchema,
   getDeployHistorySchema,
   saveComposeFileSchema,
-  updateStackIconSchema,
   resumeDeploySchema,
   rejectDeploySchema,
   controlStackSchema,
+  resolveDriftSchema,
 } from '@/data/stacks/schemas';
 
 /**
@@ -44,7 +51,7 @@ export const getStackDetail = createServerFn()
  * Trigger a deploy or teardown for a stack.
  * Pass an optional commitSha to perform a rollback to that specific commit.
  */
-export const triggerDeploy = createServerFn()
+export const triggerDeploy = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .inputValidator(triggerDeploySchema)
   .handler(async ({ data, context }): Promise<{ deployId: number; status: DeployStatus; logs: string }> => {
@@ -84,6 +91,18 @@ export const scanDrift = createServerFn({ method: 'GET' })
     requireRole('admin', 'operator')(context.user);
     const { scanStackDrift } = await import('@/lib/stacks/stack-service');
     return scanStackDrift();
+  });
+
+/**
+ * Apply a resolution to one drifted stack.
+ */
+export const resolveDrift = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .inputValidator(resolveDriftSchema)
+  .handler(async ({ data, context }): Promise<StackDriftResolutionResult> => {
+    requireRole('admin', 'operator')(context.user);
+    const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+    return resolveStackDriftItem(data);
   });
 
 /**
@@ -132,36 +151,12 @@ export const saveComposeFile = createServerFn()
     return result;
   });
 
-/**
- * Update stack icon.
- */
-export const updateStackIcon = createServerFn()
-  .middleware([authMiddleware])
-  .inputValidator(updateStackIconSchema)
-  .handler(async ({ data, context }): Promise<void> => {
-    requireRole('admin', 'operator')(context.user);
-    const { updateStackIconSlug } = await import('@/lib/stacks/stack-service');
-    return updateStackIconSlug(data.stackName, data.iconSlug);
-  });
-
 const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const safePathSegment = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Must contain only letters, numbers, hyphens, and underscores');
 
-const stackVariablesSchema = z.object({
+const stackVariableValuesSchema = z.object({
   stackName: safePathSegment,
 });
-
-/**
- * List all variable names stored for a stack.
- */
-export const getStackVariables = createServerFn({ method: 'GET' })
-  .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(stackVariablesSchema)
-  .handler(async ({ context, data }): Promise<string[]> => {
-    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
-    const repo = new StackSecretsRepository(context.pool, context.keyring);
-    return repo.list(data.stackName);
-  });
 
 /**
  * Fetch every variable name and decrypted value for a stack in one call.
@@ -170,30 +165,12 @@ export const getStackVariables = createServerFn({ method: 'GET' })
  */
 export const getStackVariableValues = createServerFn({ method: 'GET' })
   .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(stackVariablesSchema)
+  .inputValidator(stackVariableValuesSchema)
   .handler(async ({ context, data }): Promise<Record<string, string>> => {
     requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
     const repo = new StackSecretsRepository(context.pool, context.keyring);
     return repo.getAll(data.stackName);
-  });
-
-const getVariableValueSchema = z.object({
-  stackName: safePathSegment,
-  variableName: safePathSegment,
-});
-
-/**
- * Fetch a single secret value. Returns null if the key does not exist.
- */
-export const getVariableValue = createServerFn({ method: 'GET' })
-  .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(getVariableValueSchema)
-  .handler(async ({ context, data }): Promise<string | null> => {
-    requireRole('admin', 'operator')(context.user);
-    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
-    const repo = new StackSecretsRepository(context.pool, context.keyring);
-    return repo.get(data.stackName, data.variableName);
   });
 
 const setVariableValueSchema = z.object({

@@ -25,8 +25,13 @@ export default defineConfig({
       testMatch: /.*\.e2e\.ts$/,
       // Auth specs run only via playwright.auth.config.ts against the real Nitro
       // server, never against this MSW build.
-      testIgnore: /.*\.(demo|authhttp|authhttps)\.e2e\.ts$/,
+      testIgnore: /.*\.(demo|mobile|authhttp|authhttps)\.e2e\.ts$/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${APP_PORT}` },
+    },
+    {
+      name: 'mobile',
+      testMatch: /.*\.mobile\.e2e\.ts$/,
+      use: { ...devices['Pixel 7'], baseURL: `http://localhost:${APP_PORT}` },
     },
     {
       name: 'demo',

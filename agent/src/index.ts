@@ -1,4 +1,5 @@
 import Dockerode from 'dockerode';
+import { accessSync, constants, statSync } from 'node:fs';
 import { authenticateRequest } from './middleware';
 import { handleHealth, handleInfo } from './routes/health';
 import { handleStatsStream } from './routes/stats';
@@ -8,7 +9,7 @@ import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
-import { handleAgentUpdate } from './routes/agent-update';
+import { createAgentImageResolver } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 
 const portEnv = process.env.AGENT_PORT;
@@ -113,6 +114,8 @@ if (DOCKER_HOST) {
 
 const zfsCapabilities = await detectZfsCapabilities();
 
+const resolveAgentImage = createAgentImageResolver(docker, AGENT_CONTAINER_NAME, process.env.AGENT_IMAGE);
+
 if (!docker && !zfsCapabilities.available) {
   console.error('No capabilities available. Set DOCKER_HOST for Docker support, or ensure zpool is installed for ZFS support.');
   process.exit(1);
@@ -123,7 +126,7 @@ if (!docker && !zfsCapabilities.available) {
  */
 function matchRoute(request: Request, url: URL): Promise<Response> | Response | null {
   if (url.pathname === '/health' && request.method === 'GET') return handleHealth(docker, zfsCapabilities);
-  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, zfsCapabilities);
+  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, zfsCapabilities, resolveAgentImage);
   if (url.pathname === '/auth/verify' && request.method === 'GET') return Response.json({ status: 'ok' });
 
   if (docker) {
@@ -154,7 +157,6 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
 
   if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);
   if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
-  if (url.pathname === '/agent/update' && request.method === 'POST') return handleAgentUpdate(docker, AGENT_CONTAINER_NAME);
 
   return null;
 }
@@ -226,4 +228,25 @@ else console.info('Docker capability: disabled (DOCKER_HOST not set)');
 if (zfsCapabilities.available) console.info(`ZFS capability: tier ${zfsCapabilities.tier} (v${zfsCapabilities.version ?? 'unknown'})`);
 else console.info('ZFS capability: disabled (zpool not found)');
 console.info(`Using stacks directory: ${STACKS_DIR}`);
+let stacksStat: ReturnType<typeof statSync> | null = null;
+try {
+  stacksStat = statSync(STACKS_DIR);
+} catch {
+  stacksStat = null;
+}
+if (!stacksStat?.isDirectory()) {
+  console.warn(
+    `Stacks directory '${STACKS_DIR}' does not exist or is not a directory; deployed stack files will not persist across agent container recreation. Ensure a volume or bind mount covers this path.`,
+  );
+} else {
+  try {
+    accessSync(STACKS_DIR, constants.W_OK);
+  } catch {
+    // Docker auto-creates a missing bind-mount host dir as root, which passes the
+    // stat above but makes every stack deploy fail with EACCES at write time.
+    console.warn(
+      `Stacks directory '${STACKS_DIR}' is not writable by this process; stack deploys will fail until the host directory is owned or chowned for the agent user.`,
+    );
+  }
+}
 console.info(`Agent listening on port ${PORT} (${tlsConfig ? 'HTTPS' : 'HTTP'})`);

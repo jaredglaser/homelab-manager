@@ -98,7 +98,45 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 | `ghcr.io/jaredglaser/homelab-manager-agent` | Agent sidecar deployed on each monitored Docker/ZFS host |
 | `ghcr.io/jaredglaser/homelab-manager-agent-updater` | Optional companion that keeps the agent image up to date |
 
-> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker), [agent](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent), [agent-updater](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent-updater)) on every push to `main`. The project is pre-release and not yet versioned: use `latest`, and review recent commits on `main` for breaking changes before pulling updates.
+> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker), [agent](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent), [agent-updater](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent-updater)) on every release tag and on every push to `main`. The project is on its `0.x` line, which makes no compatibility promise: a minor bump may change the agent protocol or the database schema.
+
+| Tag | Built from | Use it for |
+|-----|-----------|-----------|
+| `latest` | the newest stable release | Normal self-hosting. Prereleases do not advance it, so it stays on the prior stable until the next stable is cut. |
+| `0.1` | the newest `v0.1.x` release | Staying on one minor line and taking its patches automatically. |
+| `0.1.0` | `v0.1.0` | Pinning to an exact release, e.g. to roll back after a bad `latest`. |
+| `main` | every push to `main` | Early access to work that has not been released yet. Expect breakage; run it on a throwaway stack, not your only one. |
+| `<short-sha>` | any push to `main` or a release tag | Pinning to an exact build. |
+
+Set `HLM_IMAGE_TAG` in your `.env` to move the whole stack at once:
+
+```env
+HLM_IMAGE_TAG=main
+```
+
+Mixing tags across images is not tested, and one mismatch in particular breaks the dashboard: only the `worker` applies database migrations, so a `web:main` running against a `worker:latest` that has not applied a newer schema fails every write it attempts. Use the one variable rather than editing image lines.
+
+The `web` image knows which release it was built from, so the Add Host wizard on a `v0.1.x` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:0.1` and `...-agent-updater:0.1`. That is the minor line, so the agent-updater takes patches but never crosses into `0.2`, where the agent protocol is allowed to change. A `main` dashboard pins new agents to `main`. Hosts you enrolled before switching keep whatever tag their own `.env` pins, and the agent-updater holds them there.
+
+Each agent reports the image it is running, so **Settings → Managed Hosts** shows every host's tag next to its version and flags the ones that do not match the dashboard. The notice names the tag the dashboard expects. To move a flagged host, set both variables in its `.env` on that host to that tag:
+
+```env
+AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:0.1
+AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:0.1
+```
+
+Then run `docker compose up -d` in the agent stack directory.
+
+A host shows no tag until it has completed one health check against an agent new enough to report one. An agent works this out from the `AGENT_IMAGE` environment variable the generated compose passes it, falling back to inspecting its own container over the Docker socket.
+
+Hosts enrolled before this existed have no `AGENT_IMAGE` line in their compose file. Docker-capable ones recover on their own through the self-inspection fallback. A **ZFS-only** host has no Docker socket and cannot, so add the variable to the `agent` service in its compose file and re-up:
+
+```yaml
+services:
+  agent:
+    environment:
+      AGENT_IMAGE: ${AGENT_IMAGE}
+```
 
 ---
 

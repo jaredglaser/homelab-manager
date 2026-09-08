@@ -86,6 +86,14 @@ describe('generateAgentStackCompose', () => {
     }
   });
 
+  it('passes AGENT_IMAGE through so the agent can report its own tag', () => {
+    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+      const parsed = parseYaml(generateAgentStackCompose(config));
+      expect(parsed.services.agent.environment.AGENT_IMAGE).toBe('${AGENT_IMAGE}');
+      expect(parsed.services['agent-updater'].environment.HLM_WATCH_IMAGE).toBe('${AGENT_IMAGE}');
+    }
+  });
+
   it('uses restart: unless-stopped for all services', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackCompose(config);
@@ -97,6 +105,9 @@ describe('generateAgentStackCompose', () => {
       }
     }
   });
+
+  const stacksMount =
+    '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks';
 
   it('Docker-only: no ZFS mounts, no user config, has socket-proxy', () => {
     const result = generateAgentStackCompose(dockerOnlyConfig);
@@ -110,8 +121,14 @@ describe('generateAgentStackCompose', () => {
 
     expect(parsed.services.agent.user).toBeUndefined();
     expect(parsed.services.agent.group_add).toBeUndefined();
-    // no file mounts for docker-only; volumes is empty or absent
-    expect((parsed.services.agent.volumes as string[]).length).toBe(0);
+    expect(parsed.services.agent.volumes).toEqual([stacksMount]);
+  });
+
+  it('agent mounts the stacks dir so files survive container recreation', () => {
+    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+      const parsed = parseYaml(generateAgentStackCompose(config));
+      expect(parsed.services.agent.volumes).toContain(stacksMount);
+    }
   });
 
   it('ZFS-only: no socket-proxy, no DOCKER_HOST, has ZFS mounts + user', () => {
@@ -123,6 +140,7 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.depends_on).toBeUndefined();
 
     expect(parsed.services.agent.volumes).toEqual([
+      stacksMount,
       '/usr/sbin/zpool:/usr/sbin/zpool:ro',
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
       '/dev/zfs:/dev/zfs',
@@ -141,6 +159,7 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.depends_on).toContain('socket-proxy');
 
     expect(parsed.services.agent.volumes).toEqual([
+      stacksMount,
       '/usr/sbin/zpool:/usr/sbin/zpool:ro',
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
       '/dev/zfs:/dev/zfs',
@@ -246,6 +265,7 @@ describe('generateAgentStackEnv', () => {
       expect(result).toContain('AGENT_IMAGE=');
       expect(result).toContain('AGENT_UPDATER_IMAGE=');
       expect(result).toContain('HLM_AGENT_PORT=9090');
+      expect(result).toContain('HLM_STACKS_DIR=/opt/homelab-manager/stacks');
     }
   });
 

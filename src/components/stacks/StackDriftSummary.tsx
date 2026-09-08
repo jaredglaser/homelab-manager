@@ -2,6 +2,7 @@ import { RefreshCw } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import StackDriftActions from '@/components/stacks/StackDriftActions';
 import type { StackDriftReport } from '@/types/stacks';
 import { getStackDriftKindLabel } from '@/lib/stacks/stack-drift-service';
 
@@ -12,7 +13,10 @@ interface StackDriftSummaryProps {
 }
 
 export default function StackDriftSummary({ report, isLoading, onRefresh }: StackDriftSummaryProps) {
-  if (!isLoading && (!report || (report.summary.total === 0 && report.scanErrors.length === 0))) {
+  if (
+    !isLoading &&
+    (!report || (report.summary.total === 0 && report.scanErrors.length === 0 && report.hostAnomalies.length === 0))
+  ) {
     return null;
   }
 
@@ -38,6 +42,22 @@ export default function StackDriftSummary({ report, isLoading, onRefresh }: Stac
           </Button>
         </div>
 
+        {report && report.hostAnomalies.length > 0 && (
+          <Alert variant="warning" className="mt-2">
+            <AlertTitle>Agent inventory looks wrong</AlertTitle>
+            <AlertDescription>
+              <div className="flex flex-col gap-1">
+                {report.hostAnomalies.map((anomaly) => (
+                  <div key={anomaly.host} className="flex flex-col">
+                    <span className="text-sm font-medium">{anomaly.host}</span>
+                    <span className="text-sm text-muted-foreground">{anomaly.message}</span>
+                  </div>
+                ))}
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {report?.scanErrors.map((error) => (
           <p key={`${error.host}/${error.stack ?? ''}`} className="text-sm">
             {error.stack ? `${error.host}/${error.stack}` : error.host}: {error.message}
@@ -50,6 +70,7 @@ export default function StackDriftSummary({ report, isLoading, onRefresh }: Stac
               {item.host}/{item.stack}
             </span>
             <span className="text-xs opacity-70">{getStackDriftKindLabel(item.kind)}</span>
+            <StackDriftActions item={item} />
           </div>
         ))}
       </div>

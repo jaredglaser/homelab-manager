@@ -1,7 +1,8 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
 import { withStartContext } from '@/lib/test/start-context';
+import * as requireRoleModule from '@/lib/auth/require-role';
 
 // Inject a synthetic admin user so requireRole checks pass in tests.
 // `activeUser` is read at call time, so `withUser` can swap the role for one call.
@@ -78,7 +79,6 @@ const mockGetStackDeployHistory = mock(() => Promise.resolve([
   { id: 1, stack: 'nginx', action: 'deploy', status: 'success', timestamp: '2026-01-01T00:00:00Z' },
 ]));
 const mockSaveStackComposeFile = mock(() => Promise.resolve({ commitSha: 'abc123' }));
-const mockUpdateStackIconSlug = mock(() => Promise.resolve(undefined));
 const mockCreateStackInRepo = mock(() => Promise.resolve({ commitSha: 'abc123' }));
 const mockDeleteStackFromRepo = mock((): Promise<{ status: 'removed'; commitSha: string } | { status: 'teardown-pending'; deployId: number }> =>
   Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }),
@@ -94,7 +94,17 @@ const mockScanStackDrift = mock(() => Promise.resolve({
   items: [],
   summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
   scanErrors: [],
+  hostAnomalies: [],
 }));
+const mockResolveStackDriftItem = mock((input: { host: string; stack: string; kind: string; resolution: string }) =>
+  Promise.resolve({
+    ...input,
+    recoveryCommitSha: null,
+    commitSha: null,
+    deployId: null,
+    deployStatus: null,
+  }),
+);
 
 mock.module('@/lib/stacks/stack-service', () => ({
   getStackSummaries: mockGetStackSummaries,
@@ -102,7 +112,6 @@ mock.module('@/lib/stacks/stack-service', () => ({
   triggerStackDeploy: mockTriggerStackDeploy,
   getStackDeployHistory: mockGetStackDeployHistory,
   saveStackComposeFile: mockSaveStackComposeFile,
-  updateStackIconSlug: mockUpdateStackIconSlug,
   createStackInRepo: mockCreateStackInRepo,
   deleteStackFromRepo: mockDeleteStackFromRepo,
   getManagedHostNames: mockGetManagedHostNames,
@@ -111,6 +120,7 @@ mock.module('@/lib/stacks/stack-service', () => ({
   rejectPendingDeploy: mockRejectPendingDeploy,
   controlStackForHost: mockControlStackForHost,
   scanStackDrift: mockScanStackDrift,
+  resolveStackDriftItem: mockResolveStackDriftItem,
 }));
 
 /**
@@ -131,7 +141,6 @@ describe('stacks.functions module', () => {
     mockTriggerStackDeploy.mockClear();
     mockGetStackDeployHistory.mockClear();
     mockSaveStackComposeFile.mockClear();
-    mockUpdateStackIconSlug.mockClear();
     mockCreateStackInRepo.mockClear();
     mockDeleteStackFromRepo.mockClear();
     mockGetManagedHostNames.mockClear();
@@ -140,6 +149,7 @@ describe('stacks.functions module', () => {
     mockRejectPendingDeploy.mockClear();
     mockControlStackForHost.mockClear();
     mockScanStackDrift.mockClear();
+    mockResolveStackDriftItem.mockClear();
   });
 
   describe('exports', () => {
@@ -171,12 +181,6 @@ describe('stacks.functions module', () => {
       const mod = await import('../functions');
       expect(mod.saveComposeFile).toBeDefined();
       expect(typeof mod.saveComposeFile).toBe('function');
-    });
-
-    it('exports updateStackIcon server function', async () => {
-      const mod = await import('../functions');
-      expect(mod.updateStackIcon).toBeDefined();
-      expect(typeof mod.updateStackIcon).toBe('function');
     });
 
     it('exports controlStack server function', async () => {
@@ -256,6 +260,51 @@ describe('stacks.functions module', () => {
         withUser(viewer, () => withStartContext(() => scanDrift())),
       ).rejects.toThrow('Insufficient permissions');
       expect(mockScanStackDrift).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resolveDrift', () => {
+    it('delegates the validated payload to resolveStackDriftItem', async () => {
+      const { resolveDrift } = await import('../functions');
+      await withStartContext(() =>
+        resolveDrift({ data: { host: 'server1', stack: 'nginx', kind: 'untracked', resolution: 'remove' } }),
+      );
+      expect(mockResolveStackDriftItem).toHaveBeenCalledWith({
+        host: 'server1',
+        stack: 'nginx',
+        kind: 'untracked',
+        resolution: 'remove',
+      });
+    });
+
+    it('gates on the operator role', async () => {
+      const requireRoleSpy = spyOn(requireRoleModule, 'requireRole');
+      const { resolveDrift } = await import('../functions');
+      try {
+        await withStartContext(() =>
+          resolveDrift({ data: { host: 'server1', stack: 'nginx', kind: 'ghost', resolution: 'trust_repo' } }),
+        );
+        expect(requireRoleSpy).toHaveBeenCalledWith('admin', 'operator');
+      } finally {
+        requireRoleSpy.mockRestore();
+      }
+    });
+
+    it('refuses a viewer', async () => {
+      const requireRoleSpy = spyOn(requireRoleModule, 'requireRole').mockReturnValue(() => {
+        throw new requireRoleModule.ForbiddenError();
+      });
+      const { resolveDrift } = await import('../functions');
+      try {
+        await expect(
+          withStartContext(() =>
+            resolveDrift({ data: { host: 'server1', stack: 'nginx', kind: 'ghost', resolution: 'trust_repo' } }),
+          ),
+        ).rejects.toThrow(/Insufficient permissions/);
+      } finally {
+        requireRoleSpy.mockRestore();
+      }
+      expect(mockResolveStackDriftItem).not.toHaveBeenCalled();
     });
   });
 
@@ -345,21 +394,6 @@ describe('stacks.functions module', () => {
       const { saveComposeFile } = await import('../functions');
       await withStartContext(() => saveComposeFile({ data: { stackName: 'nginx', content: '' } }));
       expect(mockSaveStackComposeFile).toHaveBeenCalledWith('nginx', '');
-    });
-  });
-
-  describe('updateStackIcon', () => {
-    it('delegates to updateStackIconSlug with stackName and iconSlug', async () => {
-      const { updateStackIcon } = await import('../functions');
-      await withStartContext(() => updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'nginx' } }));
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledTimes(1);
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('nginx', 'nginx');
-    });
-
-    it('passes through different icon slugs', async () => {
-      const { updateStackIcon } = await import('../functions');
-      await withStartContext(() => updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } }));
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('redis', 'redis-stack');
     });
   });
 
@@ -469,16 +503,6 @@ describe('stacks.functions module', () => {
       await expect(
         withStartContext(() => saveComposeFile({ data: { stackName: 'nginx', content: 'bad' } }))
       ).rejects.toThrow('Commit failed');
-    });
-
-    it('updateStackIcon propagates service errors', async () => {
-      mockUpdateStackIconSlug.mockImplementationOnce(() =>
-        Promise.reject(new Error('Entity not found'))
-      );
-      const { updateStackIcon } = await import('../functions');
-      await expect(
-        withStartContext(() => updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'bad' } }))
-      ).rejects.toThrow('Entity not found');
     });
 
     it('getDeployHistory propagates service errors', async () => {

@@ -46,7 +46,7 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
     '',
   ].join('\n');
 
-  return header + dump(doc, { lineWidth: -1, quotingType: '"' });
+  return header + dump(doc, { lineWidth: -1, quoteStyle: 'double' });
 }
 
 /** Generate a .env file content string for the agent stack. */
@@ -66,6 +66,7 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
     `AGENT_IMAGE=${config.agentImage}`,
     `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,
+    `HLM_STACKS_DIR=/opt/homelab-manager/stacks`,
   ];
 
   if (zfs) {
@@ -91,6 +92,7 @@ function buildSocketProxy(): Record<string, unknown> {
       EVENTS: 1,
       INFO: 1,
       IMAGES: 1,
+      ALLOW_LOGS: 1,
       NETWORKS: 1,
       VOLUMES: 1,
       VERSION: 1,
@@ -113,6 +115,8 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
     // Must match the managed host name: manager JWTs carry it as the aud claim.
     AGENT_HOST_NAME: config.hostName,
+    // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.
+    AGENT_IMAGE: '${AGENT_IMAGE}',
   };
 
   if (docker) {
@@ -128,7 +132,11 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     volumes: [] as string[],
   };
 
-  const volumes: string[] = [];
+  const volumes: string[] = [
+    // Bind-mounted host dir: the agent-updater recreates this container on image
+    // updates, so stack files in the container's writable layer would be lost.
+    '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks',
+  ];
 
   if (zfs) {
     volumes.push(
