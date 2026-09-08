@@ -20,7 +20,12 @@ export interface RepoStackSnapshot {
   host: string;
   autoDeploy: boolean;
   composeHash: string;
+  composeMissing: boolean;
 }
+
+export const MISSING_REPO_COMPOSE_MESSAGE =
+  'Compose file is missing in the repo. Commit it or remove the stack from the manifest; ' +
+  'the drift resolutions are unavailable until the repo copy exists.';
 
 interface ScanHost {
   name: string;
@@ -130,6 +135,18 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
       // (createStackInRepo commits without deploying), failed, and edited-since-deploy
       // stacks are already reported through computeSyncStatus, not as drift.
       if (!latestDeploy || computeSyncStatus(latestDeploy, input.currentHeadSha) !== 'in_sync') continue;
+
+      // A manifest entry whose compose file is gone has no repo version to drift from or
+      // restore. Classifying it would lie (content drift) or offer a trust_repo resolution
+      // that deploys an empty compose, so it is excluded and reported as a scan error.
+      if (repoStack.composeMissing) {
+        stackScanErrors.push({
+          host: repoStack.host,
+          stack: repoStack.stack,
+          message: MISSING_REPO_COMPOSE_MESSAGE,
+        });
+        continue;
+      }
 
       const agentStack = agentByName.get(repoStack.stack);
       if (!agentStack) {
