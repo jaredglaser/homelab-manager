@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import type { GuestRow } from '@/types/proxmox';
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
 import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
@@ -25,7 +26,7 @@ const metricGroups: MetricGroup[] = [
   { label: 'Network', columnIds: ['netin', 'netout'] },
 ];
 
-function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<GuestRow, unknown>[] {
+function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<DataTableFeatures, GuestRow, unknown>[] {
   return [
     nameColumn<GuestRow>({
       getLabel: (row) => row.name,

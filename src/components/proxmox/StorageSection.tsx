@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import type { ProxmoxStorage } from '@/types/proxmox';
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
 import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
@@ -24,7 +25,7 @@ const metricGroups: MetricGroup[] = [
   { label: 'Usage', columnIds: ['usage'] },
 ];
 
-function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<ProxmoxStorage, unknown>[] {
+function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<DataTableFeatures, ProxmoxStorage, unknown>[] {
   return [
     nameColumn<ProxmoxStorage>({
       getLabel: (row) => row.storage,

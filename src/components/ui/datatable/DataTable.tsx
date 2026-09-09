@@ -1,19 +1,19 @@
 import { useState, useRef, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getFilteredRowModel,
-  getExpandedRowModel,
+  useTable,
   flexRender,
   type ColumnDef,
   type ExpandedState,
   type SortingState,
   type ColumnSizingState,
-  type VisibilityState,
+  type ColumnVisibilityState,
   type Row,
+  type RowData,
+  type Column,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
+
+import { dataTableFeatures, type DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ArrowUp, ArrowDown } from 'lucide-react';
@@ -31,9 +31,9 @@ type ExpansionControl =
   | { expandedState?: never; onExpandedChange?: never }
   | { expandedState: ExpandedState; onExpandedChange: (e: ExpandedState) => void };
 
-export type DataTableProps<TRow> = {
+export type DataTableProps<TRow extends RowData> = {
   data: TRow[];
-  columns: ColumnDef<TRow, unknown>[];
+  columns: ColumnDef<DataTableFeatures, TRow, unknown>[];
   getRowId: (row: TRow) => string;
 
   /** Sub-row accessor for tree data expansion */
@@ -50,8 +50,6 @@ export type DataTableProps<TRow> = {
   showHeader?: boolean;
   /** Enable column sorting (default: true) */
   enableSorting?: boolean;
-  /** Enable column filtering (default: false) */
-  enableFiltering?: boolean;
   /** Enable column resizing (default: true) */
   enableColumnResizing?: boolean;
   /** Enable column visibility toggling (default: true) */
@@ -89,8 +87,8 @@ export const SPARKLINE_MIN_WIDTH = 1428;
  * (without). containerWidth selects between them so the column stays tight regardless
  * of whether sparklines are enabled in settings.
  */
-function buildGridTemplate<TRow>(
-  columns: ReturnType<ReturnType<typeof useReactTable<TRow>>['getVisibleLeafColumns']>,
+function buildGridTemplate<TRow extends RowData>(
+  columns: Column<typeof dataTableFeatures, TRow, unknown>[],
   containerWidth: number,
   sparklineEnabled: boolean,
 ): string {
@@ -117,7 +115,7 @@ function buildGridTemplate<TRow>(
  * expansion support (tree data and detail panels), and MUI Collapse animation.
  */
 
-export function DataTable<TRow>({
+export function DataTable<TRow extends RowData>({
   data,
   columns,
   getRowId,
@@ -129,7 +127,6 @@ export function DataTable<TRow>({
   overscan = DEFAULT_OVERSCAN,
   showHeader = true,
   enableSorting = true,
-  enableFiltering = false,
   enableColumnResizing = true,
   enableColumnVisibility = true,
   metricGroups,
@@ -146,7 +143,7 @@ export function DataTable<TRow>({
   const [activeMetricGroupIndex, setActiveMetricGroupIndex] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
   const [internalExpanded, setInternalExpanded] = useState<ExpandedState>({});
   const { general: { showSparklines } } = useGeneralSettings();
 
@@ -172,7 +169,7 @@ export function DataTable<TRow>({
    * The "name" column is always visible. All metric columns outside
    * the active group are hidden when on mobile with metric groups defined.
    */
-  const effectiveColumnVisibility = useMemo<VisibilityState>(() => {
+  const effectiveColumnVisibility = useMemo<ColumnVisibilityState>(() => {
     if (!isMobile || !metricGroups || metricGroups.length === 0) {
       return columnVisibility;
     }
@@ -180,7 +177,7 @@ export function DataTable<TRow>({
     const activeGroup = metricGroups[activeMetricGroupIndex] ?? metricGroups[0];
     const activeIds = new Set(activeGroup.columnIds);
 
-    const hiddenColumns: VisibilityState = {};
+    const hiddenColumns: ColumnVisibilityState = {};
     for (const group of metricGroups) {
       for (const colId of group.columnIds) {
         if (!activeIds.has(colId)) {
@@ -205,7 +202,8 @@ export function DataTable<TRow>({
     [expanded, onExpandedChange],
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features: dataTableFeatures,
     data,
     columns,
     getRowId,
@@ -220,10 +218,10 @@ export function DataTable<TRow>({
     onColumnSizingChange: setColumnSizing,
     onColumnVisibilityChange: setColumnVisibility,
     onExpandedChange: setExpanded,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
-    getFilteredRowModel: enableFiltering ? getFilteredRowModel() : undefined,
-    getExpandedRowModel: getExpandedRowModel(),
+    // v9's toggleExpanded refuses to expand rows where getCanExpand is false
+    // (default: has subRows). Detail panels must be expandable even on
+    // childless rows, so allow expansion when either source applies.
+    getRowCanExpand: (row) => row.subRows.length > 0 || renderDetailPanel != null,
     enableSorting,
     enableColumnResizing,
     enableHiding: enableColumnVisibility,
@@ -398,15 +396,15 @@ export function DataTable<TRow>({
   );
 }
 
-interface DataTableRowProps<TRow> {
-  row: Row<TRow>;
+interface DataTableRowProps<TRow extends RowData> {
+  row: Row<DataTableFeatures, TRow>;
   gridTemplate: string;
   rowClassName?: (row: TRow) => string;
   rowAttributes?: (row: TRow) => Record<`data-${string}` | `aria-${string}`, string>;
   hasDetailPanel?: boolean;
 }
 
-function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, hasDetailPanel }: Readonly<DataTableRowProps<TRow>>) {
+function DataTableRow<TRow extends RowData>({ row, gridTemplate, rowClassName, rowAttributes, hasDetailPanel }: Readonly<DataTableRowProps<TRow>>) {
   const customClass = rowClassName?.(row.original) ?? '';
   const extraAttributes = rowAttributes?.(row.original) ?? {};
   const canExpand = row.getCanExpand() || hasDetailPanel;
