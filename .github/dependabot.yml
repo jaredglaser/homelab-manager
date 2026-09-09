@@ -1,6 +1,6 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -16,7 +16,7 @@ updates:
           - "minor"
           - "patch"
 
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/agent"
     schedule:
       interval: "weekly"
@@ -32,7 +32,7 @@ updates:
           - "minor"
           - "patch"
 
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/agent-updater"
     schedule:
       interval: "weekly"
