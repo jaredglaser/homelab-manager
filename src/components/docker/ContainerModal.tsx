@@ -235,8 +235,6 @@ function ModalHeader({
     />
   );
 
-  // grid-template-columns below has no minmax(0, ...), so its tracks can't shrink
-  // below content width; below lg the header stacks into rows instead.
   if (isMobile) {
     return (
       <div className="flex flex-col gap-2 px-3 py-2 border-b border-(--border) shrink-0 bg-(--popover)">

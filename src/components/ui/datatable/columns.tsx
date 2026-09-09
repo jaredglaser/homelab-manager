@@ -119,6 +119,7 @@ export function statusColumn<TRow>(opts: {
   getValue: (row: TRow) => string;
   getColor: (row: TRow) => 'success' | 'default' | 'warning' | 'error';
   size?: number;
+  mobileFlex?: string;
 }): ColumnDef<TRow, unknown> {
   return {
     id: opts.id,
@@ -129,6 +130,7 @@ export function statusColumn<TRow>(opts: {
       </Badge>
     ),
     size: opts.size,
+    meta: opts.mobileFlex ? { mobileFlex: opts.mobileFlex } : undefined,
   };
 }
 
@@ -142,6 +144,7 @@ export function progressColumn<TRow>(opts: {
   getValue: (row: TRow) => number;
   getLabel: (row: TRow) => string;
   size?: number;
+  mobileFlex?: string;
 }): ColumnDef<TRow, unknown> {
   return {
     id: opts.id,
@@ -172,5 +175,6 @@ export function progressColumn<TRow>(opts: {
       );
     },
     size: opts.size,
+    meta: opts.mobileFlex ? { mobileFlex: opts.mobileFlex } : undefined,
   };
 }

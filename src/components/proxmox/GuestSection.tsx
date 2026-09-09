@@ -37,6 +37,8 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       id: 'status',
       getValue: (row) => row.status,
       getColor: (row) => (row.status === 'running' ? 'success' : 'default'),
+      size: 100,
+      mobileFlex: 'minmax(60px, 0.7fr)',
     }),
     metricColumn<GuestRow>({
       id: 'cpu',

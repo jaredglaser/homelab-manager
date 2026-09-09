@@ -7,6 +7,7 @@ import PageStatusBar from '@/components/PageStatusBar'
 import ZFSStatusSummary from '@/components/zfs/ZFSStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useGeneralSettings } from '@/hooks/useSettings'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import { ZFS_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadZFSStats } from '@/lib/constants/preload-queries'
 import { zfsStatsChannel } from '@/lib/sse/channels/zfs-stats'
 
@@ -17,6 +18,7 @@ export const Route = createFileRoute('/zfs')({
 
 function ZFSPageContent() {
   const { general } = useGeneralSettings()
+  const isMobile = useIsMobile()
 
   const preloadFn = useCallback(preloadZFSStats, [])
 
@@ -38,7 +40,7 @@ function ZFSPageContent() {
   })
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className={`flex flex-col flex-1 min-h-0 ${isMobile ? 'overflow-y-auto' : ''}`}>
       <PageStatusBar left={<ZFSStatusSummary latestByEntity={stream.latestByEntity} />} />
       <ZFSPoolsTable
         latestByEntity={stream.latestByEntity}

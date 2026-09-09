@@ -11,7 +11,8 @@ test('the drawer navigates between sections', async ({ page }) => {
   await page.goto('/docker');
 
   await page.getByRole('button', { name: 'Open navigation menu' }).click();
-  await page.getByRole('link', { name: 'Stacks' }).click();
+  await page.getByRole('button', { name: 'Stacks' }).click();
+  await page.getByRole('menuitem', { name: 'All stacks' }).click();
 
   await expect(page).toHaveURL(/\/stacks$/);
   await expect(page.getByText('Stacks Overview')).toBeVisible();
@@ -22,13 +23,11 @@ test('the drawer exposes submenus that desktop opens on hover', async ({ page })
   await page.goto('/stacks');
 
   await page.getByRole('button', { name: 'Open navigation menu' }).click();
-  await page.getByRole('button', { name: /expand settings menu/i }).click();
+  await page.getByRole('button', { name: 'Settings' }).click();
 
   await expect(page.getByRole('menuitem', { name: 'Managed Hosts' })).toBeVisible();
 });
 
-// Route bodies are widened by their tables and are covered by the per-route
-// mobile specs; this only pins the shell chrome, which every route inherits.
 test('the header fits the viewport on every route', async ({ page }) => {
   for (const path of ['/docker', '/stacks', '/zfs', '/proxmox', '/settings']) {
     await page.goto(path);

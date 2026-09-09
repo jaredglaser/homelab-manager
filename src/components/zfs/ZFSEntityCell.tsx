@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import TapTooltip from '@/components/ui/tap-tooltip';
 import { ChevronRight, Server } from 'lucide-react';
 
 interface ZFSEntityCellProps {
@@ -26,8 +26,13 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
 }: Readonly<ZFSEntityCellProps>) {
   const isBold = entityType === 'host' || entityType === 'pool';
 
+  // Badge renders a bare span, where browsers drop aria-label: naming a generic
+  // role is prohibited. The tooltip text has to reach assistive tech as content.
   const chipEl = badge ? (
-    <Badge variant="secondary">{badge.label}</Badge>
+    <Badge variant="secondary">
+      {badge.label}
+      {badge.tooltip && <span className="sr-only">: {badge.tooltip}</span>}
+    </Badge>
   ) : null;
 
   return (
@@ -44,10 +49,9 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
       {entityType === 'host' && <Server size={18} />}
       <span className={`truncate ${isBold ? 'font-bold' : 'text-sm'}`}>{name}</span>
       {badge?.tooltip ? (
-        <Tooltip>
-          <TooltipTrigger render={chipEl!} />
-          <TooltipContent side="bottom">{badge.tooltip}</TooltipContent>
-        </Tooltip>
+        <TapTooltip content={badge.tooltip} className="inline-flex tap-target">
+          {chipEl}
+        </TapTooltip>
       ) : (
         chipEl
       )}

@@ -34,12 +34,6 @@ const sheetVariants = cva(
 type SheetContentProps = ComponentProps<typeof DialogPrimitive.Popup> &
   VariantProps<typeof sheetVariants>;
 
-/**
- * Slide-in panel. `bottom` is the phone-friendly default for pickers and
- * actions; `left`/`right` suit navigation. Height uses `dvh` so the panel does
- * not sit under a mobile browser's retracting URL bar, and the safe-area pad
- * keeps the last row clear of the iOS home indicator.
- */
 function SheetContent({ className, children, side, ...props }: SheetContentProps) {
   return (
     <DialogPrimitive.Portal>

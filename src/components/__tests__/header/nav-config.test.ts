@@ -23,7 +23,7 @@ mock.module('@/lib/constants/preload-queries', () => ({
   preloadProxmoxStats: mock(() => Promise.resolve([])),
 }))
 
-const { NAV_ITEMS, SETTINGS_SECTIONS, PREFETCH_STALE_TIME, handlePrefetch } = await import('@/components/header/nav-config')
+const { NAV_ITEMS, SETTINGS_SECTIONS, PREFETCH_STALE_TIME, handlePrefetch, menuRouteFor } = await import('@/components/header/nav-config')
 
 beforeEach(() => {
   mockPrefetchQuery.mockClear()
@@ -64,6 +64,22 @@ describe('SETTINGS_SECTIONS', () => {
       'managed-hosts',
       'developer',
     ])
+  })
+})
+
+describe('menuRouteFor', () => {
+  const byRoute = Object.fromEntries(NAV_ITEMS.map((i) => [i.to, i]))
+
+  it('returns the route when the item has a menu that earned its entries', () => {
+    expect(menuRouteFor(byRoute['/docker'], new Set(['/docker']))).toBe('/docker')
+  })
+
+  it('returns null when the route has too few entries to warrant a menu', () => {
+    expect(menuRouteFor(byRoute['/docker'], new Set())).toBeNull()
+  })
+
+  it('returns null for an item that never has a menu', () => {
+    expect(menuRouteFor(byRoute['/zfs'], new Set(['/docker', '/stacks', '/settings']))).toBeNull()
   })
 })
 

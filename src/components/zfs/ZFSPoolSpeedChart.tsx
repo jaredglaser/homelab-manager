@@ -4,6 +4,7 @@ import type { EChartsOption } from 'echarts';
 import { formatBytes } from '@/formatters/metrics';
 import { useGeneralSettings } from '@/hooks/useSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis } from '@/lib/charts/y-axis';
 
@@ -20,7 +21,7 @@ interface ZFSPoolSpeedChartProps {
 
 const WINDOW_MS = 60_000;
 
-function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolean): EChartsOption {
+function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolean, isMobile: boolean): EChartsOption {
   const now = Date.now();
   const readPairs = dataPoints.map((d) => [d.timestamp, d.readBytesPerSec] as [number, number]);
   const writePairs = dataPoints.map((d) => [d.timestamp, d.writeBytesPerSec] as [number, number]);
@@ -45,12 +46,9 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
 
   return {
     animation: false,
-    grid: {
-      top: 10,
-      right: 15,
-      bottom: 45,
-      left: 55,
-    },
+    grid: isMobile
+      ? { top: 8, right: 8, bottom: 38, left: 40 }
+      : { top: 10, right: 15, bottom: 45, left: 55 },
     tooltip: {
       trigger: 'axis',
       backgroundColor: chrome.tooltipBg,
@@ -172,7 +170,8 @@ export default function ZFSPoolSpeedChart({
   dataPoints,
 }: ZFSPoolSpeedChartProps) {
   const { general } = useGeneralSettings();
-  const option = getChartOption(dataPoints, general.use12HourTime);
+  const isMobile = useIsMobile();
+  const option = getChartOption(dataPoints, general.use12HourTime, isMobile);
   const chartRef = useRef<ReactECharts>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 

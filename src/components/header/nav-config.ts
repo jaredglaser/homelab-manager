@@ -12,6 +12,13 @@ import type { SettingsSectionId } from '@/lib/constants/settings-sections'
 
 export type { SettingsSectionId }
 
+// Shared with the drawer header so its hamburger lands on the same spot as the bar's.
+export const HEADER_INSET_CLASSES =
+  'px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2'
+
+export const NAV_ROW_CLASSES =
+  'flex h-12 items-center min-w-0 rounded-2xl px-3 border'
+
 export type MenuRouteKey = '/docker' | '/stacks' | '/settings'
 export type RouteKey = MenuRouteKey | '/zfs' | '/proxmox'
 
@@ -27,13 +34,25 @@ export type MenuNavItem = {
   label: string
   Icon: React.ComponentType<IconProps>
   hasMenu: true
+  /**
+   * Drawer-only row pointing at the route itself. Set it only where the menu entries
+   * navigate elsewhere: Docker and Settings entries are anchors on the parent page.
+   */
+  selfEntryLabel?: string
 }
 
 export type NavItem = NoMenuNavItem | MenuNavItem
 
+export function menuRouteFor(
+  item: NavItem,
+  menuRoutes: ReadonlySet<MenuRouteKey>,
+): MenuRouteKey | null {
+  return item.hasMenu && menuRoutes.has(item.to) ? item.to : null
+}
+
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/docker', label: 'Docker', Icon: DockerIcon, hasMenu: true },
-  { to: '/stacks', label: 'Stacks', Icon: Layers, hasMenu: true },
+  { to: '/stacks', label: 'Stacks', Icon: Layers, hasMenu: true, selfEntryLabel: 'All stacks' },
   { to: '/zfs', label: 'ZFS', Icon: HardDrive, hasMenu: false },
   { to: '/proxmox', label: 'Proxmox', Icon: ProxmoxIcon, hasMenu: false },
   { to: '/settings', label: 'Settings', Icon: SettingsIcon, hasMenu: true },

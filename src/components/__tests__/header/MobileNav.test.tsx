@@ -1,6 +1,8 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MANAGED_HOST_NAMES_QUERY_KEY, STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import type { StackSummary } from '@/types/stacks'
 
 mock.module('@tanstack/react-router', () => ({
   Link: ({ children, to, hash, onClick, ...rest }: {
@@ -43,10 +45,27 @@ mock.module('@/lib/utils/icon-resolver', () => ({
 
 const MobileNav = (await import('@/components/header/MobileNav')).default
 
-function renderNav() {
+function stackSummary(name: string): StackSummary {
+  return {
+    name,
+    host: 'server1',
+    icon: null,
+    syncStatus: 'unknown',
+    deployMode: 'auto',
+    lastDeployAt: null,
+    lastDeployStatus: null,
+    containerCount: 0,
+  }
+}
+
+const TWO_STACKS = [stackSummary('plex'), stackSummary('authentik')]
+
+function renderNav(hosts: string[] = ['tank', 'nas'], stacks: StackSummary[] = TWO_STACKS) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
+  qc.setQueryData(MANAGED_HOST_NAMES_QUERY_KEY, hosts)
+  qc.setQueryData(STACKS_QUERY_KEY, stacks)
   return render(
     <QueryClientProvider client={qc}>
       <MobileNav />
@@ -54,10 +73,10 @@ function renderNav() {
   )
 }
 
-async function openDrawer() {
-  renderNav()
+async function openDrawer(hosts?: string[], stacks?: StackSummary[]) {
+  renderNav(hosts, stacks)
   fireEvent.click(screen.getByRole('button', { name: 'Open navigation menu' }))
-  await screen.findByRole('link', { name: /docker/i })
+  await screen.findByRole('link', { name: /zfs/i })
 }
 
 describe('MobileNav', () => {
@@ -76,15 +95,18 @@ describe('MobileNav', () => {
   it('opens a drawer listing every nav destination', async () => {
     await openDrawer()
 
-    for (const label of ['Docker', 'Stacks', 'ZFS', 'Proxmox', 'Settings']) {
+    for (const label of ['ZFS', 'Proxmox']) {
       expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).not.toBeNull()
+    }
+    for (const label of ['Docker', 'Stacks', 'Settings']) {
+      expect(screen.getByRole('button', { name: new RegExp(label, 'i') })).not.toBeNull()
     }
   })
 
   it('marks the active route', async () => {
     await openDrawer()
-    const dockerLink = screen.getByRole('link', { name: /docker/i })
-    expect(dockerLink.getAttribute('aria-current')).toBe('page')
+    const dockerRow = screen.getByRole('button', { name: /docker/i })
+    expect(dockerRow.getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: /zfs/i }).getAttribute('aria-current')).toBeNull()
   })
 
@@ -98,21 +120,60 @@ describe('MobileNav', () => {
     expect(await screen.findByRole('menuitem', { name: /tank/i })).not.toBeNull()
   })
 
-  it('toggles a submenu from its disclosure button', async () => {
+  it('expands a submenu when its row is tapped', async () => {
     await openDrawer()
-    const toggle = screen.getByRole('button', { name: /expand stacks menu/i })
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const settingsRow = screen.getByRole('button', { name: /settings/i })
+    expect(settingsRow.getAttribute('aria-expanded')).toBe('false')
 
-    fireEvent.click(toggle)
+    fireEvent.click(settingsRow)
 
-    expect(
-      screen.getByRole('button', { name: /collapse stacks menu/i }).getAttribute('aria-expanded'),
-    ).toBe('true')
+    expect(settingsRow.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('menuitem', { name: /developer/i })).not.toBeNull()
   })
 
-  it('offers no disclosure button for routes without a submenu', async () => {
+  it('does not navigate or close the drawer when a submenu row is tapped', async () => {
     await openDrawer()
-    expect(screen.queryByRole('button', { name: /zfs menu/i })).toBeNull()
+    const settingsRow = screen.getByRole('button', { name: /settings/i })
+    expect(settingsRow.tagName).toBe('BUTTON')
+
+    fireEvent.click(settingsRow)
+
+    expect(screen.getByRole('link', { name: /zfs/i })).not.toBeNull()
+  })
+
+  it('collapses an expanded submenu when its row is tapped again', async () => {
+    await openDrawer()
+    const dockerRow = screen.getByRole('button', { name: /docker/i })
+    expect(dockerRow.getAttribute('aria-expanded')).toBe('true')
+
+    fireEvent.click(dockerRow)
+
+    expect(dockerRow.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('expands a route with a single destination', async () => {
+    await openDrawer(['tank'])
+    expect(await screen.findByRole('menuitem', { name: /tank/i })).not.toBeNull()
+  })
+
+  it('leaves a route with nothing to list a plain link', async () => {
+    await openDrawer([])
+    expect(screen.getByRole('link', { name: /docker/i })).not.toBeNull()
+  })
+
+  it('lists the stacks route itself alongside its stacks', async () => {
+    await openDrawer()
+
+    fireEvent.click(screen.getByRole('button', { name: /stacks/i }))
+
+    const allStacks = screen.getByRole('menuitem', { name: /all stacks/i })
+    expect(allStacks.getAttribute('href')).toBe('/stacks')
+  })
+
+  it('gives the docker menu no self entry, since every host lands on the route', async () => {
+    await openDrawer()
+    const items = screen.getAllByRole('menuitem').map((el) => el.getAttribute('href'))
+    expect(items).not.toContain('/docker')
   })
 
   it('closes the drawer and prefetches when a destination is tapped', async () => {
@@ -132,5 +193,32 @@ describe('MobileNav', () => {
     fireEvent.click(hostLink)
 
     await waitFor(() => expect(screen.queryByRole('menuitem', { name: /nas/i })).toBeNull())
+  })
+
+  it('closes the drawer from the header close button', async () => {
+    await openDrawer()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close navigation menu' }))
+
+    await waitFor(() => expect(screen.queryByRole('link', { name: /zfs/i })).toBeNull())
+  })
+
+  it('repeats the current route label in the drawer header', async () => {
+    await openDrawer()
+    const headerRow = screen.getByRole('button', { name: 'Close navigation menu' }).parentElement
+
+    expect(within(headerRow!).getByText('Docker').getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('names the drawer for assistive tech, not for the current route', async () => {
+    await openDrawer()
+    expect(screen.getByRole('dialog', { name: 'Main navigation' })).not.toBeNull()
+  })
+
+  it('gives the close button a 44px touch target', async () => {
+    await openDrawer()
+    expect(
+      screen.getByRole('button', { name: 'Close navigation menu' }).className,
+    ).toContain('size-11')
   })
 })

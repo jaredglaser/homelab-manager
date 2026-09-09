@@ -200,11 +200,9 @@ body {
   display: none !important;
 }
 
-/* Expands a control's hit area to the 44px WCAG target-size minimum without
-   changing its painted size. The overlay is centered on the control, so a
-   32px icon button gains 6px of slop on every side. Only for controls with at
-   least 12px of clearance: on adjacent controls the overlays overlap and the
-   one later in the DOM swallows its neighbour's taps. */
+/* Only for controls with at least 12px of clearance: the 44px overlay is centered
+   on the control, so on adjacent controls the overlays overlap and the one later
+   in the DOM swallows its neighbour's taps. */
 .tap-target {
   position: relative;
 }

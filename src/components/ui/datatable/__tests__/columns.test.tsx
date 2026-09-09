@@ -189,6 +189,27 @@ describe('statusColumn', () => {
     expect(badge).toBeTruthy();
   });
 
+  it('has no meta when mobileFlex is not provided, matching the pre-existing default', () => {
+    const col = statusColumn<TestRow>({
+      id: 'status',
+      getValue: (r) => r.status,
+      getColor: () => 'default',
+    });
+
+    expect(col.meta).toBeUndefined();
+  });
+
+  it('exposes mobileFlex in meta for a tighter mobile grid track', () => {
+    const col = statusColumn<TestRow>({
+      id: 'status',
+      getValue: (r) => r.status,
+      getColor: () => 'default',
+      mobileFlex: 'minmax(60px, 0.7fr)',
+    });
+
+    expect((col.meta as { mobileFlex: string }).mobileFlex).toBe('minmax(60px, 0.7fr)');
+  });
+
 });
 
 describe('progressColumn', () => {
@@ -299,5 +320,26 @@ describe('progressColumn', () => {
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
     const bar = container.querySelector('[data-slot="progress-indicator"]');
     expect(bar?.className).toContain('bg-destructive');
+  });
+
+  it('exposes mobileFlex in meta when provided', () => {
+    const col = progressColumn<TestRow>({
+      id: 'usage',
+      getValue: (r) => r.pct,
+      getLabel: (r) => `${r.pct}%`,
+      mobileFlex: 'minmax(80px, 1.2fr)',
+    });
+
+    expect((col.meta as { mobileFlex: string }).mobileFlex).toBe('minmax(80px, 1.2fr)');
+  });
+
+  it('has no meta when mobileFlex is not provided, matching the pre-existing default', () => {
+    const col = progressColumn<TestRow>({
+      id: 'usage',
+      getValue: (r) => r.pct,
+      getLabel: (r) => `${r.pct}%`,
+    });
+
+    expect(col.meta).toBeUndefined();
   });
 });
