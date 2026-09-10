@@ -32,6 +32,11 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     isUpdating: false,
     onHealthCheck: mock(() => {}),
     checkingHostIds: new Set<number>(),
+    onViewKeypair: mock(() => {}),
+    keypairLoading: false,
+    onRotateKeypair: mock(() => {}),
+    keypairRotating: false,
+    keypairJwkJson: null,
     ...overrides,
   }
 }
