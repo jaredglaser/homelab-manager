@@ -2,35 +2,55 @@
  * Monaco editor setup: local workers + YAML language support.
  *
  * This file must only be imported dynamically from browser code (never from
- * tests) because it creates web workers via Vite's new URL() pattern.
+ * tests) because it creates web workers.
  */
-import * as monaco from 'monaco-editor';
+// Subpaths omit 'esm/vs'; the package exports wildcard prepends it.
+import * as monaco from 'monaco-editor/editor/editor.api.js';
+import { conf as yamlConf, language as yamlLanguage } from 'monaco-editor/languages/definitions/yaml/yaml.js';
 import { loader } from '@monaco-editor/react';
 import { configureMonacoYaml } from 'monaco-yaml';
 
 // Use local monaco-editor package instead of CDN.
 loader.config({ monaco });
 
+monaco.languages.register({
+  id: 'yaml',
+  extensions: ['.yaml', '.yml'],
+  aliases: ['YAML', 'yaml', 'YML', 'yml'],
+  mimetypes: ['application/x-yaml'],
+});
+monaco.languages.setLanguageConfiguration('yaml', yamlConf);
+monaco.languages.setMonarchTokensProvider('yaml', yamlLanguage);
+
 // Monaco 0.53+ broke `editor.createWebWorker` for libraries that pass the
-// legacy {label, createData, moduleId} options (e.g. monaco-worker-manager).
-// The top-level `createWebWorker` from workers.js handles both old and new
-// formats. Redirect until monaco-editor 0.56+ ships the upstream fix.
+// legacy {label, createData, moduleId} options (e.g. monaco-worker-manager,
+// used by monaco-yaml).
 // See: https://github.com/remcohaszing/monaco-yaml/issues/272
-const { createWebWorker: topLevelCreateWebWorker } = monaco as unknown as
-  { createWebWorker: typeof monaco.editor.createWebWorker };
 const origCreateWebWorker = monaco.editor.createWebWorker.bind(monaco.editor);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-monaco.editor.createWebWorker = (opts: any) =>
-  'worker' in opts ? origCreateWebWorker(opts) : topLevelCreateWebWorker(opts);
+monaco.editor.createWebWorker = (opts: any) => {
+  if ('worker' in opts) return origCreateWebWorker(opts);
+  const env = window.MonacoEnvironment;
+  if (!env?.getWorker) throw new Error('MonacoEnvironment.getWorker must be defined');
+  const worker = Promise.resolve(env.getWorker('workerMain.js', opts.label ?? 'monaco-editor-worker')).then((w: Worker) => {
+    w.postMessage('ignore');
+    w.postMessage(opts.createData);
+    return w;
+  });
+  return origCreateWebWorker({
+    worker,
+    host: opts.host,
+    keepIdleModels: opts.keepIdleModels,
+  });
+};
 
-// MonacoEnvironment.getWorker handles worker creation for both Monaco's
-// built-in editor worker and the YAML language service worker.
+// ?worker, not new URL(..., import.meta.url), so each worker bundles as a self-contained asset.
+import YamlWorker from './workers/yaml.worker.ts?worker';
+import EditorWorker from './workers/editor.worker.ts?worker';
+
 window.MonacoEnvironment = {
   getWorker(_workerId: string, label: string) {
-    const url = label === 'yaml'
-      ? new URL('./workers/yaml.worker.ts', import.meta.url)
-      : new URL('./workers/editor.worker.ts', import.meta.url);
-    return new Worker(url, { type: 'module' });
+    return label === 'yaml' ? new YamlWorker() : new EditorWorker();
   },
 };
 
