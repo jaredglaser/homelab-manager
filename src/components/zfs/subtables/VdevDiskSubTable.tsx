@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, type ReactNode } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import { DataTable } from '@/components/ui/datatable/DataTable';
 import type { ZFSTableRow } from '@/components/zfs/ZFSPoolsTable';
 import DiskSubTable from '@/components/zfs/subtables/DiskSubTable';
@@ -15,7 +16,7 @@ const VdevDiskSubTable = memo(function VdevDiskSubTable({
   toggleVdevExpanded,
 }: Readonly<{
   vdevsAndDisks: ZFSTableRow[];
-  columns: ColumnDef<ZFSTableRow, unknown>[];
+  columns: ColumnDef<DataTableFeatures, ZFSTableRow, unknown>[];
   isVdevExpanded: (id: string) => boolean;
   toggleVdevExpanded: (id: string) => void;
 }>) {
