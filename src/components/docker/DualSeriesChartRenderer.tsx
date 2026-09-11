@@ -1,6 +1,7 @@
 import type { Ref } from 'react';
-import ReactECharts from 'echarts-for-react';
+import type ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import EChartsLazy from '@/components/charts/EChartsLazy';
 
 interface DualSeriesChartRendererProps {
   option: EChartsOption;
@@ -11,7 +12,7 @@ interface DualSeriesChartRendererProps {
 
 export default function DualSeriesChartRenderer({ option, ref, notMerge = true, replaceMerge }: DualSeriesChartRendererProps) {
   return (
-    <ReactECharts
+    <EChartsLazy
       ref={ref}
       option={option}
       opts={{ renderer: 'canvas' }}

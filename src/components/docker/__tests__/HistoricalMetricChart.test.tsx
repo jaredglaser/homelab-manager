@@ -60,7 +60,7 @@ describe('HistoricalMetricChart', () => {
     cleanup();
   });
 
-  it('renders the title and an echarts canvas, building an option with axes and a line series', () => {
+  it('renders the title and an echarts canvas, building an option with axes and a line series', async () => {
     render(
       <HistoricalMetricChart
         title="CPU %"
@@ -73,7 +73,8 @@ describe('HistoricalMetricChart', () => {
     );
 
     expect(screen.getByText('CPU %')).toBeDefined();
-    expect(screen.getByTestId('react-echarts')).toBeDefined();
+    // EChartsLazy resolves the echarts chunk asynchronously on first render.
+    expect(await screen.findByTestId('react-echarts')).toBeDefined();
 
     const option = lastOption();
     const xAxis = option.xAxis as { type: string; min: number; max: number };
