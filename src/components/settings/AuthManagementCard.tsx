@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EMPTY_CELL } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { HelpCircle, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -112,7 +112,7 @@ function UsersTable() {
             ) : (
               users.map((user) => (
                 <TableRow key={user.id}>
-                  <TableCell>{user.name ?? '—'}</TableCell>
+                  <TableCell>{user.name ?? EMPTY_CELL}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>{formatDate(user.lastLogin)}</TableCell>
@@ -203,10 +203,10 @@ function SessionsTable() {
                   {userSessions.map((session) => (
                     <TableRow key={session.id}>
                       <TableCell>
-                        <div>{session.userName ?? '—'}</div>
+                        <div>{session.userName ?? EMPTY_CELL}</div>
                         <div className="text-xs text-muted-foreground">{session.userEmail}</div>
                       </TableCell>
-                      <TableCell>{session.ipAddress ?? '—'}</TableCell>
+                      <TableCell>{session.ipAddress ?? EMPTY_CELL}</TableCell>
                       <TableCell>
                         <Tooltip>
                           <TooltipTrigger render={<span />}>{truncate(session.userAgent ?? '', 50)}</TooltipTrigger>
@@ -383,7 +383,7 @@ function GitTokensTable() {
                 <TableRow key={token.id}>
                   <TableCell>{token.userName ?? token.userEmail}</TableCell>
                   <TableCell>{token.label}</TableCell>
-                  <TableCell>{token.lastUsedAt ? formatDate(token.lastUsedAt) : '—'}</TableCell>
+                  <TableCell>{token.lastUsedAt ? formatDate(token.lastUsedAt) : EMPTY_CELL}</TableCell>
                   <TableCell>{formatDate(token.createdAt)}</TableCell>
                   <TableCell>
                     <Tooltip>
@@ -440,9 +440,9 @@ export function AuthManagementCard() {
 }
 
 function formatDate(date: Date | string | null | undefined): string {
-  if (!date) return '—'
+  if (!date) return EMPTY_CELL
   const parsed = new Date(date)
-  if (Number.isNaN(parsed.getTime())) return '—'
+  if (Number.isNaN(parsed.getTime())) return EMPTY_CELL
   return parsed.toLocaleString()
 }
 
