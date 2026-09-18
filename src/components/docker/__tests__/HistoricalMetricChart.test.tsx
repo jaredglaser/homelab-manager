@@ -73,7 +73,6 @@ describe('HistoricalMetricChart', () => {
     );
 
     expect(screen.getByText('CPU %')).toBeDefined();
-    // EChartsLazy resolves the echarts chunk asynchronously on first render.
     expect(await screen.findByTestId('react-echarts')).toBeDefined();
 
     const option = lastOption();
