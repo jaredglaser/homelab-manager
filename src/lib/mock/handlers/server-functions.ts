@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { fromJSON, toCrossJSONAsync } from 'seroval';
+import { fromJSON, toCrossJSONAsync, type Plugin } from 'seroval';
 // Both directions need the plugin list the TanStack client uses; without its
 // ShallowErrorPlugin an Error with a non-serializable own property (a ZodError)
 // fails to encode instead of reaching the client.
@@ -14,6 +14,9 @@ import * as authFns from '@/lib/mock/functions/auth.functions';
 import * as hostsFns from '@/lib/mock/functions/hosts.functions';
 import * as gitTokenFns from '@/lib/mock/functions/git-tokens.functions';
 import { functionIdFromUrl, resolveFunctionName } from '@/lib/mock/handlers/function-id';
+
+// router-core types this list against its own nested seroval copy, so its Plugin identity is not assignable to ours.
+export const serovalPlugins = defaultSerovalPlugins as unknown as Plugin<any, any>[];
 
 /** A server function invocation as decoded from the wire. */
 interface ServerFnPayload {
@@ -121,7 +124,7 @@ async function decodePayload(request: Request): Promise<ServerFnPayload> {
   if (!raw) return {};
   try {
     return (
-      (fromJSON(JSON.parse(raw), { plugins: defaultSerovalPlugins }) as ServerFnPayload) ?? {}
+      (fromJSON(JSON.parse(raw), { plugins: serovalPlugins }) as ServerFnPayload) ?? {}
     );
   } catch {
     return {};
@@ -188,7 +191,7 @@ async function serializedResponse(
   const envelope = { result, error, context: {} };
   const crossJson = await toCrossJSONAsync(envelope, {
     refs: new Map(),
-    plugins: defaultSerovalPlugins,
+    plugins: serovalPlugins,
   });
   return new HttpResponse(JSON.stringify(crossJson), {
     headers: {

@@ -1,8 +1,10 @@
 import { describe, it, expect, spyOn } from 'bun:test';
 import { toJSONAsync, fromCrossJSON } from 'seroval';
-import { defaultSerovalPlugins } from '@tanstack/router-core';
 
-import { handleServerFn } from '@/lib/mock/handlers/server-functions';
+import {
+  handleServerFn,
+  serovalPlugins,
+} from '@/lib/mock/handlers/server-functions';
 import { encodeFunctionId } from '@/lib/mock/handlers/function-id';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { DockerStatsRow } from '@/types/docker';
@@ -15,7 +17,7 @@ function serverFnUrl(name: string): string {
 async function decodeEnvelope(res: Response): Promise<{ result: unknown; error: unknown }> {
   return fromCrossJSON(await res.json(), {
     refs: new Map(),
-    plugins: defaultSerovalPlugins,
+    plugins: serovalPlugins,
   }) as { result: unknown; error: unknown };
 }
 
@@ -24,7 +26,7 @@ async function decodeResult(res: Response): Promise<unknown> {
 }
 
 async function encodePayload(payload: { data?: unknown; context?: unknown }): Promise<string> {
-  return JSON.stringify(await toJSONAsync(payload, { plugins: defaultSerovalPlugins }));
+  return JSON.stringify(await toJSONAsync(payload, { plugins: serovalPlugins }));
 }
 
 type OverrideHost = typeof globalThis & {
