@@ -2,8 +2,6 @@ import { memo, type ReactNode } from 'react';
 import SparklineCell from '@/components/ui/datatable/SparklineCell';
 import { abbreviateUnit } from '@/lib/utils/abbreviate-unit';
 
-/** Display placeholder for metrics with no value */
-export const EMPTY_METRIC = '--';
 
 interface MetricCellProps {
   /** The numeric value to display */
