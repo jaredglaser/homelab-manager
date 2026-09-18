@@ -1,9 +1,1 @@
-# Code owners are required to approve any PR before merge.
-# jaredglaser is the sole code owner — the bot (homelab-manager-bot) is
-# deliberately NOT listed, so its approvals can never satisfy the
-# "require review from code owners" branch-protection rule.
-#
-# See .github/workflows/ci.yml for the CI gates that also apply.
-
-# Default: everything requires jaredglaser's approval.
 * @jaredglaser
