@@ -1,11 +1,12 @@
 import { useRef } from 'react';
-import ReactECharts from 'echarts-for-react';
+import type ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { formatBytes } from '@/formatters/metrics';
 import { useGeneralSettings } from '@/hooks/useSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
 import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis } from '@/lib/charts/y-axis';
+import EChartsLazy from '@/components/charts/EChartsLazy';
 
 interface TimeSeriesDataPoint {
   timestamp: number;
@@ -184,7 +185,7 @@ export default function ZFSPoolSpeedChart({
         {poolName}
       </p>
       <div ref={wrapperRef} className="h-48">
-        <ReactECharts
+        <EChartsLazy
           ref={chartRef}
           option={option}
           style={{ height: '100%', width: '100%' }}
