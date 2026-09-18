@@ -1,4 +1,4 @@
-import { RefreshCw, Trash2, Server, Pencil } from 'lucide-react'
+import { RefreshCw, Trash2, Server, Pencil, KeyRound } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -26,6 +26,7 @@ interface HostRowProps {
   onHealthCheck: () => void
   onEdit: () => void
   onRemove: () => void
+  onKeypair: () => void
 }
 
 export function agentTagTooltip(host: HostListItem, expectedImageTag: string): string {
@@ -85,7 +86,7 @@ function HostAction({ label, ariaLabel, disabled, onClick, className, children }
   )
 }
 
-export default function HostRow({ host, expectedImageTag, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
+export default function HostRow({ host, expectedImageTag, isChecking, isRemoving, onHealthCheck, onEdit, onRemove, onKeypair }: HostRowProps) {
   const busy = isChecking || isRemoving
   return (
     <div className="flex items-center gap-3 py-2 border-b border-border last:border-0">
@@ -119,6 +120,9 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
         </HostAction>
         <HostAction label="Edit host" ariaLabel="edit host" disabled={busy} onClick={onEdit}>
           <Pencil size={14} />
+        </HostAction>
+        <HostAction label="Agent keypair" ariaLabel="agent keypair" disabled={busy} onClick={onKeypair}>
+          <KeyRound size={14} />
         </HostAction>
         <HostAction
           label="Remove host"

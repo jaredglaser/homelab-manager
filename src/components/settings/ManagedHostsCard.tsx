@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { DEFAULT_AGENT_IMAGE_TAG, getAgentImage, getAgentImageTag, getAgentUpdaterImage } from '@/lib/hosts/host-utils'
 import HostRow from '@/components/settings/HostRow'
+import { KeypairDialog } from '@/components/settings/KeypairDialog'
 import { RemoveDialog, EditDialog } from '@/components/settings/HostDialogs'
 import AddHostWizard from '@/components/settings/AddHostWizard'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -21,6 +22,11 @@ export interface ManagedHostsCardProps {
   isUpdating: boolean
   onHealthCheck: (hostId: number) => void
   checkingHostIds: Set<number>
+  onViewKeypair: (hostId: number) => void
+  keypairLoading: boolean
+  onRotateKeypair: (hostId: number) => void
+  keypairRotating: boolean
+  keypairJwkJson: string | null
 }
 
 export interface AgentChannelBuckets {
@@ -132,9 +138,15 @@ export function ManagedHostsCardView({
   isUpdating,
   onHealthCheck,
   checkingHostIds,
+  onViewKeypair,
+  keypairLoading,
+  onRotateKeypair,
+  keypairRotating,
+  keypairJwkJson,
 }: Readonly<ManagedHostsCardProps>) {
   const [removeTarget, setRemoveTarget] = useState<HostListItem | null>(null)
   const [editTarget, setEditTarget] = useState<HostListItem | null>(null)
+  const [keypairTarget, setKeypairTarget] = useState<HostListItem | null>(null)
   const agentImageTag = getAgentImageTag()
   const channel = bucketHostsByAgentChannel(hosts, agentImageTag)
   const showChannelNotice =
@@ -189,6 +201,7 @@ export function ManagedHostsCardView({
                 onHealthCheck={() => onHealthCheck(host.id)}
                 onEdit={() => setEditTarget(host)}
                 onRemove={() => setRemoveTarget(host)}
+                onKeypair={() => setKeypairTarget(host)}
               />
             ))}
           </div>
@@ -220,6 +233,16 @@ export function ManagedHostsCardView({
         onClose={() => setRemoveTarget(null)}
       />
 
+      <KeypairDialog
+        open={keypairTarget !== null}
+        host={keypairTarget}
+        publicJwkJson={keypairJwkJson}
+        isLoading={keypairLoading}
+        isRotating={keypairRotating}
+        onView={onViewKeypair}
+        onRotate={onRotateKeypair}
+        onClose={() => setKeypairTarget(null)}
+      />
     </>
   )
 }

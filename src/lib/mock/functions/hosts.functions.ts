@@ -90,6 +90,20 @@ export async function listHosts(): Promise<HostListItem[]> {
   return [...mockHosts];
 }
 
+const MOCK_PUBLIC_JWK = { kty: 'OKP', crv: 'Ed25519', x: 'mock-public-key-x' };
+
+export async function getHostPublicJwk(_data: {
+  hostId: number;
+}): Promise<{ publicJwk: typeof MOCK_PUBLIC_JWK }> {
+  return { publicJwk: MOCK_PUBLIC_JWK };
+}
+
+export async function rotateHostKeypair(_data: {
+  hostId: number;
+}): Promise<{ hostId: number; publicJwk: typeof MOCK_PUBLIC_JWK }> {
+  return { hostId: _data.hostId, publicJwk: { ...MOCK_PUBLIC_JWK, x: 'rotated-key-x' } };
+}
+
 export async function checkHostHealth(_data: {
   hostId: number;
 }): Promise<HealthCheckResult> {
