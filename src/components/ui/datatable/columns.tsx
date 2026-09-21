@@ -1,8 +1,10 @@
 import { type ColumnDef, type CellContext } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils/cn';
 import type { ReactNode } from 'react';
+import type { RowData } from '@tanstack/react-table';
 import { MetricCell } from '@/components/ui/datatable/MetricCell';
 import { MetricHeaderCell } from '@/components/ui/datatable/MetricHeaderCell';
 
@@ -15,7 +17,7 @@ const METRIC_COL_SIZE_COMPACT = 115;
  * Callers pass showSparklines and useAbbreviatedUnits from their settings
  * context, since settings hooks cannot be called inside a column factory.
  */
-export function metricColumn<TRow>(opts: {
+export function metricColumn<TRow extends RowData>(opts: {
   id: string;
   header: string;
   getValue: (row: TRow) => { value: string; unit: string };
@@ -29,11 +31,11 @@ export function metricColumn<TRow>(opts: {
   showSparklines?: boolean;
   /** Whether to abbreviate unit labels (default: false) */
   useAbbreviatedUnits?: boolean;
-}): ColumnDef<TRow, unknown> {
+}): ColumnDef<DataTableFeatures, TRow, unknown> {
   return {
     id: opts.id,
     header: () => <MetricHeaderCell>{opts.header}</MetricHeaderCell>,
-    cell: ({ row }: CellContext<TRow, unknown>) => {
+    cell: ({ row }: CellContext<DataTableFeatures, TRow, unknown>) => {
       const { value, unit } = opts.getValue(row.original);
       const entityId = opts.getSparklineEntityId?.(row.original);
       return (
@@ -60,18 +62,18 @@ export function metricColumn<TRow>(opts: {
  * icon, indent padding, and status indicator.
  * Accepts a custom cell override for domain-specific name cells.
  */
-export function nameColumn<TRow>(opts: {
+export function nameColumn<TRow extends RowData>(opts: {
   getLabel: (row: TRow) => string;
   getIcon?: (row: TRow) => string | undefined;
   getIndent?: (row: TRow) => number;
   getStatusColor?: (row: TRow) => string;
   size?: number;
-  cell?: (props: CellContext<TRow, unknown>) => ReactNode;
-}): ColumnDef<TRow, unknown> {
+  cell?: (props: CellContext<DataTableFeatures, TRow, unknown>) => ReactNode;
+}): ColumnDef<DataTableFeatures, TRow, unknown> {
   return {
     id: 'name',
     header: 'Name',
-    cell: opts.cell ?? (({ row }: CellContext<TRow, unknown>) => {
+    cell: opts.cell ?? (({ row }: CellContext<DataTableFeatures, TRow, unknown>) => {
       const label = opts.getLabel(row.original);
       const indent = opts.getIndent?.(row.original) ?? 0;
       const statusColor = opts.getStatusColor?.(row.original);
@@ -114,16 +116,16 @@ const STATUS_BADGE_CLASSES = {
 /**
  * Creates a status column that renders an outlined Badge with the entity's status.
  */
-export function statusColumn<TRow>(opts: {
+export function statusColumn<TRow extends RowData>(opts: {
   id: string;
   getValue: (row: TRow) => string;
   getColor: (row: TRow) => 'success' | 'default' | 'warning' | 'error';
   size?: number;
-}): ColumnDef<TRow, unknown> {
+}): ColumnDef<DataTableFeatures, TRow, unknown> {
   return {
     id: opts.id,
     header: 'Status',
-    cell: ({ row }: CellContext<TRow, unknown>) => (
+    cell: ({ row }: CellContext<DataTableFeatures, TRow, unknown>) => (
       <Badge variant="outline" className={STATUS_BADGE_CLASSES[opts.getColor(row.original)]}>
         {opts.getValue(row.original)}
       </Badge>
@@ -136,17 +138,17 @@ export function statusColumn<TRow>(opts: {
  * Creates a progress column that renders a LinearProgress bar with a label.
  * Bar color is determined by value: >90% error, >70% warning, else success.
  */
-export function progressColumn<TRow>(opts: {
+export function progressColumn<TRow extends RowData>(opts: {
   id: string;
   header?: string;
   getValue: (row: TRow) => number;
   getLabel: (row: TRow) => string;
   size?: number;
-}): ColumnDef<TRow, unknown> {
+}): ColumnDef<DataTableFeatures, TRow, unknown> {
   return {
     id: opts.id,
     header: opts.header ?? opts.id.charAt(0).toUpperCase() + opts.id.slice(1),
-    cell: ({ row }: CellContext<TRow, unknown>) => {
+    cell: ({ row }: CellContext<DataTableFeatures, TRow, unknown>) => {
       const value = opts.getValue(row.original);
       const label = opts.getLabel(row.original);
       const color =

@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, type ReactNode } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import { DataTable } from '@/components/ui/datatable/DataTable';
 import type { DockerContainerTableRow, DockerTableRow } from '@/types/docker';
 
@@ -17,7 +18,7 @@ const ContainerSubTable = memo(function ContainerSubTable({
   toggleContainerExpanded,
 }: Readonly<{
   containers: DockerContainerTableRow[];
-  columns: ColumnDef<DockerTableRow, unknown>[];
+  columns: ColumnDef<DataTableFeatures, DockerTableRow, unknown>[];
   renderDetailPanel: (row: DockerTableRow) => ReactNode;
   rowClassName: (row: DockerTableRow) => string;
   rowAttributes: (row: DockerTableRow) => Record<`data-${string}` | `aria-${string}`, string>;
