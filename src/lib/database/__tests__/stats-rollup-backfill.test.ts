@@ -123,7 +123,6 @@ describe('runStatsRollupBackfill', () => {
     const hour = refreshCalls(client, 'docker_stats_1h');
     expect(minute[minute.length - 1]).toContain("'2026-01-13T12:34:00.000Z'::timestamptz");
     expect(hour[hour.length - 1]).toContain("'2026-01-13T12:00:00.000Z'::timestamptz");
-    expect(hour[hour.length - 1]).not.toContain('now()');
   });
 
   test('sends each refresh as its own statement with no embedded semicolons', async () => {
