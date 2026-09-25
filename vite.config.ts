@@ -24,8 +24,12 @@ const isDev = process.env.NODE_ENV !== 'production'
 function buildAliases(): Record<string, string> {
   // Demo and e2e modes no longer swap server-function modules at build time;
   // MSW intercepts the real RPC/SSE network calls instead (see src/lib/mock).
+  // monaco-worker-manager imports a deep monaco-editor subpath that the exports map refuses to resolve.
   return {
     '@': fileURLToPath(new URL('./src', import.meta.url)),
+    'monaco-editor/esm/vs/editor/editor.worker.js': fileURLToPath(
+      new URL('./node_modules/monaco-editor/esm/vs/editor/editor.worker.js', import.meta.url),
+    ),
   }
 }
 
