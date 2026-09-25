@@ -11,6 +11,8 @@ import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
+import { handleAgentUpdate } from './routes/agent-update';
+import { handleAgentUpdaterPolicy, parseUpdaterPolicyRequest } from './routes/agent-updater-policy';
 
 const portEnv = process.env.AGENT_PORT;
 let PORT = 9090;
@@ -33,6 +35,7 @@ if (!AGENT_HOST_NAME) {
   process.exit(1);
 }
 const DOCKER_HOST = process.env.DOCKER_HOST;
+const UPDATER_TRIGGER_URL = process.env.HLM_UPDATER_URL || 'http://hlm-agent-updater:9091/trigger';
 
 let trustedPubkeyJson: string;
 if (AGENT_TRUSTED_PUBKEY_FILE) {
@@ -157,6 +160,14 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
 
   if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);
   if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
+
+  if (url.pathname === '/agent/update' && request.method === 'POST') return handleAgentUpdate(docker, UPDATER_TRIGGER_URL);
+  if (url.pathname === '/agent/updater-policy' && request.method === 'POST') {
+    return parseUpdaterPolicyRequest(request).then((parsed) => {
+      if (parsed instanceof Response) return parsed;
+      return handleAgentUpdaterPolicy(docker, parsed.autoUpdate);
+    });
+  }
 
   return null;
 }

@@ -16,6 +16,11 @@ export const verifyHostSchema = z.object({
 
 export const removeHostSchema = z.object({ hostId: z.number().int().positive() });
 export const checkHostHealthSchema = z.object({ hostId: z.number().int().positive() });
+export const updateAgentSchema = z.object({ hostId: z.number().int().positive() });
+export const setAgentAutoUpdateSchema = z.object({
+  hostId: z.number().int().positive(),
+  autoUpdate: z.boolean(),
+});
 
 export const updateHostSchema = z.object({
   hostId: z.number().int().positive(),
