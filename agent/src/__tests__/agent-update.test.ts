@@ -72,4 +72,46 @@ describe('handleAgentUpdate', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test('rejects an unexpected redirect from the updater', async () => {
+    const fetchMock = mock(() => Promise.resolve(new Response(null, { status: 302 })));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const response = await handleAgentUpdate(dockerStub, 'http://hlm-agent-updater:9091/trigger');
+      expect(response.status).toBe(502);
+      const body = await response.json();
+      expect(body.error).toContain('redirect');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('maps a 200 with an unexpected body to 500', async () => {
+    const fetchMock = mock(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: true, error: 'bad state' }), { status: 200 })));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const response = await handleAgentUpdate(dockerStub, 'http://hlm-agent-updater:9091/trigger');
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error).toBe('bad state');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('passes through updater errors with their status', async () => {
+    const fetchMock = mock(() => Promise.resolve(new Response(JSON.stringify({ error: 'registry unreachable' }), { status: 500 })));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      const response = await handleAgentUpdate(dockerStub, 'http://hlm-agent-updater:9091/trigger');
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error).toBe('registry unreachable');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

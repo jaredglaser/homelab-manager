@@ -120,6 +120,19 @@ describe('handleAgentUpdaterPolicy', () => {
     expect(body.reconfigured).toBe(false);
     expect(body.reason).toBe('no space left on device');
   });
+
+  test('returns 500 when inspect fails with an unexpected error', async () => {
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.reject(new Error('docker daemon down'))),
+      })),
+    };
+    const response = await handleAgentUpdaterPolicy(docker as never, true);
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.reconfigured).toBe(false);
+    expect(body.reason).toBe('docker daemon down');
+  });
 });
 
 describe('parseUpdaterPolicyRequest', () => {
