@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { GuestRow } from '@/types/proxmox';
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
-import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
+import { EMPTY_CELL } from '@/components/ui/table';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { nameColumn, statusColumn, metricColumn } from '@/components/ui/datatable/columns';
 import { GuestCell } from '@/components/proxmox/GuestCell';
@@ -45,7 +45,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
         return formatAsPercentParts(row.cpu, true);
       },
     }),
@@ -69,7 +69,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
         return formatBytesParts(row.netin, false, false);
       },
     }),
@@ -79,7 +79,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
         return formatBytesParts(row.netout, false, false);
       },
     }),
