@@ -15,6 +15,7 @@ function buildHost(
     name: string;
     agentUrl: string;
     capabilities?: { docker?: boolean; zfs?: boolean };
+    autoUpdate?: boolean;
   },
   id: number = nextMockId++,
 ): HostListItem {
@@ -27,7 +28,7 @@ function buildHost(
     agentVersion: '0.1.0',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
-    autoUpdate: false,
+    autoUpdate: data.autoUpdate ?? false,
     status: 'healthy',
     createdAt: now,
     updatedAt: now,
@@ -126,7 +127,10 @@ export async function setAgentAutoUpdate(data: {
   autoUpdate: boolean;
 }): Promise<SetAgentAutoUpdateResult> {
   return {
-    host: buildHost({ name: 'homeserver', agentUrl: 'http://192.168.1.10:9090' }, data.hostId),
+    host: buildHost(
+      { name: 'homeserver', agentUrl: 'http://192.168.1.10:9090', autoUpdate: data.autoUpdate },
+      data.hostId,
+    ),
     propagation: { applied: true },
   };
 }
