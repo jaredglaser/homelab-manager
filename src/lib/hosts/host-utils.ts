@@ -23,7 +23,7 @@ export type HealthCheckOutcome =
       agentImageTag?: string | null;
       infoSupported?: boolean;
     }
-  | { healthy: false; error: string };
+  | { healthy: false; reason?: import('@/lib/services/agent-health-service').AgentHealthFailureReason; error: string };
 
 /**
  * Convert a ManagedHost to an API-facing HostListItem (stringifies Date fields).
