@@ -1,15 +1,17 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
+import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleVerifyHost,
+  handleUpdateHost, handleVerifyHost, handleListAgentsInventory,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
 export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult } from '@/data/hosts/handlers';
+export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
@@ -110,6 +112,21 @@ export const listHosts = createServerFn()
   .handler(async (): Promise<HostListItem[]> => {
     const deps = await loadDeps();
     return handleListHosts(deps);
+  });
+
+/**
+ * Agents inventory: every registered agent (id, name, status, version, detail)
+ * with a live health probe per host, probed in parallel. Offline/unreachable
+ * agents appear in the list with a non-online status, never as errors or
+ * omissions. Version is live from /info when the agent reports it, else the
+ * last stored version (may be stale), else null. This is the data source for
+ * the admin agents overview; updates are triggered separately per agent.
+ */
+export const listAgentsInventory = createServerFn()
+  .middleware([authMiddleware])
+  .handler(async (): Promise<AgentInventoryEntry[]> => {
+    const deps = await loadDeps();
+    return handleListAgentsInventory({ ...deps, checkHealth: await buildProbeCheckHealth() });
   });
 
 export const checkHostHealth = createServerFn()

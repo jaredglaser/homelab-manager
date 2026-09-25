@@ -1,8 +1,11 @@
 import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
 import { toHostListItem } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import { buildAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
+export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 export interface KeypairsDep {
   createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
@@ -151,4 +154,54 @@ export async function handleVerifyHost(
     host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
     publicJwk,
   };
+}
+
+export interface AgentsInventoryDeps extends HostHandlerDeps {
+  checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+}
+
+/**
+ * Inventory of every registered agent with a live probe per host. Unreachable
+ * hosts stay in the list with an offline/unreachable/unknown status. Each probe
+ * persists healthy/unhealthy and reported agent info like handleCheckHostHealth,
+ * except a pending host stays pending on failure: pending means enrollment was
+ * never confirmed, which is not the same as an agent that went down.
+ */
+export async function handleListAgentsInventory(
+  deps: AgentsInventoryDeps,
+  now: Date = new Date(),
+): Promise<AgentInventoryEntry[]> {
+  const hosts = await deps.repo.findAll();
+  const outcomes = await Promise.all(
+    hosts.map(async (host): Promise<HealthCheckOutcome> => {
+      try {
+        return await deps.checkHealth(host.agentUrl, host.name);
+      } catch (err) {
+        return {
+          healthy: false,
+          reason: 'offline' as const,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }),
+  );
+
+  await Promise.all(
+    hosts.map(async (host, i) => {
+      const outcome = outcomes[i];
+      if (!outcome) return;
+      if (host.status === 'pending' && !outcome.healthy) return;
+      await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
+      if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
+        await deps.repo.updateAgentInfo(host.id, {
+          version: outcome.version,
+          ...(outcome.infoSupported
+            ? { image: outcome.agentImage ?? null, imageTag: outcome.agentImageTag ?? null }
+            : {}),
+        });
+      }
+    }),
+  );
+
+  return hosts.map((host, i) => buildAgentInventoryEntry(host, outcomes[i], now));
 }
