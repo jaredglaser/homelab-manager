@@ -2,6 +2,7 @@ import type {
   HostListItem,
   AddHostResult,
   HealthCheckResult,
+  AgentInventoryEntry,
 } from '@/data/hosts/functions';
 
 /**
@@ -102,6 +103,28 @@ export async function rotateHostKeypair(_data: {
   hostId: number;
 }): Promise<{ hostId: number; publicJwk: typeof MOCK_PUBLIC_JWK }> {
   return { hostId: _data.hostId, publicJwk: { ...MOCK_PUBLIC_JWK, x: 'rotated-key-x' } };
+}
+
+/** Demo inventory: a mixed-status set so the overview shows online, offline, and unknown rows. */
+export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
+  return [
+    {
+      ...mockHosts[0],
+      status: 'online',
+      version: mockHosts[0].agentVersion,
+      versionSource: 'live',
+      lastError: null,
+      checkedAt: new Date().toISOString(),
+    },
+    {
+      ...mockHosts[1],
+      status: 'offline',
+      version: mockHosts[1].agentVersion,
+      versionSource: 'stored',
+      lastError: 'Health check timed out after 5000ms',
+      checkedAt: new Date().toISOString(),
+    },
+  ];
 }
 
 export async function checkHostHealth(_data: {
