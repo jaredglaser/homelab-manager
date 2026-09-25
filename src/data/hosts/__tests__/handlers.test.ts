@@ -6,6 +6,8 @@ import {
   handleRemoveHost,
   handleVerifyHost,
   handleUpdateHost,
+  handleGetHostPublicJwk,
+  handleRotateHostKeypair,
 } from '../handlers';
 
 const NOW = new Date('2026-03-01T00:00:00Z');
@@ -47,6 +49,9 @@ function makeKeypairsMock(): KeypairsDep {
       publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' } as import('jose').JWK,
     })),
     deleteForHost: mock(async () => undefined),
+    getPublicJwkForHost: mock(async (_name: string) => ({
+      kty: 'OKP', crv: 'Ed25519', x: 'mock-x',
+    } as import('jose').JWK)),
   };
 }
 
@@ -293,5 +298,68 @@ describe('handleUpdateHost', () => {
     await handleUpdateHost(deps, { hostId: 1, agentUrl: 'http://x:9090' });
 
     expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'http://x:9090' });
+  });
+});
+
+describe('handleGetHostPublicJwk', () => {
+  it('returns the stored public JWK for the host', async () => {
+    const jwk = { kty: 'OKP', crv: 'Ed25519', x: 'stored-x' } as import('jose').JWK;
+    const deps = {
+      ...baseDeps(),
+      keypairs: { ...makeKeypairsMock(), getPublicJwkForHost: mock(async () => jwk) },
+    };
+
+    const result = await handleGetHostPublicJwk(deps, { hostId: 1 });
+
+    expect(result.publicJwk).toEqual(jwk);
+    expect(deps.keypairs.getPublicJwkForHost).toHaveBeenCalledWith('test-host');
+  });
+
+  it('throws when host not found', async () => {
+    const deps = {
+      ...baseDeps({ findById: mock(() => Promise.resolve(null)) }),
+      keypairs: makeKeypairsMock(),
+    };
+    await expect(handleGetHostPublicJwk(deps, { hostId: 999 })).rejects.toThrow('not found');
+  });
+
+  it('throws when the host has no keypair', async () => {
+    const deps = {
+      ...baseDeps(),
+      keypairs: { ...makeKeypairsMock(), getPublicJwkForHost: mock(async () => null) },
+    };
+    await expect(handleGetHostPublicJwk(deps, { hostId: 1 })).rejects.toThrow(/No agent keypair/);
+  });
+});
+
+describe('handleRotateHostKeypair', () => {
+  it('regenerates the keypair via createForHost and returns the new JWK', async () => {
+    const newJwk = { kty: 'OKP', crv: 'Ed25519', x: 'new-x' } as import('jose').JWK;
+    const keypairs = { ...makeKeypairsMock(), createForHost: mock(async () => ({ publicJwk: newJwk })) };
+    const deps = { ...baseDeps(), keypairs };
+
+    const result = await handleRotateHostKeypair(deps, { hostId: 1 });
+
+    expect(result).toEqual({ hostId: 1, publicJwk: newJwk });
+    expect(keypairs.createForHost).toHaveBeenCalledWith('test-host');
+  });
+
+  it('does not modify the host record', async () => {
+    const repo = mockRepo();
+    const deps = { ...baseDeps(), repo, keypairs: makeKeypairsMock() };
+
+    await handleRotateHostKeypair(deps, { hostId: 1 });
+
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.updateStatus).not.toHaveBeenCalled();
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('throws when host not found', async () => {
+    const deps = {
+      ...baseDeps({ findById: mock(() => Promise.resolve(null)) }),
+      keypairs: makeKeypairsMock(),
+    };
+    await expect(handleRotateHostKeypair(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 });
