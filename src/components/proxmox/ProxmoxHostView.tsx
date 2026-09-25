@@ -4,7 +4,7 @@ import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
 import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
-import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell'
+import { EMPTY_CELL } from '@/components/ui/table'
 import { formatUptime } from '@/components/proxmox/utils'
 import { GuestSection } from '@/components/proxmox/GuestSection'
 import { StorageSection } from '@/components/proxmox/StorageSection'
@@ -108,7 +108,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
                 <span>Mem: {memPercent}%</span>
                 <span>Disk: {diskPercent}%</span>
                 <span className="text-(--muted-foreground)">
-                  {node.status === 'online' ? formatUptime(node.uptime) : EMPTY_METRIC}
+                  {node.status === 'online' ? formatUptime(node.uptime) : EMPTY_CELL}
                 </span>
               </div>
             </div>
