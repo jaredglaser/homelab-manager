@@ -59,6 +59,7 @@ const sampleHost: ManagedHost = {
   agentVersion: '0.1.0',
   agentImage: null,
   agentImageTag: null,
+  autoUpdate: false,
   status: 'healthy',
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),

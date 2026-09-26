@@ -16,6 +16,7 @@ export interface ManagedHost {
   agentVersion: string | null;
   agentImage: string | null;
   agentImageTag: string | null;
+  autoUpdate: boolean;
   status: HostStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -48,6 +49,7 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     agentVersion: (row.agent_version as string | null | undefined) ?? null,
     agentImage: (row.agent_image as string | null | undefined) ?? null,
     agentImageTag: (row.agent_image_tag as string | null | undefined) ?? null,
+    autoUpdate: row.auto_update === true,
     status: row.status as HostStatus,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -175,6 +177,14 @@ export class HostRepository {
     await this.pool.query(
       `UPDATE managed_hosts SET ${setClauses.join(', ')} WHERE id = $${params.length}`,
       params,
+    );
+  }
+
+  /** Per-agent auto-update opt-in. Only writes the row addressed by id. */
+  async updateAutoUpdate(id: number, enabled: boolean): Promise<void> {
+    await this.pool.query(
+      'UPDATE managed_hosts SET auto_update = $1, updated_at = NOW() WHERE id = $2',
+      [enabled, id],
     );
   }
 
