@@ -379,6 +379,32 @@ describe('handleUpdateAgent', () => {
       restore();
     }
   });
+
+  it('unwraps a JSON error body instead of rendering the raw JSON', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: 'An update is already in progress' }), { status: 409 }))
+    );
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('An update is already in progress');
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps a plain-text error body as-is', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response('upstream exploded', { status: 500 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('upstream exploded');
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe('handleSetAgentAutoUpdate', () => {

@@ -23,6 +23,27 @@ export interface UpdateResult {
   rolledBack?: boolean;
 }
 
+export interface HealthWaitParams {
+  maxAttempts: number;
+  intervalMs: number;
+}
+
+// Docker's first health result only lands after one full interval, so a fixed
+// 30s window races any image whose HEALTHCHECK interval is >= 30s.
+export function deriveHealthWaitParams(healthcheck:
+  | { Interval?: number; StartPeriod?: number; Retries?: number }
+  | undefined): HealthWaitParams {
+  if (!healthcheck?.Interval) {
+    return { maxAttempts: 10, intervalMs: 3000 };
+  }
+  const intervalMs = healthcheck.Interval / 1e6;
+  const startPeriodMs = (healthcheck.StartPeriod ?? 0) / 1e6;
+  const retries = healthcheck.Retries && healthcheck.Retries > 0 ? healthcheck.Retries : 3;
+  const totalMs = startPeriodMs + intervalMs * (retries + 1) + 10_000;
+  const pollMs = Math.min(3000, intervalMs);
+  return { maxAttempts: Math.ceil(totalMs / pollMs), intervalMs: pollMs };
+}
+
 /** Polls GHCR for new image digests and recreates the agent container when updates are available. */
 export class AgentUpdater {
   private docker: Dockerode;
@@ -73,7 +94,9 @@ export class AgentUpdater {
     try {
       const container = this.docker.getContainer(this.config.containerName);
       containerInfo = await container.inspect();
-      previousImage = containerInfo.Config.Image;
+      // Pin by digest or image ID: after the pull the old tag resolves to the
+      // new image, which would make rollback a no-op.
+      previousImage = await this.resolvePreviousImageRef(containerInfo);
 
       console.info(`Pulling new image: ${this.config.imageName}`);
       await this.pullImage(this.config.imageName);
@@ -87,11 +110,8 @@ export class AgentUpdater {
       const newContainer = await this.recreateContainer(containerInfo);
       await newContainer.start();
 
-      const healthy = await this.waitForHealthy(
-        newContainer,
-        this.config.healthCheckMaxAttempts,
-        this.config.healthCheckIntervalMs
-      );
+      const wait = await this.resolveHealthWaitParams();
+      const healthy = await this.waitForHealthy(newContainer, wait.maxAttempts, wait.intervalMs);
       if (!healthy) {
         console.info('Docker health check failed, rolling back to previous image');
         const rolledBack = await this.rollback(newContainer, containerInfo, previousImage);
@@ -155,6 +175,33 @@ export class AgentUpdater {
     return imageId;
   }
 
+  private async resolvePreviousImageRef(containerInfo: Dockerode.ContainerInspectInfo): Promise<string> {
+    try {
+      const imageInfo = await this.docker.getImage(containerInfo.Image).inspect();
+      const digestRef = imageInfo.RepoDigests?.[0];
+      if (digestRef) {
+        return digestRef;
+      }
+    } catch {
+      // Fall through to the image ID below.
+    }
+    return containerInfo.Image;
+  }
+
+  private async resolveHealthWaitParams(): Promise<HealthWaitParams> {
+    let derived: HealthWaitParams;
+    try {
+      const imageInfo = await this.docker.getImage(this.config.imageName).inspect();
+      derived = deriveHealthWaitParams(imageInfo.Config?.Healthcheck);
+    } catch {
+      derived = deriveHealthWaitParams(undefined);
+    }
+    return {
+      maxAttempts: this.config.healthCheckMaxAttempts ?? derived.maxAttempts,
+      intervalMs: this.config.healthCheckIntervalMs ?? derived.intervalMs,
+    };
+  }
+
   private async pullImage(imageName: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.docker.pull(imageName, (err: Error | null, stream: NodeJS.ReadableStream) => {
@@ -180,7 +227,9 @@ export class AgentUpdater {
     return {
       name: this.config.containerName,
       Image: image,
-      Env: info.Config.Env,
+      // CI stamps AGENT_VERSION into the image; carrying the old one would
+      // freeze the version the agent reports after an update.
+      Env: info.Config.Env?.filter((entry) => !entry.startsWith('AGENT_VERSION=')),
       Cmd: info.Config.Cmd,
       Entrypoint: info.Config.Entrypoint,
       HostConfig: info.HostConfig,

@@ -222,6 +222,9 @@ function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): 
   if (result.error?.includes('latest version already')) {
     return { severity: 'info', message: 'Agent is already on the latest version' }
   }
+  if (result.error?.includes('already in progress')) {
+    return { severity: 'info', message: 'An update is already in progress for this agent' }
+  }
   return {
     severity: 'error',
     message: result.error ?? 'Update failed',
