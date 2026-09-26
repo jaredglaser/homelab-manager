@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import type { HostRepo, AgentsInventoryDeps } from '../handlers';
-import { handleListAgentsInventory } from '../handlers';
+import { handleSweepAgentInventory, handleListAgentsInventorySnapshot } from '../handlers';
 import type { ManagedHost, HostStatus, UpdateAgentInfoInput } from '@/lib/database/repositories/host-repository';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
@@ -43,10 +43,6 @@ function offline(error = 'Health check timed out after 5000ms'): HealthCheckOutc
   return { healthy: false, reason: 'offline', error };
 }
 
-function unreachable(error = 'Agent returned status 500'): HealthCheckOutcome {
-  return { healthy: false, reason: 'unreachable', error };
-}
-
 function deps(
   hosts: ManagedHost[],
   outcomes: HealthCheckOutcome[],
@@ -63,75 +59,8 @@ function deps(
   };
 }
 
-describe('handleListAgentsInventory', () => {
-  it('returns every registered host, none missing, even when probes fail', async () => {
-    const hosts = [
-      mockRow({ id: 1, name: 'up' }),
-      mockRow({ id: 2, name: 'down', status: 'unhealthy' }),
-      mockRow({ id: 3, name: 'bad', status: 'error' }),
-    ];
-    const d = deps(hosts, [healthy('0.2.0'), offline(), unreachable()]);
-
-    const entries = await handleListAgentsInventory(d, NOW);
-
-    expect(entries).toHaveLength(3);
-    expect(entries.map((e) => e.id)).toEqual([1, 2, 3]);
-    expect(entries.map((e) => e.status)).toEqual(['online', 'offline', 'unreachable']);
-  });
-
-  it('reports online with live version and no error', async () => {
-    const d = deps([mockRow()], [healthy('0.2.0')]);
-
-    const [entry] = await handleListAgentsInventory(d, NOW);
-
-    expect(entry.status).toBe('online');
-    expect(entry.version).toBe('0.2.0');
-    expect(entry.versionSource).toBe('live');
-    expect(entry.lastError).toBeNull();
-    expect(entry.checkedAt).toBe(NOW.toISOString());
-  });
-
-  it('falls back to the stored version when /info reports none', async () => {
-    const d = deps([mockRow({ agentVersion: '0.1.0' })], [healthy()]);
-
-    const [entry] = await handleListAgentsInventory(d, NOW);
-
-    expect(entry.status).toBe('online');
-    expect(entry.version).toBe('0.1.0');
-    expect(entry.versionSource).toBe('stored');
-  });
-
-  it('keeps the stored version for an offline agent and sets lastError', async () => {
-    const d = deps([mockRow({ agentVersion: '0.1.0' })], [offline('connection refused')]);
-
-    const [entry] = await handleListAgentsInventory(d, NOW);
-
-    expect(entry.status).toBe('offline');
-    expect(entry.version).toBe('0.1.0');
-    expect(entry.versionSource).toBe('stored');
-    expect(entry.lastError).toBe('connection refused');
-  });
-
-  it('reports unknown version when nothing is stored and the agent predates /info', async () => {
-    const d = deps([mockRow({ agentVersion: null })], [healthy()]);
-
-    const [entry] = await handleListAgentsInventory(d, NOW);
-
-    expect(entry.version).toBeNull();
-    expect(entry.versionSource).toBe('unknown');
-  });
-
-  it('marks a pending host unknown on failure and leaves its status pending', async () => {
-    const updateStatus = mock(() => Promise.resolve());
-    const d = deps([mockRow({ status: 'pending' })], [offline()], { updateStatus });
-
-    const [entry] = await handleListAgentsInventory(d, NOW);
-
-    expect(entry.status).toBe('unknown');
-    expect(updateStatus).not.toHaveBeenCalled();
-  });
-
-  it('persists healthy/unhealthy and agent info for non-pending hosts', async () => {
+describe('handleSweepAgentInventory', () => {
+  it('probes every host exactly once per sweep and persists healthy/unhealthy plus agent info', async () => {
     const updateStatus = mock((_id: number, _status: HostStatus) => Promise.resolve());
     const updateAgentInfo = mock((_id: number, _fields: UpdateAgentInfoInput) => Promise.resolve());
     const hosts = [
@@ -140,20 +69,42 @@ describe('handleListAgentsInventory', () => {
     ];
     const d = deps(hosts, [healthy('0.2.0'), offline()], { updateStatus, updateAgentInfo });
 
-    await handleListAgentsInventory(d, NOW);
+    const entries = await handleSweepAgentInventory(d, NOW);
 
+    expect(d.checkHealth).toHaveBeenCalledTimes(2);
     expect(updateStatus.mock.calls).toEqual([[1, 'healthy'], [2, 'unhealthy']]);
     expect(updateAgentInfo.mock.calls.length).toBe(1);
     expect(updateAgentInfo.mock.calls[0]?.[0]).toBe(1);
+    expect(entries.map((e) => e.status)).toEqual(['online', 'offline']);
   });
 
-  it('returns an empty list when no hosts are registered', async () => {
-    const d = deps([], []);
+  it('marks a pending host unknown on failure and leaves its status pending', async () => {
+    const updateStatus = mock(() => Promise.resolve());
+    const d = deps([mockRow({ status: 'pending' })], [offline()], { updateStatus });
 
-    const entries = await handleListAgentsInventory(d, NOW);
+    const [entry] = await handleSweepAgentInventory(d, NOW);
 
-    expect(entries).toEqual([]);
-    expect(d.checkHealth).not.toHaveBeenCalled();
+    expect(entry.status).toBe('unknown');
+    expect(updateStatus).not.toHaveBeenCalled();
+  });
+
+  it('one host persist failure does not affect other hosts or crash the sweep', async () => {
+    const hosts = [
+      mockRow({ id: 1, name: 'broken' }),
+      mockRow({ id: 2, name: 'fine' }),
+    ];
+    const updateStatus = mock((id: number, _status: HostStatus) => {
+      if (id === 1) return Promise.reject(new Error('write failed'));
+      return Promise.resolve();
+    });
+    const d = deps(hosts, [healthy('0.2.0'), healthy('0.3.0')], { updateStatus });
+
+    const entries = await handleSweepAgentInventory(d, NOW);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0].status).toBe('online');
+    expect(entries[1].status).toBe('online');
+    expect(entries[1].version).toBe('0.3.0');
   });
 
   it('probes every host even when one probe throws', async () => {
@@ -165,12 +116,48 @@ describe('handleListAgentsInventory', () => {
     }) as unknown as (url: string, hostName: string) => Promise<HealthCheckOutcome>;
     const d = { repo, checkHealth };
 
-    const entries = await handleListAgentsInventory(d, NOW);
+    const entries = await handleSweepAgentInventory(d, NOW);
 
     expect(checkHealth).toHaveBeenCalledTimes(2);
     expect(entries).toHaveLength(2);
     expect(entries[0].status).toBe('offline');
     expect(entries[0].lastError).toBe('boom');
     expect(entries[1].status).toBe('online');
+  });
+
+  it('returns an empty list when no hosts are registered', async () => {
+    const d = deps([], []);
+
+    const entries = await handleSweepAgentInventory(d, NOW);
+
+    expect(entries).toEqual([]);
+    expect(d.checkHealth).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleListAgentsInventorySnapshot', () => {
+  it('derives entries from stored rows with zero probes', async () => {
+    const hosts = [
+      mockRow({ id: 1, name: 'up', status: 'healthy', agentVersion: '0.2.0', updatedAt: new Date('2026-02-28T10:00:00Z') }),
+      mockRow({ id: 2, name: 'down', status: 'unhealthy' }),
+      mockRow({ id: 3, name: 'new', status: 'pending', agentVersion: null }),
+    ];
+    const repo = mockRepo(hosts);
+
+    const entries = await handleListAgentsInventorySnapshot({ repo });
+
+    expect(entries.map((e) => e.status)).toEqual(['online', 'offline', 'unknown']);
+    expect(entries[0].versionSource).toBe('stored');
+    expect(entries[0].checkedAt).toBe('2026-02-28T10:00:00.000Z');
+    expect(entries[2].version).toBeNull();
+    expect(entries[2].versionSource).toBe('unknown');
+  });
+
+  it('maps an error status host to unreachable', async () => {
+    const repo = mockRepo([mockRow({ status: 'error' })]);
+
+    const [entry] = await handleListAgentsInventorySnapshot({ repo });
+
+    expect(entry.status).toBe('unreachable');
   });
 });

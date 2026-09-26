@@ -13,6 +13,7 @@ import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import type { SettingsSSEMessage } from '@/types/settings';
 import { createSseResponse } from '@/lib/mock/handlers/sse-stream';
+import * as hostsFns from '@/lib/mock/functions/hosts.functions';
 
 const STATS_INTERVAL_MS = 1000;
 const LOG_INTERVAL_MS = 3000;
@@ -63,6 +64,16 @@ function dockerInventory() {
   });
 }
 
+// Demo agent inventory: one snapshot frame from the same mixed-status mock set
+// the listAgentsInventory server fn returns, then idle (no worker in demo mode).
+function agentInventory() {
+  return createSseResponse((controller) => {
+    void hostsFns.listAgentsInventory().then((entries) => {
+      controller.send({ entries, sweptAt: new Date().toISOString() });
+    });
+  });
+}
+
 function settings() {
   return createSseResponse((controller) => {
     const message: SettingsSSEMessage = { type: 'init', settings: loadDemoSettings() };
@@ -106,6 +117,7 @@ export const sseHandlers = [
   http.get(/\/api\/zfs-stats(?:\?|$)/, zfsStats),
   http.get(/\/api\/proxmox-stats(?:\?|$)/, proxmoxStats),
   http.get(/\/api\/docker-inventory(?:\?|$)/, dockerInventory),
+  http.get(/\/api\/agent-inventory(?:\?|$)/, agentInventory),
   http.get(/\/api\/settings(?:\?|$)/, settings),
   http.get(/\/api\/stack-status(?:\?|$)/, stackStatus),
   http.get(/\/api\/docker-logs\//, ({ request }) => dockerLogs(request)),
