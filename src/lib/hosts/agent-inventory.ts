@@ -119,6 +119,7 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
     versionSource: host.agentVersion ? 'stored' : 'unknown',
     agentImage: host.agentImage,
     agentImageTag: host.agentImageTag,
+    autoUpdate: host.autoUpdate,
     lastError: null,
     // Not updatedAt: every writer to managed_hosts bumps that column (rename,
     // URL edit, key rotation, a single-host health check), so it reports a
