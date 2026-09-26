@@ -2,6 +2,8 @@ import type {
   HostListItem,
   AddHostResult,
   HealthCheckResult,
+  UpdateAgentResult,
+  SetAgentAutoUpdateResult,
   AgentInventoryEntry,
 } from '@/data/hosts/functions';
 
@@ -14,6 +16,7 @@ function buildHost(
     name: string;
     agentUrl: string;
     capabilities?: { docker?: boolean; zfs?: boolean };
+    autoUpdate?: boolean;
   },
   id: number = nextMockId++,
 ): HostListItem {
@@ -26,6 +29,7 @@ function buildHost(
     agentVersion: '0.1.0',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
+    autoUpdate: data.autoUpdate ?? false,
     status: 'healthy',
     createdAt: now,
     updatedAt: now,
@@ -41,6 +45,7 @@ const mockHosts: readonly HostListItem[] = [
     agentVersion: '0.1.0',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
+    autoUpdate: false,
     status: 'healthy',
     createdAt: '2026-01-15T10:00:00Z',
     updatedAt: '2026-01-15T10:00:00Z',
@@ -53,6 +58,7 @@ const mockHosts: readonly HostListItem[] = [
     agentVersion: '0.1.0',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
+    autoUpdate: true,
     status: 'healthy',
     createdAt: '2026-02-01T14:30:00Z',
     updatedAt: '2026-02-01T14:30:00Z',
@@ -123,5 +129,31 @@ export async function checkHostHealth(_data: {
     dockerVersion: '24.0.7',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',
+  };
+}
+
+export async function updateAgent(data: {
+  hostId: number;
+}): Promise<UpdateAgentResult> {
+  return {
+    hostId: data.hostId,
+    healthy: true,
+    version: '0.1.0',
+    dockerVersion: '24.0.7',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
+  };
+}
+
+export async function setAgentAutoUpdate(data: {
+  hostId: number;
+  autoUpdate: boolean;
+}): Promise<SetAgentAutoUpdateResult> {
+  return {
+    host: buildHost(
+      { name: 'homeserver', agentUrl: 'http://192.168.1.10:9090', autoUpdate: data.autoUpdate },
+      data.hostId,
+    ),
+    propagation: { applied: true },
   };
 }

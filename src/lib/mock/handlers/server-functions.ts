@@ -97,6 +97,8 @@ const registry: Record<string, ServerFnMock> = {
   updateHost: withData(hostsFns.updateHost),
   removeHost: withData(hostsFns.removeHost),
   checkHostHealth: withData(hostsFns.checkHostHealth),
+  updateAgent: withData(hostsFns.updateAgent),
+  setAgentAutoUpdate: withData(hostsFns.setAgentAutoUpdate),
 
   // Git tokens
   listGitTokens: fn(gitTokenFns.listGitTokens),

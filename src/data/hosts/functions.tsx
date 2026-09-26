@@ -1,16 +1,16 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema } from '@/data/hosts/schemas';
+import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, updateAgentSchema, setAgentAutoUpdateSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleVerifyHost, handleListAgentsInventory,
-  type AddHostResult, type HostOperationResult, type HostHandlerDeps,
+  handleUpdateHost, handleVerifyHost, handleUpdateAgent, handleSetAgentAutoUpdate, handleListAgentsInventory,
+  type AddHostResult, type HostOperationResult, type HostHandlerDeps, type SetAgentAutoUpdateResult,
 } from '@/data/hosts/handlers';
 
-export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult } from '@/data/hosts/handlers';
+export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult, SetAgentAutoUpdateResult } from '@/data/hosts/handlers';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
@@ -144,4 +144,76 @@ export const updateHost = createServerFn()
     requireRole('admin')(context.user);
     const deps = await loadDeps();
     return handleUpdateHost(deps, data);
+  });
+
+/**
+ * Manual per-agent update. Admin-only; updates exactly the agent addressed by
+ * hostId and never any other agent.
+ */
+export const updateAgent = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(updateAgentSchema)
+  .handler(async ({ data, context }): Promise<HostOperationResult> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+    return handleUpdateAgent({
+      ...baseDeps,
+      getSigner: async (hostname) => {
+        const privateKey = await keypairs.getPrivateKeyForHost(hostname);
+        if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
+        return () => signAgentJwt(privateKey, hostname);
+      },
+      checkHealth: await buildCheckHealth(keypairs),
+    }, data);
+  });
+
+/**
+ * Per-agent auto-update opt-in. Admin-only; persists the per-host boolean and
+ * best-effort pushes the policy to that agent's agent-updater sidecar.
+ */
+export const setAgentAutoUpdate = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(setAgentAutoUpdateSchema)
+  .handler(async ({ data, context }): Promise<SetAgentAutoUpdateResult> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+
+    const propagatePolicy = async (
+      host: import('@/lib/database/repositories/host-repository').ManagedHost,
+      enabled: boolean,
+    ): Promise<import('@/data/hosts/handlers').PolicyPropagation> => {
+      try {
+        const privateKey = await keypairs.getPrivateKeyForHost(host.name);
+        if (!privateKey) {
+          return { applied: false, warning: `No agent keypair found for host ${host.name}` };
+        }
+        const jwt = await signAgentJwt(privateKey, host.name);
+        const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
+        const response = await fetch(`${agentBaseUrl}/agent/updater-policy`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ autoUpdate: enabled }),
+          redirect: 'manual',
+        });
+        if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+          return { applied: false, warning: 'Agent URL returned an unexpected redirect' };
+        }
+        const body = (await response.json().catch(() => ({}))) as { reconfigured?: boolean; reason?: string };
+        if (!response.ok || body.reconfigured === false) {
+          return { applied: false, warning: body.reason ?? `Agent responded ${response.status}` };
+        }
+        return { applied: true };
+      } catch (err) {
+        return {
+          applied: false,
+          warning: err instanceof Error ? err.message : String(err),
+        };
+      }
+    };
+
+    return handleSetAgentAutoUpdate({ ...baseDeps, propagatePolicy }, data);
   });

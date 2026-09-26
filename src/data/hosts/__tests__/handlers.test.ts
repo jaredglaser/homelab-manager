@@ -6,6 +6,8 @@ import {
   handleRemoveHost,
   handleVerifyHost,
   handleUpdateHost,
+  handleUpdateAgent,
+  handleSetAgentAutoUpdate,
 } from '../handlers';
 
 const NOW = new Date('2026-03-01T00:00:00Z');
@@ -18,6 +20,7 @@ function mockRow(overrides?: Record<string, unknown>) {
     agentVersion: null,
     agentImage: null,
     agentImageTag: null,
+    autoUpdate: false,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
     ...overrides,
@@ -33,6 +36,7 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     delete: mock(() => Promise.resolve()),
     updateStatus: mock(() => Promise.resolve()),
     updateAgentInfo: mock(() => Promise.resolve()),
+    updateAutoUpdate: mock(() => Promise.resolve()),
     ...overrides,
   } as HostRepo;
 }
@@ -293,5 +297,127 @@ describe('handleUpdateHost', () => {
     await handleUpdateHost(deps, { hostId: 1, agentUrl: 'http://x:9090' });
 
     expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'http://x:9090' });
+  });
+});
+
+describe('handleUpdateAgent', () => {
+  const getSigner = mock(async (_name: string) => mock(async () => 'jwt-token'));
+
+  function updateDeps(repo?: Partial<HostRepo>, checkHealth?: (url: string, hostName: string) => Promise<import('@/lib/hosts/host-utils').HealthCheckOutcome>) {
+    return {
+      ...baseDeps(repo),
+      getSigner,
+      checkHealth: checkHealth ?? mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })),
+    };
+  }
+
+  function withFetch(impl: () => Promise<Response>): { restore: () => void; fetchMock: ReturnType<typeof mock> } {
+    const fetchMock = mock(impl);
+    const original = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    return { restore: () => { globalThis.fetch = original; }, fetchMock };
+  }
+
+  it('throws when host not found', async () => {
+    const deps = updateDeps({ findById: mock(() => Promise.resolve(null)) });
+    await expect(handleUpdateAgent(deps, { hostId: 99 })).rejects.toThrow('not found');
+  });
+
+  it('fails before update when the agent is unreachable', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: false as const, error: 'connection refused' })));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toContain('unreachable');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports success without polling when no update is available', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith('http://192.168.1.10:9090/agent/update', expect.objectContaining({ method: 'POST' }));
+    } finally {
+      restore();
+    }
+  });
+
+  it('polls until the version changes and records the new version', async () => {
+    let polls = 0;
+    const repo = mockRepo();
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(repo, mock(() => {
+        polls++;
+        return Promise.resolve({ healthy: true as const, version: polls === 1 ? '1.0.0' : '2.0.0' });
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      if (result.healthy) expect(result.version).toBe('2.0.0');
+      expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0' });
+    } finally {
+      restore();
+    }
+  });
+
+  it('surfaces a non-202 trigger response as a failure', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'agent-updater sidecar is not reachable' }), { status: 503 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toContain('agent-updater');
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('handleSetAgentAutoUpdate', () => {
+  it('persists the setting and propagates to a docker-capable host', async () => {
+    // Second findById (after the write) reflects the persisted value.
+    const repo = mockRepo({ findById: mock(() => Promise.resolve(mockRow({ autoUpdate: true }))) });
+    const propagate = mock(async (_host: unknown, _enabled: boolean) => ({ applied: true }));
+    const result = await handleSetAgentAutoUpdate({ repo, propagatePolicy: propagate }, { hostId: 1, autoUpdate: true });
+
+    expect(repo.updateAutoUpdate).toHaveBeenCalledWith(1, true);
+    expect(propagate).toHaveBeenCalledTimes(1);
+    expect(result.host.autoUpdate).toBe(true);
+    expect(result.propagation.applied).toBe(true);
+  });
+
+  it('skips propagation for hosts without Docker capability but still persists', async () => {
+    const repo = mockRepo({ findById: mock(() => Promise.resolve(mockRow({ capabilities: { docker: false } }))) });
+    const propagate = mock(async () => ({ applied: true }));
+    const result = await handleSetAgentAutoUpdate({ repo, propagatePolicy: propagate }, { hostId: 1, autoUpdate: true });
+
+    expect(result.propagation.applied).toBe(false);
+    expect(result.propagation.warning).toContain('no Docker capability');
+    expect(repo.updateAutoUpdate).toHaveBeenCalledWith(1, true);
+    expect(propagate).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stored setting and reports a warning when propagation fails', async () => {
+    const repo = mockRepo();
+    const propagate = mock(async () => ({ applied: false, warning: 'agent unreachable' }));
+    const result = await handleSetAgentAutoUpdate({ repo, propagatePolicy: propagate }, { hostId: 1, autoUpdate: false });
+
+    expect(repo.updateAutoUpdate).toHaveBeenCalledWith(1, false);
+    expect(result.propagation.applied).toBe(false);
+    expect(result.propagation.warning).toBe('agent unreachable');
+    expect(result.host.autoUpdate).toBe(false);
+  });
+
+  it('throws when host not found', async () => {
+    const repo = mockRepo({ findById: mock(() => Promise.resolve(null)) });
+    await expect(handleSetAgentAutoUpdate({ repo }, { hostId: 99, autoUpdate: true })).rejects.toThrow('not found');
   });
 });

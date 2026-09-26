@@ -338,4 +338,18 @@ describe('generateAgentStackEnv', () => {
     );
   });
 
+  it('defaults HLM_AUTO_UPDATE to false in the env file and compose', () => {
+    const env = generateAgentStackEnv(dockerOnlyConfig);
+    expect(env).toContain('HLM_AUTO_UPDATE=false');
+
+    const parsed = parseYaml(generateAgentStackCompose(dockerOnlyConfig));
+    expect(parsed.services['agent-updater'].environment.HLM_AUTO_UPDATE).toBe('${HLM_AUTO_UPDATE:-false}');
+  });
+
+  it('wires the manual update trigger between agent and updater', () => {
+    const parsed = parseYaml(generateAgentStackCompose(dockerOnlyConfig));
+    expect(parsed.services['agent'].environment.HLM_UPDATER_URL).toBe('http://hlm-agent-updater:9091/trigger');
+    expect(parsed.services['agent-updater'].environment.HLM_TRIGGER_PORT).toBe('9091');
+  });
+
 });
