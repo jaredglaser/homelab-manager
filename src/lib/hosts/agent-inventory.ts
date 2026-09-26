@@ -119,6 +119,7 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
     versionSource: host.agentVersion ? 'stored' : 'unknown',
     agentImage: host.agentImage,
     agentImageTag: host.agentImageTag,
+    autoUpdate: host.autoUpdate,
     lastError: null,
     checkedAt: host.updatedAt.toISOString(),
   };
