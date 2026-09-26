@@ -6,7 +6,7 @@ import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleVerifyHost, handleListAgentsInventory, handleGetHostPublicJwk, handleRotateHostKeypair,
+  handleUpdateHost, handleVerifyHost, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
@@ -123,17 +123,17 @@ export const listHosts = createServerFn()
 
 /**
  * Agents inventory: every registered agent (id, name, status, version, detail)
- * with a live health probe per host, probed in parallel. Offline/unreachable
- * agents appear in the list with a non-online status, never as errors or
- * omissions. Version is live from /info when the agent reports it, else the
- * last stored version (may be stale), else null. This is the data source for
- * the admin agents overview; updates are triggered separately per agent.
+ * from the stored snapshot the worker's sweep persists. Zero network I/O: this
+ * never probes agents, so request latency is flat and client count cannot
+ * fan out probes. Live data arrives over the /api/agent-inventory SSE channel,
+ * which pushes a fresh snapshot after each worker sweep. This server function
+ * is the initial data source for the admin agents overview.
  */
 export const listAgentsInventory = createServerFn()
   .middleware([authMiddleware])
   .handler(async (): Promise<AgentInventoryEntry[]> => {
     const deps = await loadDeps();
-    return handleListAgentsInventory({ ...deps, checkHealth: await buildProbeCheckHealth() });
+    return handleListAgentsInventorySnapshot(deps);
   });
 
 export const checkHostHealth = createServerFn()

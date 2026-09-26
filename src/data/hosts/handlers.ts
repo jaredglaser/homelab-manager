@@ -1,7 +1,7 @@
 import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
 import { toHostListItem } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
-import { buildAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
@@ -187,13 +187,15 @@ export interface AgentsInventoryDeps extends HostHandlerDeps {
 }
 
 /**
- * Inventory of every registered agent with a live probe per host. Unreachable
- * hosts stay in the list with an offline/unreachable/unknown status. Each probe
- * persists healthy/unhealthy and reported agent info like handleCheckHostHealth,
- * except a pending host stays pending on failure: pending means enrollment was
- * never confirmed, which is not the same as an agent that went down.
+ * One sweep over every registered host: probe each agent and persist
+ * healthy/unhealthy plus reported agent info exactly like
+ * handleCheckHostHealth, except a pending host stays pending on failure
+ * (pending means enrollment was never confirmed, which is not the same as an
+ * agent that went down). Persistence is best-effort per host: one failing
+ * write is logged and never crashes the sweep or drops the host from the
+ * result. Runs in the worker on an interval, never on the request path.
  */
-export async function handleListAgentsInventory(
+export async function handleSweepAgentInventory(
   deps: AgentsInventoryDeps,
   now: Date = new Date(),
 ): Promise<AgentInventoryEntry[]> {
@@ -216,18 +218,36 @@ export async function handleListAgentsInventory(
     hosts.map(async (host, i) => {
       const outcome = outcomes[i];
       if (!outcome) return;
-      if (host.status === 'pending' && !outcome.healthy) return;
-      await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
-      if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
-        await deps.repo.updateAgentInfo(host.id, {
-          version: outcome.version,
-          ...(outcome.infoSupported
-            ? { image: outcome.agentImage ?? null, imageTag: outcome.agentImageTag ?? null }
-            : {}),
-        });
+      try {
+        if (host.status === 'pending' && !outcome.healthy) return;
+        await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
+        if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
+          await deps.repo.updateAgentInfo(host.id, {
+            version: outcome.version,
+            ...(outcome.infoSupported
+              ? { image: outcome.agentImage ?? null, imageTag: outcome.agentImageTag ?? null }
+              : {}),
+          });
+        }
+      } catch (err) {
+        console.error(
+          `[agent-inventory] Failed to persist sweep result for host ${host.name}:`,
+          err instanceof Error ? err.message : err,
+        );
       }
     }),
   );
 
   return hosts.map((host, i) => buildAgentInventoryEntry(host, outcomes[i], now));
+}
+
+/**
+ * Stored inventory snapshot for the listing endpoint. Zero network I/O: reads
+ * the rows the worker sweep persists and derives entries from them.
+ */
+export async function handleListAgentsInventorySnapshot(
+  deps: HostHandlerDeps,
+): Promise<AgentInventoryEntry[]> {
+  const hosts = await deps.repo.findAll();
+  return hosts.map(buildStoredAgentInventoryEntry);
 }
