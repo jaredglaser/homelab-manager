@@ -11,6 +11,8 @@ import { ProxmoxCollector } from './collectors/proxmox-collector';
 import { createCollectors } from './collector-factory';
 import { HostCollectorManager, defaultHostCollectorFactory } from './host-collector-manager';
 import { HostsListener } from './hosts-listener';
+import { AgentInventorySweeper } from './agent-inventory-sweeper';
+import { AGENT_INVENTORY_NOTIFY_CHANNEL } from '@/lib/hosts/agent-inventory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 
@@ -174,6 +176,36 @@ async function main() {
       );
       await settingsListener.start();
 
+      // Worker-owned agent inventory sweep: probes every host once per tick
+      // regardless of how many clients are subscribed to /api/agent-inventory,
+      // persists the results, then NOTIFies the server to push a snapshot.
+      const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+      const { handleSweepAgentInventory } = await import('@/data/hosts/handlers');
+      const sweeper = stack.use(
+        new AgentInventorySweeper(
+          {
+            sweep: () =>
+              handleSweepAgentInventory({
+                repo: hostRepo,
+                checkHealth: async (url, hostName) => {
+                  const signer = await getSigner(hostName);
+                  return checkAgentHealth(url, undefined, fetch, signer ?? undefined);
+                },
+              }),
+            notifySweep: async (at) => {
+              await db.getPool().query('SELECT pg_notify($1, $2)', [
+                AGENT_INVENTORY_NOTIFY_CHANNEL,
+                JSON.stringify({ at: at.toISOString() }),
+              ]);
+            },
+          },
+          shutdownController,
+        ),
+      );
+      const sweeperRunner = sweeper.run().catch((err) => {
+        console.error('[Worker] Agent inventory sweeper crashed:', err);
+      });
+
       // Block here until shutdown is signalled, then drain everything that's
       // running at the time. Drainage is a snapshot: anything spawned later
       // is bound to the same global signal and will resolve on its own.
@@ -184,7 +216,7 @@ async function main() {
         }
         shutdownController.signal.addEventListener('abort', () => resolve(), { once: true });
       });
-      await Promise.allSettled([...staticRunners, ...hostManager.runners()]);
+      await Promise.allSettled([...staticRunners, ...hostManager.runners(), sweeperRunner]);
     }
     // AsyncDisposableStack disposes here - cleans up
 
