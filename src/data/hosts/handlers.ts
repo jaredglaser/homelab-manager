@@ -29,6 +29,21 @@ export type HostOperationResult =
   | { hostId: number; healthy: false; error: string; suggestions?: string[] };
 
 export type HealthCheckResult = HostOperationResult;
+export type UpdateAgentResult = HostOperationResult;
+
+/** Poll cadence while waiting for a restarted agent to report a new version. */
+const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
+
+/** Result of pushing the auto-update policy to the agent on the host. */
+export interface PolicyPropagation {
+  applied: boolean;
+  warning?: string;
+}
+
+export interface SetAgentAutoUpdateResult {
+  host: HostListItem;
+  propagation: PolicyPropagation;
+}
 
 export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
@@ -37,6 +52,7 @@ export interface HostRepo {
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null }): Promise<void>;
+  updateAutoUpdate(id: number, enabled: boolean): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
 
@@ -154,6 +170,207 @@ export async function handleVerifyHost(
     host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
     publicJwk,
   };
+}
+
+/**
+ * Trigger a manual update for exactly ONE agent, addressed by its host id.
+ * Never touches any other host: the update request is scoped to
+ * host.agentUrl and the agent-updater sidecar on that host watches only that
+ * host's agent container.
+ *
+ * Flow: record the current version, relay the trigger through the agent to
+ * its agent-updater sidecar, then poll the agent's health/version until a
+ * version change confirms the update. The sidecar answers "no update
+ * available" without restarting the agent, which surfaces as a distinct
+ * result rather than a failure.
+ */
+export async function handleUpdateAgent(
+  deps: HostHandlerDeps & {
+    getSigner: (hostname: string) => Promise<() => Promise<string>>;
+    checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+  },
+  data: { hostId: number },
+): Promise<HostOperationResult> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  // 1. Record current version before update
+  const preCheck = await deps.checkHealth(host.agentUrl, host.name);
+  if (!preCheck.healthy) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent is unreachable before update',
+      suggestions: [
+        'Check that the agent container is running',
+        'Run `docker logs hlm-agent` to inspect agent startup errors',
+      ],
+    };
+  }
+  const currentVersion = preCheck.version;
+  // A missing pre-update version only implies an upgrade when /info 404s; any
+  // other cause would make a later version read look like a change that never happened.
+  const preInfoUnsupported = preCheck.infoSupported === false;
+
+  // 2. Retrieve signer and mint a JWT for the request
+  let signer: () => Promise<string>;
+  try {
+    signer = await deps.getSigner(host.name);
+  } catch {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Could not retrieve agent keypair',
+      suggestions: [
+        'Check that the master key is configured (MASTER_KEY env var)',
+        'Verify the agent has been enrolled with a generated public JWK',
+      ],
+    };
+  }
+
+  const jwt = await signer();
+
+  // 3. Trigger the update on this agent only
+  let triggerResponse: Response;
+  try {
+    const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
+    triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jwt}` },
+      redirect: 'manual',
+    });
+  } catch (err) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: err instanceof Error ? err.message : String(err),
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Run `docker logs hlm-agent` to inspect agent errors',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  if (triggerResponse.type === 'opaqueredirect' || (triggerResponse.status >= 300 && triggerResponse.status < 400)) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent URL returned an unexpected redirect',
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Run `docker logs hlm-agent` to inspect agent errors',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  if (triggerResponse.status === 200) {
+    // The agent-updater checked the registry and found nothing newer.
+    return { hostId: host.id, healthy: true };
+  }
+
+  if (triggerResponse.status !== 202) {
+    const body = await triggerResponse.text().catch(() => '');
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: body || `Unexpected status ${triggerResponse.status} from agent update endpoint`,
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Verify the agent stack includes the agent-updater container',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  // 4. Poll for version change
+  let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
+  let newVersion: string | undefined;
+
+  for (const delay of HEALTH_CHECK_DELAYS_MS) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    lastResult = await deps.checkHealth(host.agentUrl, host.name);
+    if (!lastResult.healthy || lastResult.version === undefined) continue;
+    if (preInfoUnsupported || (currentVersion !== undefined && lastResult.version !== currentVersion)) {
+      newVersion = lastResult.version;
+      break;
+    }
+  }
+
+  if (!newVersion) {
+    if (lastResult.healthy && currentVersion !== undefined && lastResult.version === currentVersion) {
+      return {
+        hostId: host.id,
+        healthy: false,
+        error: 'Agent appears to be on the latest version already',
+        suggestions: [
+          'Verify the image registry has a newer build',
+          'Check that the current version matches your expectations',
+        ],
+      };
+    }
+    if (lastResult.healthy) {
+      return {
+        hostId: host.id,
+        healthy: false,
+        error: 'Agent is reachable but its version could not be read, so the update could not be confirmed',
+        suggestions: [
+          'Run `docker logs hlm-agent` to check which image the agent is running',
+          'Verify the agent has been enrolled with a generated public JWK',
+          'Re-run the health check once the agent settles to refresh its reported version',
+        ],
+      };
+    }
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent did not restart after update',
+      suggestions: [
+        'Run `docker ps -a | grep hlm-agent` to check container state',
+        'Run `docker logs hlm-agent-updater` for pull or start errors',
+        'Check available disk space for the image pull',
+      ],
+    };
+  }
+
+  // 5. Success
+  await deps.repo.updateStatus(host.id, 'healthy');
+  await deps.repo.updateAgentInfo(host.id, { version: newVersion });
+  return { hostId: host.id, healthy: true, version: newVersion };
+}
+
+/**
+ * Persist the per-agent auto-update opt-in, then best-effort push the policy
+ * to the running agent so its agent-updater sidecar picks it up without a
+ * manual redeploy. The DB row is the source of truth; propagation failure
+ * never rolls the setting back, it is reported as a warning instead.
+ */
+export async function handleSetAgentAutoUpdate(
+  deps: HostHandlerDeps & {
+    propagatePolicy?: (host: ManagedHost, enabled: boolean) => Promise<PolicyPropagation>;
+  },
+  data: { hostId: number; autoUpdate: boolean },
+): Promise<SetAgentAutoUpdateResult> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  await deps.repo.updateAutoUpdate(host.id, data.autoUpdate);
+
+  let propagation: PolicyPropagation;
+  if (!deps.propagatePolicy) {
+    propagation = { applied: false, warning: 'Policy propagation is not available in this deployment.' };
+  } else if (!host.capabilities.docker) {
+    propagation = {
+      applied: false,
+      warning: 'Host has no Docker capability, so there is no agent-updater to reconfigure. The setting is stored and applies when the host gains Docker capability.',
+    };
+  } else {
+    propagation = await deps.propagatePolicy(host, data.autoUpdate);
+  }
+
+  const updated = await deps.repo.findById(host.id);
+  return { host: toHostListItem(updated ?? host), propagation };
 }
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {

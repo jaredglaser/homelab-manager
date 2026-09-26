@@ -12,6 +12,7 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   agentVersion: '1.2.3',
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentImageTag: 'latest',
+  autoUpdate: false,
   status: 'healthy',
   createdAt: '2024-01-01T00:00:00.000Z',
   updatedAt: '2024-01-01T00:00:00.000Z',
@@ -492,6 +493,7 @@ describe('bucketHostsByAgentChannel', () => {
       name: 'pinned',
       agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent@sha256:abc123',
       agentImageTag: null,
+      autoUpdate: false,
     })
     const buckets = bucketHostsByAgentChannel([pinned], '0.1')
     expect(buckets.unreported).toEqual([])
