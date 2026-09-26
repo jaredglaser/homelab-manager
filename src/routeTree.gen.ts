@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as DeniedRouteImport } from './routes/denied'
 import { Route as DockerRouteImport } from './routes/docker'
 import { Route as LoginRouteImport } from './routes/login'
@@ -37,6 +38,11 @@ import { Route as StacksHostHostNameRouteImport } from './routes/stacks/host.$ho
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsRoute = AgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeniedRoute = DeniedRouteImport.update({
@@ -158,6 +164,7 @@ const StacksHostHostNameRoute = StacksHostHostNameRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
@@ -184,6 +191,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
@@ -210,6 +218,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/agents': typeof AgentsRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
   '/login': typeof LoginRoute
@@ -238,6 +247,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/agents'
     | '/denied'
     | '/docker'
     | '/login'
@@ -264,6 +274,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/agents'
     | '/denied'
     | '/docker'
     | '/login'
@@ -289,6 +300,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/agents'
     | '/denied'
     | '/docker'
     | '/login'
@@ -316,6 +328,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AgentsRoute: typeof AgentsRoute
   DeniedRoute: typeof DeniedRoute
   DockerRoute: typeof DockerRouteWithChildren
   LoginRoute: typeof LoginRoute
@@ -344,6 +357,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents': {
+      id: '/agents'
+      path: '/agents'
+      fullPath: '/agents'
+      preLoaderRoute: typeof AgentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/denied': {
@@ -538,6 +558,7 @@ const StacksRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AgentsRoute: AgentsRoute,
   DeniedRoute: DeniedRoute,
   DockerRoute: DockerRouteWithChildren,
   LoginRoute: LoginRoute,
