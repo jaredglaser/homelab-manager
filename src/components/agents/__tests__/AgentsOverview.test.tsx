@@ -171,6 +171,15 @@ describe('AgentsOverview (connected)', () => {
     useAuth: () => authState,
   }))
 
+  let sseHandler: ((snapshot: { entries: AgentInventoryEntry[] }) => void) | null = null
+
+  mock.module('@/hooks/useSseChannel', () => ({
+    useSseChannel: (_channel: unknown, options: { onData: (data: { entries: AgentInventoryEntry[] }) => void }) => {
+      sseHandler = options.onData
+      return { isConnected: true, error: null }
+    },
+  }))
+
   mock.module('@/data/hosts/functions', () => ({
     listAgentsInventory: () => listAgentsInventory(),
     updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
@@ -211,6 +220,15 @@ describe('AgentsOverview (connected)', () => {
       ),
     )
   }
+
+  it('applies an SSE snapshot to the rendered rows', async () => {
+    renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+
+    sseHandler!({ entries: [makeAgent({ version: '9.9.9' })] })
+
+    await waitFor(() => expect(screen.getByText('v9.9.9')).toBeDefined())
+  })
 
   it('updates only the clicked agent and surfaces the result on that row', async () => {
     renderConnected()

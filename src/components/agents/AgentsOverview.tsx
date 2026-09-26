@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent, setAgentAutoUpdate } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
+import { useSseChannel } from '@/hooks/useSseChannel'
+import { agentInventoryChannel } from '@/lib/sse/channels/agent-inventory'
 import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/hooks/toastAtom'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -239,6 +241,18 @@ export default function AgentsOverview() {
   const { data: agents = [], isLoading, isError } = useQuery({
     queryKey: AGENTS_INVENTORY_QUERY_KEY,
     queryFn: () => listAgentsInventory(),
+  })
+
+  // Subscribes on mount, unsubscribes on unmount/route change: the worker sweep
+  // publishes a fresh snapshot over SSE, so the table updates without polling.
+  useSseChannel(agentInventoryChannel, {
+    onData: useCallback(
+      (snapshot: { entries: AgentInventoryEntry[] }) => {
+        queryClient.setQueryData(AGENTS_INVENTORY_QUERY_KEY, snapshot.entries)
+      },
+      [queryClient],
+    ),
+    serviceErrorMessage: 'Agent inventory stream unavailable',
   })
 
   const updateMutation = useMutation({
