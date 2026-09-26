@@ -3,6 +3,32 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory'
 
+// Register module mocks before any component import: a mock.module call made
+// after the module graph has loaded leaves it wired to the real server fns.
+let authState: { user: { id: number; email: string; name: string | null; role: 'admin' | 'operator' | 'viewer' } | null; loading: boolean; authEnabled: boolean } = {
+  user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' },
+  loading: false,
+  authEnabled: true,
+}
+
+mock.module('@/hooks/useAuth', () => ({
+  useAuth: () => authState,
+}))
+
+const listAgentsInventory = mock((): Promise<AgentInventoryEntry[]> => Promise.resolve([]))
+const updateAgent = mock((_data: { data: { hostId: number } }) =>
+  Promise.resolve({}) as Promise<import('@/data/hosts/handlers').HostOperationResult>,
+)
+const setAgentAutoUpdate = mock((_data: { data: { hostId: number; autoUpdate: boolean } }) =>
+  Promise.resolve({} as import('@/data/hosts/handlers').SetAgentAutoUpdateResult as unknown),
+)
+
+mock.module('@/data/hosts/functions', () => ({
+  listAgentsInventory: () => listAgentsInventory(),
+  updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
+  setAgentAutoUpdate: (data: { data: { hostId: number; autoUpdate: boolean } }) => setAgentAutoUpdate(data),
+}))
+
 const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntry => ({
   id: 1,
   name: 'homeserver',
@@ -138,47 +164,6 @@ describe('AgentsOverviewView', () => {
 })
 
 describe('AgentsOverview (connected)', () => {
-  const listAgentsInventory = mock(() => Promise.resolve([makeAgent(), makeAgent({ id: 2, name: 'media-server', autoUpdate: true })]))
-  const updateAgent = mock((_data: { data: { hostId: number } }) =>
-    Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' }) as Promise<
-      import('@/data/hosts/handlers').HostOperationResult
-    >,
-  )
-  const setAgentAutoUpdate = mock((_data: { data: { hostId: number; autoUpdate: boolean } }) =>
-    Promise.resolve({
-      host: {
-        id: 1,
-        name: 'homeserver',
-        agentUrl: 'http://192.168.1.10:9090',
-        capabilities: { docker: true },
-        agentVersion: '0.2.0',
-        agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-        agentImageTag: 'latest',
-        autoUpdate: true,
-        status: 'healthy',
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-      },
-      propagation: { applied: true },
-    }),
-  )
-
-  let authState: { user: { id: number; email: string; name: string | null; role: 'admin' | 'operator' | 'viewer' } | null; loading: boolean; authEnabled: boolean } = {
-    user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' },
-    loading: false,
-    authEnabled: true,
-  }
-
-  mock.module('@/hooks/useAuth', () => ({
-    useAuth: () => authState,
-  }))
-
-  mock.module('@/data/hosts/functions', () => ({
-    listAgentsInventory: () => listAgentsInventory(),
-    updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
-    setAgentAutoUpdate: (data: { data: { hostId: number; autoUpdate: boolean } }) => setAgentAutoUpdate(data),
-  }))
-
   beforeEach(() => {
     listAgentsInventory.mockImplementation(() => Promise.resolve([makeAgent(), makeAgent({ id: 2, name: 'media-server', autoUpdate: true })]))
     updateAgent.mockImplementation(() => Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' }))
