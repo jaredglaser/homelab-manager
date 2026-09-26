@@ -34,6 +34,15 @@ export interface AgentInventoryEntry {
 
 export type AgentInventoryFailureReason = AgentHealthFailureReason;
 
+/** pg NOTIFY channel the worker fires after each inventory sweep; the server's broadcast service LISTENs on it. */
+export const AGENT_INVENTORY_NOTIFY_CHANNEL = 'agent_inventory_change';
+
+export interface AgentInventorySnapshot {
+  entries: AgentInventoryEntry[];
+  /** ISO timestamp of the most recent sweep reflected in these entries, null when no host has ever been swept. */
+  sweptAt: string | null;
+}
+
 function failureStatus(
   hostStatus: ManagedHost['status'],
   reason: AgentInventoryFailureReason | undefined,
@@ -82,5 +91,48 @@ export function buildAgentInventoryEntry(
     autoUpdate: host.autoUpdate,
     lastError: outcome.error,
     checkedAt: checkedAt.toISOString(),
+  };
+}
+
+/**
+ * Derive one inventory entry from a stored host row alone, no probe. The sweep
+ * persists status/agent info into managed_hosts, so the stored row already
+ * reflects the last sweep; updatedAt doubles as the per-host checkedAt.
+ */
+export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventoryEntry {
+  const status: AgentInventoryStatus =
+    host.status === 'healthy'
+      ? 'online'
+      : host.status === 'pending'
+        ? 'unknown'
+        : host.status === 'error'
+          ? 'unreachable'
+          : 'offline';
+
+  return {
+    id: host.id,
+    name: host.name,
+    agentUrl: host.agentUrl,
+    capabilities: host.capabilities ?? {},
+    status,
+    version: host.agentVersion ?? null,
+    versionSource: host.agentVersion ? 'stored' : 'unknown',
+    agentImage: host.agentImage,
+    agentImageTag: host.agentImageTag,
+    autoUpdate: host.autoUpdate,
+    lastError: null,
+    checkedAt: host.updatedAt.toISOString(),
+  };
+}
+
+/** Read-only snapshot of every host from stored rows, plus the sweep time implied by the freshest updatedAt. */
+export function buildAgentInventorySnapshot(hosts: ManagedHost[]): AgentInventorySnapshot {
+  const sweptAt = hosts.reduce<Date | null>((max, host) => {
+    return max === null || host.updatedAt > max ? host.updatedAt : max;
+  }, null);
+
+  return {
+    entries: hosts.map(buildStoredAgentInventoryEntry),
+    sweptAt: sweptAt ? sweptAt.toISOString() : null,
   };
 }
