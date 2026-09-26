@@ -140,7 +140,9 @@ describe('AgentsOverviewView', () => {
 describe('AgentsOverview (connected)', () => {
   const listAgentsInventory = mock(() => Promise.resolve([makeAgent(), makeAgent({ id: 2, name: 'media-server', autoUpdate: true })]))
   const updateAgent = mock((_data: { data: { hostId: number } }) =>
-    Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' }),
+    Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' }) as Promise<
+      import('@/data/hosts/handlers').HostOperationResult
+    >,
   )
   const setAgentAutoUpdate = mock((_data: { data: { hostId: number; autoUpdate: boolean } }) =>
     Promise.resolve({
@@ -229,6 +231,18 @@ describe('AgentsOverview (connected)', () => {
     fireEvent.click(screen.getByLabelText('Update homeserver'))
     await waitFor(() => expect(screen.getByText('agent unreachable')).toBeDefined())
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('agent unreachable')
+  })
+
+  it('shows an in-progress update as info, not raw JSON', async () => {
+    updateAgent.mockImplementation(() =>
+      Promise.resolve({ hostId: 1, healthy: false, error: 'An update is already in progress' })
+    )
+    renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    await waitFor(() =>
+      expect(screen.getByText('An update is already in progress for this agent')).toBeDefined()
+    )
   })
 
   it('persists the auto-update opt-in when the checkbox is toggled', async () => {

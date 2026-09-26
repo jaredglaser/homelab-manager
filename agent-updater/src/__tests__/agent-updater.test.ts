@@ -1,5 +1,6 @@
 import { describe, expect, test, mock, beforeAll, afterAll } from 'bun:test';
-import { AgentUpdater } from '../agent-updater';
+import type Dockerode from 'dockerode';
+import { AgentUpdater, deriveHealthWaitParams } from '../agent-updater';
 import type { AgentUpdaterConfig } from '../agent-updater';
 import type { HealthReporter } from '../health-reporter';
 
@@ -61,6 +62,23 @@ function createMockPull() {
       cb(null, {} as NodeJS.ReadableStream);
     }
   );
+}
+
+function createMockImageInspect(repoDigests: string[] = ['ghcr.io/org/agent@sha256:v1digest']) {
+  return {
+    inspect: mock(() => Promise.resolve({ RepoDigests: repoDigests, Config: {} })),
+  };
+}
+
+function createMockDockerWithImages(overrides: Record<string, unknown> = {}) {
+  return {
+    getContainer: mock(() => ({})),
+    pull: createMockPull(),
+    modem: createMockModem(),
+    createContainer: mock(() => Promise.resolve({})),
+    getImage: mock(() => createMockImageInspect()),
+    ...overrides,
+  };
 }
 
 function createMockModem() {
@@ -222,6 +240,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: createMockModem(),
         createContainer: mock(() => Promise.resolve(mockNewContainer)),
@@ -232,7 +251,7 @@ describe('AgentUpdater', () => {
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(true);
-      expect(result.previousImage).toBe('ghcr.io/org/agent:latest');
+      expect(result.previousImage).toBe('ghcr.io/org/agent@sha256:v1digest');
       expect(result.newImage).toBe('ghcr.io/org/agent:latest');
       expect(mockOldContainer.stop).toHaveBeenCalledTimes(1);
       expect(mockOldContainer.remove).toHaveBeenCalledTimes(1);
@@ -259,6 +278,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: createMockModem(),
         createContainer: mock(() => Promise.resolve(mockNewContainer)),
@@ -303,6 +323,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: createMockModem(),
         createContainer: mock(() => {
@@ -323,7 +344,7 @@ describe('AgentUpdater', () => {
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(false);
-      expect(result.previousImage).toBe('ghcr.io/org/agent:v1');
+      expect(result.previousImage).toBe('ghcr.io/org/agent@sha256:v1digest');
       expect(result.newImage).toBe('ghcr.io/org/agent:v2');
       expect(result.error).toBe('Health check failed after update');
       expect(result.rolledBack).toBe(true);
@@ -364,6 +385,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: createMockModem(),
         createContainer: mock(() => {
@@ -402,6 +424,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: pullCallback,
         modem: createMockModem(),
       };
@@ -421,6 +444,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: {
           followProgress: mock(
@@ -461,6 +485,7 @@ describe('AgentUpdater', () => {
       let createCallCount = 0;
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: createMockModem(),
         createContainer: mock(() => {
@@ -508,6 +533,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: createMockModem(),
         createContainer: mock(() => {
@@ -554,6 +580,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: createMockModem(),
         createContainer: mock(() => {
@@ -612,6 +639,7 @@ describe('AgentUpdater', () => {
 
       const mockDocker = {
         getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
         pull: createMockPull(),
         modem: createMockModem(),
         createContainer: mock(() => {
@@ -633,13 +661,225 @@ describe('AgentUpdater', () => {
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(false);
-      expect(result.previousImage).toBe('ghcr.io/org/agent:v1');
+      expect(result.previousImage).toBe('ghcr.io/org/agent@sha256:v1digest');
       expect(result.newImage).toBe('ghcr.io/org/agent:v2');
       expect(result.error).toBe('Agent HTTP health check failed after update');
       expect(result.rolledBack).toBe(true);
       expect(mockDocker.createContainer).toHaveBeenCalledTimes(2);
       expect(mockRollbackContainer.start).toHaveBeenCalledTimes(1);
       expect(mockHealthReporter.checkAgentHealth).toHaveBeenCalledTimes(1);
+    });
+
+    test('rolls back onto the previous image digest, not the tag', async () => {
+      const containerInfo = createMockContainerInfo();
+      const unhealthyInfo = createMockContainerInfo({
+        State: { Running: true, Health: { Status: 'unhealthy' } },
+      });
+
+      const mockOldContainer = {
+        inspect: mock(() => Promise.resolve(containerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+      const mockUnhealthyContainer = {
+        start: mock(() => Promise.resolve()),
+        inspect: mock(() => Promise.resolve(unhealthyInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+      const mockRollbackContainer = { start: mock(() => Promise.resolve()) };
+
+      const createdImages: string[] = [];
+      const mockDocker = createMockDockerWithImages({
+        getContainer: mock(() => mockOldContainer),
+        createContainer: mock((options: Dockerode.ContainerCreateOptions) => {
+          createdImages.push(options.Image as string);
+          if (createdImages.length === 1) {
+            return Promise.resolve(mockUnhealthyContainer);
+          }
+          return Promise.resolve(mockRollbackContainer);
+        }),
+      });
+
+      const config: AgentUpdaterConfig = {
+        ...defaultConfig,
+        imageName: 'ghcr.io/org/agent:v2',
+      };
+      const updater = new AgentUpdater(mockDocker as any, config, createMockHealthReporter());
+      const result = await updater.performUpdate();
+
+      expect(result.success).toBe(false);
+      expect(result.rolledBack).toBe(true);
+      expect(createdImages[0]).toBe('ghcr.io/org/agent:v2');
+      expect(createdImages[1]).toBe('ghcr.io/org/agent@sha256:v1digest');
+    });
+
+    test('falls back to the immutable image ID when no repo digest exists', async () => {
+      const containerInfo = createMockContainerInfo();
+      const unhealthyInfo = createMockContainerInfo({
+        State: { Running: true, Health: { Status: 'unhealthy' } },
+      });
+
+      const mockOldContainer = {
+        inspect: mock(() => Promise.resolve(containerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+      const mockUnhealthyContainer = {
+        start: mock(() => Promise.resolve()),
+        inspect: mock(() => Promise.resolve(unhealthyInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+      const mockRollbackContainer = { start: mock(() => Promise.resolve()) };
+
+      const createdImages: string[] = [];
+      const mockDocker = createMockDockerWithImages({
+        getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect([])),
+        createContainer: mock((options: Dockerode.ContainerCreateOptions) => {
+          createdImages.push(options.Image as string);
+          if (createdImages.length === 1) {
+            return Promise.resolve(mockUnhealthyContainer);
+          }
+          return Promise.resolve(mockRollbackContainer);
+        }),
+      });
+
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+      const result = await updater.performUpdate();
+
+      expect(result.rolledBack).toBe(true);
+      expect(result.previousImage).toBe('sha256:abc123');
+      expect(createdImages[1]).toBe('sha256:abc123');
+    });
+
+    test('drops AGENT_VERSION from the preserved env so the new image default applies', async () => {
+      const containerInfo = createMockContainerInfo({
+        Config: {
+          ...createMockContainerInfo().Config,
+          Env: ['AGENT_TOKEN=secret', 'AGENT_PORT=9090', 'AGENT_VERSION=9.0.0'],
+        },
+      });
+      const newContainerInfo = createMockContainerInfo({
+        State: { Running: true, Health: { Status: 'healthy' } },
+      });
+
+      const mockOldContainer = {
+        inspect: mock(() => Promise.resolve(containerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+      const mockNewContainer = {
+        start: mock(() => Promise.resolve()),
+        inspect: mock(() => Promise.resolve(newContainerInfo)),
+      };
+
+      let createdEnv: string[] | undefined;
+      const mockDocker = createMockDockerWithImages({
+        getContainer: mock(() => mockOldContainer),
+        createContainer: mock((options: Dockerode.ContainerCreateOptions) => {
+          createdEnv = options.Env as string[];
+          return Promise.resolve(mockNewContainer);
+        }),
+      });
+
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+      const result = await updater.performUpdate();
+
+      expect(result.success).toBe(true);
+      expect(createdEnv).toBeDefined();
+      expect(createdEnv).not.toContain('AGENT_VERSION=9.0.0');
+      expect(createdEnv).toContain('AGENT_TOKEN=secret');
+      expect(createdEnv).toContain('AGENT_PORT=9090');
+    });
+
+    test('waits long enough for a slow healthcheck to report before rolling back', async () => {
+      const containerInfo = createMockContainerInfo();
+      let inspectCount = 0;
+      const startingThenHealthyInfo = () => {
+        inspectCount++;
+        if (inspectCount <= 15) {
+          return Promise.resolve(
+            createMockContainerInfo({ State: { Running: true, Health: { Status: 'starting' } } })
+          );
+        }
+        return Promise.resolve(
+          createMockContainerInfo({ State: { Running: true, Health: { Status: 'healthy' } } })
+        );
+      };
+
+      const mockOldContainer = {
+        inspect: mock(() => Promise.resolve(containerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+      const mockNewContainer = {
+        start: mock(() => Promise.resolve()),
+        inspect: mock(startingThenHealthyInfo),
+      };
+
+      const mockDocker = createMockDockerWithImages({
+        getContainer: mock(() => mockOldContainer),
+        createContainer: mock(() => Promise.resolve(mockNewContainer)),
+        getImage: mock((name: string) => {
+          if (name === defaultConfig.imageName) {
+            return {
+              inspect: mock(() =>
+                Promise.resolve({
+                  RepoDigests: ['ghcr.io/org/agent@sha256:v2digest'],
+                  Config: { Healthcheck: { Interval: 50_000_000, Retries: 3, StartPeriod: 0 } },
+                })
+              ),
+            };
+          }
+          return createMockImageInspect();
+        }),
+      });
+
+      // No explicit healthCheckMaxAttempts/intervalMs: the window must come
+      // from the image healthcheck config, not the old 10x3s default.
+      const config: AgentUpdaterConfig = {
+        containerName: 'hlm-agent',
+        imageName: defaultConfig.imageName,
+        checkIntervalMs: 60_000,
+      };
+      const updater = new AgentUpdater(mockDocker as any, config, createMockHealthReporter());
+      const result = await updater.performUpdate();
+
+      expect(result.success).toBe(true);
+      expect(inspectCount).toBeGreaterThan(10);
+    });
+  });
+
+  describe('deriveHealthWaitParams', () => {
+    test('returns the fixed 30s fallback when there is no healthcheck', () => {
+      expect(deriveHealthWaitParams(undefined)).toEqual({ maxAttempts: 10, intervalMs: 3000 });
+      expect(deriveHealthWaitParams({})).toEqual({ maxAttempts: 10, intervalMs: 3000 });
+    });
+
+    test('covers at least two full intervals plus retries for a 30s healthcheck', () => {
+      const params = deriveHealthWaitParams({ Interval: 30_000_000_000, Retries: 3, StartPeriod: 0 });
+      const windowMs = params.maxAttempts * params.intervalMs;
+      expect(windowMs).toBeGreaterThanOrEqual(2 * 30_000);
+      expect(windowMs).toBeGreaterThanOrEqual(30_000 * (3 + 1));
+      expect(params.intervalMs).toBeLessThanOrEqual(3000);
+    });
+
+    test('adds the start period to the window', () => {
+      const withStart = deriveHealthWaitParams({
+        Interval: 10_000_000_000,
+        StartPeriod: 30_000_000_000,
+        Retries: 3,
+      });
+      const withoutStart = deriveHealthWaitParams({ Interval: 10_000_000_000, Retries: 3 });
+      expect(withStart.maxAttempts).toBeGreaterThan(withoutStart.maxAttempts);
+    });
+
+    test('defaults retries to 3 when unset', () => {
+      const params = deriveHealthWaitParams({ Interval: 30_000_000_000 });
+      const windowMs = params.maxAttempts * params.intervalMs;
+      expect(windowMs).toBeGreaterThanOrEqual(30_000 * (3 + 1));
     });
   });
 });

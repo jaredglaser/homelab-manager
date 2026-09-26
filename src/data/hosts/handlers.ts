@@ -272,10 +272,19 @@ export async function handleUpdateAgent(
 
   if (triggerResponse.status !== 202) {
     const body = await triggerResponse.text().catch(() => '');
+    // The updater answers with JSON like {"error":"..."}; surface the message,
+    // not the raw body.
+    let error = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed?.error === 'string') error = parsed.error;
+    } catch {
+      // Body was not JSON; keep the raw text.
+    }
     return {
       hostId: host.id,
       healthy: false,
-      error: body || `Unexpected status ${triggerResponse.status} from agent update endpoint`,
+      error,
       suggestions: [
         'Check that the agent is reachable at its configured URL',
         'Verify the agent stack includes the agent-updater container',
