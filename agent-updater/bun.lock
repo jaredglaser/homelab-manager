@@ -5,12 +5,12 @@
     "": {
       "name": "@homelab-manager/agent-updater",
       "dependencies": {
-        "dockerode": "^5.0.1",
+        "dockerode": "5.0.1",
       },
       "devDependencies": {
-        "@types/bun": "^1.4.2",
-        "@types/dockerode": "^4.0.1",
-        "typescript": "^7.0.2",
+        "@types/bun": "1.4.2",
+        "@types/dockerode": "4.0.1",
+        "typescript": "7.0.2",
       },
     },
   },
