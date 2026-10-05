@@ -219,7 +219,7 @@ Test files use `*.test.ts` naming in `__tests__/` directories co-located with so
 
 ### Shared Dependency Versions
 
-The three packages (homelab-manager, agent, agent-updater) are independent Bun projects with their own lockfiles; the agent is deliberately not a workspace member (see CLAUDE.md). Dependencies in the shared set (`dockerode`, `jose`, `zod`, `@types/dockerode`, `@types/bun`, `typescript`) are versioned once, in the root `package.json`:
+The three packages (homelab-manager, agent, agent-updater) are independent Bun projects with their own lockfiles; they install separately so each Docker image build resolves exactly its own `bun.lock` (the agent and agent-updater images are built from their own directories and pinned to their own lockfiles). Dependencies in the shared set (`dockerode`, `jose`, `zod`, `@types/dockerode`, `@types/bun`, `typescript`) are versioned once, in the root `package.json`:
 
 - `bun run deps:check` fails when a package's shared dep differs from root or uses a caret/tilde range. CI runs this on every PR.
 - `bun run deps:sync` copies root's versions into the other manifests and reinstalls the affected packages.

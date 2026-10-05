@@ -1,8 +1,9 @@
 /**
  * Single source of truth for dependencies shared across the three packages
- * (root, agent, agent-updater): the root package.json. The agent is not a
- * workspace member on purpose (see CLAUDE.md), so there is no shared lockfile;
- * this script keeps the three package.json manifests in lockstep instead.
+ * (root, agent, agent-updater): the root package.json. There is no shared
+ * lockfile because each package installs independently: the Docker builds of
+ * the agent and agent-updater resolve only their own lockfile, so this script
+ * keeps the three package.json manifests in lockstep instead.
  *
  *   bun run deps:check   fail if any package's shared dep differs from root
  *   bun run deps:sync    copy root's versions into the other manifests
