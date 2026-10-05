@@ -64,7 +64,7 @@ COMPOSE_PROFILES="management"
 ### Step 2: Start the Dev Stack
 
 ```bash
-bun run setup              # Installs homelab-manager and agent
+bun run setup              # Installs homelab-manager, agent, and agent-updater
 
 # Terminal 1: Start all Docker services
 bun run dev:local:up
@@ -216,6 +216,14 @@ bun run test:coverage:all   # Run tests in both with coverage thresholds
 - Enforced by `bun run test` (which pipes `--coverage` to `scripts/check-coverage.js`) and CI. Bare `bun test --isolate` does NOT enforce the thresholds.
 
 Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).
+
+### Shared Dependency Versions
+
+The three packages (homelab-manager, agent, agent-updater) are independent Bun projects with their own lockfiles; the agent is deliberately not a workspace member (see CLAUDE.md). Dependencies in the shared set (`dockerode`, `jose`, `zod`, `@types/dockerode`, `@types/bun`, `typescript`) are versioned once, in the root `package.json`:
+
+- `bun run deps:check` fails when a package's shared dep differs from root or uses a caret/tilde range. CI runs this on every PR.
+- `bun run deps:sync` copies root's versions into the other manifests and reinstalls the affected packages.
+- Bump shared deps by editing root `package.json`, running `bun install` at the root, then `bun run deps:sync`.
 
 ### End-to-End (Playwright + MSW)
 
