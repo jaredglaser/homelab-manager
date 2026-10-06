@@ -2,9 +2,10 @@ import { useMemo } from 'react';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import type { ProxmoxStorage } from '@/types/proxmox';
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
-import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
+import { EMPTY_CELL } from '@/components/ui/table';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { nameColumn, statusColumn, metricColumn, progressColumn } from '@/components/ui/datatable/columns';
 import { StorageCell } from '@/components/proxmox/StorageCell';
@@ -24,7 +25,7 @@ const metricGroups: MetricGroup[] = [
   { label: 'Usage', columnIds: ['usage'] },
 ];
 
-function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<ProxmoxStorage, unknown>[] {
+function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<DataTableFeatures, ProxmoxStorage, unknown>[] {
   return [
     nameColumn<ProxmoxStorage>({
       getLabel: (row) => row.storage,
@@ -43,7 +44,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.total <= 0) return { value: EMPTY_METRIC, unit: '' };
+        if (row.total <= 0) return { value: EMPTY_CELL, unit: '' };
         return formatBytesParts(row.used, false, false);
       },
     }),
@@ -53,7 +54,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.total <= 0) return { value: EMPTY_METRIC, unit: '' };
+        if (row.total <= 0) return { value: EMPTY_CELL, unit: '' };
         return formatBytesParts(row.avail, false, false);
       },
     }),
@@ -61,7 +62,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       id: 'usage',
       getValue: (row) => (row.total > 0 ? Math.min(row.used_fraction * 100, 100) : 0),
       getLabel: (row) => {
-        if (row.total <= 0) return EMPTY_METRIC;
+        if (row.total <= 0) return EMPTY_CELL;
         return `${formatAsPercentParts(row.used_fraction, true).value}%`;
       },
     }),
