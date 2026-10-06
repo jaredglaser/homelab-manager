@@ -266,7 +266,7 @@ export default memo(function ContainerDetailPanel({
         <ContainerPortsMounts ports={inventory.ports} mounts={inventory.mounts} />
       )}
 
-      <div className="grid gap-3 p-3 [grid-template-rows:200px] lg:h-[232px] lg:grid-cols-2 lg:[grid-template-rows:none]">
+      <div className="grid gap-3 p-3 grid-rows-[200px] lg:grid-cols-2 lg:h-80 lg:grid-rows-none">
         <ContainerMetricsChart
           dataPoints={dataPoints}
           active={active}

@@ -218,6 +218,13 @@ export function DataTable<TRow extends RowData>({
     onColumnSizingChange: setColumnSizing,
     onColumnVisibilityChange: setColumnVisibility,
     onExpandedChange: setExpanded,
+    // v9 auto-resets expansion on every data change (createCoreRowModel →
+    // autoResetExpanded → onExpandedChange({})); the docker/zfs tables churn
+    // data every second via SSE, which would collapse expanded rows and echo
+    // toggles into the persisted settings atoms. autoResetExpanded: false opts
+    // out of the reset while keeping the expanded row model active
+    // (manualExpanding would bypass expansion entirely).
+    autoResetExpanded: false,
     // v9's toggleExpanded refuses to expand rows where getCanExpand is false
     // (default: has subRows). Detail panels must be expandable even on
     // childless rows, so allow expansion when either source applies.
