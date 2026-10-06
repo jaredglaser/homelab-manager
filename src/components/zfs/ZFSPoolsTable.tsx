@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
@@ -128,7 +129,7 @@ export default function ZFSPoolsTable({
     [expandedState, toggleZfsHostExpanded],
   );
 
-  const columns = useMemo<ColumnDef<ZFSTableRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<DataTableFeatures, ZFSTableRow, unknown>[]>(
     () => [
       nameColumn<ZFSTableRow>({
         getLabel: (row) => row.name,

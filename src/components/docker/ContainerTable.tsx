@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import { Spinner } from '@/components/ui/spinner';
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
 import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
@@ -207,7 +208,7 @@ export default function ContainerTable({
   // Build columns with current settings
   const memLabel = docker.memoryDisplayMode === 'percentage' ? 'RAM %' : 'RAM';
 
-  const columns = useMemo<ColumnDef<DockerTableRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<DataTableFeatures, DockerTableRow, unknown>[]>(
     () => [
       nameColumn<DockerTableRow>({
         getLabel: (row) => {
