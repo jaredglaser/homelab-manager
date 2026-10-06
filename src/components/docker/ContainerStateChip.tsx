@@ -12,7 +12,7 @@ export default function ContainerStateChip({ state }: Readonly<Props>) {
       data-state={state}
     >
       <StateIndicator state={state} />
-      <span className="text-(--muted-foreground)">{state}</span>
+      <span className="text-muted-foreground">{state}</span>
     </span>
   );
 }
@@ -30,7 +30,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'restarting') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-(--warning) animate-pulse"
+        className="inline-block w-2 h-2 rounded-full bg-warning animate-pulse"
         aria-label="restarting"
       />
     );
@@ -39,7 +39,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'paused') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-(--info)"
+        className="inline-block w-2 h-2 rounded-full bg-info"
         aria-label="paused"
       />
     );

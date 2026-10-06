@@ -268,7 +268,7 @@ export function DataTable<TRow extends RowData>({
     return (
       <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
         {toolbar}
-        <div className="flex items-center justify-center flex-1 text-(--muted-foreground) py-12">
+        <div className="flex items-center justify-center flex-1 text-muted-foreground py-12">
           No data
         </div>
       </div>
@@ -284,7 +284,7 @@ export function DataTable<TRow extends RowData>({
         {/* Sticky header: inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div
-            className="grid border-b border-(--border) bg-(--background) sticky top-0 z-10"
+            className="grid border-b border-border bg-background sticky top-0 z-10"
             style={{ gridTemplateColumns: gridTemplate }}
           >
             {table.getHeaderGroups().map((headerGroup) =>
@@ -292,7 +292,7 @@ export function DataTable<TRow extends RowData>({
                 <div
                   key={header.id}
                   className={`px-3 py-2 font-semibold text-sm whitespace-nowrap select-none ${
-                    header.column.getCanSort() ? 'cursor-pointer hover:bg-(--accent)' : ''
+                    header.column.getCanSort() ? 'cursor-pointer hover:bg-accent' : ''
                   }`}
                   onClick={header.column.getToggleSortingHandler()}
                   role={header.column.getCanSort() ? 'button' : undefined}
@@ -420,7 +420,7 @@ function DataTableRow<TRow extends RowData>({ row, gridTemplate, rowClassName, r
     <div
       role={canExpand ? 'button' : undefined}
       tabIndex={canExpand ? 0 : undefined}
-      className={`group grid border-t border-(--border) hover:bg-(--row-hover-tint) hover:shadow-[inset_0_0_0_1px_var(--row-hover-ring)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
+      className={`group grid border-t border-border hover:bg-(--row-hover-tint) hover:shadow-[inset_0_0_0_1px_var(--row-hover-ring)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
       style={{ gridTemplateColumns: gridTemplate }}
       onClick={canExpand ? () => row.toggleExpanded() : undefined}
       onKeyDown={canExpand ? (e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.toggleExpanded(); } } : undefined}

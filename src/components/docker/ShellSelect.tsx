@@ -30,7 +30,7 @@ export default function ShellSelect({ value, onChange, resolvedShell, className 
     return (
       <span className="inline-flex items-center gap-1.5">
         auto
-        <Spinner className="size-2.5 text-(--muted-foreground)" />
+        <Spinner className="size-2.5 text-muted-foreground" />
       </span>
     );
   };
