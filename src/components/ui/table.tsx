@@ -1,6 +1,9 @@
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils/cn';
 
+/** Placeholder rendered in a cell whose value is absent. One definition so the character stays consistent app-wide. */
+export const EMPTY_CELL = '—';
+
 function Table({ className, ...props }: ComponentProps<'table'>) {
   return (
     <div data-slot="table-container" className="relative w-full overflow-x-auto">

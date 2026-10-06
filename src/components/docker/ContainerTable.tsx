@@ -6,7 +6,7 @@ import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
 import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
-import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
+import { EMPTY_CELL } from '@/components/ui/table';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import type {
   DockerStatsRow,
@@ -245,7 +245,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatAsPercentParts(row.aggregated.cpuPercent / 100, docker.decimals.cpu);
           }
-          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
+          if (!row.stats) return { value: EMPTY_CELL, unit: '' };
           return formatAsPercentParts(row.stats.rates.cpuPercent / 100, docker.decimals.cpu);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.cpu ?? []) : []),
@@ -265,7 +265,7 @@ export default function ContainerTable({
               ? formatBytesParts(row.aggregated.memoryUsage, false, docker.decimals.memory)
               : formatAsPercentParts(row.aggregated.memoryPercent / 100, docker.decimals.memory);
           }
-          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
+          if (!row.stats) return { value: EMPTY_CELL, unit: '' };
           return docker.memoryDisplayMode === 'bytes'
             ? formatBytesParts(row.stats.memory_stats.usage, false, docker.decimals.memory)
             : formatAsPercentParts(row.stats.rates.memoryPercent / 100, docker.decimals.memory);
@@ -285,7 +285,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatBytesParts(row.aggregated.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
           }
-          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
+          if (!row.stats) return { value: EMPTY_CELL, unit: '' };
           return formatBytesParts(row.stats.rates.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.blockRead ?? []) : []),
@@ -303,7 +303,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatBytesParts(row.aggregated.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
           }
-          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
+          if (!row.stats) return { value: EMPTY_CELL, unit: '' };
           return formatBytesParts(row.stats.rates.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.blockWrite ?? []) : []),
@@ -321,7 +321,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatBitsSIUnitsParts(row.aggregated.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
           }
-          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
+          if (!row.stats) return { value: EMPTY_CELL, unit: '' };
           return formatBitsSIUnitsParts(row.stats.rates.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.networkRx ?? []) : []),
@@ -339,7 +339,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatBitsSIUnitsParts(row.aggregated.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
           }
-          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
+          if (!row.stats) return { value: EMPTY_CELL, unit: '' };
           return formatBitsSIUnitsParts(row.stats.rates.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.networkTx ?? []) : []),

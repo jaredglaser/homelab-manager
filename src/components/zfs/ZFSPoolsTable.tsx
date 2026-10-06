@@ -4,7 +4,7 @@ import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures'
 import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
-import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
+import { EMPTY_CELL } from '@/components/ui/table';
 import type { ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
@@ -145,7 +145,7 @@ export default function ZFSPoolsTable({
           const alloc = row.capacityAlloc ?? 0;
           const free = row.capacityFree ?? 0;
           const total = alloc + free;
-          if (total <= 0) return { value: EMPTY_METRIC, unit: '' };
+          if (total <= 0) return { value: EMPTY_CELL, unit: '' };
           return formatBytesParts(total, false);
         },
       }),
@@ -156,7 +156,7 @@ export default function ZFSPoolsTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         getValue: (row) => {
           const v = row.readOpsPerSec;
-          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          if (v == null) return { value: EMPTY_CELL, unit: '' };
           return { value: v.toFixed(0), unit: 'ops/s' };
         },
       }),
@@ -167,7 +167,7 @@ export default function ZFSPoolsTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         getValue: (row) => {
           const v = row.writeOpsPerSec;
-          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          if (v == null) return { value: EMPTY_CELL, unit: '' };
           return { value: v.toFixed(0), unit: 'ops/s' };
         },
       }),
@@ -179,7 +179,7 @@ export default function ZFSPoolsTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         getValue: (row) => {
           const v = row.readBytesPerSec;
-          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          if (v == null) return { value: EMPTY_CELL, unit: '' };
           return formatBytesParts(v, true, zfs.decimals.diskSpeed);
         },
       }),
@@ -191,7 +191,7 @@ export default function ZFSPoolsTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         getValue: (row) => {
           const v = row.writeBytesPerSec;
-          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          if (v == null) return { value: EMPTY_CELL, unit: '' };
           return formatBytesParts(v, true, zfs.decimals.diskSpeed);
         },
       }),
@@ -203,7 +203,7 @@ export default function ZFSPoolsTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         getValue: (row) => {
           const v = row.utilizationPercent;
-          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          if (v == null) return { value: EMPTY_CELL, unit: '' };
           return formatAsPercentParts(v / 100, zfs.decimals.diskSpeed);
         },
       }),
