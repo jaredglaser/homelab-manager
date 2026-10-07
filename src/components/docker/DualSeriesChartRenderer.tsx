@@ -8,9 +8,10 @@ interface DualSeriesChartRendererProps {
   ref?: Ref<ReactECharts>;
   notMerge?: boolean;
   replaceMerge?: string | string[];
+  onChartReady?: (instance: unknown) => void;
 }
 
-export default function DualSeriesChartRenderer({ option, ref, notMerge = true, replaceMerge }: DualSeriesChartRendererProps) {
+export default function DualSeriesChartRenderer({ option, ref, notMerge = true, replaceMerge, onChartReady }: DualSeriesChartRendererProps) {
   return (
     <EChartsLazy
       ref={ref}
@@ -19,6 +20,7 @@ export default function DualSeriesChartRenderer({ option, ref, notMerge = true, 
       notMerge={notMerge}
       replaceMerge={replaceMerge}
       lazyUpdate={true}
+      onChartReady={onChartReady}
       className="h-full! w-full!"
     />
   );

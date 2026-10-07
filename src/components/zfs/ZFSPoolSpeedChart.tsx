@@ -177,7 +177,7 @@ export default function ZFSPoolSpeedChart({
   const chartRef = useRef<ReactECharts>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  useEChartTimeScroll(chartRef, WINDOW_MS, wrapperRef);
+  const onChartReady = useEChartTimeScroll(chartRef, WINDOW_MS, wrapperRef);
 
   return (
     <div className="rounded-sm p-4 bg-chart-bg">
@@ -192,6 +192,7 @@ export default function ZFSPoolSpeedChart({
           opts={{ renderer: 'canvas' }}
           notMerge={false}
           lazyUpdate={true}
+          onChartReady={onChartReady}
         />
       </div>
     </div>
