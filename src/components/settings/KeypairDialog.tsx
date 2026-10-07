@@ -35,12 +35,14 @@ export function KeypairDialog({
   onClose,
 }: KeypairDialogProps) {
   const [confirmingRotate, setConfirmingRotate] = useState(false)
+  const [rotated, setRotated] = useState(false)
 
   const [prevOpen, setPrevOpen] = useState(open)
   if (open !== prevOpen) {
     setPrevOpen(open)
     if (open) {
       setConfirmingRotate(false)
+      setRotated(false)
       if (host) onView(host.id)
     }
   }
@@ -49,6 +51,18 @@ export function KeypairDialog({
   if (host?.id !== prevHostId) {
     setPrevHostId(host?.id)
     setConfirmingRotate(false)
+    setRotated(false)
+  }
+
+  // The rotation mutation swaps the displayed JWK on success; leaving the
+  // confirm state armed would turn every further click into another rotation.
+  const [prevJwkJson, setPrevJwkJson] = useState(publicJwkJson)
+  if (publicJwkJson !== prevJwkJson) {
+    setPrevJwkJson(publicJwkJson)
+    if (confirmingRotate) {
+      setConfirmingRotate(false)
+      setRotated(true)
+    }
   }
 
   function handleRotate() {
@@ -93,6 +107,14 @@ export function KeypairDialog({
                   </AlertDescription>
                 </Alert>
               )}
+              {rotated && (
+                <Alert variant="success">
+                  <AlertDescription>
+                    Keypair rotated. Set this new key as <code>AGENT_TRUSTED_PUBKEY</code> on the agent
+                    and restart it.
+                  </AlertDescription>
+                </Alert>
+              )}
             </>
           ) : (
             <DialogDescription className="px-0">
@@ -102,7 +124,7 @@ export function KeypairDialog({
         </DialogBody>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={isRotating}>Close</Button>
-          {publicJwkJson && (
+          {publicJwkJson && !rotated && (
             <Button
               variant={confirmingRotate ? 'destructive' : 'ghost'}
               onClick={handleRotate}
