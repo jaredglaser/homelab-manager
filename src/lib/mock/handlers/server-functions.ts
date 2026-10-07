@@ -3,7 +3,7 @@ import { fromJSON, toCrossJSONAsync } from 'seroval';
 // Both directions need the plugin list the TanStack client uses; without its
 // ShallowErrorPlugin an Error with a non-serializable own property (a ZodError)
 // fails to encode instead of reaching the client.
-import { defaultSerovalPlugins } from '@tanstack/router-core';
+import { defaultSerovalPlugins } from '@tanstack/router-core/ssr/client';
 
 import * as dockerFns from '@/lib/mock/functions/docker.functions';
 import * as zfsFns from '@/lib/mock/functions/zfs.functions';
@@ -96,6 +96,8 @@ const registry: Record<string, ServerFnMock> = {
   updateHost: withData(hostsFns.updateHost),
   removeHost: withData(hostsFns.removeHost),
   checkHostHealth: withData(hostsFns.checkHostHealth),
+  getHostPublicJwk: withData(hostsFns.getHostPublicJwk),
+  rotateHostKeypair: withData(hostsFns.rotateHostKeypair),
 
   // Git tokens
   listGitTokens: fn(gitTokenFns.listGitTokens),

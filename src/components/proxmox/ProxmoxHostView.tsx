@@ -4,7 +4,7 @@ import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
 import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
-import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell'
+import { EMPTY_CELL } from '@/components/ui/table'
 import { formatUptime } from '@/components/proxmox/utils'
 import { GuestSection } from '@/components/proxmox/GuestSection'
 import { StorageSection } from '@/components/proxmox/StorageSection'
@@ -91,8 +91,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               onClick={() => toggleProxmoxHostExpanded(node.node)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
-                nodeIdx > 0 ? 'border-t border-(--border)' : ''
-              } ${hostExpanded ? 'bg-(--accent)' : 'bg-(--level2)'}`}
+                nodeIdx > 0 ? 'border-t border-border' : ''
+              } ${hostExpanded ? 'bg-accent' : 'bg-level2'}`}
             >
               <ChevronRight
                 size={18}
@@ -107,8 +107,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
                 <span>CPU: {cpuPercent}%</span>
                 <span>Mem: {memPercent}%</span>
                 <span>Disk: {diskPercent}%</span>
-                <span className="text-(--muted-foreground)">
-                  {node.status === 'online' ? formatUptime(node.uptime) : EMPTY_METRIC}
+                <span className="text-muted-foreground">
+                  {node.status === 'online' ? formatUptime(node.uptime) : EMPTY_CELL}
                 </span>
               </div>
             </div>

@@ -123,7 +123,7 @@ export default memo(function HistoricalTimeline({
     : undefined;
 
   return (
-    <div className="border-t border-(--border) bg-(--card) px-4 py-3 shrink-0">
+    <div className="border-t border-border bg-card px-4 py-3 shrink-0">
       <div className="mb-2">
         <HorizontalScrollRow
           bgVar="--card"
@@ -146,7 +146,7 @@ export default memo(function HistoricalTimeline({
           </ToggleGroup>
 
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs text-(--muted-foreground)">From:</span>
+            <span className="text-xs text-muted-foreground">From:</span>
             <DateTimePicker
               value={timelineFrom}
               onChange={handleFromChange}
@@ -154,7 +154,7 @@ export default memo(function HistoricalTimeline({
               use12Hour={general.use12HourTime}
               ariaLabel="From date and time"
             />
-            <span className="text-xs text-(--muted-foreground)">To:</span>
+            <span className="text-xs text-muted-foreground">To:</span>
             <DateTimePicker
               value={timelineTo}
               onChange={handleToChange}
