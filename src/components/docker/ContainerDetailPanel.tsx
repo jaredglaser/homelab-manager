@@ -66,7 +66,7 @@ interface StatusItemProps {
 function StatusItem({ label, value }: StatusItemProps) {
   return (
     <div className="flex items-baseline gap-1 shrink-0">
-      <span className="text-xs font-medium text-(--muted-foreground)">
+      <span className="text-xs font-medium text-muted-foreground">
         {label}
       </span>
       <span className="font-mono text-xs tabular-nums text-foreground">
@@ -89,7 +89,7 @@ function ActionStripButton({ icon, label, onClick, disabled }: ActionStripButton
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-(--muted-foreground) border border-(--border) bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-muted-foreground border border-border bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
     >
       {icon}
       {label}
@@ -115,10 +115,10 @@ function StatusStrip({
   const shortId = inventory.containerId.slice(-12);
 
   return (
-    <div className="flex items-start lg:items-center gap-3 px-3 py-2 flex-wrap border-b border-(--border) min-h-[40px]">
+    <div className="flex items-start lg:items-center gap-3 px-3 py-2 flex-wrap border-b border-border min-h-[40px]">
       <ContainerStateChip state={inventory.state} />
 
-      <div className="w-px h-3.5 shrink-0 bg-(--border)" />
+      <div className="w-px h-3.5 shrink-0 bg-border" />
 
       <StatusItem
         label="Image"
@@ -145,7 +145,7 @@ function StatusStrip({
       <div className="w-full lg:w-auto lg:ml-auto flex items-center gap-1">
         <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
 
-        <div className="w-px h-4 mx-1 shrink-0 bg-(--border)" />
+        <div className="w-px h-4 mx-1 shrink-0 bg-border" />
 
         <ActionStripButton
           icon={<Image size={12} />}
@@ -153,7 +153,7 @@ function StatusStrip({
           onClick={onIconClick}
         />
 
-        <div className="w-px h-4 mx-1 shrink-0 bg-(--border)" />
+        <div className="w-px h-4 mx-1 shrink-0 bg-border" />
 
         <ActionStripButton
           icon={<ScrollText size={12} />}
@@ -180,9 +180,9 @@ function LogPreviewPanel({ containerId, host }: { containerId: string; host: str
   const [wordWrap, setWordWrap] = useState(false);
 
   return (
-    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--chart-bg)">
-      <div className="flex items-center justify-between px-2 py-0.5 border-b border-(--border) shrink-0">
-        <span className="text-xs font-medium text-(--muted-foreground)">
+    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-chart-bg">
+      <div className="flex items-center justify-between px-2 py-0.5 border-b border-border shrink-0">
+        <span className="text-xs font-medium text-muted-foreground">
           Recent logs
         </span>
         <Tooltip>
@@ -192,7 +192,7 @@ function LogPreviewPanel({ containerId, host }: { containerId: string; host: str
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => setWordWrap((w) => !w)}
-                className={`p-0.5! ${wordWrap ? 'text-(--primary)!' : 'text-(--text-disabled)!'}`}
+                className={`p-0.5! ${wordWrap ? 'text-primary!' : 'text-(--text-disabled)!'}`}
                 aria-label="Toggle word wrap"
               >
                 <WrapText size={13} />
@@ -253,7 +253,7 @@ export default memo(function ContainerDetailPanel({
   }, []);
 
   return (
-    <div className="border-b border-(--border) bg-(--level1)">
+    <div className="border-b border-border bg-level1">
       <StatusStrip
         inventory={inventory}
         containerId={containerId}

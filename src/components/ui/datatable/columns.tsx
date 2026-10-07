@@ -167,7 +167,7 @@ export function progressColumn<TRow extends RowData>(opts: {
               indicatorClassName={color.bar}
             />
           </div>
-          <span className="shrink-0 min-w-[5ch] text-right text-xs tabular-nums text-(--muted-foreground)">
+          <span className="shrink-0 min-w-[5ch] text-right text-xs tabular-nums text-muted-foreground">
             {label}
           </span>
         </div>

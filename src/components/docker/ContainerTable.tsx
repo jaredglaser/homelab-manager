@@ -374,7 +374,7 @@ export default function ContainerTable({
 
   const rowClassName = useCallback((row: DockerTableRow) => {
     if (row.type === 'host') {
-      const base = row.isStale ? 'bg-[var(--row-stale-tint)]!' : 'bg-(--level1)!';
+      const base = row.isStale ? 'bg-[var(--row-stale-tint)]!' : 'bg-level1!';
       // scroll-mt clears the DataTable's sticky column header (~37px) when scrollIntoView is called
       return `${base} scroll-mt-10`;
     }

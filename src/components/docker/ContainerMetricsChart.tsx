@@ -254,11 +254,11 @@ export default memo(function ContainerMetricsChart({
   }, [dataPoints]);
 
   return (
-    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--chart-bg)">
+    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-chart-bg">
       <div ref={wrapperRef} className="flex-1 min-h-0">
         <DualSeriesChartRenderer ref={chartRef} option={option} />
       </div>
-      <div className="border-t border-(--border) shrink-0">
+      <div className="border-t border-border shrink-0">
         <HorizontalScrollRow bgVar="--chart-bg">
           {METRIC_DEFS.map((m) => (
             <LegendChip
