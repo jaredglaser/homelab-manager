@@ -5,18 +5,21 @@ import { _resetLogStreams } from '@/lib/docker/log-stream-registry';
 import { MockEventSource } from '@/lib/test/mock-event-source';
 
 const originalEventSource = globalThis.EventSource;
+const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   MockEventSource.reset();
   _resetLogStreams();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).EventSource = MockEventSource;
+  globalThis.fetch = mock(async () => new Response(null, { status: 204 })) as unknown as typeof fetch;
 });
 
 afterEach(() => {
   _resetLogStreams();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).EventSource = originalEventSource;
+  globalThis.fetch = originalFetch;
 });
 
 describe('useContainerLogs', () => {
@@ -33,7 +36,7 @@ describe('useContainerLogs', () => {
     mockTerminal.clear.mockReset();
   });
 
-  it('connects to the correct SSE URL', () => {
+  it('connects to the mux endpoint with a session id', () => {
     renderHook(() =>
       useContainerLogs({
         containerId: 'abc123',
@@ -43,10 +46,10 @@ describe('useContainerLogs', () => {
     );
 
     expect(MockEventSource.instances.length).toBe(1);
-    expect(MockEventSource.instances[0].url).toBe('/api/docker-logs/abc123?host=my-server');
+    expect(MockEventSource.instances[0].url).toMatch(/^\/api\/docker-logs-mux\?session=[A-Za-z0-9-]+$/);
   });
 
-  it('encodes special characters in URL', () => {
+  it('sends the raw host/container key in the subscribe command', () => {
     renderHook(() =>
       useContainerLogs({
         containerId: 'abc/123',
@@ -55,12 +58,16 @@ describe('useContainerLogs', () => {
       }),
     );
 
-    const url = MockEventSource.instances[0].url;
-    expect(url).toContain('abc%2F123');
-    expect(url).toContain('host%20with%20spaces');
+    act(() => {
+      MockEventSource.instances[0].onopen?.();
+    });
+
+    const call = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const body = (call[1] as RequestInit).body as string;
+    expect(body).toContain('host with spaces/abc/123');
   });
 
-  it('sets isConnected on open', () => {
+  it('sets isConnected when the key backlog starts', () => {
     const { result } = renderHook(() =>
       useContainerLogs({
         containerId: 'abc123',
@@ -72,7 +79,7 @@ describe('useContainerLogs', () => {
     expect(result.current.isConnected).toBe(false);
 
     act(() => {
-      MockEventSource.instances[0].onopen?.();
+      MockEventSource.instances[0].fireEvent('backlog_start', { data: JSON.stringify({ key: 'server/abc123' }) });
     });
 
     expect(result.current.isConnected).toBe(true);
@@ -113,10 +120,10 @@ describe('useContainerLogs', () => {
       act(() => {
         MockEventSource.instances[0].onopen?.();
         MockEventSource.instances[0].onmessage?.({
-          data: JSON.stringify({ text: 'hello world', stream: 'stdout' }),
+          data: JSON.stringify({ key: 'server/abc123', line: { text: 'hello world', stream: 'stdout' } }),
         });
         MockEventSource.instances[0].onmessage?.({
-          data: JSON.stringify({ text: 'error msg', stream: 'stderr' }),
+          data: JSON.stringify({ key: 'server/abc123', line: { text: 'error msg', stream: 'stderr' } }),
         });
       });
 
@@ -212,11 +219,12 @@ describe('useContainerLogs', () => {
 
     act(() => {
       MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].fireEvent('stream_end', {});
+      MockEventSource.instances[0].fireEvent('stream_end', { data: JSON.stringify({ key: 'server/abc123' }) });
       MockEventSource.instances[0].onerror?.();
     });
 
-    // Only the initial connection, no reconnect after stream_end
+    // The stream reported a clean end. The shared mux reconnects on its own
+    // schedule (real timer here), so no second instance exists yet.
     expect(MockEventSource.instances.length).toBe(1);
     expect(result.current.isConnected).toBe(false);
     expect(result.current.error).toBeNull();
@@ -247,7 +255,7 @@ describe('useContainerLogs', () => {
       act(() => {
         MockEventSource.instances[0].onopen?.();
         MockEventSource.instances[0].fireEvent('error', {
-          data: JSON.stringify({ message: 'Container not found' }),
+          data: JSON.stringify({ key: 'server/abc123', message: 'Container not found' }),
         });
       });
 

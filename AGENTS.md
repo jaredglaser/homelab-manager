@@ -154,7 +154,7 @@ loadSubscribe: async () => {
 }
 ```
 
-Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (auth + DB lookup + pipe-through from agent), `git.$` (git HTTP smart protocol, not SSE), and `health` (unauthenticated DB-reachability probe for Docker healthchecks and uptime monitors, handler in `src/lib/health/`).
+Hand-written routes (don't fit the factory shape): `docker-logs-mux` (one stable SSE connection carrying every expanded row's log stream, tagged per `host/containerId` key; the client subscribes/unsubscribes keys at runtime via POST commands on the same route, so expanding or collapsing rows never reopens the connection. Orchestration in `src/lib/docker/log-mux-service.ts`, client fan-out in `src/lib/docker/log-stream-registry.ts`, one EventSource total so the browser's HTTP/1.1 six-connections-per-origin cap cannot starve the third-plus expanded row), `docker-logs.$containerId` (legacy single-container pipe-through from agent, no longer called by the client), `git.$` (git HTTP smart protocol, not SSE), and `health` (unauthenticated DB-reachability probe for Docker healthchecks and uptime monitors, handler in `src/lib/health/`).
 
 ### Shared DataTable (`src/components/ui/datatable/`)
 

@@ -146,7 +146,7 @@ describe('useEChartTimeScroll', () => {
 
   it('skips setOption when the live instance differs from the ready one', () => {
     // A remount or re-init puts a fresh bare instance on the element while the
-    // hook still holds the previously-ready one; only the ready instance is driven.
+    // hook still holds the previously-ready one. Only the ready instance is driven.
     const readySetOption = mock(() => {});
     const bareSetOption = mock(() => {});
     const readyInstance = makeInstance(readySetOption);

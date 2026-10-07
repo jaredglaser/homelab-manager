@@ -13,7 +13,7 @@ import { useVisibleRAF } from '@/hooks/useVisibleRAF';
  * Returns the `onChartReady` callback: attach it to the ECharts element. The
  * tick only drives the exact instance the library reported ready, so the bare
  * temporary instance from the async init (or any later re-init) is never
- * touched; merging xAxis-only into it crashes in CartesianAxisView.render.
+ * touched. Merging xAxis-only into it crashes in CartesianAxisView.render.
  */
 export function useEChartTimeScroll(
   chartRef: RefObject<ReactECharts | null>,

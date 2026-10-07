@@ -18,6 +18,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StacksRouteImport } from './routes/stacks'
 import { Route as ZfsRouteImport } from './routes/zfs'
 import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
+import { Route as ApiDockerLogsMuxRouteImport } from './routes/api/docker-logs-mux'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiProxmoxStatsRouteImport } from './routes/api/proxmox-stats'
@@ -77,6 +78,11 @@ const ZfsRoute = ZfsRouteImport.update({
 const ApiDockerInventoryRoute = ApiDockerInventoryRouteImport.update({
   id: '/api/docker-inventory',
   path: '/api/docker-inventory',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDockerLogsMuxRoute = ApiDockerLogsMuxRouteImport.update({
+  id: '/api/docker-logs-mux',
+  path: '/api/docker-logs-mux',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDockerStatsRoute = ApiDockerStatsRouteImport.update({
@@ -166,6 +172,7 @@ export interface FileRoutesByFullPath {
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
+  '/api/docker-logs-mux': typeof ApiDockerLogsMuxRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
@@ -191,6 +198,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
+  '/api/docker-logs-mux': typeof ApiDockerLogsMuxRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
@@ -218,6 +226,7 @@ export interface FileRoutesById {
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
+  '/api/docker-logs-mux': typeof ApiDockerLogsMuxRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
@@ -246,6 +255,7 @@ export interface FileRouteTypes {
     | '/stacks'
     | '/zfs'
     | '/api/docker-inventory'
+    | '/api/docker-logs-mux'
     | '/api/docker-stats'
     | '/api/health'
     | '/api/proxmox-stats'
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/zfs'
     | '/api/docker-inventory'
+    | '/api/docker-logs-mux'
     | '/api/docker-stats'
     | '/api/health'
     | '/api/proxmox-stats'
@@ -297,6 +308,7 @@ export interface FileRouteTypes {
     | '/stacks'
     | '/zfs'
     | '/api/docker-inventory'
+    | '/api/docker-logs-mux'
     | '/api/docker-stats'
     | '/api/health'
     | '/api/proxmox-stats'
@@ -324,6 +336,7 @@ export interface RootRouteChildren {
   StacksRoute: typeof StacksRouteWithChildren
   ZfsRoute: typeof ZfsRoute
   ApiDockerInventoryRoute: typeof ApiDockerInventoryRoute
+  ApiDockerLogsMuxRoute: typeof ApiDockerLogsMuxRoute
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiProxmoxStatsRoute: typeof ApiProxmoxStatsRoute
@@ -400,6 +413,13 @@ declare module '@tanstack/react-router' {
       path: '/api/docker-inventory'
       fullPath: '/api/docker-inventory'
       preLoaderRoute: typeof ApiDockerInventoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docker-logs-mux': {
+      id: '/api/docker-logs-mux'
+      path: '/api/docker-logs-mux'
+      fullPath: '/api/docker-logs-mux'
+      preLoaderRoute: typeof ApiDockerLogsMuxRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/docker-stats': {
@@ -546,6 +566,7 @@ const rootRouteChildren: RootRouteChildren = {
   StacksRoute: StacksRouteWithChildren,
   ZfsRoute: ZfsRoute,
   ApiDockerInventoryRoute: ApiDockerInventoryRoute,
+  ApiDockerLogsMuxRoute: ApiDockerLogsMuxRoute,
   ApiDockerStatsRoute: ApiDockerStatsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiProxmoxStatsRoute: ApiProxmoxStatsRoute,
