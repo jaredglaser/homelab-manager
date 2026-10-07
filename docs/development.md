@@ -86,6 +86,19 @@ The stacks feature uses an in-app git repo to store Docker Compose files. Clone 
 
 **Docker monitoring:** The local compose file seeds a localhost agent (via `HOMELAB_DEV_SEED=true`, which generates a dev Ed25519 keypair and writes the public JWK to `data/dev-agent-pubkey.json` for the agent to read) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams; it does not connect to Docker directly. No host port is needed for the Docker socket.
 
+#### Rotating the Dev Agent Keypair
+
+Development-only. Self-hosters follow the procedure in [self-hosting/README.md](../self-hosting/README.md#rotating-a-host-keypair) instead: they edit the agent's `AGENT_TRUSTED_PUBKEY` env var on the host machine, not a file inside this repo.
+
+Rotating a host's keypair (Settings → Managed Hosts → key icon, or the SQL below) updates only the database. The agent keeps trusting the old key from `data/dev-agent-pubkey.json` and the worker keeps signing with the key it loaded at startup, so stats, inventory, logs, and deploys all fail with 401 until both are resynced:
+
+```bash
+docker exec homelab-db-local psql -U homelab -d homelab -t -A -c "SELECT public_jwk::text FROM agent_keypairs WHERE host_name = 'localhost'" > data/dev-agent-pubkey.json
+docker restart hlm-agent homelab-worker-local
+```
+
+This assumes the default dev seed values: host name `localhost` (`DEV_HOST_NAME`), pubkey path `data/dev-agent-pubkey.json` (`DEV_AGENT_PUBKEY_FILE`), and Postgres user/database `homelab`/`homelab` from `.env`. Adjust the command if you overrode any of them.
+
 Cloning requires a per-user git token. Log in as `dev-admin` using a one-time URL from `data/dev-oidc-logins.txt` (see [docs/dev-oidc.md](dev-oidc.md)), then generate a token under **Settings → Auth Management → Generate Git Token**. When git prompts for credentials, enter any username and the token as the password (keeping the token out of shell history and `.git/config`):
 
 ```bash

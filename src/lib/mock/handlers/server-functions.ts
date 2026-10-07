@@ -96,6 +96,8 @@ const registry: Record<string, ServerFnMock> = {
   updateHost: withData(hostsFns.updateHost),
   removeHost: withData(hostsFns.removeHost),
   checkHostHealth: withData(hostsFns.checkHostHealth),
+  getHostPublicJwk: withData(hostsFns.getHostPublicJwk),
+  rotateHostKeypair: withData(hostsFns.rotateHostKeypair),
 
   // Git tokens
   listGitTokens: fn(gitTokenFns.listGitTokens),
