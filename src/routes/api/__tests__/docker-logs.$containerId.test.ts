@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { mockSetInterval } from '@/lib/test/mock-timers';
 import { mockModule } from '@/lib/test/mock-module';
 
 mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({ ...real, 
@@ -181,7 +182,7 @@ describe('GET /api/docker-logs/$containerId', () => {
   });
 
   it('carries the shared heartbeat cadence so a quiet log stream does not go idle', async () => {
-    const setSpy = spyOn(globalThis, 'setInterval');
+    const intervals = mockSetInterval();
     fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(agentBodyStream([]), { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
     );
@@ -192,9 +193,9 @@ describe('GET /api/docker-logs/$containerId', () => {
       params: { containerId: 'c1' },
     });
 
-    expect(setSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
+    expect(intervals.setSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
 
-    setSpy.mockRestore();
+    intervals.restore();
     ac.abort();
   });
 

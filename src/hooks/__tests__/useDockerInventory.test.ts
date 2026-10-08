@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { MockEventSource } from '@/lib/test/mock-event-source';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 import { useDockerInventory, mergeUpsert } from '../useDockerInventory';
 import { dockerInventoryChannel } from '@/lib/sse/channels/docker-inventory';
 import type {
@@ -365,9 +366,7 @@ describe('useDockerInventory', () => {
   });
 
   it('sets error and clears isConnected on connection error', () => {
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     try {
       const { result } = renderHook(() => useDockerInventory());
@@ -390,7 +389,7 @@ describe('useDockerInventory', () => {
       expect(result.current.isConnected).toBe(false);
       expect(result.current.error).not.toBeNull();
     } finally {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     }
   });
 

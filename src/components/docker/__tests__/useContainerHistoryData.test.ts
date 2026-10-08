@@ -1,7 +1,8 @@
-import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import type { ReactNode } from 'react';
 import type { DockerStatsRow } from '@/types/docker';
 import type { MetricType } from '@/components/docker/MetricCheckboxes';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 import { mockModule } from '@/lib/test/mock-module';
 
 /** Minimal valid DockerStatsRow with all nullable fields null */
@@ -139,10 +140,7 @@ describe('useContainerHistoryData', () => {
 
   it('handleRangeChange debounces the chart range update', () => {
     // Make the debounce timer fire synchronously so debouncedRange updates within act().
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => {
-      fn();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout);
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     try {
       const { result } = renderHook(
@@ -159,7 +157,7 @@ describe('useContainerHistoryData', () => {
       expect(result.current.chartFrom).toBe(from);
       expect(result.current.chartTo).toBe(to);
     } finally {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     }
   });
 

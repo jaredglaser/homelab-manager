@@ -1,12 +1,12 @@
-import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import '@/lib/test/testing-library'
 import CopyButton from '@/components/settings/CopyButton'
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers'
 
 describe('CopyButton', () => {
   let writeTextMock: ReturnType<typeof mock>
-  let setTimeoutSpy: ReturnType<typeof spyOn>
-  let capturedCallback: (() => void) | null = null
+  let timers: TimerMock
 
   beforeEach(() => {
     writeTextMock = mock(() => Promise.resolve())
@@ -16,17 +16,11 @@ describe('CopyButton', () => {
       configurable: true,
     })
 
-    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: () => void) => {
-        capturedCallback = fn
-        return 0
-      }) as unknown as typeof setTimeout
-    )
-    capturedCallback = null
+    timers = mockSetTimeout()
   })
 
   afterEach(() => {
-    setTimeoutSpy.mockRestore()
+    timers.restore()
   })
 
   it('renders copy icon initially', () => {
@@ -59,7 +53,7 @@ describe('CopyButton', () => {
     await act(async () => {
       fireEvent.click(button)
     })
-    expect(setTimeoutSpy).toHaveBeenCalledTimes(1)
+    expect(timers.setSpy).toHaveBeenCalledTimes(1)
   })
 
   it('reverts to copy icon after timeout fires', async () => {
@@ -70,9 +64,8 @@ describe('CopyButton', () => {
       fireEvent.click(button)
     })
 
-    // Fire the captured timeout callback
     act(() => {
-      capturedCallback?.()
+      timers.fireNext()
     })
 
     // After reset, aria-label should still say 'Copy greeting' (not changed)

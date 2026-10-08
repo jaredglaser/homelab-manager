@@ -1,6 +1,7 @@
 import { describe, it, expect, spyOn, afterEach } from 'bun:test';
 
 import { sseData, sseEvent, createSseResponse } from '@/lib/mock/handlers/sse-stream';
+import { mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
 // The producer never closes the stream, so reading to completion would hang; take
 // a fixed count and cancel. One send is one enqueue is one read, so frames never split.
@@ -44,34 +45,20 @@ describe('sse-stream', () => {
     });
 
     describe('interval teardown', () => {
-      const spies: { mockRestore: () => void }[] = [];
+      const restorers: Array<() => void> = [];
 
       afterEach(() => {
-        for (const spy of spies.splice(0)) spy.mockRestore();
+        for (const restore of restorers.splice(0)) restore();
       });
 
-      function captureTimers(): {
-        scheduled: { id: number; tick: () => void }[];
-        cleared: unknown[];
-      } {
-        const scheduled: { id: number; tick: () => void }[] = [];
-        const cleared: unknown[] = [];
-        let nextId = 1;
-        spies.push(
-          spyOn(globalThis, 'setInterval').mockImplementation(((tick: () => void) => {
-            const id = nextId++;
-            scheduled.push({ id, tick });
-            return id;
-          }) as unknown as typeof setInterval),
-          spyOn(globalThis, 'clearInterval').mockImplementation(((id: number) => {
-            cleared.push(id);
-          }) as unknown as typeof clearInterval),
-        );
-        return { scheduled, cleared };
+      function captureTimers(): TimerMock {
+        const intervals = mockSetInterval();
+        restorers.push(() => intervals.restore());
+        return intervals;
       }
 
       it('clears interval timers and stops ticking after cancel', async () => {
-        const { scheduled, cleared } = captureTimers();
+        const intervals = captureTimers();
 
         let ticks = 0;
         const res = createSseResponse((c) => {
@@ -84,25 +71,24 @@ describe('sse-stream', () => {
 
         const reader = res.body!.getReader();
         await reader.read();
-        expect(scheduled).toHaveLength(1);
+        expect(intervals.scheduled).toHaveLength(1);
 
-        scheduled[0].tick();
+        intervals.fire(intervals.scheduled[0]);
         expect(ticks).toBe(1);
 
         await reader.cancel();
-        expect(cleared).toEqual([scheduled[0].id]);
+        expect(intervals.clearSpy.mock.calls.map((call: unknown[]) => call[0])).toEqual([intervals.scheduled[0].id]);
 
-        scheduled[0].tick();
+        intervals.fire(intervals.scheduled[0]);
         expect(ticks).toBe(1);
       });
 
       it('clears interval timers when a write fails on a closed controller', () => {
-        const { scheduled, cleared } = captureTimers();
-        spies.push(
-          spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
-            throw new TypeError('Invalid state: Controller is already closed');
-          }),
-        );
+        const intervals = captureTimers();
+        const encodeSpy = spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
+          throw new TypeError('Invalid state: Controller is already closed');
+        });
+        restorers.push(() => encodeSpy.mockRestore());
 
         let ticks = 0;
         createSseResponse((c) => {
@@ -113,30 +99,28 @@ describe('sse-stream', () => {
           c.send({ first: true });
         });
 
-        expect(scheduled).toHaveLength(1);
-        expect(cleared).toEqual([scheduled[0].id]);
+        expect(intervals.scheduled).toHaveLength(1);
+        expect(intervals.clearSpy.mock.calls.map((call: unknown[]) => call[0])).toEqual([intervals.scheduled[0].id]);
 
-        scheduled[0].tick();
+        intervals.fire(intervals.scheduled[0]);
         expect(ticks).toBe(0);
       });
 
       // The shipped producers (statsHandler, dockerLogs) send before registering
       // their interval, so this is the ordering that actually reaches the leak.
       it('schedules no timer when the first send already tore the stream down', () => {
-        const { scheduled, cleared } = captureTimers();
-        spies.push(
-          spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
-            throw new TypeError('Invalid state: Controller is already closed');
-          }),
-        );
+        const intervals = captureTimers();
+        const encodeSpy = spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
+          throw new TypeError('Invalid state: Controller is already closed');
+        });
+        restorers.push(() => encodeSpy.mockRestore());
 
         createSseResponse((c) => {
           c.send({ first: true });
           c.interval(5, () => c.send({ tick: true }));
         });
-
-        expect(scheduled).toEqual([]);
-        expect(cleared).toEqual([]);
+        expect(intervals.scheduled).toEqual([]);
+        expect(intervals.clearSpy).not.toHaveBeenCalled();
       });
     });
   });

@@ -1,4 +1,5 @@
-import { describe, it, expect, spyOn, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 import { backoffDelayMs, retry } from '../backoff';
 
 describe('backoffDelayMs', () => {
@@ -34,23 +35,15 @@ describe('backoffDelayMs', () => {
 });
 
 describe('retry', () => {
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
-  let capturedDelays: number[];
+  let timers: TimerMock;
 
   beforeEach(() => {
-    capturedDelays = [];
     // Fire timers synchronously so delay math is exercised without real waiting.
-    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler, delay?: number) => {
-        capturedDelays.push(delay ?? 0);
-        if (typeof fn === 'function') fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
+    timers = mockSetTimeout({ fireImmediately: true });
   });
 
   afterEach(() => {
-    setTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('succeeds on first attempt → fn called once, onRetry not invoked', async () => {
@@ -68,7 +61,7 @@ describe('retry', () => {
     expect(calls).toBe(1);
     expect(retries).toBe(0);
     // No sleeps are expected for a successful first attempt.
-    expect(capturedDelays).toEqual([]);
+    expect(timers.delays).toEqual([]);
   });
 
   it('succeeds on attempt 3 after 2 retryable failures', async () => {
@@ -94,7 +87,7 @@ describe('retry', () => {
       { attempt: 1, delayMs: 500 },
       { attempt: 2, delayMs: 1000 },
     ]);
-    expect(capturedDelays).toEqual([500, 1000]);
+    expect(timers.delays).toEqual([500, 1000]);
   });
 
   it('all attempts throw retryable → rejects with the last error; fn called maxAttempts times', async () => {
@@ -120,7 +113,7 @@ describe('retry', () => {
     expect(thrown).toBe(errors[2]);
     expect(calls).toBe(3);
     // Two sleeps between three attempts (none after the last failure).
-    expect(capturedDelays).toEqual([500, 1000]);
+    expect(timers.delays).toEqual([500, 1000]);
   });
 
   it('non-retryable error on first attempt → rejects immediately, no sleep', async () => {
@@ -139,7 +132,7 @@ describe('retry', () => {
       ),
     ).rejects.toBe(err);
     expect(calls).toBe(1);
-    expect(capturedDelays).toEqual([]);
+    expect(timers.delays).toEqual([]);
   });
 
   it('maxAttempts: 1 + single throw → rejects immediately', async () => {
@@ -158,13 +151,13 @@ describe('retry', () => {
       ),
     ).rejects.toBe(err);
     expect(calls).toBe(1);
-    expect(capturedDelays).toEqual([]);
+    expect(timers.delays).toEqual([]);
   });
 
   it('already-aborted signal: sleep rejects with AbortError on the first retry', async () => {
     // Restore the synchronous setTimeout spy for this test; abortableSleep
     // checks signal.aborted synchronously and rejects before scheduling.
-    setTimeoutSpy.mockRestore();
+    timers.restore();
 
     const controller = new AbortController();
     controller.abort();
