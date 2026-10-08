@@ -16,5 +16,4 @@ function EChartsLazy({ fallback = null, ...props }: EChartsLazyProps) {
   );
 }
 
-// lazy() components cannot take ref pre-React-19; React 19's ref-as-prop (used by this app's consumers) passes through {...props}.
 export default EChartsLazy;
