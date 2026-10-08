@@ -18,7 +18,6 @@ mock.module('@/data/git-tokens.functions', () => ({
   revokeGitToken: mock(() => Promise.resolve()),
 }))
 
-// eslint-disable-next-line import/first
 import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
 
 function makeQueryClient() {
