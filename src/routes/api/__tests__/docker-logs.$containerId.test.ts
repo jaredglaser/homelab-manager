@@ -1,16 +1,17 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@/lib/auth/sse-auth', () => ({
+mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({ ...real, 
   authenticateSSE: mock(async () => ({ id: 1, role: 'admin' })),
 }));
 
-mock.module('@/lib/clients/database-client', () => ({
+mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
   databaseConnectionManager: {
     getClient: mock(async () => ({ getPool: () => ({}) })),
   },
 }));
 
-mock.module('@/lib/config/database-config', () => ({
+mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
   loadDatabaseConfig: mock(() => ({})),
 }));
 
@@ -26,21 +27,21 @@ const findByName = mock(async (_name: string): Promise<FakeManagedHost | null> =
   agentUrl: 'https://agent.example/api',
 }));
 
-mock.module('@/lib/database/repositories/host-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
   HostRepository: mock().mockImplementation(() => ({ findByName })),
 }));
 
 const getPrivateKeyForHost = mock(async (_hostName: string): Promise<CryptoKey | null> => ({}) as CryptoKey);
 
-mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
   AgentKeypairsRepository: mock().mockImplementation(() => ({ getPrivateKeyForHost })),
 }));
 
-mock.module('@/lib/crypto/master-key', () => ({
+mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
   loadMasterKeyring: mock(async () => ({})),
 }));
 
-mock.module('@/lib/crypto/agent-jwt', () => ({
+mockModule<typeof import('@/lib/crypto/agent-jwt')>('@/lib/crypto/agent-jwt', (real) => ({ ...real, 
   signAgentJwt: mock(async () => 'signed.jwt.token'),
 }));
 

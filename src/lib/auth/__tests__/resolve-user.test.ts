@@ -2,17 +2,18 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { resolveUserFromCookie, resetAuthResolverState } from '@/lib/auth/resolve-user';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
+import { mockModule } from '@/lib/test/mock-module';
 
 let authDisabled = false;
 let secureCookie = false;
-mock.module('@/lib/config/auth-config', () => ({
+mockModule<typeof import('@/lib/config/auth-config')>('@/lib/config/auth-config', (real) => ({ ...real, 
   isAuthDisabled: () => authDisabled,
   isSecureCookie: () => secureCookie,
 }));
 
 const mockValidateSession = mock(async (_token: string) => null as AuthUser | null);
 const mockBuildSessionManager = mock(async () => ({ validateSession: mockValidateSession }));
-mock.module('@/lib/auth/session-manager', () => ({
+mockModule<typeof import('@/lib/auth/session-manager')>('@/lib/auth/session-manager', (real) => ({ ...real, 
   buildSessionManager: mockBuildSessionManager,
   resetSessionManagerState: () => {},
   // Full shape kept so mock.module leaking into other files still compiles.
