@@ -4,6 +4,7 @@ import type { StackBroadcastEvent } from '../stack-status-broadcast-service';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { PoolClient } from 'pg';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
+import { mockModule } from '@/lib/test/mock-module';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -1141,11 +1142,11 @@ describe('StackStatusBroadcastService', () => {
 // when no deps are injected. They use dynamic imports so we mock those modules
 // here; bun resolves dynamic imports at call time, so the mocks apply even
 // though StackStatusBroadcastService was already imported above.
-mock.module('@/lib/config/database-config', () => ({
+mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
   loadDatabaseConfig: () => ({}),
 }));
 
-mock.module('@/lib/clients/database-client', () => ({
+mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
   databaseConnectionManager: {
     getClient: async () => ({
       getPool: () => ({
@@ -1158,7 +1159,7 @@ mock.module('@/lib/clients/database-client', () => ({
   },
 }));
 
-mock.module('@/lib/database/repositories/docker-container-event-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/docker-container-event-repository')>('@/lib/database/repositories/docker-container-event-repository', (real) => ({ ...real, 
   DockerContainerEventRepository: class {
     async getCurrentSnapshot() { return []; }
   },

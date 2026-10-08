@@ -3,6 +3,7 @@ import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
 import { withStartContext } from '@/lib/test/start-context';
 import * as requireRoleModule from '@/lib/auth/require-role';
+import { mockModule } from '@/lib/test/mock-module';
 
 // Inject a synthetic admin user so requireRole checks pass in tests.
 // `activeUser` is read at call time, so `withUser` can swap the role for one call.
@@ -25,7 +26,7 @@ async function withUser<T>(user: AuthUser, run: () => Promise<T>): Promise<T> {
   }
 }
 
-mock.module('@/middleware/auth-middleware', () => ({
+mockModule<typeof import('@/middleware/auth-middleware')>('@/middleware/auth-middleware', (real) => ({ ...real, 
   authMiddleware: {
     options: {
       type: 'function',
@@ -51,7 +52,7 @@ mock.module('@/middleware/auth-middleware', () => ({
 
 // stackSecretsMiddleware is used by some stacks functions; mock it so it injects
 // a minimal context (pool/keyring) without needing a real DB connection.
-mock.module('@/middleware/stack-secrets-middleware', () => ({
+mockModule<typeof import('@/middleware/stack-secrets-middleware')>('@/middleware/stack-secrets-middleware', (real) => ({ ...real, 
   stackSecretsMiddleware: {
     options: {
       type: 'function',
@@ -106,7 +107,7 @@ const mockResolveStackDriftItem = mock((input: { host: string; stack: string; ki
   }),
 );
 
-mock.module('@/lib/stacks/stack-service', () => ({
+mockModule<typeof import('@/lib/stacks/stack-service')>('@/lib/stacks/stack-service', (real) => ({ ...real, 
   getStackSummaries: mockGetStackSummaries,
   getStackDetailByName: mockGetStackDetailByName,
   triggerStackDeploy: mockTriggerStackDeploy,

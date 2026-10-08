@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Mock server functions before importing the component
-mock.module('@/data/auth.functions', () => ({
+mockModule<typeof import('@/data/auth.functions')>('@/data/auth.functions', (real) => ({ ...real, 
   listUsers: mock(() => Promise.resolve([])),
   listSessions: mock(() => Promise.resolve([])),
   revokeSession: mock(() => Promise.resolve()),
@@ -12,7 +12,7 @@ mock.module('@/data/auth.functions', () => ({
   getRoleMapping: mock(() => Promise.resolve({ admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' })),
 }))
 
-mock.module('@/data/git-tokens.functions', () => ({
+mockModule<typeof import('@/data/git-tokens.functions')>('@/data/git-tokens.functions', (real) => ({ ...real, 
   listGitTokens: mock(() => Promise.resolve([])),
   createGitToken: mock(() => Promise.resolve({ token: 'test-token-abc123' })),
   revokeGitToken: mock(() => Promise.resolve()),
@@ -20,6 +20,7 @@ mock.module('@/data/git-tokens.functions', () => ({
 
 // eslint-disable-next-line import/first
 import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
+import { mockModule } from '@/lib/test/mock-module';
 
 function makeQueryClient() {
   return new QueryClient({
