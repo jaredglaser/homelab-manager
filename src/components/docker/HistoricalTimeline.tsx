@@ -1,11 +1,12 @@
 import { memo, useMemo, useRef, useEffect, useCallback, useState } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { DateTimePicker } from '@/components/ui/date-time-picker';
-import ReactECharts from 'echarts-for-react';
+import type ReactECharts from 'echarts-for-react';
 import { useGeneralSettings } from '@/hooks/useSettings';
 import HorizontalScrollRow from '@/components/shared/HorizontalScrollRow';
 import { RANGE_PRESETS, TIMELINE_METRICS, getTimelineOption } from '@/lib/charts/timeline-chart-config';
 import type { DockerStatsRow } from '@/types/docker';
+import EChartsLazy from '@/components/charts/EChartsLazy';
 import type { MetricType } from '@/components/docker/MetricCheckboxes';
 
 interface HistoricalTimelineProps {
@@ -180,7 +181,7 @@ export default memo(function HistoricalTimeline({
         </HorizontalScrollRow>
       </div>
       <div className="h-[160px]">
-        <ReactECharts
+        <EChartsLazy
           ref={chartRef}
           option={option}
           style={{ height: '100%', width: '100%' }}
