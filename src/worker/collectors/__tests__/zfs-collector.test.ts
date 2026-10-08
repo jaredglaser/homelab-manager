@@ -1,8 +1,19 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { ZFSCollector } from '../zfs-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
 import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
+
+// Records setTimeout delays and fires callbacks immediately so backoff sleeps never run for real.
+function spyOnSleepDelays(capturedDelays: number[]) {
+  return spyOn(globalThis, 'setTimeout').mockImplementation(
+    ((fn: TimerHandler, delay?: number) => {
+      capturedDelays.push(delay ?? 0);
+      if (typeof fn === 'function') fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout,
+  );
+}
 
 /** Wrap a list of ZFS iostat lines as `{ line }` frames (optionally with an agent timestamp). */
 function lineFrames(lines: string[], timestamp?: number): unknown[] {
@@ -332,6 +343,18 @@ describe('ZFSCollector', () => {
   });
 
   describe('reconnection', () => {
+    let capturedDelays: number[];
+    let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      capturedDelays = [];
+      setTimeoutSpy = spyOnSleepDelays(capturedDelays);
+    });
+
+    afterEach(() => {
+      setTimeoutSpy.mockRestore();
+    });
+
     it('run() reconnects after stream error with backoff', async () => {
       let callCount = 0;
 
@@ -357,6 +380,8 @@ describe('ZFSCollector', () => {
       await collector.run();
 
       expect(callCount).toBeGreaterThanOrEqual(2);
+      // error #1 backoff: baseMs 500 * 2^1
+      expect(capturedDelays).toEqual([1000]);
     });
 
     it('run() reconnects after a connect failure with backoff', async () => {
@@ -379,6 +404,8 @@ describe('ZFSCollector', () => {
       await collector.run();
 
       expect(callCount).toBeGreaterThanOrEqual(3);
+      // two error backoffs: baseMs 500 * 2^1 then 2^2
+      expect(capturedDelays).toEqual([1000, 2000]);
     });
   });
 

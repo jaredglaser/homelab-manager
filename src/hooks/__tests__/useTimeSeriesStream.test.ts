@@ -485,11 +485,24 @@ describe('useTimeSeriesStream service error', () => {
 });
 
 describe('useTimeSeriesStream periodic refresh', () => {
+  // Captures the interval callback armed with the given delay; restore the spy before any waitFor (it polls via setInterval).
+  function captureIntervalTick(delayMs: number): [ReturnType<typeof spyOn>, () => void] {
+    let tick: () => void = () => {};
+    const spy = spyOn(globalThis, 'setInterval').mockImplementation(
+      ((fn: TimerHandler, delay?: number) => {
+        if (delay === delayMs && typeof fn === 'function') tick = fn as () => void;
+        return 0 as unknown as ReturnType<typeof setInterval>;
+      }) as unknown as typeof setInterval,
+    );
+    return [spy, () => tick()];
+  }
+
   it('re-fetches data at the configured refresh interval', async () => {
     const now = Date.now();
     const rows: TestRow[] = [{ key: 'a-1', time: now - 5000, entity: 'a' }];
     const preloadFn = mock(() => Promise.resolve(rows));
 
+    const [setIntervalSpy, refreshTick] = captureIntervalTick(100);
     renderHook(() =>
       useTimeSeriesStream({
         channel: testChannel,
@@ -499,12 +512,13 @@ describe('useTimeSeriesStream periodic refresh', () => {
         refreshIntervalMs: 100,
       })
     );
+    setIntervalSpy.mockRestore();
 
     // Wait for initial preload
     await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
-    // Wait for at least one periodic refresh
-    await waitFor(() => { expect(preloadFn.mock.calls.length).toBeGreaterThanOrEqual(2); });
+    await act(async () => { refreshTick(); });
+    expect(preloadFn.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('doRefresh silently ignores errors', async () => {
@@ -515,6 +529,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
       return Promise.reject(new Error('refresh failed'));
     });
 
+    const [setIntervalSpy, refreshTick] = captureIntervalTick(100);
     const { result } = renderHook(() =>
       useTimeSeriesStream({
         channel: testChannel,
@@ -524,13 +539,13 @@ describe('useTimeSeriesStream periodic refresh', () => {
         refreshIntervalMs: 100,
       })
     );
+    setIntervalSpy.mockRestore();
 
     await waitFor(() => { expect(result.current.hasData).toBe(true); });
 
-    // Wait for periodic refresh that fails
-    await waitFor(() => { expect(callCount).toBeGreaterThanOrEqual(2); });
-
-    // Error should not propagate; data should still be intact
+    // Periodic refresh that fails must not propagate the error.
+    await act(async () => { refreshTick(); });
+    expect(callCount).toBeGreaterThanOrEqual(2);
     expect(result.current.rows.length).toBeGreaterThan(0);
   });
 });

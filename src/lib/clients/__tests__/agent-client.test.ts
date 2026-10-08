@@ -1,6 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { AgentClient, AgentClientError, type ZfsPool } from '../agent-client';
 
+// Fire setTimeout callbacks immediately and record delays so retry backoff sleeps never run for real.
+function spyOnRetryDelays(capturedDelays: number[]) {
+  return spyOn(globalThis, 'setTimeout').mockImplementation(
+    ((fn: TimerHandler, delay?: number) => {
+      capturedDelays.push(delay ?? 0);
+      if (typeof fn === 'function') fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout,
+  );
+}
+
 describe('AgentClient', () => {
   let client: AgentClient;
   let fetchMock: ReturnType<typeof mock>;
@@ -76,14 +87,21 @@ describe('AgentClient', () => {
 
     it('throws AgentClientError on fetch failure (network error)', async () => {
       // Network errors retry up to 3 times: reject all attempts so we see the final error.
-      fetchMock.mockRejectedValue(new Error('Connection refused'));
+      const capturedDelays: number[] = [];
+      const setTimeoutSpy = spyOnRetryDelays(capturedDelays);
+      try {
+        fetchMock.mockRejectedValue(new Error('Connection refused'));
 
-      await expect(client.deploy({
-        stack: 'plex',
-        composeContent: 'version: "3"',
-        envContent: '',
-        action: 'deploy',
-      })).rejects.toThrow(AgentClientError);
+        await expect(client.deploy({
+          stack: 'plex',
+          composeContent: 'version: "3"',
+          envContent: '',
+          action: 'deploy',
+        })).rejects.toThrow(AgentClientError);
+        expect(capturedDelays).toEqual([1000, 2000]);
+      } finally {
+        setTimeoutSpy.mockRestore();
+      }
     });
 
     it('throws AgentClientError when agent URL returns a redirect (3xx)', async () => {
@@ -447,9 +465,16 @@ describe('AgentClient', () => {
 
     it('throws AgentClientError when agent is unreachable', async () => {
       // Network errors retry up to 3 times: reject all attempts.
-      fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+      const capturedDelays: number[] = [];
+      const setTimeoutSpy = spyOnRetryDelays(capturedDelays);
+      try {
+        fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
-      await expect(client.health()).rejects.toThrow(AgentClientError);
+        await expect(client.health()).rejects.toThrow(AgentClientError);
+        expect(capturedDelays).toEqual([1000, 2000]);
+      } finally {
+        setTimeoutSpy.mockRestore();
+      }
     });
 
     it('mints a fresh JWT per request via signer', async () => {
@@ -543,13 +568,7 @@ describe('AgentClient', () => {
 
     beforeEach(() => {
       capturedDelays = [];
-      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-        ((fn: TimerHandler, delay?: number) => {
-          capturedDelays.push(delay ?? 0);
-          if (typeof fn === 'function') fn();
-          return 0 as unknown as ReturnType<typeof setTimeout>;
-        }) as unknown as typeof setTimeout,
-      );
+      setTimeoutSpy = spyOnRetryDelays(capturedDelays);
     });
 
     afterEach(() => {
