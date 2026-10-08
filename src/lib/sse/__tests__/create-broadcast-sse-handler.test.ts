@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { mockSetInterval } from '@/lib/test/mock-timers';
 import { createBroadcastSseHandler } from '../create-broadcast-sse-handler';
 
 mock.module('@/lib/auth/sse-auth', () => ({
@@ -104,13 +105,7 @@ describe('createBroadcastSseHandler', () => {
   });
 
   it('emits comment heartbeats on the shared 5s cadence to keep idle streams warm', async () => {
-    let heartbeatFn: (() => void) | null = null;
-    const intervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms: number) => {
-      heartbeatFn = fn;
-      expect(ms).toBe(5000); // the cadence now comes only from createSseStream's default
-      return 123 as unknown as ReturnType<typeof setInterval>;
-    }) as typeof setInterval);
-    const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(() => {});
+    const intervals = mockSetInterval();
 
     try {
       const { handler } = setup();
@@ -121,19 +116,20 @@ describe('createBroadcastSseHandler', () => {
       const decoder = new TextDecoder();
       await reader.read(); // : ok
 
-      expect(heartbeatFn).not.toBeNull();
-      heartbeatFn!();
+      const heartbeat = intervals.scheduled.at(-1) ?? null;
+      expect(heartbeat).not.toBeNull();
+      expect(heartbeat!.delayMs).toBe(5000); // the cadence now comes only from createSseStream's default
+      intervals.fire(heartbeat!);
       const frame = await reader.read();
       expect(decoder.decode(frame.value)).toBe(':\n\n');
 
       ac.abort();
       // Aborting tears down the stream, which must stop the heartbeat timer.
-      expect(clearSpy).toHaveBeenCalledWith(123);
+      expect(intervals.clearSpy).toHaveBeenCalledWith(heartbeat!.id);
 
       reader.cancel();
     } finally {
-      intervalSpy.mockRestore();
-      clearSpy.mockRestore();
+      intervals.restore();
     }
   });
 

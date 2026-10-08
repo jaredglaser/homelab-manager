@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { createReconnectingEventSource } from '@/lib/streaming/reconnecting-event-source';
 import { MockEventSource } from '@/lib/test/mock-event-source';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
 const originalEventSource = globalThis.EventSource;
 
@@ -61,31 +62,24 @@ describe('createReconnectingEventSource', () => {
   });
 
   describe('with immediate timers', () => {
-    let setTimeoutSpy: ReturnType<typeof spyOn>;
+    let timers: TimerMock;
 
     beforeEach(() => {
-      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout);
+      timers = mockSetTimeout({ fireImmediately: true });
     });
 
     afterEach(() => {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     });
 
     it('reconnects with exponential backoff capped at 16s', () => {
-      const delays: number[] = [];
-      setTimeoutSpy.mockImplementation(((fn: () => void, delay?: number) => {
-        delays.push(delay ?? 0);
-        fn();
-        return 0;
-      }) as unknown as typeof setTimeout);
-
       createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
       for (let i = 0; i < 7; i++) {
         MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
       }
 
-      expect(delays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 16_000, 16_000]);
+      expect(timers.delays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 16_000, 16_000]);
     });
 
     it('retries indefinitely when maxAttempts is not set', () => {
@@ -165,29 +159,22 @@ describe('createReconnectingEventSource', () => {
     });
 
     it('resets the attempt counter after a successful reconnect', () => {
-      const delays: number[] = [];
-      setTimeoutSpy.mockImplementation(((fn: () => void, delay?: number) => {
-        delays.push(delay ?? 0);
-        fn();
-        return 0;
-      }) as unknown as typeof setTimeout);
-
       createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
       MockEventSource.instances[0].onerror?.();
       MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
-      expect(delays).toEqual([1_000, 2_000]);
+      expect(timers.delays).toEqual([1_000, 2_000]);
 
       MockEventSource.instances[MockEventSource.instances.length - 1].onopen?.();
       MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
 
-      expect(delays[delays.length - 1]).toBe(1_000);
+      expect(timers.delays.at(-1)).toBe(1_000);
     });
   });
 
   describe('visibility and online reconnect', () => {
     it('does not reconnect on visibility or online events unless opted in', () => {
-      const spy = spyOn(globalThis, 'setTimeout').mockImplementation((() => 0) as unknown as typeof setTimeout);
+      const timers = mockSetTimeout();
       try {
         createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
@@ -197,7 +184,7 @@ describe('createReconnectingEventSource', () => {
 
         expect(MockEventSource.instances).toHaveLength(1);
       } finally {
-        spy.mockRestore();
+        timers.restore();
       }
     });
 
@@ -236,7 +223,7 @@ describe('createReconnectingEventSource', () => {
     });
 
     it('reconnects immediately on online event, skipping remaining backoff', () => {
-      const spy = spyOn(globalThis, 'setTimeout').mockImplementation((() => 0) as unknown as typeof setTimeout);
+      const timers = mockSetTimeout();
       try {
         createReconnectingEventSource({
           url: '/api/test',
@@ -254,7 +241,7 @@ describe('createReconnectingEventSource', () => {
         expect(MockEventSource.instances).toHaveLength(2);
         expect(MockEventSource.instances[1].closed).toBe(false);
       } finally {
-        spy.mockRestore();
+        timers.restore();
       }
     });
 
@@ -289,20 +276,18 @@ describe('createReconnectingEventSource', () => {
     });
 
     it('cancels a pending reconnect timer', () => {
-      const setTimeoutSpy = spyOn(globalThis, 'setTimeout');
-      const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout');
+      const timers = mockSetTimeout();
       try {
         const handle = createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
         MockEventSource.instances[0].onerror?.();
-        expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+        expect(timers.setSpy).toHaveBeenCalledTimes(1);
 
         handle.dispose();
 
-        expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+        expect(timers.clearSpy).toHaveBeenCalledTimes(1);
       } finally {
-        setTimeoutSpy.mockRestore();
-        clearTimeoutSpy.mockRestore();
+        timers.restore();
       }
     });
 

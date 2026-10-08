@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { z } from 'zod';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useTimeSeriesStream, VISIBILITY_REFRESH_COOLDOWN_MS } from '../useTimeSeriesStream';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import { MockEventSource } from '@/lib/test/mock-event-source';
+import { mockSetTimeout, mockSetInterval } from '@/lib/test/mock-timers';
 
 const originalEventSource = globalThis.EventSource;
 
@@ -105,14 +106,12 @@ describe('useTimeSeriesStream visibility refresh', () => {
 describe('useTimeSeriesStream reconnect refresh', () => {
   /** Errors the live SSE connection with timers firing synchronously, then opens the replacement. */
   function dropAndReopenConnection() {
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout,
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
     try {
       const es = MockEventSource.instances[MockEventSource.instances.length - 1];
       act(() => { es.onerror?.(); });
     } finally {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     }
     const reconnected = MockEventSource.instances[MockEventSource.instances.length - 1];
     act(() => { reconnected.onopen?.(); });
@@ -485,24 +484,12 @@ describe('useTimeSeriesStream service error', () => {
 });
 
 describe('useTimeSeriesStream periodic refresh', () => {
-  // Captures the interval callback armed with the given delay; restore the spy before any waitFor (it polls via setInterval).
-  function captureIntervalTick(delayMs: number): [ReturnType<typeof spyOn>, () => void] {
-    let tick: () => void = () => {};
-    const spy = spyOn(globalThis, 'setInterval').mockImplementation(
-      ((fn: TimerHandler, delay?: number) => {
-        if (delay === delayMs && typeof fn === 'function') tick = fn as () => void;
-        return 0 as unknown as ReturnType<typeof setInterval>;
-      }) as unknown as typeof setInterval,
-    );
-    return [spy, () => tick()];
-  }
-
   it('re-fetches data at the configured refresh interval', async () => {
     const now = Date.now();
     const rows: TestRow[] = [{ key: 'a-1', time: now - 5000, entity: 'a' }];
     const preloadFn = mock(() => Promise.resolve(rows));
 
-    const [setIntervalSpy, refreshTick] = captureIntervalTick(100);
+    const intervals = mockSetInterval();
     renderHook(() =>
       useTimeSeriesStream({
         channel: testChannel,
@@ -512,12 +499,14 @@ describe('useTimeSeriesStream periodic refresh', () => {
         refreshIntervalMs: 100,
       })
     );
-    setIntervalSpy.mockRestore();
+    // Restore before waitFor: it polls via setInterval and a captured poll never fires.
+    const refreshTick = intervals.scheduled.find((t) => t.delayMs === 100)!;
+    intervals.restore();
 
     // Wait for initial preload
     await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
-    await act(async () => { refreshTick(); });
+    await act(async () => { refreshTick.fn(); });
     expect(preloadFn.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -529,7 +518,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
       return Promise.reject(new Error('refresh failed'));
     });
 
-    const [setIntervalSpy, refreshTick] = captureIntervalTick(100);
+    const intervals = mockSetInterval();
     const { result } = renderHook(() =>
       useTimeSeriesStream({
         channel: testChannel,
@@ -539,12 +528,14 @@ describe('useTimeSeriesStream periodic refresh', () => {
         refreshIntervalMs: 100,
       })
     );
-    setIntervalSpy.mockRestore();
+    // Restore before waitFor: it polls via setInterval and a captured poll never fires.
+    const refreshTick = intervals.scheduled.find((t) => t.delayMs === 100)!;
+    intervals.restore();
 
     await waitFor(() => { expect(result.current.hasData).toBe(true); });
 
     // Periodic refresh that fails must not propagate the error.
-    await act(async () => { refreshTick(); });
+    await act(async () => { refreshTick.fn(); });
     expect(callCount).toBeGreaterThanOrEqual(2);
     expect(result.current.rows.length).toBeGreaterThan(0);
   });

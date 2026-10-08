@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 
@@ -67,7 +68,7 @@ function mockHost(overrides: Partial<ManagedHost> & Pick<ManagedHost, 'id' | 'na
 
 describe('seedDevAgent', () => {
   let consoleInfoSpy: ReturnType<typeof spyOn>;
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let timers: TimerMock;
   let fetchSpy: ReturnType<typeof spyOn>;
   const originalEnv = { ...process.env };
 
@@ -86,9 +87,7 @@ describe('seedDevAgent', () => {
     mockHostFindAll.mockImplementation(() => Promise.resolve([]));
 
     consoleInfoSpy = spyOn(console, 'info').mockImplementation(() => {});
-    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((cb: TimerHandler) => { if (typeof cb === 'function') cb(); return 0; }) as unknown as typeof setTimeout,
-    );
+    timers = mockSetTimeout({ fireImmediately: true });
     fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response('ok', { status: 200 }));
 
     process.env.HOMELAB_DEV_SEED = 'true';
@@ -99,7 +98,7 @@ describe('seedDevAgent', () => {
 
   afterEach(() => {
     consoleInfoSpy.mockRestore();
-    setTimeoutSpy.mockRestore();
+    timers.restore();
     fetchSpy.mockRestore();
     process.env = { ...originalEnv };
   });

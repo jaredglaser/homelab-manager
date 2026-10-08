@@ -4,6 +4,7 @@ import type { StackBroadcastEvent } from '../stack-status-broadcast-service';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { PoolClient } from 'pg';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -545,9 +546,7 @@ describe('StackStatusBroadcastService', () => {
   });
 
   it('reloads snapshot on reconnect to rebuild in-memory state', async () => {
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout,
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     let connectCount = 0;
     const secondPoolClient = createMockPoolClient();
@@ -567,7 +566,7 @@ describe('StackStatusBroadcastService', () => {
 
     expect(connectCount).toBeGreaterThanOrEqual(2);
 
-    setTimeoutSpy.mockRestore();
+    timers.restore();
     await reconnectService.stop();
   });
 
@@ -844,12 +843,7 @@ describe('StackStatusBroadcastService', () => {
     expect(initStatus.type).toBe('status');
     expect(initStatus.entries[0].containers.map((c) => c.id)).toEqual(['containerIdX']);
 
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler) => {
-        if (typeof fn === 'function') fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     try {
       firstClient.emit('error', new Error('connection lost'));
@@ -884,7 +878,7 @@ describe('StackStatusBroadcastService', () => {
       expect(ids).toContain('containerIdY');
       expect(ids).not.toContain('containerIdX');
     } finally {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
       await reconnectService.stop();
     }
   });

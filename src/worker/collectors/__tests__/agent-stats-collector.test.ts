@@ -1,19 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { AgentStatsCollector } from '../agent-stats-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { NewDockerStat } from '@/lib/database/repositories/stats-repository';
 import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
-
-// Records setTimeout delays and fires callbacks immediately so backoff sleeps never run for real.
-function spyOnSleepDelays(capturedDelays: number[]) {
-  return spyOn(globalThis, 'setTimeout').mockImplementation(
-    ((fn: TimerHandler, delay?: number) => {
-      capturedDelays.push(delay ?? 0);
-      if (typeof fn === 'function') fn();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof setTimeout,
-  );
-}
+import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
 /** Create a mock DatabaseClient that captures insertDockerStats calls */
 function createMockDb() {
@@ -310,23 +300,19 @@ describe('AgentStatsCollector', () => {
     // Wait for the first row instead of sleeping past the real 150ms FLUSH_INTERVAL_MS.
     const firstRowQueued = watchFirstPush(collector);
 
-    // Capture the flush callback collect() registers so the test drives the real
-    // interval wiring, just without the 150ms wait.
-    let intervalFlush: (() => void) | undefined;
-    const setIntervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(
-      ((fn: () => void) => { intervalFlush = fn; return 0; }) as unknown as typeof setInterval,
-    );
+    // Capture the flush interval so the test drives the real interval wiring without the 150ms wait.
+    const intervals = mockSetInterval();
     try {
       const collectPromise = (collector as any).collect();
 
       await firstRowQueued;
-      expect(intervalFlush).toBeDefined();
-      intervalFlush!();
+      expect(intervals.pending).toHaveLength(1);
+      intervals.fireNext();
 
       releaseSecondEvent();
       await collectPromise;
     } finally {
-      setIntervalSpy.mockRestore();
+      intervals.restore();
     }
 
     // First event flushed by the interval callback, second by the final drain
@@ -374,18 +360,16 @@ describe('AgentStatsCollector', () => {
 describe('AgentStatsCollector: reconnection', () => {
   let mockDb: ReturnType<typeof createMockDb>;
   let abortController: AbortController;
-  let capturedDelays: number[];
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let timers: TimerMock;
 
   beforeEach(() => {
     mockDb = createMockDb();
     abortController = new AbortController();
-    capturedDelays = [];
-    setTimeoutSpy = spyOnSleepDelays(capturedDelays);
+    timers = mockSetTimeout({ fireImmediately: true });
   });
 
   afterEach(() => {
-    setTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('run() reconnects after stream error with backoff', async () => {
@@ -415,7 +399,7 @@ describe('AgentStatsCollector: reconnection', () => {
     // Should have been called at least twice (initial + reconnect)
     expect(callCount).toBeGreaterThanOrEqual(2);
     // error #1 backoff: baseMs 500 * 2^1
-    expect(capturedDelays).toEqual([1000]);
+    expect(timers.delays).toEqual([1000]);
   });
 
   it('run() reconnects after a connect failure with backoff', async () => {
@@ -440,6 +424,6 @@ describe('AgentStatsCollector: reconnection', () => {
     // BaseCollector handles the exponential backoff and retries
     expect(callCount).toBeGreaterThanOrEqual(3);
     // two error backoffs: baseMs 500 * 2^1 then 2^2
-    expect(capturedDelays).toEqual([1000, 2000]);
+    expect(timers.delays).toEqual([1000, 2000]);
   });
 });

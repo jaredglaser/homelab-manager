@@ -1,17 +1,6 @@
-import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { BaseCollector } from '../base-collector';
-
-// Records setTimeout delays; fires the callback immediately when fire is true.
-function spyOnSleepDelays(capturedDelays: number[], fire: boolean, onSchedule?: () => void) {
-  return spyOn(globalThis, 'setTimeout').mockImplementation(
-    ((fn: TimerHandler, delay?: number) => {
-      capturedDelays.push(delay ?? 0);
-      onSchedule?.();
-      if (fire && typeof fn === 'function') fn();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof setTimeout,
-  );
-}
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
@@ -125,8 +114,7 @@ describe('BaseCollector', () => {
 
   describe('error recovery', () => {
     it('should retry on errors and back off', async () => {
-      const capturedDelays: number[] = [];
-      const setTimeoutSpy = spyOnSleepDelays(capturedDelays, true);
+      const timers = mockSetTimeout({ fireImmediately: true });
       try {
         const controller = new AbortController();
         const collector = new TestCollector(db as any, config, controller);
@@ -144,17 +132,16 @@ describe('BaseCollector', () => {
         await collector.run();
         expect(callCount).toBe(2);
         // error #1 backoff: baseMs 500 * 2^1
-        expect(capturedDelays).toEqual([1000]);
+        expect(timers.delays).toEqual([1000]);
       } finally {
-        setTimeoutSpy.mockRestore();
+        timers.restore();
       }
     });
 
     it('abort during the backoff sleep cancels the sleep', async () => {
-      const capturedDelays: number[] = [];
       let sleepScheduled!: () => void;
       const scheduled = new Promise<void>((resolve) => { sleepScheduled = resolve; });
-      const setTimeoutSpy = spyOnSleepDelays(capturedDelays, false, () => sleepScheduled());
+      const timers = mockSetTimeout({ onSchedule: () => sleepScheduled() });
       try {
         const controller = new AbortController();
         const collector = new TestCollector(db as any, config, controller);
@@ -170,15 +157,14 @@ describe('BaseCollector', () => {
         controller.abort(new DOMException('Done', 'AbortError'));
         await runPromise;
         expect(callCount).toBe(1);
-        expect(capturedDelays).toEqual([1000]);
+        expect(timers.delays).toEqual([1000]);
       } finally {
-        setTimeoutSpy.mockRestore();
+        timers.restore();
       }
     });
 
     it('backs off after a clean but unexpectedly fast return', async () => {
-      const capturedDelays: number[] = [];
-      const setTimeoutSpy = spyOnSleepDelays(capturedDelays, true);
+      const timers = mockSetTimeout({ fireImmediately: true });
       try {
         const controller = new AbortController();
         const collector = new TestCollector(db as any, config, controller);
@@ -196,9 +182,9 @@ describe('BaseCollector', () => {
         await collector.run();
         expect(callCount).toBe(2);
         // clean-but-fast cycle is throttled like error #1: baseMs 500 * 2^1
-        expect(capturedDelays).toEqual([1000]);
+        expect(timers.delays).toEqual([1000]);
       } finally {
-        setTimeoutSpy.mockRestore();
+        timers.restore();
       }
     });
 
