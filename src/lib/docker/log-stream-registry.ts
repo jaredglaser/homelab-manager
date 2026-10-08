@@ -1,7 +1,6 @@
-import { apiUrl } from '@/lib/utils/api-url';
-import { createReconnectingEventSource, type ReconnectingEventSourceHandle } from '@/lib/streaming/reconnecting-event-source';
+import { muxConnection, type MuxStatus } from '@/lib/mux/mux-connection';
+import { logsTopic, type MuxEventFrame } from '@/lib/mux/protocol';
 
-const MAX_RECONNECT_ATTEMPTS = 5;
 // Matches xterm scrollback: a late-joining subscriber sees what the terminal can display.
 const BUFFER_MAX_LINES = 2_000;
 
@@ -25,23 +24,26 @@ export interface SubscribeOptions {
   subscriber: LogStreamSubscriber;
 }
 
+type LogPayload = { lines: LogLine[] } | LogLine;
+
 class LogStream {
   private readonly subscribers = new Set<LogStreamSubscriber>();
   private buffer: LogLine[] = [];
-  private handle: ReconnectingEventSourceHandle;
   private streamEnded = false;
-  private hasConnected = false;
   private connected = false;
   private error: Error | null = null;
+  private readonly unsubscribe: () => void;
 
-  constructor(private readonly url: string) {
-    this.handle = this.connect();
+  constructor(topic: string) {
+    this.unsubscribe = muxConnection.subscribe(topic, {
+      onEvent: (frame) => this.handleFrame(frame),
+      onStatus: (status) => this.handleStatus(status),
+    });
   }
 
   subscribe(subscriber: LogStreamSubscriber): () => void {
     this.subscribers.add(subscriber);
 
-    // Replay backlog and current state to the late joiner.
     for (const line of this.buffer) subscriber.onLine(line);
     if (this.connected) subscriber.onConnect();
     if (this.error) subscriber.onError(this.error);
@@ -56,75 +58,51 @@ class LogStream {
   }
 
   dispose(): void {
-    this.handle.dispose();
+    this.unsubscribe();
     this.subscribers.clear();
     this.buffer = [];
   }
 
-  private connect(): ReconnectingEventSourceHandle {
-    return createReconnectingEventSource({
-      url: this.url,
-      maxAttempts: MAX_RECONNECT_ATTEMPTS,
-      // 'error' carries the agent's own named payload, separate from the connection-failure onError below.
-      namedEvents: ['backlog_done', 'stream_end', 'error'],
+  private handleFrame(frame: MuxEventFrame): void {
+    if (frame.kind === 'backlog_start') {
+      this.buffer = [];
+      for (const sub of this.subscribers) sub.onClear();
+      return;
+    }
+    if (frame.kind === 'stream_end') {
+      this.streamEnded = true;
+      for (const sub of this.subscribers) sub.onDisconnect(true);
+      return;
+    }
+    if (frame.kind === 'error') {
+      const payload = frame.payload as { message?: string; gone?: boolean } | null;
+      const msg = payload?.message ?? 'Log stream error';
+      this.appendLine({ text: `\x1b[31m[Error] ${msg}\x1b[0m`, stream: 'stderr' });
+      if (payload?.gone) {
+        this.error = new Error(msg);
+        for (const sub of this.subscribers) sub.onError(this.error);
+      }
+      return;
+    }
+    if (frame.kind !== 'data') return;
+    try {
+      const data = frame.payload as LogPayload | null;
+      const lines = data && 'lines' in data ? data.lines : data ? [data as LogLine] : [];
+      for (const line of lines) this.appendLine(line);
+    } catch (err) {
+      console.error('[log-stream-registry] Failed to handle frame:', err instanceof Error ? err.message : String(err));
+    }
+  }
 
-      onOpen: () => {
-        this.connected = true;
-        this.error = null;
-
-        // Agent re-sends the backlog on reconnect; clear ours first so the replay doesn't duplicate.
-        if (this.hasConnected) {
-          this.buffer = [];
-          for (const sub of this.subscribers) sub.onClear();
-        }
-        this.hasConnected = true;
-
-        for (const sub of this.subscribers) sub.onConnect();
-      },
-
-      onMessage: (event) => {
-        try {
-          const data = JSON.parse(event.data) as
-            | { lines: LogLine[] }
-            | LogLine;
-          const lines = 'lines' in data ? data.lines : [data];
-          for (const line of lines) this.appendLine(line);
-        } catch (err) {
-          console.error('[log-stream-registry] Failed to parse message:', err instanceof Error ? err.message : String(err), `payloadLength=${String(event.data ?? '').length}`);
-        }
-      },
-
-      onNamedEvent: (name, event) => {
-        if (name === 'stream_end') {
-          // Container stopped normally; stop reconnecting since no more logs are coming.
-          this.streamEnded = true;
-          return;
-        }
-        if (name === 'error') {
-          const rawData = (event as unknown as Record<string, unknown>).data;
-          if (typeof rawData !== 'string' || !rawData) return;
-          try {
-            const data = JSON.parse(rawData) as { message?: string; error?: string };
-            const msg = data.message ?? data.error ?? 'Log stream error';
-            this.appendLine({ text: `\x1b[31m[Error] ${msg}\x1b[0m`, stream: 'stderr' });
-          } catch {
-            this.appendLine({ text: '\x1b[31m[Error] Log stream error\x1b[0m', stream: 'stderr' });
-          }
-        }
-      },
-
-      onError: () => {
-        this.connected = false;
-        for (const sub of this.subscribers) sub.onDisconnect(this.streamEnded);
-        if (this.streamEnded) return false;
-      },
-
-      onGiveUp: () => {
-        const err = new Error('Log stream disconnected after multiple reconnect attempts. Check that the agent for this host is running and the container still exists.');
-        this.error = err;
-        for (const sub of this.subscribers) sub.onError(err);
-      },
-    });
+  private handleStatus(status: MuxStatus): void {
+    this.connected = status.connected;
+    if (status.connected) {
+      this.error = null;
+      for (const sub of this.subscribers) sub.onConnect();
+      return;
+    }
+    if (this.streamEnded) return;
+    for (const sub of this.subscribers) sub.onDisconnect(false);
   }
 
   private appendLine(line: LogLine): void {
@@ -136,13 +114,12 @@ class LogStream {
 
 const streams = new Map<string, LogStream>();
 
-/** Subscribers sharing a (host, containerId) share one EventSource, avoiding per-origin HTTP/1.1 connection limits. */
+/** Subscribers sharing a (host, containerId) share one mux topic on the app-wide connection. */
 export function subscribeToContainerLogs({ host, containerId, subscriber }: SubscribeOptions): () => void {
   const key = `${host}/${containerId}`;
   let stream = streams.get(key);
   if (!stream) {
-    const url = apiUrl(`/api/docker-logs/${encodeURIComponent(containerId)}?host=${encodeURIComponent(host)}`);
-    stream = new LogStream(url);
+    stream = new LogStream(logsTopic(host, containerId));
     streams.set(key, stream);
   }
   const unsubscribe = stream.subscribe(subscriber);

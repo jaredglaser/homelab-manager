@@ -1,20 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { subscribeToContainerLogs, _resetLogStreams, type LogStreamSubscriber } from '@/lib/docker/log-stream-registry';
-import { MockEventSource } from '@/lib/test/mock-event-source';
+import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { FakeMuxConnection } from '@/lib/test/fake-mux';
 
-const originalEventSource = globalThis.EventSource;
+const fakeMux = new FakeMuxConnection();
+mock.module('@/lib/mux/mux-connection', () => ({ muxConnection: fakeMux }));
+
+import { subscribeToContainerLogs, _resetLogStreams, type LogStreamSubscriber } from '@/lib/docker/log-stream-registry';
 
 beforeEach(() => {
-  MockEventSource.reset();
   _resetLogStreams();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).EventSource = MockEventSource;
-});
-
-afterEach(() => {
-  _resetLogStreams();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).EventSource = originalEventSource;
+  fakeMux.subscriptions.clear();
+  fakeMux.status = { connected: false, error: null };
 });
 
 function makeSubscriber(): LogStreamSubscriber & {
@@ -44,30 +39,21 @@ function makeSubscriber(): LogStreamSubscriber & {
 }
 
 describe('log-stream-registry', () => {
-  it('opens an EventSource for the first subscriber', () => {
-    const sub = makeSubscriber();
-    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
-
-    expect(MockEventSource.instances.length).toBe(1);
-    expect(MockEventSource.instances[0].url).toBe('/api/docker-logs/abc?host=server');
-  });
-
-  it('reuses the EventSource for a second subscriber to the same container', () => {
+  it('subscribes one mux topic per host/container shared across subscribers', () => {
     const sub1 = makeSubscriber();
     const sub2 = makeSubscriber();
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
 
-    expect(MockEventSource.instances.length).toBe(1);
+    expect(fakeMux.subscribedTopics()).toEqual(['logs:server/abc']);
+    expect(fakeMux.subscriptionCount('logs:server/abc')).toBe(1);
   });
 
-  it('opens separate EventSources for different containers', () => {
-    const sub1 = makeSubscriber();
-    const sub2 = makeSubscriber();
-    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
-    subscribeToContainerLogs({ host: 'server', containerId: 'def', subscriber: sub2 });
+  it('subscribes separate topics for different containers', () => {
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: makeSubscriber() });
+    subscribeToContainerLogs({ host: 'server', containerId: 'def', subscriber: makeSubscriber() });
 
-    expect(MockEventSource.instances.length).toBe(2);
+    expect(fakeMux.subscribedTopics().sort()).toEqual(['logs:server/abc', 'logs:server/def']);
   });
 
   it('broadcasts new lines to all current subscribers', () => {
@@ -76,21 +62,26 @@ describe('log-stream-registry', () => {
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
 
-    MockEventSource.instances[0].onmessage?.({
-      data: JSON.stringify({ lines: [{ text: 'hello', stream: 'stdout' }] }),
-    });
+    fakeMux.emit('logs:server/abc', 'data', { lines: [{ text: 'hello', stream: 'stdout' }] });
 
     expect(sub1.lines).toEqual([{ text: 'hello', stream: 'stdout' }]);
     expect(sub2.lines).toEqual([{ text: 'hello', stream: 'stdout' }]);
+  });
+
+  it('accepts single-line data payloads', () => {
+    const sub = makeSubscriber();
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
+
+    fakeMux.emit('logs:server/abc', 'data', { text: 'solo', stream: 'stderr' });
+
+    expect(sub.lines).toEqual([{ text: 'solo', stream: 'stderr' }]);
   });
 
   it('replays the buffered backlog to a late-joining subscriber', () => {
     const sub1 = makeSubscriber();
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
 
-    MockEventSource.instances[0].onmessage?.({
-      data: JSON.stringify({ lines: [{ text: 'one', stream: 'stdout' }, { text: 'two', stream: 'stdout' }] }),
-    });
+    fakeMux.emit('logs:server/abc', 'data', { lines: [{ text: 'one', stream: 'stdout' }, { text: 'two', stream: 'stdout' }] });
 
     const sub2 = makeSubscriber();
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
@@ -104,7 +95,7 @@ describe('log-stream-registry', () => {
   it('replays connected state to a late joiner', () => {
     const sub1 = makeSubscriber();
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
-    MockEventSource.instances[0].onopen?.();
+    fakeMux.setStatus({ connected: true, error: null });
 
     const sub2 = makeSubscriber();
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
@@ -112,24 +103,15 @@ describe('log-stream-registry', () => {
     expect(sub2.connects).toBe(1);
   });
 
-  it('keeps the stream alive while at least one subscriber remains', () => {
-    const sub1 = makeSubscriber();
-    const sub2 = makeSubscriber();
-    const unsub1 = subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
-    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
+  it('keeps the topic subscribed while at least one subscriber remains and drops it with the last', () => {
+    const unsub1 = subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: makeSubscriber() });
+    const unsub2 = subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: makeSubscriber() });
 
     unsub1();
+    expect(fakeMux.subscriptionCount('logs:server/abc')).toBe(1);
 
-    expect(MockEventSource.instances[0].closed).toBe(false);
-  });
-
-  it('closes the stream when the last subscriber unsubscribes', () => {
-    const sub1 = makeSubscriber();
-    const unsub1 = subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
-
-    unsub1();
-
-    expect(MockEventSource.instances[0].closed).toBe(true);
+    unsub2();
+    expect(fakeMux.subscribedTopics()).toEqual([]);
   });
 
   it('does not deliver lines to a subscriber after it unsubscribes', () => {
@@ -139,110 +121,80 @@ describe('log-stream-registry', () => {
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
 
     unsub1();
-    MockEventSource.instances[0].onmessage?.({
-      data: JSON.stringify({ lines: [{ text: 'late', stream: 'stdout' }] }),
-    });
+    fakeMux.emit('logs:server/abc', 'data', { lines: [{ text: 'late', stream: 'stdout' }] });
 
     expect(sub1.lines).toHaveLength(0);
     expect(sub2.lines).toEqual([{ text: 'late', stream: 'stdout' }]);
   });
 
-  describe('reconnect with immediate timers', () => {
-    const origSetTimeout = globalThis.setTimeout;
-
-    beforeEach(() => {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
-    });
-
-    afterEach(() => {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
-    });
-
-    it('clears the buffer and notifies subscribers when reconnecting', () => {
-      const sub = makeSubscriber();
-      subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
-
-      MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].onmessage?.({
-        data: JSON.stringify({ lines: [{ text: 'old-line', stream: 'stdout' }] }),
-      });
-
-      MockEventSource.instances[0].onerror?.();
-      MockEventSource.instances[MockEventSource.instances.length - 1].onopen?.();
-
-      expect(sub.clears).toBe(1);
-
-      // After reconnect, a fresh subscriber should NOT see the old buffered line.
-      const sub2 = makeSubscriber();
-      subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
-      expect(sub2.lines).toHaveLength(0);
-    });
-
-    it('reports error after max reconnect attempts', () => {
-      const sub = makeSubscriber();
-      subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
-
-      // Initial failure + 5 retry failures = 6 onerror calls
-      for (let i = 0; i < 6; i++) {
-        const es = MockEventSource.instances[MockEventSource.instances.length - 1];
-        es.onerror?.();
-      }
-
-      expect(sub.errors.length).toBe(1);
-      expect(sub.errors[0].message).toContain('multiple reconnect attempts');
-    });
-
-    it('does not reconnect after stream_end', () => {
-      const sub = makeSubscriber();
-      subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
-
-      MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].fireEvent('stream_end', {});
-      MockEventSource.instances[0].onerror?.();
-
-      expect(MockEventSource.instances.length).toBe(1);
-      expect(sub.errors.length).toBe(0);
-    });
-  });
-
-  it('reports agent-emitted error events as a log line', () => {
+  it('clears the buffer and notifies subscribers on backlog_start', () => {
     const sub = makeSubscriber();
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
 
-    MockEventSource.instances[0].fireEvent('error', {
-      data: JSON.stringify({ message: 'Container not found' }),
+    fakeMux.emit('logs:server/abc', 'data', { lines: [{ text: 'old-line', stream: 'stdout' }] });
+    fakeMux.emit('logs:server/abc', 'backlog_start', {});
+
+    expect(sub.clears).toBe(1);
+    const sub2 = makeSubscriber();
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
+    expect(sub2.lines).toHaveLength(0);
+  });
+
+  it('reports a gone error frame as a log line and an onError', () => {
+    const sub = makeSubscriber();
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
+
+    fakeMux.emit('logs:server/abc', 'error', {
+      message: 'Log stream disconnected after multiple reconnect attempts.',
+      gone: true,
     });
+
+    expect(sub.errors.length).toBe(1);
+    expect(sub.errors[0].message).toContain('multiple reconnect attempts');
+    expect(sub.lines.length).toBe(1);
+    expect(sub.lines[0].stream).toBe('stderr');
+  });
+
+  it('reports agent-emitted error frames as a log line without onError', () => {
+    const sub = makeSubscriber();
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
+
+    fakeMux.emit('logs:server/abc', 'error', { message: 'Container not found', gone: false });
 
     expect(sub.lines.length).toBe(1);
     expect(sub.lines[0].text).toContain('Container not found');
     expect(sub.lines[0].stream).toBe('stderr');
+    expect(sub.errors.length).toBe(0);
   });
 
-  it('calls onDisconnect on transient connection loss', () => {
-    const origSetTimeout = globalThis.setTimeout;
-    (globalThis as unknown as Record<string, unknown>).setTimeout = ((_fn: () => void) => 0) as unknown as typeof setTimeout;
-    try {
-      const sub = makeSubscriber();
-      subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
+  it('reports a clean disconnect on stream_end', () => {
+    const sub = makeSubscriber();
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
+    fakeMux.setStatus({ connected: true, error: null });
 
-      MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].onerror?.();
+    fakeMux.emit('logs:server/abc', 'stream_end', {});
 
-      expect(sub.disconnects).toBe(1);
-    } finally {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
-    }
+    expect(sub.disconnects).toBe(1);
+    expect(sub.errors.length).toBe(0);
   });
 
-  it('opens a fresh stream after the previous one is fully unsubscribed', () => {
-    const sub1 = makeSubscriber();
-    const unsub1 = subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
+  it('reports an unclean disconnect on connection loss', () => {
+    const sub = makeSubscriber();
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
+    fakeMux.setStatus({ connected: true, error: null });
+    fakeMux.setStatus({ connected: false, error: null });
+
+    expect(sub.disconnects).toBe(1);
+  });
+
+  it('opens a fresh topic after the previous one is fully unsubscribed', () => {
+    const unsub1 = subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: makeSubscriber() });
     unsub1();
 
     const sub2 = makeSubscriber();
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
+    fakeMux.emit('logs:server/abc', 'data', { lines: [{ text: 'fresh', stream: 'stdout' }] });
 
-    expect(MockEventSource.instances.length).toBe(2);
+    expect(sub2.lines).toEqual([{ text: 'fresh', stream: 'stdout' }]);
   });
-
 });
