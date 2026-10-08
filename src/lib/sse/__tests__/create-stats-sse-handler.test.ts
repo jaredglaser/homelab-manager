@@ -4,8 +4,9 @@ import { createStatsSseHandler } from '../create-stats-sse-handler';
 import { dockerStatsChannel } from '../channels/docker-stats';
 import { zfsStatsChannel } from '../channels/zfs-stats';
 import { proxmoxStatsChannel } from '../channels/proxmox-stats';
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@/lib/auth/sse-auth', () => ({
+mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({ ...real, 
   authenticateSSE: mock(async () => ({ id: 1, role: 'admin' })),
 }));
 
@@ -32,7 +33,7 @@ function setupStatsPollService() {
     return unsubscribe;
   });
 
-  mock.module('@/lib/database/subscription-service', () => ({
+  mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database/subscription-service', (real) => ({ ...real, 
     statsPollService: { subscribe },
   }));
 
@@ -147,7 +148,7 @@ describe('createStatsSseHandler', () => {
     const subscribe = mock(() => {
       throw new Error('poll service unavailable');
     });
-    mock.module('@/lib/database/subscription-service', () => ({
+    mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database/subscription-service', (real) => ({ ...real, 
       statsPollService: { subscribe },
     }));
 

@@ -2,6 +2,7 @@ import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:te
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockHostFindAll = mock((): Promise<ManagedHost[]> => Promise.resolve([]));
 const mockHostCreate = mock(() =>
@@ -12,7 +13,7 @@ const mockHostUpdate = mock(() =>
 );
 const mockHostUpdateStatus = mock(() => Promise.resolve());
 
-mock.module('@/lib/database/repositories/host-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
   HostRepository: class {
     findAll = mockHostFindAll;
     create = mockHostCreate;
@@ -28,14 +29,14 @@ const mockKeypairGetPublicJwk = mock<() => Promise<{ kty: string; crv: string; x
   () => Promise.resolve(null),
 );
 
-mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
   AgentKeypairsRepository: class {
     createForHost = mockKeypairCreateForHost;
     getPublicJwkForHost = mockKeypairGetPublicJwk;
   },
 }));
 
-mock.module('@/lib/crypto/master-key', () => ({
+mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
   loadMasterKeyring: mock(async () => ({ activeKid: 'v1', keys: new Map() })),
 }));
 
@@ -43,7 +44,7 @@ const mockExistsSync = mock(() => true);
 const mockWriteFileSync = mock((_p: string, _d: string) => {});
 const mockMkdirSync = mock((_p: string, _opts?: unknown) => undefined);
 
-mock.module('node:fs', () => ({
+mockModule<typeof import('node:fs')>('node:fs', (real) => ({ ...real, 
   writeFileSync: mockWriteFileSync,
   mkdirSync: mockMkdirSync,
   existsSync: mockExistsSync,

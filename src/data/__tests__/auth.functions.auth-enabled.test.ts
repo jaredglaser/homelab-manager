@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
 import { withStartContext } from '@/lib/test/start-context';
+import { mockModule } from '@/lib/test/mock-module';
 
 // Test the auth-enabled paths in auth.functions: sessionReadMiddleware and getRoleMapping.
 // A separate file from auth.functions.test.ts is needed because that file mocks
@@ -12,12 +13,12 @@ const mockGetRequest = mock(() => ({
   headers: { get: (_name: string) => null as string | null },
 }));
 
-mock.module('@tanstack/start-server-core', () => ({
+mockModule<typeof import('@tanstack/start-server-core')>('@tanstack/start-server-core', (real) => ({ ...real, 
   getRequest: mockGetRequest,
 }));
 
 const mockValidateSession = mock(async (_token: string) => null as AuthUser | null);
-mock.module('@/lib/auth/session-manager', () => ({
+mockModule<typeof import('@/lib/auth/session-manager')>('@/lib/auth/session-manager', (real) => ({ ...real, 
   buildSessionManager: mock(async () => ({ validateSession: mockValidateSession })),
   resetSessionManagerState: () => {},
   SessionManager: class {},
@@ -31,14 +32,14 @@ const mockLoadAuthConfig = mock(() => ({
   roleMapping: { admin: 'my-admins', operator: 'my-ops', viewer: 'my-viewers' },
 }));
 
-mock.module('@/lib/config/auth-config', () => ({
+mockModule<typeof import('@/lib/config/auth-config')>('@/lib/config/auth-config', (real) => ({ ...real, 
   isAuthDisabled: () => false,
   loadAuthConfig: mockLoadAuthConfig,
   // http redirect URI above -> plain "session" name is the active one.
   isSecureCookie: () => false,
 }));
 
-mock.module('@/middleware/auth-middleware', () => ({
+mockModule<typeof import('@/middleware/auth-middleware')>('@/middleware/auth-middleware', (real) => ({ ...real, 
   authMiddleware: {
     options: {
       type: 'function',

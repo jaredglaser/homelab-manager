@@ -1,4 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach, mock } from 'bun:test';
+import { mockModule } from '@/lib/test/mock-module';
 
 // getRequest() requires an H3 AsyncLocalStorage context not present in tests;
 // mock it to return a controllable request object.
@@ -6,7 +7,7 @@ const mockGetRequest = mock(() => ({
   headers: { get: (_name: string) => null as string | null },
 }));
 
-mock.module('@tanstack/start-server-core', () => ({
+mockModule<typeof import('@tanstack/start-server-core')>('@tanstack/start-server-core', (real) => ({ ...real, 
   getRequest: mockGetRequest,
 }));
 

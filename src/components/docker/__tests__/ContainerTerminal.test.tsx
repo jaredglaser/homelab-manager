@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import { mockModule } from '@/lib/test/mock-module';
 
 interface MockTerminalShape {
   options: Record<string, unknown>;
@@ -61,7 +62,7 @@ const defaultHookReturn: MockHookReturn = {
   reconnect: () => {},
 };
 const mockUseContainerTerminal = mock(() => defaultHookReturn);
-mock.module('@/hooks/useContainerTerminal', () => ({
+mockModule<typeof import('@/hooks/useContainerTerminal')>('@/hooks/useContainerTerminal', (real) => ({ ...real, 
   useContainerTerminal: mockUseContainerTerminal,
 }));
 

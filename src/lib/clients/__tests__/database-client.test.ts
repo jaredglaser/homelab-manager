@@ -1,13 +1,15 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { mockModule } from '@/lib/test/mock-module';
 import { DatabaseClient, databaseConnectionManager, type DatabaseConfig } from '../database-client';
 
 /**
  * Mock pg.Pool so we never touch a real database.
  * Each test gets a fresh mock via createMockPool().
  */
-mock.module('pg', () => {
-  return { Pool: MockPool };
-});
+mockModule<typeof import('pg')>('pg', (real) => ({
+  ...real,
+  Pool: MockPool,
+}));
 
 let poolInstances: InstanceType<typeof MockPool>[];
 

@@ -2,8 +2,9 @@ import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@/hooks/useEChartTimeScroll', () => ({
+mockModule<typeof import('@/hooks/useEChartTimeScroll')>('@/hooks/useEChartTimeScroll', (real) => ({ ...real, 
   useEChartTimeScroll: () => {},
 }));
 

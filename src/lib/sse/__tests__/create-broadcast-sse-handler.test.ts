@@ -1,8 +1,9 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { mockSetInterval } from '@/lib/test/mock-timers';
 import { createBroadcastSseHandler } from '../create-broadcast-sse-handler';
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@/lib/auth/sse-auth', () => ({
+mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({ ...real, 
   authenticateSSE: mock(async () => ({ id: 1, role: 'admin' })),
 }));
 
