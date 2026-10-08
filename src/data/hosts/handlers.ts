@@ -37,6 +37,7 @@ export interface HostRepo {
   create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
+  updateLastSweptAt(id: number, at: Date): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
@@ -219,6 +220,10 @@ export async function handleSweepAgentInventory(
       const outcome = outcomes[i];
       if (!outcome) return;
       try {
+        // Stamp the probe time for every host we probed, including a pending one
+        // whose status is left alone below: checkedAt answers "when did the sweep
+        // last look at this agent", not "when did its status last change".
+        await deps.repo.updateLastSweptAt(host.id, now);
         if (host.status === 'pending' && !outcome.healthy) return;
         await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {

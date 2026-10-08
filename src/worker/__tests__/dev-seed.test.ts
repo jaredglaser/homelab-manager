@@ -61,6 +61,7 @@ function mockHost(overrides: Partial<ManagedHost> & Pick<ManagedHost, 'id' | 'na
     agentImageTag: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
+    lastSweptAt: null,
     ...overrides,
   };
 }
