@@ -1,9 +1,9 @@
 import { memo, useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useGeneralSettings } from '@/hooks/useSettings';
 import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis } from '@/lib/charts/y-axis';
+import EChartsLazy from '@/components/charts/EChartsLazy';
 
 interface DataPoint {
   timestamp: number;
@@ -186,7 +186,7 @@ export default memo(function HistoricalMetricChart({
         {title}
       </p>
       <div className="h-64">
-        <ReactECharts
+        <EChartsLazy
           option={option}
           style={{ height: '100%', width: '100%' }}
           opts={{ renderer: 'canvas' }}

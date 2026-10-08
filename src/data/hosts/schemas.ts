@@ -16,6 +16,8 @@ export const verifyHostSchema = z.object({
 
 export const removeHostSchema = z.object({ hostId: z.number().int().positive() });
 export const checkHostHealthSchema = z.object({ hostId: z.number().int().positive() });
+export const getHostPublicJwkSchema = z.object({ hostId: z.number().int().positive() });
+export const rotateHostKeypairSchema = z.object({ hostId: z.number().int().positive() });
 
 export const updateHostSchema = z.object({
   hostId: z.number().int().positive(),

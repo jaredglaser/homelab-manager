@@ -1,11 +1,12 @@
 import { memo, useMemo, useRef, useEffect, useCallback, useState } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { DateTimePicker } from '@/components/ui/date-time-picker';
-import ReactECharts from 'echarts-for-react';
+import type ReactECharts from 'echarts-for-react';
 import { useGeneralSettings } from '@/hooks/useSettings';
 import HorizontalScrollRow from '@/components/shared/HorizontalScrollRow';
 import { RANGE_PRESETS, TIMELINE_METRICS, getTimelineOption } from '@/lib/charts/timeline-chart-config';
 import type { DockerStatsRow } from '@/types/docker';
+import EChartsLazy from '@/components/charts/EChartsLazy';
 import type { MetricType } from '@/components/docker/MetricCheckboxes';
 
 interface HistoricalTimelineProps {
@@ -122,7 +123,7 @@ export default memo(function HistoricalTimeline({
     : undefined;
 
   return (
-    <div className="border-t border-(--border) bg-(--card) px-4 py-3 shrink-0">
+    <div className="border-t border-border bg-card px-4 py-3 shrink-0">
       <div className="mb-2">
         <HorizontalScrollRow
           bgVar="--card"
@@ -145,7 +146,7 @@ export default memo(function HistoricalTimeline({
           </ToggleGroup>
 
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs text-(--muted-foreground)">From:</span>
+            <span className="text-xs text-muted-foreground">From:</span>
             <DateTimePicker
               value={timelineFrom}
               onChange={handleFromChange}
@@ -153,7 +154,7 @@ export default memo(function HistoricalTimeline({
               use12Hour={general.use12HourTime}
               ariaLabel="From date and time"
             />
-            <span className="text-xs text-(--muted-foreground)">To:</span>
+            <span className="text-xs text-muted-foreground">To:</span>
             <DateTimePicker
               value={timelineTo}
               onChange={handleToChange}
@@ -180,7 +181,7 @@ export default memo(function HistoricalTimeline({
         </HorizontalScrollRow>
       </div>
       <div className="h-[160px]">
-        <ReactECharts
+        <EChartsLazy
           ref={chartRef}
           option={option}
           style={{ height: '100%', width: '100%' }}

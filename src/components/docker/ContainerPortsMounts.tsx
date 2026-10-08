@@ -48,7 +48,7 @@ export default function ContainerPortsMounts({ ports, mounts }: Readonly<Contain
   const dedupedPorts = dedupeWildcardPorts(ports);
 
   return (
-    <div className="flex flex-col gap-2 px-3 py-2 border-b border-(--border)">
+    <div className="flex flex-col gap-2 px-3 py-2 border-b border-border">
       {dedupedPorts.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           {dedupedPorts.map((port, idx) => {
@@ -56,7 +56,7 @@ export default function ContainerPortsMounts({ ports, mounts }: Readonly<Contain
             return (
               <span
                 key={`${port.containerPort}/${port.protocol}/${port.hostIp ?? ''}/${port.hostPort ?? ''}/${idx}`}
-                className={`font-mono text-xs px-1.5 py-0.5 rounded bg-(--chart-bg) ${published ? 'text-foreground' : 'text-(--muted-foreground)'}`}
+                className={`font-mono text-xs px-1.5 py-0.5 rounded bg-chart-bg ${published ? 'text-foreground' : 'text-muted-foreground'}`}
               >
                 {formatPortMapping(port)}
               </span>
@@ -83,11 +83,11 @@ function MountRow({ mount }: { mount: ContainerMount }) {
   const row = (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-xs">
       <span className="truncate max-w-[45%] min-w-0 font-mono text-foreground">{display}</span>
-      {isVolume && <span className="shrink-0 text-(--muted-foreground)">(volume)</span>}
-      <span className="shrink-0 text-(--muted-foreground)">-&gt;</span>
+      {isVolume && <span className="shrink-0 text-muted-foreground">(volume)</span>}
+      <span className="shrink-0 text-muted-foreground">-&gt;</span>
       <span className="truncate max-w-[45%] min-w-0 font-mono text-foreground">{mount.destination}</span>
       {!mount.rw && (
-        <Badge variant="outline" className="h-4 rounded-sm px-1 text-[10px] border-(--warning) text-(--warning) shrink-0">
+        <Badge variant="outline" className="h-4 rounded-sm px-1 text-[10px] border-warning text-warning shrink-0">
           ro
         </Badge>
       )}

@@ -1,4 +1,4 @@
-import { type RefObject } from 'react';
+import { useCallback, useState, type RefObject } from 'react';
 import type ReactECharts from 'echarts-for-react';
 import { useVisibleRAF } from '@/hooks/useVisibleRAF';
 
@@ -9,19 +9,28 @@ import { useVisibleRAF } from '@/hooks/useVisibleRAF';
  * The rAF loop is gated by `useVisibleRAF`: it only runs while `targetRef`
  * is intersecting the viewport. Pass a ref to the chart's wrapper element
  * so off-screen charts stop burning cycles.
+ *
+ * Returns the `onChartReady` callback: attach it to the ECharts element. The
+ * tick only drives the exact instance the library reported ready, so the bare
+ * temporary instance from the async init (or any later re-init) is never
+ * touched; merging xAxis-only into it crashes in CartesianAxisView.render.
  */
 export function useEChartTimeScroll(
   chartRef: RefObject<ReactECharts | null>,
   windowMs: number,
   targetRef: RefObject<Element | null>,
-): void {
+): (readyInstance: unknown) => void {
+  const [readyInstance, setReadyInstance] = useState<unknown>(null);
+  const onChartReady = useCallback((instance: unknown) => setReadyInstance(instance), []);
+
   const tick = () => {
     const instance = chartRef.current?.getEchartsInstance();
-    if (instance) {
-      const now = Date.now();
-      instance.setOption({ xAxis: { min: now - windowMs, max: now } });
-    }
+    if (!instance || instance.isDisposed() || instance !== readyInstance) return;
+    const now = Date.now();
+    instance.setOption({ xAxis: { min: now - windowMs, max: now } });
   };
 
   useVisibleRAF(targetRef, tick);
+
+  return onChartReady;
 }

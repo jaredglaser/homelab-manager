@@ -14,7 +14,7 @@ function StatusSegment({ label, count }: Readonly<Segment>) {
         {count}
       </span>
       {' '}
-      <span className="text-base text-(--muted-foreground)">
+      <span className="text-base text-muted-foreground">
         {label}
       </span>
     </span>

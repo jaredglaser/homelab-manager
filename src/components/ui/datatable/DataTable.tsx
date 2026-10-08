@@ -1,19 +1,19 @@
 import { useState, useRef, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import {
-  useReactTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getFilteredRowModel,
-  getExpandedRowModel,
+  useTable,
   flexRender,
   type ColumnDef,
   type ExpandedState,
   type SortingState,
   type ColumnSizingState,
-  type VisibilityState,
+  type ColumnVisibilityState,
   type Row,
+  type RowData,
+  type Column,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
+
+import { dataTableFeatures, type DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ArrowUp, ArrowDown } from 'lucide-react';
@@ -31,9 +31,9 @@ type ExpansionControl =
   | { expandedState?: never; onExpandedChange?: never }
   | { expandedState: ExpandedState; onExpandedChange: (e: ExpandedState) => void };
 
-export type DataTableProps<TRow> = {
+export type DataTableProps<TRow extends RowData> = {
   data: TRow[];
-  columns: ColumnDef<TRow, unknown>[];
+  columns: ColumnDef<DataTableFeatures, TRow, unknown>[];
   getRowId: (row: TRow) => string;
 
   /** Sub-row accessor for tree data expansion */
@@ -50,8 +50,6 @@ export type DataTableProps<TRow> = {
   showHeader?: boolean;
   /** Enable column sorting (default: true) */
   enableSorting?: boolean;
-  /** Enable column filtering (default: false) */
-  enableFiltering?: boolean;
   /** Enable column resizing (default: true) */
   enableColumnResizing?: boolean;
   /** Enable column visibility toggling (default: true) */
@@ -89,8 +87,8 @@ export const SPARKLINE_MIN_WIDTH = 1428;
  * (without). containerWidth selects between them so the column stays tight regardless
  * of whether sparklines are enabled in settings.
  */
-function buildGridTemplate<TRow>(
-  columns: ReturnType<ReturnType<typeof useReactTable<TRow>>['getVisibleLeafColumns']>,
+function buildGridTemplate<TRow extends RowData>(
+  columns: Column<typeof dataTableFeatures, TRow, unknown>[],
   containerWidth: number,
   sparklineEnabled: boolean,
 ): string {
@@ -117,7 +115,7 @@ function buildGridTemplate<TRow>(
  * expansion support (tree data and detail panels), and MUI Collapse animation.
  */
 
-export function DataTable<TRow>({
+export function DataTable<TRow extends RowData>({
   data,
   columns,
   getRowId,
@@ -129,7 +127,6 @@ export function DataTable<TRow>({
   overscan = DEFAULT_OVERSCAN,
   showHeader = true,
   enableSorting = true,
-  enableFiltering = false,
   enableColumnResizing = true,
   enableColumnVisibility = true,
   metricGroups,
@@ -146,7 +143,7 @@ export function DataTable<TRow>({
   const [activeMetricGroupIndex, setActiveMetricGroupIndex] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
   const [internalExpanded, setInternalExpanded] = useState<ExpandedState>({});
   const { general: { showSparklines } } = useGeneralSettings();
 
@@ -172,7 +169,7 @@ export function DataTable<TRow>({
    * The "name" column is always visible. All metric columns outside
    * the active group are hidden when on mobile with metric groups defined.
    */
-  const effectiveColumnVisibility = useMemo<VisibilityState>(() => {
+  const effectiveColumnVisibility = useMemo<ColumnVisibilityState>(() => {
     if (!isMobile || !metricGroups || metricGroups.length === 0) {
       return columnVisibility;
     }
@@ -180,7 +177,7 @@ export function DataTable<TRow>({
     const activeGroup = metricGroups[activeMetricGroupIndex] ?? metricGroups[0];
     const activeIds = new Set(activeGroup.columnIds);
 
-    const hiddenColumns: VisibilityState = {};
+    const hiddenColumns: ColumnVisibilityState = {};
     for (const group of metricGroups) {
       for (const colId of group.columnIds) {
         if (!activeIds.has(colId)) {
@@ -205,7 +202,8 @@ export function DataTable<TRow>({
     [expanded, onExpandedChange],
   );
 
-  const table = useReactTable({
+  const table = useTable({
+    features: dataTableFeatures,
     data,
     columns,
     getRowId,
@@ -220,10 +218,17 @@ export function DataTable<TRow>({
     onColumnSizingChange: setColumnSizing,
     onColumnVisibilityChange: setColumnVisibility,
     onExpandedChange: setExpanded,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
-    getFilteredRowModel: enableFiltering ? getFilteredRowModel() : undefined,
-    getExpandedRowModel: getExpandedRowModel(),
+    // v9 auto-resets expansion on every data change (createCoreRowModel →
+    // autoResetExpanded → onExpandedChange({})); the docker/zfs tables churn
+    // data every second via SSE, which would collapse expanded rows and echo
+    // toggles into the persisted settings atoms. autoResetExpanded: false opts
+    // out of the reset while keeping the expanded row model active
+    // (manualExpanding would bypass expansion entirely).
+    autoResetExpanded: false,
+    // v9's toggleExpanded refuses to expand rows where getCanExpand is false
+    // (default: has subRows). Detail panels must be expandable even on
+    // childless rows, so allow expansion when either source applies.
+    getRowCanExpand: (row) => row.subRows.length > 0 || renderDetailPanel != null,
     enableSorting,
     enableColumnResizing,
     enableHiding: enableColumnVisibility,
@@ -263,7 +268,7 @@ export function DataTable<TRow>({
     return (
       <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
         {toolbar}
-        <div className="flex items-center justify-center flex-1 text-(--muted-foreground) py-12">
+        <div className="flex items-center justify-center flex-1 text-muted-foreground py-12">
           No data
         </div>
       </div>
@@ -279,7 +284,7 @@ export function DataTable<TRow>({
         {/* Sticky header: inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div
-            className="grid border-b border-(--border) bg-(--background) sticky top-0 z-10"
+            className="grid border-b border-border bg-background sticky top-0 z-10"
             style={{ gridTemplateColumns: gridTemplate }}
           >
             {table.getHeaderGroups().map((headerGroup) =>
@@ -287,7 +292,7 @@ export function DataTable<TRow>({
                 <div
                   key={header.id}
                   className={`px-3 py-2 font-semibold text-sm whitespace-nowrap select-none ${
-                    header.column.getCanSort() ? 'cursor-pointer hover:bg-(--accent)' : ''
+                    header.column.getCanSort() ? 'cursor-pointer hover:bg-accent' : ''
                   }`}
                   onClick={header.column.getToggleSortingHandler()}
                   role={header.column.getCanSort() ? 'button' : undefined}
@@ -398,15 +403,15 @@ export function DataTable<TRow>({
   );
 }
 
-interface DataTableRowProps<TRow> {
-  row: Row<TRow>;
+interface DataTableRowProps<TRow extends RowData> {
+  row: Row<DataTableFeatures, TRow>;
   gridTemplate: string;
   rowClassName?: (row: TRow) => string;
   rowAttributes?: (row: TRow) => Record<`data-${string}` | `aria-${string}`, string>;
   hasDetailPanel?: boolean;
 }
 
-function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, hasDetailPanel }: Readonly<DataTableRowProps<TRow>>) {
+function DataTableRow<TRow extends RowData>({ row, gridTemplate, rowClassName, rowAttributes, hasDetailPanel }: Readonly<DataTableRowProps<TRow>>) {
   const customClass = rowClassName?.(row.original) ?? '';
   const extraAttributes = rowAttributes?.(row.original) ?? {};
   const canExpand = row.getCanExpand() || hasDetailPanel;
@@ -415,7 +420,7 @@ function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, ha
     <div
       role={canExpand ? 'button' : undefined}
       tabIndex={canExpand ? 0 : undefined}
-      className={`group grid border-t border-(--border) hover:bg-(--row-hover-tint) hover:shadow-[inset_0_0_0_1px_var(--row-hover-ring)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
+      className={`group grid border-t border-border hover:bg-(--row-hover-tint) hover:shadow-[inset_0_0_0_1px_var(--row-hover-ring)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
       style={{ gridTemplateColumns: gridTemplate }}
       onClick={canExpand ? () => row.toggleExpanded() : undefined}
       onKeyDown={canExpand ? (e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.toggleExpanded(); } } : undefined}

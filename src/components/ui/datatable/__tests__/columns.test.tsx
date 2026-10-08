@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
-import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
-import type { ColumnDef } from '@tanstack/react-table';
+import { flexRender, useTable } from '@tanstack/react-table';
+import { dataTableFeatures, type DataTableFeatures } from '../tableFeatures';
+import type { ColumnDef, RowData } from '@tanstack/react-table';
 import { createStore, Provider } from 'jotai';
 import { metricColumn, nameColumn, statusColumn, progressColumn } from '../columns';
 
@@ -25,19 +26,19 @@ const sampleRow: TestRow = {
 };
 
 /** Render a single cell in isolation using a minimal single-row table */
-function CellRenderer<TRow>({
+function CellRenderer<TRow extends RowData>({
   column,
   row,
 }: {
-  column: ColumnDef<TRow, unknown>;
+  column: ColumnDef<DataTableFeatures, TRow, unknown>;
   row: TRow;
 }) {
   const store = createStore();
-  const table = useReactTable({
+  const table = useTable({
+    features: dataTableFeatures,
     data: [row],
     columns: [column],
     getRowId: (r) => (r as { id: string }).id,
-    getCoreRowModel: getCoreRowModel(),
   });
 
   const tableRow = table.getRowModel().rows[0];
@@ -45,13 +46,13 @@ function CellRenderer<TRow>({
   return <Provider store={store}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</Provider>;
 }
 
-function HeaderRenderer<TRow>({ column }: { column: ColumnDef<TRow, unknown> }) {
+function HeaderRenderer<TRow extends RowData>({ column }: { column: ColumnDef<DataTableFeatures, TRow, unknown> }) {
   const store = createStore();
-  const table = useReactTable({
+  const table = useTable({
+    features: dataTableFeatures,
     data: [],
     columns: [column],
     getRowId: (r) => (r as { id: string }).id,
-    getCoreRowModel: getCoreRowModel(),
   });
 
   const headerGroup = table.getHeaderGroups()[0];
