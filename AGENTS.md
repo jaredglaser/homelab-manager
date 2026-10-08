@@ -20,7 +20,7 @@
 - The squash commit subject is the PR title, and release-please versions the release from it alone (plus `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer lines in the PR body). Keep it a valid conventional commit: `type(scope): summary`.
 - Before pushing any commit to a PR branch, re-classify the change (type, scope, breaking) against the diff you are pushing and edit the PR title if it no longer matches. A title that stops parsing silently drops the work from both the version bump and the changelog.
 - A breaking change must show as `type(scope)!: summary` or a `BREAKING CHANGE: ...` line in the PR body. Prose such as "Breaking changes" or `## Breaking changes` is invisible to release-please and under-versions the release.
-- CI keeps one Version impact comment per PR (`.github/workflows/pr-version-impact.yml`) showing the bump release-please will apply. A warning banner in it must be cleared before merge.
+- CI keeps one Version impact comment per PR (`.github/workflows/pr-version-impact.yml`) showing the bump release-please will apply, and the PR Title Lint check in the same workflow blocks merge when the title does not parse or uses a non-standard type.
 
 **PR stacks:**
 - Work through stacked PRs linearly (main→PR1→PR2→PR3→…); never skip steps when rebasing; propagate lower-stack changes upward.

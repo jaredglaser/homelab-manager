@@ -18,7 +18,7 @@ MARKER="<!-- version-impact -->"
 RE_TYPE='^([A-Za-z]+)(\([^)]*\))?!?:'
 RE_BREAKING='^[A-Za-z]+(\([^)]*\))?!:'
 RE_BREAKING_NOTE='BREAKING[ -]CHANGE:( |$)'
-KNOWN_TYPES="feat fix perf revert chore docs style refactor test build ci"
+KNOWN_TYPES="feat feature fix perf revert chore docs style refactor test build ci"
 
 # classify TITLE BODY -> PARSED (yes/no), TYPE, BREAKING (yes/no)
 classify() {
@@ -148,6 +148,24 @@ proposal_line() {
   fi
 }
 
+# lint: exit nonzero when the PR title would be dropped by release-please or
+# uses a non-standard type. This is the blocking gate behind the PR Title Lint
+# check in .github/workflows/pr-version-impact.yml.
+lint() {
+  local title="${PR_TITLE:?PR_TITLE is required}"
+  classify "$title" "${PR_BODY:-}"
+  if [ "$PARSED" = no ]; then
+    echo "FAIL: PR title does not parse as a conventional commit: $title"
+    echo "release-please drops it entirely: no version bump, no changelog entry. Expected 'type(scope): summary', e.g. 'fix: ...', 'feat(hosts): ...'."
+    return 1
+  fi
+  if ! grep -qw "$TYPE" <<<"$KNOWN_TYPES"; then
+    echo "FAIL: unknown commit type '$TYPE'. Use one of: $KNOWN_TYPES"
+    return 1
+  fi
+  echo "OK: PR title classifies as '$TYPE'$([ "$BREAKING" = yes ] && echo ' (breaking)'); release-please will version it."
+}
+
 run() {
   local root
   root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -213,11 +231,28 @@ self_test() {
   expect "feat!: drop v1" "" 1.2.3 yes feat yes major
   expect "feat(api): add a view" "" 1.2.3 yes feat no minor
   expect "fix: repair the scan" "" 1.2.3 yes fix no patch
-  [ "$failures" -eq 0 ] && echo "self-test: 16/16 passed"
+  lint_case() { # title expected_rc
+    local rc=0
+    PR_TITLE="$1" lint >/dev/null 2>&1 || rc=$?
+    if [ "$rc" = "$2" ]; then
+      echo "ok   lint: $1"
+    else
+      echo "FAIL lint: $1 rc=$rc expected=$2"
+      failures=$((failures + 1))
+    fi
+  }
+  lint_case "fix: add restart policy to postgres" 0
+  lint_case "chore(deps): bump zod from 4.5.4 to 4.6.5" 0
+  lint_case "feat!: drop v1" 0
+  lint_case "Make the comment style scan mechanical" 1
+  lint_case "feat x" 1
+  lint_case "wip: experimental thing" 1
+  [ "$failures" -eq 0 ] && echo "self-test: 22/22 passed"
   return "$failures"
 }
 
 case "${1:-}" in
   --self-test) self_test ;;
+  --lint) lint ;;
   *) run ;;
 esac
