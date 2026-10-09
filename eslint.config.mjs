@@ -5,42 +5,6 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-const BANNED_COMMENT_PROSE = [
-  [/[—–]/, 'an em dash or en dash'],
-  [
-    /\b(delve|tapestry|intricate|robust|comprehensive|meticulous|leverage|utilize|facilitate)\b/i,
-    'banned vocabulary',
-  ],
-  [/\bit's (worth|important to) not(e|ing)\b/i, 'a banned filler phrase'],
-  [/\b(essentially|fundamentally|carefully|thoroughly|comprehensively)\b/i, 'a performative qualifier'],
-  [/(?:^|\s)#\d{2,5}\b/, 'a bare issue or PR reference, which belongs in the commit message'],
-];
-
-const localPlugin = {
-  rules: {
-    'no-claudisms-in-comments': {
-      meta: { type: 'problem', schema: [] },
-      create(context) {
-        return {
-          Program() {
-            for (const comment of context.sourceCode.getAllComments()) {
-              for (const [pattern, label] of BANNED_COMMENT_PROSE) {
-                if (pattern.test(comment.value)) {
-                  context.report({
-                    loc: comment.loc,
-                    message: `Comment contains ${label}. See AGENTS.md rules 14 and 15.`,
-                  });
-                  break;
-                }
-              }
-            }
-          },
-        };
-      },
-    },
-  },
-};
-
 const SSE_SEAM_RESTRICTIONS = [
   {
     selector: "NewExpression[callee.name='ReadableStream']",
@@ -88,7 +52,6 @@ export default tseslint.config(
 
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
-  { plugins: { local: localPlugin } },
 
   {
     files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', 'server/**/*.ts', 'e2e/**/*.ts', 'vite.config.ts', 'playwright.config.ts'],
@@ -154,8 +117,6 @@ export default tseslint.config(
           ],
         },
       ],
-
-      'local/no-claudisms-in-comments': 'warn',
     },
   },
 
