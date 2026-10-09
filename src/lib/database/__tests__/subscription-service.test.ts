@@ -1,45 +1,19 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 import { StatsPollService, type StatsSource } from '../subscription-service';
-
-interface IntervalHandle {
-  cb: () => Promise<void> | void;
-  ms: number;
-  cleared: boolean;
-}
-
-/** Replaces setInterval/clearInterval so each interval is a callback tests can invoke deterministically. */
-function createIntervalHarness() {
-  const intervals: IntervalHandle[] = [];
-  const setSpy = spyOn(globalThis, 'setInterval').mockImplementation(((cb: () => void, ms: number) => {
-    const handle: IntervalHandle = { cb, ms, cleared: false };
-    intervals.push(handle);
-    return handle as unknown as ReturnType<typeof setInterval>;
-  }) as typeof setInterval);
-  const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(((h: unknown) => {
-    const handle = h as IntervalHandle;
-    if (handle) handle.cleared = true;
-  }) as typeof clearInterval);
-  return {
-    intervals,
-    restore() {
-      setSpy.mockRestore();
-      clearSpy.mockRestore();
-    },
-  };
-}
 
 function statsRow(time: number) {
   return { time };
 }
 
 describe('StatsPollService', () => {
-  let harness: ReturnType<typeof createIntervalHarness>;
+  let intervals: TimerMock;
   let errorSpy: ReturnType<typeof spyOn>;
   let loadRows: ReturnType<typeof mock>;
   let service: StatsPollService;
 
   beforeEach(() => {
-    harness = createIntervalHarness();
+    intervals = mockSetInterval();
     errorSpy = spyOn(console, 'error').mockImplementation(() => {});
     loadRows = mock(async (_source: StatsSource, _since: Date) => []);
     service = new StatsPollService({ loadRows });
@@ -48,12 +22,12 @@ describe('StatsPollService', () => {
   afterEach(async () => {
     await service.stop();
     errorSpy.mockRestore();
-    harness.restore();
+    intervals.restore();
   });
 
   it('calls the injected loadRows with the source and a 200ms lookback cursor', async () => {
     service.subscribe('docker', () => {});
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     await tick();
 
@@ -72,7 +46,7 @@ describe('StatsPollService', () => {
     );
 
     service.subscribe('docker', () => {});
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     const first = tick();
 
@@ -89,7 +63,7 @@ describe('StatsPollService', () => {
     const received: unknown[][] = [];
 
     service.subscribe('docker', (rows) => received.push(rows));
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     await tick();
 
@@ -104,7 +78,7 @@ describe('StatsPollService', () => {
     const received: unknown[][] = [];
 
     service.subscribe('docker', (rows) => received.push(rows));
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     await tick();
 
@@ -117,7 +91,7 @@ describe('StatsPollService', () => {
     loadRows.mockResolvedValueOnce([]);
 
     service.subscribe('docker', () => {});
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     await tick();
     await tick();
@@ -131,7 +105,7 @@ describe('StatsPollService', () => {
     loadRows.mockResolvedValue([]);
 
     service.subscribe('docker', () => {});
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     await expect(tick()).resolves.toBeUndefined();
     await expect(tick()).resolves.toBeUndefined();
@@ -152,7 +126,7 @@ describe('StatsPollService', () => {
       },
     );
 
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     // Threshold is 3 consecutive failures; backoff skips ticks, so advance until each poll actually runs.
     await ticksUntilNextPoll(tick, loadRows);
@@ -176,7 +150,7 @@ describe('StatsPollService', () => {
       .mockResolvedValue([]);
 
     service.subscribe('docker', () => {});
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     // Failure 1: effective spacing doubles to 2s, so 1 tick is skipped.
     await tick();
@@ -207,7 +181,7 @@ describe('StatsPollService', () => {
     loadRows.mockRejectedValue(new Error('db down'));
 
     service.subscribe('docker', () => {});
-    const tick = harness.intervals[0].cb;
+    const tick = intervals.scheduled[0].fn;
 
     const skips: number[] = [];
     for (let poll = 0; poll < 6; poll++) {

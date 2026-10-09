@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 import type { DatabaseConfig } from '@/lib/clients/database-client';
 import { HostsListener, type HostChangeHandler } from '../hosts-listener';
 
@@ -243,23 +244,18 @@ describe('HostsListener', () => {
 
   describe('reconnect', () => {
     const originalConsoleInfo = console.info;
-    let setTimeoutSpy: ReturnType<typeof spyOn>;
+    let timers: TimerMock;
 
     beforeEach(() => {
       console.info = mock(() => {});
       // Fire backoff timers immediately so the reconnect loop runs in
       // microtasks instead of waiting out real 500ms+ delays.
-      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
-        cb: () => void,
-      ) => {
-        cb();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as never);
+      timers = mockSetTimeout({ fireImmediately: true });
     });
 
     afterEach(() => {
       console.info = originalConsoleInfo;
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     });
 
     // The reconnect chain (end old client, backoff sleep, connect, LISTEN,
@@ -371,7 +367,7 @@ describe('HostsListener', () => {
 
       // Capture the backoff timer without firing it so the loop is parked
       // in abortableSleep when the shutdown signal arrives.
-      setTimeoutSpy.mockImplementation(
+      timers.setSpy.mockImplementation(
         (() => 0 as unknown as ReturnType<typeof setTimeout>) as never,
       );
 

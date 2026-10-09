@@ -1,20 +1,21 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockPrefetchQuery = mock(() => Promise.resolve())
 
-mock.module('@/lib/query-client', () => ({
+mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real, 
   queryClient: {
     prefetchQuery: mockPrefetchQuery,
   },
 }))
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   listStacks: mock(() => Promise.resolve([])),
   listManagedHostNames: mock(() => Promise.resolve([])),
   createStack: mock(() => Promise.resolve({})),
 }))
 
-mock.module('@/lib/constants/preload-queries', () => ({
+mockModule<typeof import('@/lib/constants/preload-queries')>('@/lib/constants/preload-queries', (real) => ({ ...real, 
   DOCKER_PRELOAD_KEY: ['preload', 'docker-stats'],
   ZFS_PRELOAD_KEY: ['preload', 'zfs-stats'],
   PROXMOX_PRELOAD_KEY: ['preload', 'proxmox-stats'],

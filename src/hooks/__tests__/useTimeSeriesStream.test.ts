@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { z } from 'zod';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useTimeSeriesStream, VISIBILITY_REFRESH_COOLDOWN_MS } from '../useTimeSeriesStream';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import { MockEventSource } from '@/lib/test/mock-event-source';
+import { mockSetTimeout, mockSetInterval } from '@/lib/test/mock-timers';
 
 const originalEventSource = globalThis.EventSource;
 
@@ -105,14 +106,12 @@ describe('useTimeSeriesStream visibility refresh', () => {
 describe('useTimeSeriesStream reconnect refresh', () => {
   /** Errors the live SSE connection with timers firing synchronously, then opens the replacement. */
   function dropAndReopenConnection() {
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout,
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
     try {
       const es = MockEventSource.instances[MockEventSource.instances.length - 1];
       act(() => { es.onerror?.(); });
     } finally {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     }
     const reconnected = MockEventSource.instances[MockEventSource.instances.length - 1];
     act(() => { reconnected.onopen?.(); });
@@ -490,6 +489,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
     const rows: TestRow[] = [{ key: 'a-1', time: now - 5000, entity: 'a' }];
     const preloadFn = mock(() => Promise.resolve(rows));
 
+    const intervals = mockSetInterval();
     renderHook(() =>
       useTimeSeriesStream({
         channel: testChannel,
@@ -499,12 +499,15 @@ describe('useTimeSeriesStream periodic refresh', () => {
         refreshIntervalMs: 100,
       })
     );
+    // Restore before waitFor: it polls via setInterval and a captured poll never fires.
+    const refreshTick = intervals.scheduled.find((t) => t.delayMs === 100)!;
+    intervals.restore();
 
     // Wait for initial preload
     await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
-    // Wait for at least one periodic refresh
-    await waitFor(() => { expect(preloadFn.mock.calls.length).toBeGreaterThanOrEqual(2); });
+    await act(async () => { refreshTick.fn(); });
+    expect(preloadFn.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it('doRefresh silently ignores errors', async () => {
@@ -515,6 +518,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
       return Promise.reject(new Error('refresh failed'));
     });
 
+    const intervals = mockSetInterval();
     const { result } = renderHook(() =>
       useTimeSeriesStream({
         channel: testChannel,
@@ -524,13 +528,15 @@ describe('useTimeSeriesStream periodic refresh', () => {
         refreshIntervalMs: 100,
       })
     );
+    // Restore before waitFor: it polls via setInterval and a captured poll never fires.
+    const refreshTick = intervals.scheduled.find((t) => t.delayMs === 100)!;
+    intervals.restore();
 
     await waitFor(() => { expect(result.current.hasData).toBe(true); });
 
-    // Wait for periodic refresh that fails
-    await waitFor(() => { expect(callCount).toBeGreaterThanOrEqual(2); });
-
-    // Error should not propagate; data should still be intact
+    // Periodic refresh that fails must not propagate the error.
+    await act(async () => { refreshTick.fn(); });
+    expect(callCount).toBeGreaterThanOrEqual(2);
     expect(result.current.rows.length).toBeGreaterThan(0);
   });
 });
