@@ -34,11 +34,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          no-cache: true
+
       - name: Lint the PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: bash .github/scripts/pr-version-impact.sh --lint
+        run: bun scripts/pr-version-impact.ts --lint
 
   version-impact:
     name: Version Impact Comment
@@ -56,10 +61,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          no-cache: true
+
       - name: Post or update the version impact comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: bash .github/scripts/pr-version-impact.sh
+        run: bun scripts/pr-version-impact.ts
