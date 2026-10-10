@@ -45,7 +45,6 @@ export default tseslint.config(
       'coverage/**',
       'public/**',
       'src/routeTree.gen.ts',
-      '.claude/**',
       '.codex/**',
     ],
   },
