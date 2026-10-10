@@ -372,6 +372,11 @@ jobs:
           else
             BASE_SHA="$PUSH_BEFORE_SHA"
           fi
+          # Tag dispatch runs carry no base SHA. The previous release tag
+          # gives the upgrade check a real pre-release state.
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_SHA="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          fi
           if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             echo "No usable base commit, comparing HEAD against itself"
             BASE_SHA="$(git rev-parse HEAD)"
@@ -420,6 +425,16 @@ jobs:
       packages: write
 
     steps:
+      # Tag builds only. A v-prefixed ref that is not v<major>.<minor>.<patch>
+      # must never claim the latest tag or reach the release job.
+      - name: Validate the release ref shape
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if ! echo "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "ref $GITHUB_REF_NAME is not v<major>.<minor>.<patch>"
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -623,6 +638,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists"
+            exit 0
+          fi
           case "$GITHUB_REF_NAME" in
             *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --prerelease ;;
             *)   gh release create "$GITHUB_REF_NAME" --generate-notes ;;
