@@ -56,6 +56,14 @@ mockModule<typeof import('@/hooks/useContainerLogs')>('@/hooks/useContainerLogs'
 
 let lastCallOpts: { containerId: string; host: string } | null = null;
 
+// Spy the shared viewer counter so we can assert the component registers on mount and disposes on unmount.
+const mockDisposeViewer = mock(() => {});
+const mockRegisterViewer = mock(() => mockDisposeViewer);
+mockModule<typeof import('@/lib/docker/log-viewer-count')>('@/lib/docker/log-viewer-count', (real) => ({
+  ...real,
+  logViewerTracker: { register: mockRegisterViewer, count: () => 0 },
+}));
+
 // Mock ResizeObserver
 let lastResizeCallback: (() => void) | null = null;
 const mockObserve = mock(() => {});
@@ -169,5 +177,15 @@ describe('ContainerLogViewer', () => {
     if (cb) {
       cb();
     }
+  });
+
+  it('registers with the shared viewer tracker on mount and disposes on unmount', () => {
+    mockReturnValue = { isConnected: true, error: null };
+    mockRegisterViewer.mockClear();
+    mockDisposeViewer.mockClear();
+    const { unmount } = render(<ContainerLogViewer containerId="abc123" host="server" wordWrap={false} />);
+    expect(mockRegisterViewer).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(mockDisposeViewer).toHaveBeenCalledTimes(1);
   });
 });

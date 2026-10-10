@@ -3,6 +3,7 @@ import type { Terminal as TerminalType } from '@xterm/xterm';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useXtermSetup } from '@/hooks/useXtermSetup';
 import { useContainerLogs } from '@/hooks/useContainerLogs';
+import { logViewerTracker } from '@/lib/docker/log-viewer-count';
 
 interface ContainerLogViewerProps {
   containerId: string;
@@ -118,6 +119,8 @@ export default memo(function ContainerLogViewer({
 }: ContainerLogViewerProps) {
   const { containerRef, terminal, error: setupError, setWordWrap } = useXtermSetup({ disableStdin: true, convertEol: true });
   const [ready, setReady] = useState(false);
+
+  useEffect(() => logViewerTracker.register(), []);
 
   // terminal is a dep so this re-runs once the xterm instance is ready
   useEffect(() => {
