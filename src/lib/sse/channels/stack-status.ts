@@ -60,15 +60,18 @@ export const stackStatusChannel = defineSseChannel({
 });
 
 /** Omits `outcome` entirely rather than sending it as null/undefined when absent. */
-export function serializeStackStatusEvent(event: StackBroadcastEvent): string {
+export function toStackStatusWireMessage(event: StackBroadcastEvent): StackSSEMessage {
   if (event.type === 'deploy_changed') {
-    const payload = {
+    return {
       type: 'deploy_changed',
       stack: event.stack,
       host: event.host,
       ...(event.outcome !== undefined ? { outcome: event.outcome } : {}),
     };
-    return `data: ${JSON.stringify(payload)}\n\n`;
   }
-  return `data: ${JSON.stringify(event.entries)}\n\n`;
+  return event.entries;
+}
+
+export function serializeStackStatusEvent(event: StackBroadcastEvent): string {
+  return `data: ${JSON.stringify(toStackStatusWireMessage(event))}\n\n`;
 }

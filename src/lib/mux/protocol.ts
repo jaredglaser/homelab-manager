@@ -29,6 +29,8 @@
  * ack error and routes per-topic failure into subscriber error state.
  */
 export const INVENTORY_TOPIC = 'inventory';
+export const SETTINGS_TOPIC = 'settings';
+export const STACK_STATUS_TOPIC = 'stack-status';
 
 export const MAX_SESSION_TOPICS = 250;
 export const MAX_SUB_BATCH = 30;
@@ -84,7 +86,12 @@ export function parseLogsTopic(topic: string): { host: string; containerId: stri
 
 export function isValidTopic(topic: unknown): topic is string {
   if (typeof topic !== 'string') return false;
-  return topic === INVENTORY_TOPIC || parseLogsTopic(topic) !== null;
+  return (
+    topic === INVENTORY_TOPIC ||
+    topic === SETTINGS_TOPIC ||
+    topic === STACK_STATUS_TOPIC ||
+    parseLogsTopic(topic) !== null
+  );
 }
 
 export function parseCommandFrame(raw: unknown): MuxCommandFrame | null {

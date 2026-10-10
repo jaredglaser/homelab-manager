@@ -1,9 +1,67 @@
-import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach, beforeAll, spyOn } from 'bun:test';
+import { EventEmitter } from 'node:events';
+import type { PoolClient } from 'pg';
 import { mockModule } from '@/lib/test/mock-module';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 const mockAuthenticate = mock(async () => ({ id: 'test-user' } as unknown));
 const mockFindByName = mock(async (_: string) => null as null | { name: string; agentUrl: string });
 const mockGetPrivateKeyForHost = mock(async (_: string) => null as null | object);
+
+// Real server-init runs deploy recovery and DB shutdown hooks on import. Stub it to a no-op.
+mock.module('@/lib/server-init', () => ({}));
+
+class FakePoolClient extends EventEmitter {
+  queries: string[] = [];
+  released = false;
+  async query(sql: string): Promise<unknown> {
+    this.queries.push(sql);
+    return {};
+  }
+  release(): void {
+    this.released = true;
+  }
+}
+
+function makePoolHarness() {
+  const clients: FakePoolClient[] = [];
+  return {
+    clients,
+    async getPoolClient(): Promise<PoolClient> {
+      const client = new FakePoolClient();
+      clients.push(client);
+      return client as unknown as PoolClient;
+    },
+  };
+}
+
+const settingsHarness = makePoolHarness();
+const stackHarness = makePoolHarness();
+const settingsState = { all: new Map<string, string>(), values: new Map<string, string>() };
+const stackState = { snapshot: [] as DockerInventorySnapshotContainer[] };
+
+mockModule<typeof import('@/lib/settings/settings-broadcast-service')>(
+  '@/lib/settings/settings-broadcast-service',
+  (real) => ({
+    ...real,
+    settingsBroadcastService: new real.SettingsBroadcastService({
+      getPoolClient: settingsHarness.getPoolClient,
+      loadAllSettings: async () => new Map(settingsState.all),
+      loadSingleSetting: async (key) => settingsState.values.get(key) ?? null,
+    }),
+  }),
+);
+
+mockModule<typeof import('@/lib/stacks/stack-status-broadcast-service')>(
+  '@/lib/stacks/stack-status-broadcast-service',
+  (real) => ({
+    ...real,
+    stackStatusBroadcastService: new real.StackStatusBroadcastService({
+      getPoolClient: stackHarness.getPoolClient,
+      loadSnapshot: async () => stackState.snapshot,
+    }),
+  }),
+);
 
 mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({
   ...real,
@@ -376,6 +434,139 @@ describe('logs adapter pipe', () => {
     expect(events[0].kind).toBe('error');
     expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
     expect((events[0].payload as { message?: string }).message).toContain('Unknown host');
+    h.close(peer as unknown as Peer);
+  });
+});
+
+type SentFrame = FakePeer['sent'][number];
+
+function dataFrames(peer: FakePeer, topic: string): SentFrame[] {
+  return peer.sent.filter((f) => f.type === 'event' && f.topic === topic && f.kind === 'data');
+}
+
+describe('control topics (settings, stack-status)', () => {
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+  async function until(predicate: () => boolean, maxRounds = 50): Promise<void> {
+    for (let i = 0; i < maxRounds && !predicate(); i++) await settle();
+  }
+
+  beforeAll(async () => {
+    // Pre-warm the adapters' dynamic import chain so init delivery is pure microtasks per test.
+    await import('@/lib/server-init');
+    await import('@/lib/settings/settings-broadcast-service');
+    await import('@/lib/stacks/stack-status-broadcast-service');
+    await import('@/lib/sse/channels/stack-status');
+  });
+  const expectedStackEntry = {
+    host: 'server1',
+    stack: 'plex',
+    containers: [
+      {
+        id: 'c1',
+        name: 'plex',
+        status: 'running',
+        image: 'plexinc/pms-docker',
+        service: 'plex',
+        ports: [],
+        mounts: [],
+      },
+    ],
+    updated_at: '2026-03-21T00:00:00.000Z',
+  };
+  let peerCounter = 0;
+
+  beforeEach(() => {
+    mockAuthenticate.mockImplementation(async () => ({ id: 'test-user' } as unknown));
+    settingsHarness.clients.length = 0;
+    stackHarness.clients.length = 0;
+    settingsState.all = new Map([['theme', 'dark']]);
+    settingsState.values = new Map([['theme', 'light']]);
+    stackState.snapshot = [
+      {
+        host: 'server1',
+        containerId: 'c1',
+        name: 'plex',
+        image: 'plexinc/pms-docker',
+        state: 'running',
+        composeProject: 'plex',
+        serviceKey: 'plex/plex',
+        startedAt: null,
+        finishedAt: null,
+        exitCode: null,
+        updatedAt: new Date('2026-03-21T00:00:00Z'),
+        labels: {},
+        ports: [],
+        mounts: [],
+      },
+    ];
+  });
+
+  it('delivers initial state for settings and stack-status on one connection', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer(`ctl-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['settings', 'stack-status'], 1));
+    await until(() => dataFrames(peer, 'settings').length >= 1 && dataFrames(peer, 'stack-status').length >= 1);
+
+    expect(dataFrames(peer, 'settings')).toHaveLength(1);
+    expect(dataFrames(peer, 'settings')[0].payload).toEqual({ type: 'init', settings: { theme: 'dark' } });
+    expect(dataFrames(peer, 'stack-status')).toHaveLength(1);
+    expect(dataFrames(peer, 'stack-status')[0].payload).toEqual([expectedStackEntry]);
+    expect(peer.sent.filter((f) => f.type === 'ack')).toEqual([{ type: 'ack', ref: 1, ok: true }]);
+    h.close(peer as unknown as Peer);
+  });
+
+  it('forwards live settings changes and stack deploy updates as data frames', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer(`ctl-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['settings', 'stack-status'], 1));
+    await until(() => dataFrames(peer, 'settings').length >= 1 && dataFrames(peer, 'stack-status').length >= 1);
+
+    settingsHarness.clients.at(-1)?.emit('notification', { channel: 'settings_change', payload: 'theme' });
+    await until(() => dataFrames(peer, 'settings').length >= 2);
+    expect(dataFrames(peer, 'settings')[1].payload).toEqual({ type: 'change', key: 'theme', value: 'light' });
+
+    const outcome = { deployId: 7, status: 'succeeded', action: 'deploy', trigger: 'ui' };
+    stackHarness.clients.at(-1)?.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({ stack: 'plex', host: 'server1', outcome }),
+    });
+    await until(() => dataFrames(peer, 'stack-status').length >= 2);
+    expect(dataFrames(peer, 'stack-status')[1].payload).toEqual({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome,
+    });
+    h.close(peer as unknown as Peer);
+  });
+
+  it('stops delivery on unsub and re-delivers current state on re-subscribe', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer(`ctl-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['settings', 'stack-status'], 1));
+    await until(() => dataFrames(peer, 'settings').length >= 1 && dataFrames(peer, 'stack-status').length >= 1);
+
+    await h.message(peer as unknown as Peer, command('unsub', ['settings', 'stack-status'], 2));
+    await settle();
+    const afterUnsub = peer.sent.length;
+    settingsHarness.clients.at(-1)?.emit('notification', { channel: 'settings_change', payload: 'theme' });
+    stackHarness.clients.at(-1)?.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({ stack: 'plex', host: 'server1' }),
+    });
+    await settle();
+    await settle();
+    expect(peer.sent.length).toBe(afterUnsub);
+    expect(dataFrames(peer, 'settings')).toHaveLength(1);
+    expect(dataFrames(peer, 'stack-status')).toHaveLength(1);
+
+    await h.message(peer as unknown as Peer, command('sub', ['settings', 'stack-status'], 3));
+    await until(() => dataFrames(peer, 'settings').length >= 2 && dataFrames(peer, 'stack-status').length >= 2);
+    expect(dataFrames(peer, 'settings')[1].payload).toEqual({ type: 'init', settings: { theme: 'dark' } });
+    expect(dataFrames(peer, 'stack-status')[1].payload).toEqual([expectedStackEntry]);
     h.close(peer as unknown as Peer);
   });
 });
