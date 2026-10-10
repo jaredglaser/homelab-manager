@@ -1,4 +1,4 @@
-import { muxConnection, type MuxStatus } from '@/lib/mux/mux-connection';
+import { muxConnection, type MuxStatus, type MuxSubscribeError } from '@/lib/mux/mux-connection';
 import { logsTopic, type MuxEventFrame } from '@/lib/mux/protocol';
 
 // Matches xterm scrollback: a late-joining subscriber sees what the terminal can display.
@@ -38,6 +38,7 @@ class LogStream {
     this.unsubscribe = muxConnection.subscribe(topic, {
       onEvent: (frame) => this.handleFrame(frame),
       onStatus: (status) => this.handleStatus(status),
+      onSubscribeRejected: (error) => this.handleSubscribeRejected(error),
     });
   }
 
@@ -103,6 +104,11 @@ class LogStream {
     }
     if (this.streamEnded) return;
     for (const sub of this.subscribers) sub.onDisconnect(false);
+  }
+
+  private handleSubscribeRejected(error: MuxSubscribeError): void {
+    this.error = new Error(error.message);
+    for (const sub of this.subscribers) sub.onError(this.error);
   }
 
   private appendLine(line: LogLine): void {
