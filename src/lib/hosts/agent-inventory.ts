@@ -24,6 +24,8 @@ export interface AgentInventoryEntry {
   versionSource: AgentVersionSource;
   agentImage: string | null;
   agentImageTag: string | null;
+  /** Stored per-agent auto-update opt-in (managed_hosts.auto_update). */
+  autoUpdate: boolean;
   /** Probe error detail when status is not online, else null. */
   lastError: string | null;
   /** ISO timestamp of the inventory pass that produced this entry. */
@@ -70,6 +72,7 @@ export function buildAgentInventoryEntry(
       versionSource: outcome.version ? 'live' : host.agentVersion ? 'stored' : 'unknown',
       agentImage: host.agentImage,
       agentImageTag: host.agentImageTag,
+      autoUpdate: host.autoUpdate,
       lastError: null,
       checkedAt: checkedAt.toISOString(),
     };
@@ -85,6 +88,7 @@ export function buildAgentInventoryEntry(
     versionSource: host.agentVersion ? 'stored' : 'unknown',
     agentImage: host.agentImage,
     agentImageTag: host.agentImageTag,
+    autoUpdate: host.autoUpdate,
     lastError: outcome.error,
     checkedAt: checkedAt.toISOString(),
   };
@@ -115,6 +119,7 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
     versionSource: host.agentVersion ? 'stored' : 'unknown',
     agentImage: host.agentImage,
     agentImageTag: host.agentImageTag,
+    autoUpdate: host.autoUpdate,
     lastError: null,
     // Not updatedAt: every writer to managed_hosts bumps that column (rename,
     // URL edit, key rotation, a single-host health check), so it reports a
