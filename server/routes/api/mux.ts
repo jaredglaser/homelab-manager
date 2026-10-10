@@ -1,7 +1,9 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
+import type { MuxFrameBody } from '../../../src/lib/mux/protocol';
 
 const LOGS_TOPIC_PREFIX = 'logs:';
+const STATS_TOPIC_PREFIX = 'stats:';
 const INVENTORY_TOPIC = 'inventory';
 const SETTINGS_TOPIC = 'settings';
 const STACK_STATUS_TOPIC = 'stack-status';
@@ -11,7 +13,7 @@ const AGENT_BASE_BACKOFF_MS = 1_000;
 const AGENT_MAX_BACKOFF_MS = 16_000;
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
-type EmitFrame = (frame: { topic: string; kind: string; payload: unknown }) => void;
+type EmitFrame = (frame: MuxFrameBody) => void;
 type TopicAdapter = (topic: string, emit: EmitFrame, signal: AbortSignal) => void | Promise<void>;
 
 interface TopicStream {
@@ -96,6 +98,23 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
   const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
   });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
+async function statsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  const { parseStatsTopic } = await import('../../../src/lib/mux/protocol');
+  const source = parseStatsTopic(topic);
+  if (!source) {
+    emit({ topic, kind: 'error', payload: { message: 'Invalid stats topic', gone: true } });
+    return;
+  }
+  await import('../../../src/lib/server-init');
+  const { statsPollService } = await import('../../../src/lib/database/subscription-service');
+  const unsubscribe = statsPollService.subscribe(
+    source,
+    (rows) => emit({ topic, kind: 'data', payload: rows }),
+    () => emit({ topic, kind: 'error', payload: { message: 'Stats polling failed, retrying', gone: false } }),
+  );
   signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
@@ -321,6 +340,9 @@ export const defaultTopicAdapter: TopicAdapter = (topic, emit, signal) => {
   }
   if (topic.startsWith(LOGS_TOPIC_PREFIX)) {
     return logsAdapter(topic, emit, signal);
+  }
+  if (topic.startsWith(STATS_TOPIC_PREFIX)) {
+    return statsAdapter(topic, emit, signal);
   }
   emit({ topic, kind: 'error', payload: { message: `Unsupported topic: ${topic}`, gone: true } });
 };
