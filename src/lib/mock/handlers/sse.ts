@@ -8,38 +8,11 @@ import {
 } from '@/lib/mock/generators/docker';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
-import { generateDefaultSettings } from '@/lib/mock/generators/settings';
-import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
-import type { SettingsSSEMessage } from '@/types/settings';
 import { createSseResponse } from '@/lib/mock/handlers/sse-stream';
 
 const STATS_INTERVAL_MS = 1000;
 const LOG_INTERVAL_MS = 3000;
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.values(value).every((v) => typeof v === 'string')
-  );
-}
-
-function loadDemoSettings(): Record<string, string> {
-  try {
-    const stored = localStorage.getItem(DEMO_SETTINGS_STORAGE_KEY);
-    // Hand-edited storage can hold non-object JSON or non-string values; fall
-    // back to defaults rather than feeding a malformed shape into the settings atoms.
-    if (stored) {
-      const parsed: unknown = JSON.parse(stored);
-      if (isStringRecord(parsed)) return parsed;
-    }
-  } catch {
-    /* ignore malformed storage */
-  }
-  return generateDefaultSettings();
-}
 
 /** Stream a fresh snapshot immediately, then once per second. */
 function statsHandler(generate: () => unknown) {
@@ -60,22 +33,6 @@ const proxmoxStats = statsHandler(() => generateProxmoxSnapshot(new Date()));
 function dockerInventory() {
   return createSseResponse((controller) => {
     controller.send({ type: 'init', containers: generateDockerInventorySnapshot(new Date()) });
-  });
-}
-
-function settings() {
-  return createSseResponse((controller) => {
-    const message: SettingsSSEMessage = { type: 'init', settings: loadDemoSettings() };
-    controller.send(message);
-  });
-}
-
-// Stack status has no demo generator yet; open the stream so the hook reports a
-// healthy connection (matching the pre-MSW demo) and let the stacks page derive
-// state from the listStacks / getStackDetail server functions instead.
-function stackStatus() {
-  return createSseResponse(() => {
-    /* open and idle */
   });
 }
 
@@ -106,7 +63,5 @@ export const sseHandlers = [
   http.get(/\/api\/zfs-stats(?:\?|$)/, zfsStats),
   http.get(/\/api\/proxmox-stats(?:\?|$)/, proxmoxStats),
   http.get(/\/api\/docker-inventory(?:\?|$)/, dockerInventory),
-  http.get(/\/api\/settings(?:\?|$)/, settings),
-  http.get(/\/api\/stack-status(?:\?|$)/, stackStatus),
   http.get(/\/api\/docker-logs\//, ({ request }) => dockerLogs(request)),
 ];
