@@ -252,6 +252,38 @@ jobs:
           path: agent-updater/license-report.json
           retention-days: 30
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          no-cache: true
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Type-aware rules resolve each package against its own tsconfig, so all three
+      # need their node_modules present or every cross-package type degrades to `any`.
+      - name: Install agent dependencies
+        run: cd agent && bun install --frozen-lockfile
+
+      - name: Install agent-updater dependencies
+        run: cd agent-updater && bun install --frozen-lockfile
+
+      - name: Run ESLint
+        run: bun run lint
+
   demo-build:
     name: Demo Build
     runs-on: ubuntu-latest

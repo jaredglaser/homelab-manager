@@ -18,7 +18,6 @@ mockModule<typeof import('@/data/git-tokens.functions')>('@/data/git-tokens.func
   revokeGitToken: mock(() => Promise.resolve()),
 }))
 
-// eslint-disable-next-line import/first
 import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
 import { mockModule } from '@/lib/test/mock-module';
 

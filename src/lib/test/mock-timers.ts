@@ -52,7 +52,7 @@ function installTimerMock(
   // Handles minted before the mock window must still clear for real.
   const realClear = globalThis[clearKind];
   const clearSpy = spyOn(globalThis, clearKind).mockImplementation(
-    ((id?: number | { }) => {
+    ((id?: number | object) => {
       const timer = scheduled.find((t) => t.id === (id as unknown as number));
       if (timer) timer.cleared = true;
       else (realClear as (handle: unknown) => void)(id);
