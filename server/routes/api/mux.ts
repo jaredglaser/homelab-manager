@@ -3,6 +3,8 @@ import type { Peer, WSError } from 'crossws';
 
 const LOGS_TOPIC_PREFIX = 'logs:';
 const INVENTORY_TOPIC = 'inventory';
+const SETTINGS_TOPIC = 'settings';
+const STACK_STATUS_TOPIC = 'stack-status';
 const MAX_SESSION_TOPICS = 20;
 const PING_INTERVAL_MS = 25_000;
 const AGENT_BASE_BACKOFF_MS = 1_000;
@@ -70,6 +72,29 @@ async function inventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSig
   );
   const unsubscribe = dockerInventoryBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: event });
+  });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
+async function settingsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  const { settingsBroadcastService } = await import(
+    '../../../src/lib/settings/settings-broadcast-service'
+  );
+  const unsubscribe = settingsBroadcastService.subscribe((message) => {
+    emit({ topic, kind: 'data', payload: message });
+  });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
+async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  const { stackStatusBroadcastService } = await import(
+    '../../../src/lib/stacks/stack-status-broadcast-service'
+  );
+  const { toStackStatusWireMessage } = await import('../../../src/lib/sse/channels/stack-status');
+  const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
+    emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
   });
   signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
@@ -287,6 +312,12 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
 export const defaultTopicAdapter: TopicAdapter = (topic, emit, signal) => {
   if (topic === INVENTORY_TOPIC) {
     return inventoryAdapter(topic, emit, signal);
+  }
+  if (topic === SETTINGS_TOPIC) {
+    return settingsAdapter(topic, emit, signal);
+  }
+  if (topic === STACK_STATUS_TOPIC) {
+    return stackStatusAdapter(topic, emit, signal);
   }
   if (topic.startsWith(LOGS_TOPIC_PREFIX)) {
     return logsAdapter(topic, emit, signal);
