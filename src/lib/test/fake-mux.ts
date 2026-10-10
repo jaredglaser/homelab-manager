@@ -27,7 +27,7 @@ export class FakeMuxConnection {
     return this.subscriptions.get(topic)?.size ?? 0;
   }
 
-  emit(topic: string, kind: MuxEventKind, payload: unknown = {}): void {
+  emit(topic: string, kind: Exclude<MuxEventKind, 'dropped'>, payload: unknown = {}): void {
     const set = this.subscriptions.get(topic);
     if (!set) return;
     const frame: MuxEventFrame = { type: 'event', topic, kind, payload };
@@ -35,7 +35,7 @@ export class FakeMuxConnection {
   }
 
   /** Simulates a wire payload: JSON round-trip turns Dates into ISO strings like a real frame. */
-  emitWire(topic: string, kind: MuxEventKind, payload: unknown): void {
+  emitWire(topic: string, kind: Exclude<MuxEventKind, 'dropped'>, payload: unknown): void {
     this.emit(topic, kind, JSON.parse(JSON.stringify(payload)));
   }
 

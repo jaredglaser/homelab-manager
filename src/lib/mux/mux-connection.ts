@@ -1,5 +1,5 @@
 import { apiUrl } from '@/lib/utils/api-url';
-import type { MuxEventFrame, MuxServerFrame } from '@/lib/mux/protocol';
+import type { MuxTopicFrame, MuxServerFrame } from '@/lib/mux/protocol';
 
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 16_000;
@@ -7,7 +7,7 @@ const MAX_BACKOFF_MS = 16_000;
 const ERROR_AFTER_ATTEMPTS = 5;
 
 export interface MuxTopicHandlers {
-  onEvent: (frame: MuxEventFrame) => void;
+  onEvent: (frame: MuxTopicFrame) => void;
   onStatus?: (status: MuxStatus) => void;
 }
 
