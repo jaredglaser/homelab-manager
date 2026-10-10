@@ -5,11 +5,9 @@ const LOGS_TOPIC_PREFIX = 'logs:';
 const INVENTORY_TOPIC = 'inventory';
 const MAX_SESSION_TOPICS = 20;
 const PING_INTERVAL_MS = 25_000;
-const AGENT_MAX_ATTEMPTS = 5;
 const AGENT_BASE_BACKOFF_MS = 1_000;
 const AGENT_MAX_BACKOFF_MS = 16_000;
-const LOGS_GIVE_UP_MESSAGE =
-  'Log stream disconnected after multiple reconnect attempts. Check that the agent for this host is running and the container still exists.';
+const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
 type EmitFrame = (frame: { topic: string; kind: string; payload: unknown }) => void;
 type TopicAdapter = (topic: string, emit: EmitFrame, signal: AbortSignal) => void | Promise<void>;
@@ -124,9 +122,11 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   const jwt = await signAgentJwt(privateKey, host);
   const agentUrl = `${managedHost.agentUrl}/logs/${encodeURIComponent(containerId)}`;
 
-  for (let attempt = 1; attempt <= AGENT_MAX_ATTEMPTS; attempt++) {
+  let attempt = 0;
+  let degraded = false;
+  for (;;) {
     if (signal.aborted) return;
-    emit({ topic, kind: 'backlog_start', payload: {} });
+    attempt++;
     try {
       const agentResponse = await fetch(agentUrl, {
         headers: { Authorization: 'Bearer ' + jwt },
@@ -136,14 +136,16 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
       if (!agentResponse.ok || !agentResponse.body) {
         throw new Error(`Agent request failed with status ${agentResponse.status}`);
       }
+      degraded = false;
+      emit({ topic, kind: 'backlog_start', payload: {} });
       await pipeAgentSse(agentResponse.body, topic, emit, signal);
       return;
     } catch (err) {
       if (signal.aborted) return;
-      if (attempt === AGENT_MAX_ATTEMPTS) {
-        console.error('[mux-ws] log upstream failed:', err instanceof Error ? err.message : String(err), { host, containerId });
-        emit({ topic, kind: 'error', payload: { message: LOGS_GIVE_UP_MESSAGE, gone: true } });
-        return;
+      if (!degraded) {
+        degraded = true;
+        console.error('[mux-ws] log upstream degraded:', err instanceof Error ? err.message : String(err), { host, containerId });
+        emit({ topic, kind: 'error', payload: { message: LOGS_DEGRADED_MESSAGE, gone: false } });
       }
       const delay = Math.min(AGENT_BASE_BACKOFF_MS * 2 ** (attempt - 1), AGENT_MAX_BACKOFF_MS);
       await new Promise<void>((resolve) => {

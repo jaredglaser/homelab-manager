@@ -255,14 +255,19 @@ describe('logs adapter pipe', () => {
     h.close(peer as unknown as Peer);
   });
 
-  it('retries the agent fetch with backoff and gives up with a gone error', async () => {
+  it('retries the agent fetch with capped backoff, reports degradation once, and recovers', async () => {
     let pending: { fn: () => void; ms: number }[] = [];
+    const delays: number[] = [];
     spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
       pending.push({ fn, ms: ms ?? 0 });
+      delays.push(ms ?? 0);
       return pending.length;
     }) as unknown as typeof setTimeout);
+    let attempts = 0;
     (globalThis as unknown as Record<string, unknown>).fetch = mock(async () => {
-      throw new Error('agent down');
+      attempts++;
+      if (attempts <= 2) throw new Error('agent down');
+      return new Response(sseBody('data: {"lines":[{"text":"back","stream":"stdout"}]}\n\n'));
     }) as unknown as typeof fetch;
     const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
@@ -272,7 +277,7 @@ describe('logs adapter pipe', () => {
     await h.message(peer as unknown as Peer, command('sub', ['logs:server1/abc'], 1));
     await settle();
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2; i++) {
       const queue = pending;
       pending = [];
       for (const timer of queue) timer.fn();
@@ -280,10 +285,33 @@ describe('logs adapter pipe', () => {
     }
 
     const events = peer.sent.filter((f) => f.type === 'event');
-    expect(events.filter((e) => e.kind === 'backlog_start')).toHaveLength(5);
-    const last = events.at(-1)!;
-    expect(last.kind).toBe('error');
-    expect((last.payload as { gone?: boolean }).gone).toBe(true);
+    expect(delays).toEqual([1000, 2000]);
+    expect(events.filter((e) => e.kind === 'backlog_start')).toHaveLength(1);
+    expect(events.filter((e) => e.kind === 'data')).toHaveLength(1);
+    const errors = events.filter((e) => e.kind === 'error');
+    expect(errors).toHaveLength(1);
+    expect((errors[0].payload as { gone?: boolean }).gone).toBe(false);
+    expect((errors[0].payload as { message?: string }).message).toContain('retrying');
+    h.close(peer as unknown as Peer);
+  });
+
+  it('emits a gone error for permanent failures', async () => {
+    mockFindByName.mockImplementation(async () => null);
+    (globalThis as unknown as Record<string, unknown>).fetch = mock(async () => {
+      throw new Error('should not fetch');
+    }) as unknown as typeof fetch;
+
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer('pipe-peer-3');
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['logs:server1/abc'], 1));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const events = peer.sent.filter((f) => f.type === 'event');
+    expect(events).toHaveLength(1);
+    expect(events[0].kind).toBe('error');
+    expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
+    expect((events[0].payload as { message?: string }).message).toContain('Unknown host');
     h.close(peer as unknown as Peer);
   });
 });
