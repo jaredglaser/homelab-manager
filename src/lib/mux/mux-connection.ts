@@ -4,7 +4,7 @@ import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxTopicFrame, t
 
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 16_000;
-// Matches useEventSource: crossing this surfaces an error while retries continue forever.
+// Crossing this surfaces an error while retries continue forever.
 const ERROR_AFTER_ATTEMPTS = 5;
 
 export interface MuxSubscribeError {
