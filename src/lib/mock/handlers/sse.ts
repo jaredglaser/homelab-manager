@@ -1,20 +1,16 @@
 import { http } from 'msw';
 
 import {
-  generateDockerSnapshot,
   generateDockerInventorySnapshot,
   generateContainerLogBatch,
   generateContainerLogHistory,
 } from '@/lib/mock/generators/docker';
-import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
-import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { generateDefaultSettings } from '@/lib/mock/generators/settings';
 import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import type { SettingsSSEMessage } from '@/types/settings';
 import { createSseResponse } from '@/lib/mock/handlers/sse-stream';
 
-const STATS_INTERVAL_MS = 1000;
 const LOG_INTERVAL_MS = 3000;
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -40,19 +36,6 @@ function loadDemoSettings(): Record<string, string> {
   }
   return generateDefaultSettings();
 }
-
-/** Stream a fresh snapshot immediately, then once per second. */
-function statsHandler(generate: () => unknown) {
-  return () =>
-    createSseResponse((controller) => {
-      controller.send(generate());
-      controller.interval(STATS_INTERVAL_MS, () => controller.send(generate()));
-    });
-}
-
-const dockerStats = statsHandler(() => generateDockerSnapshot(new Date()));
-const zfsStats = statsHandler(() => generateZFSSnapshot(new Date()));
-const proxmoxStats = statsHandler(() => generateProxmoxSnapshot(new Date()));
 
 // Inventory is the Docker table's source of truth: without an initial snapshot the
 // page renders no rows even while stats stream fine. Real updates arrive via pg
@@ -102,9 +85,6 @@ function dockerLogs(request: Request) {
 }
 
 export const sseHandlers = [
-  http.get(/\/api\/docker-stats(?:\?|$)/, dockerStats),
-  http.get(/\/api\/zfs-stats(?:\?|$)/, zfsStats),
-  http.get(/\/api\/proxmox-stats(?:\?|$)/, proxmoxStats),
   http.get(/\/api\/docker-inventory(?:\?|$)/, dockerInventory),
   http.get(/\/api\/settings(?:\?|$)/, settings),
   http.get(/\/api\/stack-status(?:\?|$)/, stackStatus),

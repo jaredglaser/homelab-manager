@@ -106,8 +106,8 @@ describe('sse-stream', () => {
         expect(ticks).toBe(0);
       });
 
-      // The shipped producers (statsHandler, dockerLogs) send before registering
-      // their interval, so this is the ordering that actually reaches the leak.
+      // The shipped producer (dockerLogs) sends before registering its interval,
+      // so this is the ordering that actually reaches the leak.
       it('schedules no timer when the first send already tore the stream down', () => {
         const intervals = captureTimers();
         const encodeSpy = spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
