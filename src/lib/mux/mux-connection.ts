@@ -1,14 +1,23 @@
+import { toast } from 'sonner';
 import { apiUrl } from '@/lib/utils/api-url';
-import type { MuxEventFrame, MuxServerFrame } from '@/lib/mux/protocol';
+import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxEventFrame, type MuxServerFrame } from '@/lib/mux/protocol';
 
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 16_000;
 // Matches useEventSource: crossing this surfaces an error while retries continue forever.
 const ERROR_AFTER_ATTEMPTS = 5;
 
+export interface MuxSubscribeError {
+  topic: string;
+  code?: string;
+  message: string;
+}
+
 export interface MuxTopicHandlers {
   onEvent: (frame: MuxEventFrame) => void;
   onStatus?: (status: MuxStatus) => void;
+  /** A toast already fires once per rejected ack. Use this only for per-view error state. */
+  onSubscribeRejected?: (error: MuxSubscribeError) => void;
 }
 
 export interface MuxStatus {
@@ -25,6 +34,13 @@ function defaultCreateSocket(url: string): WebSocket {
   return new WebSocket(`${wsScheme}//${window.location.host}${url}`);
 }
 
+function rejectionMessage({ code, error }: { code?: string; error?: string }): string {
+  if (error) return error;
+  if (code === 'topic_limit') return 'Session topic limit reached. Unsubscribe unused topics.';
+  if (code) return `Subscription rejected (${code})`;
+  return 'Subscription rejected';
+}
+
 type TopicEntry = {
   handlers: Set<MuxTopicHandlers>;
 };
@@ -36,6 +52,7 @@ type TopicEntry = {
  */
 export class MuxConnection {
   private readonly topics = new Map<string, TopicEntry>();
+  private readonly pendingSubs = new Map<number, string[]>();
   private readonly statusListeners = new Set<(status: MuxStatus) => void>();
   private socket: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -100,7 +117,26 @@ export class MuxConnection {
 
   private sendCommand(type: 'sub' | 'unsub', topics: string[]): void {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
-    this.socket.send(JSON.stringify({ type, ref: this.refCounter++, topics }));
+    // The server rejects frames over its per-frame batch limit, so bursts split here.
+    const maxBatch = type === 'sub' ? MAX_SUB_BATCH : MAX_UNSUB_BATCH;
+    for (let i = 0; i < topics.length; i += maxBatch) {
+      const chunk = topics.slice(i, i + maxBatch);
+      const ref = this.refCounter++;
+      if (type === 'sub') this.pendingSubs.set(ref, chunk);
+      this.socket.send(JSON.stringify({ type, ref, topics: chunk }));
+    }
+  }
+
+  private handleSubscribeRejected(ack: MuxAckFrame & { code?: unknown }, topics: string[] | undefined): void {
+    const code = typeof ack.code === 'string' ? ack.code : undefined;
+    const message = rejectionMessage({ code, error: ack.error });
+    console.error('[mux-connection] Subscription rejected:', ack.error ?? '(no detail)', `ref=${ack.ref}`);
+    toast.error(message);
+    for (const topic of topics ?? []) {
+      const entry = this.topics.get(topic);
+      if (!entry) continue;
+      for (const handlers of entry.handlers) handlers.onSubscribeRejected?.({ topic, code, message });
+    }
   }
 
   private connect(): void {
@@ -113,6 +149,7 @@ export class MuxConnection {
       this.attempts = 0;
       this.everConnected = true;
       this.setStatus({ connected: true, error: null });
+      this.pendingSubs.clear();
       if (this.topics.size > 0) {
         this.sendCommand('sub', [...this.topics.keys()]);
       }
@@ -133,8 +170,10 @@ export class MuxConnection {
         for (const handlers of entry.handlers) handlers.onEvent(frame);
         return;
       }
-      if (frame.type === 'ack' && !frame.ok) {
-        console.error('[mux-connection] Subscription rejected:', frame.error ?? '(no detail)', `ref=${frame.ref}`);
+      if (frame.type === 'ack') {
+        const topics = this.pendingSubs.get(frame.ref);
+        this.pendingSubs.delete(frame.ref);
+        if (!frame.ok) this.handleSubscribeRejected(frame, topics);
       }
     };
 
@@ -197,6 +236,7 @@ export class MuxConnection {
 
   private teardownSocket(): void {
     this.clearReconnectTimer();
+    this.pendingSubs.clear();
     this.attempts = 0;
     if (this.socket) {
       const socket = this.socket;
