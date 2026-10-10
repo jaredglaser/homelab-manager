@@ -20,9 +20,6 @@ Start by reading `AGENTS.md`, then inspect only the files relevant to the reques
 - `docs/project-structure.md`
 - `docs/git-stacks-repo.md`
 - `AGENTS.md`
-- `AGENTS.md`
-- `docker-compose.yml`
-- `docker-compose.dev.yml`
 - `docker-compose.local.yml`
 - `docker-compose.agent.yml`
 - `self-hosting/docker-compose.yml`
@@ -30,6 +27,9 @@ Start by reading `AGENTS.md`, then inspect only the files relevant to the reques
 - `.env.example`
 - `Dockerfile`
 - `agent/Dockerfile`
+- `version.txt`, `.release-please-manifest.json`, `release-please-config.json`
+- `CHANGELOG.md`
+- `.github/workflows/ci.yml`, `.github/workflows/release-please.yml`, `.github/workflows/pr-version-impact.yml`
 
 ## Workflow
 
@@ -46,6 +46,7 @@ Start by reading `AGENTS.md`, then inspect only the files relevant to the reques
 - compose build targets exist in the Dockerfiles
 - service names, ports, volumes, health checks, and network settings are internally consistent
 - docs accurately describe local-dev vs self-hosting behavior
+- release claims in docs match `.github/workflows/` and `release-please-config.json`: which image tags publish from which refs, how the version is cut, and what the release PR touches
 
 ## Delegation
 
