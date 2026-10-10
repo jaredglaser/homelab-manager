@@ -14,11 +14,11 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 │   ├── stacks/             # Stack management UI: compose editor, deploy history, variables
 │   ├── ui/                 # Vendored shadcn-style Base UI components; datatable/ is the shared DataTable
 │   └── zfs/                # ZFS dashboard: pool table (subtables/), speed charts
-├── hooks/                  # Settings slices, SSE consumers, color mode; timeSeriesStream/ internals
+├── hooks/                  # Settings slices, mux consumers, color mode; timeSeriesStream/ internals
 ├── data/                   # Server functions + Zod schemas per domain (docker, hosts, proxmox, settings, stacks, zfs)
 ├── middleware/             # createServerFn middleware (database client injection)
 ├── lib/
-│   ├── auth/               # OIDC client, sessions, role mapping, SSE auth
+│   ├── auth/               # OIDC client, sessions, role mapping, WS auth (sse-auth)
 │   ├── charts/             # ECharts helpers (CSS var colors, y-axis scaling)
 │   ├── clients/            # Agent, database (pg pool), and Proxmox clients
 │   ├── config/             # Env-based config loaders
@@ -30,12 +30,12 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 │   ├── git/                # Bare repo, HTTP smart protocol, post-receive deploy dispatch
 │   ├── health/             # /api/health handler
 │   ├── hosts/              # Host utilities
-│   ├── mock/               # Demo mode: seeded generators, mock server functions, EventSource patch
+│   ├── mock/               # Demo mode: seeded generators, mock server functions, mock WS handlers
 │   ├── parsers/            # zpool iostat parsing
 │   ├── schemas/            # Shared Zod schemas
 │   ├── services/           # Agent health, secret resolution, token generation
 │   ├── settings/           # Settings broadcast service
-│   ├── sse/                # SSE handler factories; channels/ holds per-stream descriptors
+│   ├── sse/                # Channel descriptors; channels/ holds per-topic schemas + wire messages consumed by the mux
 │   ├── stacks/             # Stack CRUD, mappers, status broadcast
 │   ├── streaming/          # Core streaming interfaces
 │   ├── templates/          # Agent compose stack generator
@@ -44,11 +44,11 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 │   ├── workers/            # Monaco/YAML web workers
 │   └── *.ts                # monaco-setup, query-client (singleton), server-init (startup/shutdown), stream-utils
 ├── worker/                 # Collector entry point, factory, dev seed; collectors/ per source
-├── routes/                 # TanStack Router file routes; api/ holds SSE, auth, and git endpoints
+├── routes/                 # TanStack Router file routes; api/ holds health, auth, and git endpoints
 ├── types/                  # Domain types per source (docker, zfs, proxmox, settings, stacks)
 └── formatters/             # Number and unit formatting
 
-server/                     # Nitro server routes outside TanStack Router (WebSocket passthrough)
+server/                     # Nitro WS routes outside TanStack Router (/api/mux, /api/docker-exec/:containerId)
 
 agent/                      # Agent sidecar (separate Bun package with its own lockfile)
 └── src/                    # Bun.serve entry + JWT middleware; routes/ per endpoint, lib/ helpers
