@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
+import { mockModule } from '@/lib/test/mock-module';
 
 mock.module('@/components/docker/ContainerLogViewer', () => ({
   default: ({ containerId }: { containerId: string }) => (
@@ -20,14 +21,14 @@ mock.module('@/components/docker/ContainerActionButtons', () => ({
   default: () => null,
 }));
 
-mock.module('@/hooks/useDockerSettings', () => ({
+mockModule<typeof import('@/hooks/useDockerSettings')>('@/hooks/useDockerSettings', (real) => ({ ...real, 
   useDockerSettings: () => ({
     getContainerShell: () => undefined,
     setContainerShell: () => {},
   }),
 }));
 
-mock.module('@/lib/utils/icon-resolver', () => ({
+mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolver', (real) => ({ ...real, 
   getIconUrl: () => 'http://icons/nginx.png',
   FALLBACK_ICON_URL: 'http://icons/fallback.png',
 }));

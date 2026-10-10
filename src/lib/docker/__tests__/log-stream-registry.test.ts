@@ -1,8 +1,12 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { mockModule } from '@/lib/test/mock-module';
 import { FakeMuxConnection } from '@/lib/test/fake-mux';
 
 const fakeMux = new FakeMuxConnection();
-mock.module('@/lib/mux/mux-connection', () => ({ muxConnection: fakeMux }));
+mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection', (real) => ({
+  ...real,
+  muxConnection: fakeMux,
+}));
 
 import { subscribeToContainerLogs, _resetLogStreams, type LogStreamSubscriber } from '@/lib/docker/log-stream-registry';
 

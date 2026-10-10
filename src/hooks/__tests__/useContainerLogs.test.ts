@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
+import { mockModule } from '@/lib/test/mock-module';
 import { FakeMuxConnection } from '@/lib/test/fake-mux';
 
 const fakeMux = new FakeMuxConnection();
-mock.module('@/lib/mux/mux-connection', () => ({ muxConnection: fakeMux }));
+mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection', (real) => ({
+  ...real,
+  muxConnection: fakeMux,
+}));
 
 import { useContainerLogs } from '../useContainerLogs';
 import { _resetLogStreams } from '@/lib/docker/log-stream-registry';

@@ -1,42 +1,48 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { mockModule } from '@/lib/test/mock-module';
 
-// The route uses await import() so each mock must match the exact path the
-// route imports from (relative paths, NOT @/ aliases).
 const mockAuthenticate = mock(async () => ({ id: 'test-user' } as unknown));
 const mockFindByName = mock(async (_: string) => null as null | { name: string; agentUrl: string });
 const mockGetPrivateKeyForHost = mock(async (_: string) => null as null | object);
 
-mock.module('../../../../src/lib/auth/sse-auth', () => ({
+mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({
+  ...real,
   authenticateSSE: mockAuthenticate,
 }));
 
-mock.module('../../../../src/lib/clients/database-client', () => ({
+mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({
+  ...real,
   databaseConnectionManager: {
     getClient: async () => ({ getPool: () => ({} as object) }),
   },
 }));
 
-mock.module('../../../../src/lib/config/database-config', () => ({
+mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({
+  ...real,
   loadDatabaseConfig: () => ({}),
 }));
 
-mock.module('../../../../src/lib/database/repositories/host-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({
+  ...real,
   HostRepository: class {
     findByName = mockFindByName;
   },
 }));
 
-mock.module('../../../../src/lib/database/repositories/agent-keypairs-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({
+  ...real,
   AgentKeypairsRepository: class {
     getPrivateKeyForHost = mockGetPrivateKeyForHost;
   },
 }));
 
-mock.module('../../../../src/lib/crypto/master-key', () => ({
+mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({
+  ...real,
   loadMasterKeyring: async () => ({}),
 }));
 
-mock.module('../../../../src/lib/crypto/agent-jwt', () => ({
+mockModule<typeof import('@/lib/crypto/agent-jwt')>('@/lib/crypto/agent-jwt', (real) => ({
+  ...real,
   signAgentJwt: async () => 'fake.jwt.token',
 }));
 

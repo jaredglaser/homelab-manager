@@ -17,6 +17,7 @@ import { composePath } from '@/lib/stacks/stack-repo-layout';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
+import { mockModule } from '@/lib/test/mock-module';
 
 describe('extractVariableNames', () => {
   test('extracts simple variable references', () => {
@@ -377,23 +378,23 @@ describe('controlStackForHost', () => {
   const mockStop = mock(() => Promise.resolve({ success: true, logs: '' }));
   const mockRestart = mock(() => Promise.resolve({ success: true, logs: '' }));
 
-  mock.module('@/lib/clients/database-client', () => ({
+  mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
     databaseConnectionManager: {
       getClient: mock(() => Promise.resolve({ getPool: () => ({}) })),
     },
   }));
 
-  mock.module('@/lib/config/database-config', () => ({
+  mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
     loadDatabaseConfig: mock(() => ({})),
   }));
 
-  mock.module('@/lib/database/repositories/host-repository', () => ({
+  mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
     HostRepository: class {
       findByName = mock(() => Promise.resolve({ name: 'server1', agentUrl: 'http://agent:3001' }));
     },
   }));
 
-  mock.module('@/lib/clients/agent-client', () => ({
+  mockModule<typeof import('@/lib/clients/agent-client')>('@/lib/clients/agent-client', (real) => ({ ...real, 
     AgentClient: class {
       start = mockStart;
       stop = mockStop;
@@ -401,17 +402,17 @@ describe('controlStackForHost', () => {
     },
   }));
 
-  mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+  mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
     AgentKeypairsRepository: class {
       getPrivateKeyForHost = mock(() => Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'x', d: 'd' }));
     },
   }));
 
-  mock.module('@/lib/crypto/agent-jwt', () => ({
+  mockModule<typeof import('@/lib/crypto/agent-jwt')>('@/lib/crypto/agent-jwt', (real) => ({ ...real, 
     signAgentJwt: mock(() => Promise.resolve('mock-jwt')),
   }));
 
-  mock.module('@/lib/crypto/master-key', () => ({
+  mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
     loadMasterKeyring: mock(() => Promise.resolve({})),
   }));
 
@@ -422,12 +423,12 @@ describe('controlStackForHost', () => {
     mockStart.mockClear();
     mockStop.mockClear();
     mockRestart.mockClear();
-    mock.module('@/lib/database/repositories/host-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
       HostRepository: class {
         findByName = mock(() => Promise.resolve({ name: 'server1', agentUrl: 'http://agent:3001' }));
       },
     }));
-    mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
       AgentKeypairsRepository: class {
         getPrivateKeyForHost = mock(() => Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'x', d: 'd' }));
       },
@@ -483,7 +484,7 @@ describe('controlStackForHost', () => {
   });
 
   test('throws when host is not found', async () => {
-    mock.module('@/lib/database/repositories/host-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
       HostRepository: class {
         findByName = mock(() => Promise.resolve(null));
       },
@@ -495,7 +496,7 @@ describe('controlStackForHost', () => {
   });
 
   test('throws when agent keypair is missing', async () => {
-    mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
       AgentKeypairsRepository: class {
         getPrivateKeyForHost = mock(() => Promise.resolve(null));
       },
@@ -590,22 +591,22 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
     // Re-registered every test (not just once at collection time): mock.module
     // replacements for these paths persist across describes in this file, so
     // each block must reassert its own before importing stack-service fresh.
-    mock.module('@/lib/clients/database-client', () => ({
+    mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
       databaseConnectionManager: {
         getClient: mock(() => Promise.resolve({ getPool: () => ({}) })),
       },
     }));
-    mock.module('@/lib/config/database-config', () => ({
+    mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
       loadDatabaseConfig: mock(() => ({})),
     }));
-    mock.module('@/lib/database/repositories/deploy-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/deploy-repository')>('@/lib/database/repositories/deploy-repository', (real) => ({ ...real, 
       DeployRepository: class {
         getById = mockGetById;
         rejectPending = mockRejectPending;
         notifyStackChange = mockNotifyStackChange;
       },
     }));
-    mock.module('@/lib/database/repositories/host-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
       HostRepository: class {
         findByName = mockFindByName;
       },

@@ -3,6 +3,7 @@ import { SettingsBroadcastService } from '../settings-broadcast-service';
 import type { SettingsSSEMessage } from '@/types/settings';
 import type { PoolClient } from 'pg';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -161,28 +162,20 @@ describe('SettingsBroadcastService', () => {
       });
 
       // Auto-fire timers via microtask so the retry chain runs inline.
-      setTimeoutSpy.mockImplementation(
-        ((fn: TimerHandler) => {
-          if (typeof fn === 'function') queueMicrotask(fn as () => void);
-          return 0 as unknown as ReturnType<typeof setTimeout>;
-        }) as unknown as typeof setTimeout,
-      );
+      const timers = mockSetTimeout({
+        onSchedule: (timer) => queueMicrotask(() => { void timers.fire(timer); }),
+      });
 
       const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-      const backoffDelaysAtLeast3 = () =>
-        (setTimeoutSpy.mock.calls as Array<[unknown, unknown?]>)
-          .map(([, delay]) => delay)
-          .filter((d): d is number => typeof d === 'number' && d >= 100).length >= 3;
+      const backoffDelaysAtLeast3 = () => timers.delays.filter((d) => d >= 100).length >= 3;
 
       try {
         failingService.subscribe(() => {});
         // Allow several retry cycles to elapse.
         await waitForCondition(backoffDelaysAtLeast3);
 
-        const backoffDelays = (setTimeoutSpy.mock.calls as Array<[unknown, unknown?]>)
-          .map(([, delay]) => delay)
-          .filter((d): d is number => typeof d === 'number' && d >= 100);
+        const backoffDelays = timers.delays.filter((d) => d >= 100);
 
         // First few values should match the exponential sequence.
         expect(backoffDelays[0]).toBe(500);
@@ -193,6 +186,7 @@ describe('SettingsBroadcastService', () => {
       } finally {
         consoleSpy.mockRestore();
         await failingService.stop();
+        timers.restore();
       }
     });
 
@@ -219,14 +213,10 @@ describe('SettingsBroadcastService', () => {
 
       const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-      const capturedDelays: number[] = [];
-      setTimeoutSpy.mockImplementation(
-        ((fn: TimerHandler, delay?: number) => {
-          if (typeof delay === 'number' && delay >= 100) capturedDelays.push(delay);
-          if (typeof fn === 'function') queueMicrotask(fn as () => void);
-          return 0 as unknown as ReturnType<typeof setTimeout>;
-        }) as unknown as typeof setTimeout,
-      );
+      // Auto-fire timers via microtask so the retry chain runs inline.
+      const timers = mockSetTimeout({
+        onSchedule: (timer) => queueMicrotask(() => { void timers.fire(timer); }),
+      });
 
       try {
         resetService.subscribe(() => {});
@@ -237,20 +227,21 @@ describe('SettingsBroadcastService', () => {
         client1.emit('error', new Error('first disconnect'));
         await waitForCondition(() => loadAllSettingsCallCount >= 2);
 
-        expect(capturedDelays[0]).toBe(500);
+        expect(timers.delays.filter((d) => d >= 100)[0]).toBe(500);
         expect(connectCount).toBeGreaterThanOrEqual(2);
 
         // After the successful reconnect on client2, a second disconnect should
         // again start from the base 500ms; if the counter weren't reset it
         // would continue from 1000ms.
-        capturedDelays.length = 0;
+        const resetMark = timers.delays.length;
         client2.emit('error', new Error('second disconnect'));
         await waitForCondition(() => loadAllSettingsCallCount >= 3);
 
-        expect(capturedDelays[0]).toBe(500);
+        expect(timers.delays.slice(resetMark).filter((d) => d >= 100)[0]).toBe(500);
       } finally {
         consoleSpy.mockRestore();
         await resetService.stop();
+        timers.restore();
       }
     });
   });
