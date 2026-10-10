@@ -253,7 +253,7 @@ describe('logs adapter pipe', () => {
     const peer = makePeer('pipe-peer');
     await h.open(peer as unknown as Peer);
     await h.message(peer as unknown as Peer, command('sub', ['logs:server1/abc'], 1));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => setImmediate(resolve));
 
     const events = peer.sent.filter((f) => f.type === 'event');
     expect(events.map((e) => e.kind)).toEqual(['backlog_start', 'data', 'backlog_done', 'stream_end']);
