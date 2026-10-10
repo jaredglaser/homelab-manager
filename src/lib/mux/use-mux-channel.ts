@@ -14,6 +14,10 @@ export interface UseMuxChannelOptions<TRevived> {
   onData: (data: TRevived) => void;
   /** Fired when the server emits this topic's `error` frame (not a connection-level error). */
   onServiceError?: () => void;
+  /** Fired when the server sheds bulk frames under backpressure. `count` is how many were dropped. */
+  onDropped?: (count: number) => void;
+  /** Fired when the connection is re-established after a drop, so consumers can refetch history missed while offline. */
+  onReconnect?: () => void;
   serviceErrorMessage?: string;
 }
 
@@ -37,14 +41,24 @@ export function useMuxChannel<TSchema extends z.ZodTypeAny, TRevived>(
   onServiceErrorRef.current = options.onServiceError;
   const serviceErrorMessageRef = useRef(options.serviceErrorMessage);
   serviceErrorMessageRef.current = options.serviceErrorMessage;
+  const onDroppedRef = useRef(options.onDropped);
+  onDroppedRef.current = options.onDropped;
+  const onReconnectRef = useRef(options.onReconnect);
+  onReconnectRef.current = options.onReconnect;
+  const prevConnectedRef = useRef<boolean | null>(null);
 
   useEffect(() => {
+    prevConnectedRef.current = null;
     return muxConnection.subscribe(channel.topic, {
       onEvent: (frame: MuxTopicFrame) => {
         const current = channelRef.current;
         if (frame.kind === 'error') {
           setServiceError(new Error(serviceErrorMessageRef.current ?? `${current.topic} stream unavailable`));
           onServiceErrorRef.current?.();
+          return;
+        }
+        if (frame.kind === 'dropped') {
+          onDroppedRef.current?.(frame.count);
           return;
         }
         if (frame.kind !== 'data') return;
@@ -57,8 +71,13 @@ export function useMuxChannel<TSchema extends z.ZodTypeAny, TRevived>(
         onDataRef.current(current.revive ? current.revive(parsed.data) : parsed.data as TRevived);
       },
       onStatus: (next) => {
+        const prev = prevConnectedRef.current;
         setStatus(next);
-        if (next.connected) setServiceError(null);
+        if (next.connected) {
+          setServiceError(null);
+          if (prev === false) onReconnectRef.current?.();
+        }
+        prevConnectedRef.current = next.connected;
       },
     });
   }, [channel.topic]);
