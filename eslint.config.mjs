@@ -5,7 +5,8 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-const SSE_SEAM_RESTRICTIONS = [
+// Exported while disabled so the follow-up WS-style rewrite can rework the set in place.
+export const SSE_SEAM_RESTRICTIONS = [
   {
     selector: "NewExpression[callee.name='ReadableStream']",
     message:
@@ -138,13 +139,13 @@ export default tseslint.config(
     },
   },
 
-  // 2 findings: the inlined serialize frames in api/settings.ts and api/docker-inventory.ts. The
-  // agent routes now build through createSseStream and measure clean. Promote to error once those
-  // two serializers move into src/lib/sse/channels/*.ts the way stack-status.ts already does.
+  // SSE seam selectors disabled while the SSE routes migrate to the WebSocket mux
+  // (PR #510). The rule set gets rewritten around the WS style in a follow-up PR;
+  // SSE_SEAM_RESTRICTIONS above keeps the old selectors for that rewrite.
   {
     files: ['src/routes/api/**/*.ts', 'agent/src/routes/**/*.ts'],
     ignores: ['**/__tests__/**'],
-    rules: { 'no-restricted-syntax': ['warn', ...SSE_SEAM_RESTRICTIONS] },
+    rules: { 'no-restricted-syntax': 'off' },
   },
 
   // 0 findings since the rule 7 cleanup, so it lands as error per the calibration rule.
