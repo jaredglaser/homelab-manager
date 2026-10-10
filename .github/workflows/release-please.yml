@@ -12,6 +12,13 @@ jobs:
   release-pr:
     name: Maintain the Release PR
     runs-on: ubuntu-latest
+    # Serialize grooming runs so rapid pushes to main never race to open
+    # duplicate release PRs. Grooming is idempotent, so a dropped duplicate
+    # is harmless. The tag job deliberately has no concurrency group, since
+    # a canceled run there would lose a release.
+    concurrency:
+      group: release-please-groom
+      cancel-in-progress: false
     steps:
       # App token so the Release PR triggers workflows: a GITHUB_TOKEN-created
       # PR reports no checks and the ruleset can never merge it.
@@ -35,6 +42,9 @@ jobs:
   tag:
     name: Tag the merged release
     runs-on: ubuntu-latest
+    # Push to main only. A manual dispatch here could mint a release tag
+    # from unmerged code and push it through the full publish pipeline.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
       actions: write
@@ -44,6 +54,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Tag the release and start the image build
         env:
@@ -53,24 +64,27 @@ jobs:
           set -euo pipefail
           AFTER="$(git rev-parse HEAD)"
           if [ -z "$BEFORE_SHA" ] || ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
-            BEFORE_SHA="$(git rev-parse "$AFTER^" 2>/dev/null || echo "$AFTER")"
+            BEFORE_SHA="$(git describe --tags --abbrev=0 "$AFTER" 2>/dev/null || echo "$AFTER")"
           fi
           if ! git diff --name-only "$BEFORE_SHA" "$AFTER" -- version.txt | grep -q .; then
             echo "version.txt unchanged. Nothing to release"
             exit 0
           fi
           VERSION="$(tr -d '[:space:]' < version.txt)"
-          if [ -z "$VERSION" ]; then
-            echo "version.txt is empty. Skipping"
-            exit 0
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+[.][0-9]+[.][0-9]+$'; then
+            echo "version.txt is not x.y.z: $VERSION"
+            exit 1
           fi
           TAG="v$VERSION"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "$TAG already exists on origin; skipping"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists on origin"
+          elif ! gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/$TAG" -f sha="$AFTER" >/dev/null 2>&1; then
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$TAG" >/dev/null
+          fi
+          if [ "$(gh run list --workflow=ci.yml --event workflow_dispatch --commit "$AFTER" --json databaseId --jq 'length')" != "0" ]; then
+            echo "ci.yml already dispatched for $AFTER"
             exit 0
           fi
-          git tag "$TAG" "$AFTER"
-          git push origin "refs/tags/$TAG"
           # A tag pushed with GITHUB_TOKEN triggers no workflows, so the
           # release build is dispatched explicitly. ci.yml publishes the
           # images and creates the GitHub Release only after they push.
