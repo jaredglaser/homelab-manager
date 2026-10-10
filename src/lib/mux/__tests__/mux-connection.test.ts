@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { MuxConnection, type MuxStatus, type MuxTopicHandlers } from '@/lib/mux/mux-connection';
-import type { MuxEventFrame } from '@/lib/mux/protocol';
+import type { MuxTopicFrame } from '@/lib/mux/protocol';
 
 class FakeSocket {
   readyState = 0;
@@ -38,8 +38,8 @@ class FakeSocket {
 let sockets: FakeSocket[];
 let connection: MuxConnection;
 
-function makeHandlers(): MuxTopicHandlers & { events: MuxEventFrame[]; statuses: MuxStatus[] } {
-  const events: MuxEventFrame[] = [];
+function makeHandlers(): MuxTopicHandlers & { events: MuxTopicFrame[]; statuses: MuxStatus[] } {
+  const events: MuxTopicFrame[] = [];
   const statuses: MuxStatus[] = [];
   return {
     events,
@@ -119,6 +119,26 @@ describe('MuxConnection', () => {
 
     expect(inventory.events).toHaveLength(1);
     expect(logs.events).toHaveLength(0);
+  });
+
+  it('delivers stats deltas and dropped frames to each subscribed stats topic', () => {
+    const topics = ['stats:docker', 'stats:zfs', 'stats:proxmox'] as const;
+    const perTopic = new Map<string, ReturnType<typeof makeHandlers>>();
+    for (const topic of topics) perTopic.set(topic, makeHandlers());
+    for (const [topic, handlers] of perTopic) connection.subscribe(topic, handlers);
+    sockets[0].fireOpen();
+
+    for (const topic of topics) {
+      sockets[0].fireMessage({ type: 'event', topic, kind: 'data', payload: [{ time: 1 }] });
+      sockets[0].fireMessage({ type: 'event', topic, kind: 'dropped', count: 2 });
+    }
+
+    for (const topic of topics) {
+      expect(perTopic.get(topic)?.events).toEqual([
+        { type: 'event', topic, kind: 'data', payload: [{ time: 1 }] },
+        { type: 'event', topic, kind: 'dropped', count: 2 },
+      ]);
+    }
   });
 
   it('delivers the current status to new subscribers immediately', () => {
