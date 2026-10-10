@@ -58,6 +58,7 @@ export function useSSEBuffer<TRow, A extends BufferAccessors<TRow>>({
   // O(k log k + log n) per flush vs O(n log n) with full re-sort:
   //   - new rows (k) are sorted among themselves and appended at the end
   //   - expired rows are evicted from the front via binary search
+  //   - a batch predating the buffer tail takes mergeWithEviction's O(n + k) merge fallback
   const flush = useCallback(() => {
     const pending = pendingRef.current;
     if (pending.length === 0) return;
