@@ -151,24 +151,24 @@ describe('classify and contribKind', () => {
       kind: 'none',
     },
     {
-      name: 'chore(deps) bumps patch',
+      name: 'chore(deps) alone releases nothing',
       title: 'chore(deps): bump zod from 4.5.4 to 4.6.5',
       body: '',
       version: '0.2.0',
       parsed: true,
       type: 'chore',
       breaking: false,
-      kind: 'patch',
+      kind: 'none',
     },
     {
-      name: 'unknown type still bumps patch',
+      name: 'unknown type alone releases nothing',
       title: 'wip: experimental thing',
       body: '',
       version: '0.2.0',
       parsed: true,
       type: 'wip',
       breaking: false,
-      kind: 'patch',
+      kind: 'none',
     },
     {
       name: 'squash suffix parses',
@@ -199,6 +199,96 @@ describe('classify and contribKind', () => {
       type: 'feat',
       breaking: false,
       kind: 'minor',
+    },
+    {
+      name: 'feature bumps minor post-1.0 like feat',
+      title: 'feature: add a view',
+      body: '',
+      version: '1.2.3',
+      parsed: true,
+      type: 'feature',
+      breaking: false,
+      kind: 'minor',
+    },
+    {
+      name: 'chore! breaking releases (minor pre-1.0)',
+      title: 'chore!: drop the legacy scan',
+      body: '',
+      version: '0.2.0',
+      parsed: true,
+      type: 'chore',
+      breaking: true,
+      kind: 'minor',
+    },
+    {
+      name: 'BREAKING CHANGE without space counts',
+      title: 'feat(api): remove v1 endpoints',
+      body: 'BREAKING CHANGE:no space',
+      version: '0.2.0',
+      parsed: true,
+      type: 'feat',
+      breaking: true,
+      kind: 'minor',
+    },
+    {
+      name: 'mid-line BREAKING CHANGE does not count',
+      title: 'feat(api): remove v1 endpoints',
+      body: 'see BREAKING CHANGE: done',
+      version: '0.2.0',
+      parsed: true,
+      type: 'feat',
+      breaking: false,
+      kind: 'patch',
+    },
+    {
+      name: 'empty BREAKING CHANGE note does not count',
+      title: 'feat(api): remove v1 endpoints',
+      body: 'BREAKING CHANGE:',
+      version: '0.2.0',
+      parsed: true,
+      type: 'feat',
+      breaking: false,
+      kind: 'patch',
+    },
+    {
+      name: 'empty scope parens still parse',
+      title: 'feat(): x',
+      body: '',
+      version: '0.2.0',
+      parsed: true,
+      type: 'feat',
+      breaking: false,
+      kind: 'patch',
+    },
+    {
+      name: 'nested parens in scope do not parse',
+      title: 'feat(a(b)): x',
+      body: '',
+      version: '0.2.0',
+      parsed: false,
+      type: '',
+      breaking: false,
+      kind: 'none',
+    },
+    {
+      name: 'digits in type do not parse',
+      title: 'feat2: x',
+      body: '',
+      version: '0.2.0',
+      parsed: false,
+      type: '',
+      breaking: false,
+      kind: 'none',
+    },
+    {
+      name: 'case-sensitive Feat parses but is hidden',
+      title: 'Feat: x',
+      body: '',
+      version: '0.2.0',
+      parsed: true,
+      type: 'Feat',
+      breaking: false,
+      kind: 'none',
     },
     {
       name: 'fix bumps patch post-1.0',
@@ -233,7 +323,7 @@ describe('lint', () => {
     {
       title: 'chore(deps): bump zod from 4.5.4 to 4.6.5',
       ok: true,
-      message: "OK: PR title classifies as 'chore' and release-please will version it.",
+      message: "OK: PR title classifies as 'chore' and release-please will version it only together with a feat/fix/perf/revert or breaking change.",
     },
     {
       title: 'feat!: drop v1',
@@ -260,6 +350,12 @@ describe('lint', () => {
       message:
         "FAIL: unknown commit type 'wip'. Use one of: feat feature fix perf revert chore docs style refactor test build ci",
     },
+    {
+      title: 'Feat: x',
+      ok: false,
+      message:
+        "FAIL: unknown commit type 'Feat'. Use one of: feat feature fix perf revert chore docs style refactor test build ci",
+    },
   ];
 
   for (const c of cases) {
@@ -277,6 +373,7 @@ describe('version math', () => {
     expect(bumpVersion('0.2.0', 'minor')).toBe('0.3.0');
     expect(bumpVersion('1.2.3', 'major')).toBe('2.0.0');
     expect(bumpVersion('1.2.3', 'none')).toBe('1.2.3');
+    expect(bumpVersion('0.2.0-rc.1', 'patch')).toBe('0.2.1');
   });
 
   test('changeKind', () => {
@@ -350,12 +447,30 @@ describe('renderBody', () => {
     expect(body).toContain('> :warning: **This PR title is not a conventional commit.**');
   });
 
-  test('unknown type warns but still bumps', () => {
-    const body = renderBody('wip: experimental thing', '', '0.2.0', 'patch', 'none open yet');
+  test('unknown type warns and releases nothing', () => {
+    const body = renderBody('wip: experimental thing', '', '0.2.0', 'none', 'none open yet');
     expect(body).toContain('| Changelog entry | hidden (type `wip`) |');
     expect(body).toContain('> :warning: **Unrecognized type `wip`.**');
     expect(body).toContain('Use one of: feat feature fix perf revert chore docs style refactor test build ci.');
+    expect(body).toContain('cuts no release on its own');
+    expect(body).toContain('| This PR contributes | nothing on its own (it ships with the next feat/fix/perf/revert release) |');
     expect(body).not.toContain('not a conventional commit**');
+  });
+
+  test('hidden type warns and releases nothing', () => {
+    const body = renderBody('chore(deps): bump zod from 4.5.4 to 4.6.5', '', '0.2.0', 'none', 'none open yet');
+    expect(body).toContain('> :warning: **Type `chore` cuts no release on its own.**');
+    expect(body).toContain('| Next release if this PR lands alone | no release on its own |');
+    expect(body).toContain('| Changelog entry | hidden (type `chore`) |');
+  });
+
+  test('title is escaped so it cannot spoof table rows', () => {
+    const bs = String.fromCharCode(92);
+    const body = renderBody('fix: a | b', '', '0.2.0', 'patch', 'none open yet');
+    expect(body).toContain('| PR title | `fix: a ' + bs + '| b` |');
+    expect(body).not.toContain('| PR title | `fix: a | b` |');
+    const body2 = renderBody('fix: c ' + bs + ' | d', '', '0.2.0', 'patch', 'none open yet');
+    expect(body2).toContain('| PR title | `fix: c ' + bs + bs + ' ' + bs + '| d` |');
   });
 });
 
@@ -384,6 +499,12 @@ describe('proposalLine', () => {
     const { api } = fakeApi({ prTitles: ['chore(main): release 0.2.1'] });
     const line = await proposalLine('0.2.0', 'none', api, base.repo);
     expect(line).toBe('`v0.2.1` open. This PR does not change it');
+  });
+
+  test('a none-kind PR with no open proposal promises nothing', async () => {
+    const { api } = fakeApi({ prTitles: [] });
+    const line = await proposalLine('0.2.0', 'none', api, base.repo);
+    expect(line).toBe('none open yet. One opens when a feat/fix/perf/revert or breaking change lands');
   });
 });
 
