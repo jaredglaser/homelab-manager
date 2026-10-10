@@ -29,7 +29,7 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
           # ci.yml's release job owns the announcement, gated on the images
-          # actually pushing; this workflow only maintains the Release PR.
+          # actually pushing. This workflow only maintains the Release PR.
           skip-github-release: true
 
   tag:
@@ -56,12 +56,12 @@ jobs:
             BEFORE_SHA="$(git rev-parse "$AFTER^" 2>/dev/null || echo "$AFTER")"
           fi
           if ! git diff --name-only "$BEFORE_SHA" "$AFTER" -- version.txt | grep -q .; then
-            echo "version.txt unchanged; nothing to release"
+            echo "version.txt unchanged. Nothing to release"
             exit 0
           fi
           VERSION="$(tr -d '[:space:]' < version.txt)"
           if [ -z "$VERSION" ]; then
-            echo "version.txt is empty; skipping"
+            echo "version.txt is empty. Skipping"
             exit 0
           fi
           TAG="v$VERSION"
@@ -72,6 +72,6 @@ jobs:
           git tag "$TAG" "$AFTER"
           git push origin "refs/tags/$TAG"
           # A tag pushed with GITHUB_TOKEN triggers no workflows, so the
-          # release build is dispatched explicitly; ci.yml publishes the
+          # release build is dispatched explicitly. ci.yml publishes the
           # images and creates the GitHub Release only after they push.
           gh workflow run ci.yml --ref "$TAG"

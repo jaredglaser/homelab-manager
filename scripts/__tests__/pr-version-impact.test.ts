@@ -228,17 +228,17 @@ describe('lint', () => {
     {
       title: 'fix: add restart policy to postgres',
       ok: true,
-      message: "OK: PR title classifies as 'fix'; release-please will version it.",
+      message: "OK: PR title classifies as 'fix' and release-please will version it.",
     },
     {
       title: 'chore(deps): bump zod from 4.5.4 to 4.6.5',
       ok: true,
-      message: "OK: PR title classifies as 'chore'; release-please will version it.",
+      message: "OK: PR title classifies as 'chore' and release-please will version it.",
     },
     {
       title: 'feat!: drop v1',
       ok: true,
-      message: "OK: PR title classifies as 'feat' (breaking); release-please will version it.",
+      message: "OK: PR title classifies as 'feat' (breaking) and release-please will version it.",
     },
     {
       title: 'Make the comment style scan mechanical',
@@ -316,9 +316,9 @@ describe('renderBody', () => {
       '| This PR contributes | a **patch** bump |',
       '| Next release if this PR lands alone | `v0.2.0` -> `v0.2.1` |',
       '| Changelog entry | shown |',
-      '| Standing release PR | `v0.3.0` open; this PR does not change it |',
+      '| Standing release PR | `v0.3.0` open. This PR does not change it |',
       '',
-      'The release version is cut when the standing release-please PR merges. It batches everything merged since the last release and takes the strongest bump in the batch, so this row is this PR\'s contribution, not the final number. While the project is pre-1.0, `feat` and `fix` bump the patch and a breaking change bumps the minor; from 1.0.0 on, `feat` bumps the minor and a breaking change the major.',
+      'The release version is cut when the standing release-please PR merges. It batches everything merged since the last release and takes the strongest bump in the batch, so this row is this PR\'s contribution, not the final number. While the project is pre-1.0, `feat` and `fix` bump the patch and a breaking change bumps the minor. From 1.0.0 on, `feat` bumps the minor and a breaking change the major.',
       '',
       'Breaking changes must show as `type(scope)!: summary` or a `BREAKING CHANGE: ...` line in the PR body. Prose such as "Breaking changes" is invisible to release-please.',
       '',
@@ -330,7 +330,7 @@ describe('renderBody', () => {
       '',
       '0.2.0',
       'patch',
-      '`v0.3.0` open; this PR does not change it',
+      '`v0.3.0` open. This PR does not change it',
     );
     expect(body).toBe(expected);
   });
@@ -365,25 +365,25 @@ describe('proposalLine', () => {
   test('no release PR open yet', async () => {
     const { api } = fakeApi({ prTitles: [] });
     const line = await proposalLine('0.2.0', 'patch', api, base.repo);
-    expect(line).toBe('none open yet; the next run opens one at `v0.2.1` for this bump');
+    expect(line).toBe('none open yet. The next run opens one at `v0.2.1` for this bump');
   });
 
   test('this PR raises the open proposal', async () => {
     const { api } = fakeApi({ prTitles: ['chore(main): release 0.2.1', 'fix: unrelated'] });
     const line = await proposalLine('0.2.0', 'minor', api, base.repo);
-    expect(line).toBe('`v0.2.1` open; this PR raises it to `v0.3.0`');
+    expect(line).toBe('`v0.2.1` open. This PR raises it to `v0.3.0`');
   });
 
   test('this PR does not raise the open proposal', async () => {
     const { api } = fakeApi({ prTitles: ['chore(main): release 0.3.0'] });
     const line = await proposalLine('0.2.0', 'patch', api, base.repo);
-    expect(line).toBe('`v0.3.0` open; this PR does not change it');
+    expect(line).toBe('`v0.3.0` open. This PR does not change it');
   });
 
   test('a none-kind PR never raises', async () => {
     const { api } = fakeApi({ prTitles: ['chore(main): release 0.2.1'] });
     const line = await proposalLine('0.2.0', 'none', api, base.repo);
-    expect(line).toBe('`v0.2.1` open; this PR does not change it');
+    expect(line).toBe('`v0.2.1` open. This PR does not change it');
   });
 });
 
@@ -395,7 +395,7 @@ describe('run', () => {
     body: '',
     version: '0.2.0',
   };
-  const proposal = 'none open yet; the next run opens one at `v0.2.1` for this bump';
+  const proposal = 'none open yet. The next run opens one at `v0.2.1` for this bump';
   const botComment = (id: number, body: string): GhComment => ({
     id,
     login: 'github-actions[bot]',

@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 // Post or update the single "Version impact" comment on a pull request: what
 // release-please will do to the release version when this PR merges. The squash
-// commit subject is the PR title, so the title alone decides the classification;
-// the PR body is consulted only for BREAKING CHANGE footers, matching
+// commit subject is the PR title, so the title alone decides the classification.
+// The PR body is consulted only for BREAKING CHANGE footers, matching
 // release-please's parser. Bump rules mirror release-please's
 // DefaultVersioningStrategy with bump-minor-pre-major and
 // bump-patch-for-minor-pre-major (see release-please-config.json).
@@ -151,7 +151,7 @@ export function renderBody(title: string, body: string, version: string, kind: K
 | Changelog entry | ${changelogLine} |
 | Standing release PR | ${proposal} |
 
-The release version is cut when the standing release-please PR merges. It batches everything merged since the last release and takes the strongest bump in the batch, so this row is this PR's contribution, not the final number. While the project is pre-1.0, \`feat\` and \`fix\` bump the patch and a breaking change bumps the minor; from 1.0.0 on, \`feat\` bumps the minor and a breaking change the major.
+The release version is cut when the standing release-please PR merges. It batches everything merged since the last release and takes the strongest bump in the batch, so this row is this PR's contribution, not the final number. While the project is pre-1.0, \`feat\` and \`fix\` bump the patch and a breaking change bumps the minor. From 1.0.0 on, \`feat\` bumps the minor and a breaking change the major.
 
 Breaking changes must show as \`type(scope)!: summary\` or a \`BREAKING CHANGE: ...\` line in the PR body. Prose such as "Breaking changes" is invisible to release-please.
 
@@ -177,21 +177,21 @@ export function lint(title: string, body: string): { ok: boolean; message: strin
   }
   return {
     ok: true,
-    message: `OK: PR title classifies as '${cls.type}'${cls.breaking ? ' (breaking)' : ''}; release-please will version it.`,
+    message: `OK: PR title classifies as '${cls.type}'${cls.breaking ? ' (breaking)' : ''} and release-please will version it.`,
   };
 }
 
 export async function proposalLine(version: string, kind: Kind, api: GhApi, repo: string): Promise<string> {
   const prTitle = (await api.listOpenPrTitles(repo)).find((t) => t.startsWith('chore(main): release ')) ?? '';
   if (!prTitle) {
-    return `none open yet; the next run opens one at \`v${bumpVersion(version, kind)}\` for this bump`;
+    return `none open yet. The next run opens one at \`v${bumpVersion(version, kind)}\` for this bump`;
   }
   const proposed = prTitle.slice(prTitle.lastIndexOf(' ') + 1);
   const proposalKind = changeKind(version, proposed);
   if (kind !== 'none' && kindRank(kind) > kindRank(proposalKind)) {
-    return `\`v${proposed}\` open; this PR raises it to \`v${bumpVersion(version, kind)}\``;
+    return `\`v${proposed}\` open. This PR raises it to \`v${bumpVersion(version, kind)}\``;
   }
-  return `\`v${proposed}\` open; this PR does not change it`;
+  return `\`v${proposed}\` open. This PR does not change it`;
 }
 
 export async function run(input: RunInput, api: GhApi): Promise<string> {
@@ -279,7 +279,7 @@ async function main(): Promise<void> {
   const body = process.env.PR_BODY ?? '';
   if (process.argv[2] === '--lint') {
     const result = lint(title, body);
-    console.log(result.message);
+    console.info(result.message);
     if (!result.ok) process.exitCode = 1;
     return;
   }
@@ -295,7 +295,7 @@ async function main(): Promise<void> {
     },
     api,
   );
-  console.log(message);
+  console.info(message);
 }
 
 if ((import.meta as ImportMeta & { main?: boolean }).main) {

@@ -10,7 +10,7 @@ on:
     # `edited` covers title and body edits (renames, BREAKING CHANGE footers).
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
-# One comment per PR, edited in place; only the newest event's content matters.
+# One comment per PR, edited in place. Only the newest event's content matters.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -22,7 +22,7 @@ jobs:
   title-lint:
     name: PR Title Lint
     runs-on: ubuntu-latest
-    # Fork PRs get a read-only token; every PR here comes from a same-repo branch.
+    # Fork PRs get a read-only token. Every PR here comes from a same-repo branch.
     if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
@@ -48,7 +48,7 @@ jobs:
   version-impact:
     name: Version Impact Comment
     runs-on: ubuntu-latest
-    # Fork PRs get a read-only token and commenting would fail; every PR here
+    # Fork PRs get a read-only token and commenting would fail. Every PR here
     # comes from a same-repo branch.
     if: github.event.pull_request.head.repo.full_name == github.repository
     permissions:
