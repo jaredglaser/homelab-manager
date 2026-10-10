@@ -180,6 +180,42 @@ describe('HostRepository', () => {
     });
   });
 
+  describe('updateAutoUpdate', () => {
+    it('writes only the addressed host row', async () => {
+      mock.pushResult([]);
+      await repo.updateAutoUpdate(7, true);
+      expect(mock.queries[0].sql).toContain('auto_update = $1');
+      expect(mock.queries[0].sql).toContain('WHERE id = $2');
+      expect(mock.queries[0].params).toEqual([true, 7]);
+    });
+
+    it('writes false when opting out', async () => {
+      mock.pushResult([]);
+      await repo.updateAutoUpdate(7, false);
+      expect(mock.queries[0].params).toEqual([false, 7]);
+    });
+
+    it('does not emit a change notification', async () => {
+      mock.pushResult([]);
+      await repo.updateAutoUpdate(7, true);
+      expect(mock.queries.filter((q) => q.sql.includes('pg_notify'))).toHaveLength(0);
+    });
+  });
+
+  describe('autoUpdate mapping', () => {
+    it('maps auto_update true to autoUpdate true', async () => {
+      mock.pushResult([{ ...sampleRow, auto_update: true }]);
+      const host = await repo.findById(1);
+      expect(host?.autoUpdate).toBe(true);
+    });
+
+    it('maps missing auto_update to false (pre-migration rows)', async () => {
+      mock.pushResult([{ ...sampleRow, auto_update: undefined }]);
+      const host = await repo.findById(1);
+      expect(host?.autoUpdate).toBe(false);
+    });
+  });
+
   describe('updateAgentInfo', () => {
     it('updates the agent_version field', async () => {
       mock.pushResult([]);
