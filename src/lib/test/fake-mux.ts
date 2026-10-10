@@ -1,5 +1,5 @@
 import type { MuxSubscribeError, MuxTopicHandlers, MuxStatus } from '@/lib/mux/mux-connection';
-import type { MuxEventFrame, MuxEventKind } from '@/lib/mux/protocol';
+import type { MuxEventFrame, MuxDroppedFrame, MuxEventKind } from '@/lib/mux/protocol';
 
 export class FakeMuxConnection {
   readonly subscriptions = new Map<string, Set<MuxTopicHandlers>>();
@@ -27,7 +27,7 @@ export class FakeMuxConnection {
     return this.subscriptions.get(topic)?.size ?? 0;
   }
 
-  emit(topic: string, kind: MuxEventKind, payload: unknown = {}): void {
+  emit(topic: string, kind: Exclude<MuxEventKind, 'dropped'>, payload: unknown = {}): void {
     const set = this.subscriptions.get(topic);
     if (!set) return;
     const frame: MuxEventFrame = { type: 'event', topic, kind, payload };
@@ -35,8 +35,15 @@ export class FakeMuxConnection {
   }
 
   /** Simulates a wire payload: JSON round-trip turns Dates into ISO strings like a real frame. */
-  emitWire(topic: string, kind: MuxEventKind, payload: unknown): void {
+  emitWire(topic: string, kind: Exclude<MuxEventKind, 'dropped'>, payload: unknown): void {
     this.emit(topic, kind, JSON.parse(JSON.stringify(payload)));
+  }
+
+  emitDropped(topic: string, count: number): void {
+    const set = this.subscriptions.get(topic);
+    if (!set) return;
+    const frame: MuxDroppedFrame = { type: 'event', topic, kind: 'dropped', count };
+    for (const handlers of set) handlers.onEvent(frame);
   }
 
   setStatus(status: MuxStatus): void {

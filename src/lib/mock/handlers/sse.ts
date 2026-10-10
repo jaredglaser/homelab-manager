@@ -1,31 +1,14 @@
 import { http } from 'msw';
 
 import {
-  generateDockerSnapshot,
   generateDockerInventorySnapshot,
   generateContainerLogBatch,
   generateContainerLogHistory,
 } from '@/lib/mock/generators/docker';
-import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
-import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import { createSseResponse } from '@/lib/mock/handlers/sse-stream';
 
-const STATS_INTERVAL_MS = 1000;
 const LOG_INTERVAL_MS = 3000;
-
-/** Stream a fresh snapshot immediately, then once per second. */
-function statsHandler(generate: () => unknown) {
-  return () =>
-    createSseResponse((controller) => {
-      controller.send(generate());
-      controller.interval(STATS_INTERVAL_MS, () => controller.send(generate()));
-    });
-}
-
-const dockerStats = statsHandler(() => generateDockerSnapshot(new Date()));
-const zfsStats = statsHandler(() => generateZFSSnapshot(new Date()));
-const proxmoxStats = statsHandler(() => generateProxmoxSnapshot(new Date()));
 
 // Inventory is the Docker table's source of truth: without an initial snapshot the
 // page renders no rows even while stats stream fine. Real updates arrive via pg
@@ -59,9 +42,6 @@ function dockerLogs(request: Request) {
 }
 
 export const sseHandlers = [
-  http.get(/\/api\/docker-stats(?:\?|$)/, dockerStats),
-  http.get(/\/api\/zfs-stats(?:\?|$)/, zfsStats),
-  http.get(/\/api\/proxmox-stats(?:\?|$)/, proxmoxStats),
   http.get(/\/api\/docker-inventory(?:\?|$)/, dockerInventory),
   http.get(/\/api\/docker-logs\//, ({ request }) => dockerLogs(request)),
 ];

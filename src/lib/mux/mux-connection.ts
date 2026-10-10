@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import { apiUrl } from '@/lib/utils/api-url';
-import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxEventFrame, type MuxServerFrame } from '@/lib/mux/protocol';
+import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxTopicFrame, type MuxServerFrame } from '@/lib/mux/protocol';
 
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 16_000;
@@ -14,7 +14,7 @@ export interface MuxSubscribeError {
 }
 
 export interface MuxTopicHandlers {
-  onEvent: (frame: MuxEventFrame) => void;
+  onEvent: (frame: MuxTopicFrame) => void;
   onStatus?: (status: MuxStatus) => void;
   /** A toast already fires once per rejected ack. Use this only for per-view error state. */
   onSubscribeRejected?: (error: MuxSubscribeError) => void;
