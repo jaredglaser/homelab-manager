@@ -1,32 +1,6 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 import { createSseStream, isCloseRelatedError, type SseEmitter } from '../create-sse-stream';
-
-interface IntervalHandle {
-  cb: () => void;
-  ms: number;
-  cleared: boolean;
-}
-
-/** Replaces setInterval/clearInterval so the heartbeat is a callback tests can fire deterministically. */
-function createIntervalHarness() {
-  const intervals: IntervalHandle[] = [];
-  const setSpy = spyOn(globalThis, 'setInterval').mockImplementation(((cb: () => void, ms: number) => {
-    const handle: IntervalHandle = { cb, ms, cleared: false };
-    intervals.push(handle);
-    return handle as unknown as ReturnType<typeof setInterval>;
-  }) as typeof setInterval);
-  const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(((h: unknown) => {
-    const handle = h as IntervalHandle;
-    if (handle) handle.cleared = true;
-  }) as typeof clearInterval);
-  return {
-    intervals,
-    restore() {
-      setSpy.mockRestore();
-      clearSpy.mockRestore();
-    },
-  };
-}
 
 function makeRequest(ac: AbortController): Request {
   return new Request('http://localhost/', { signal: ac.signal });
@@ -81,17 +55,17 @@ function setup(opts: { heartbeatMs?: number; cleanup?: () => void } = {}) {
 }
 
 describe('createSseStream', () => {
-  let harness: ReturnType<typeof createIntervalHarness>;
+  let intervals: TimerMock;
   let errorSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    harness = createIntervalHarness();
+    intervals = mockSetInterval();
     errorSpy = spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     errorSpy.mockRestore();
-    harness.restore();
+    intervals.restore();
   });
 
   it('returns the standard SSE response headers', () => {
@@ -118,8 +92,8 @@ describe('createSseStream', () => {
   it('arms exactly one heartbeat timer at the default 5000ms cadence', () => {
     const { ac } = setup();
 
-    expect(harness.intervals).toHaveLength(1);
-    expect(harness.intervals[0].ms).toBe(5000);
+    expect(intervals.scheduled).toHaveLength(1);
+    expect(intervals.scheduled[0].delayMs).toBe(5000);
 
     ac.abort();
   });
@@ -127,7 +101,7 @@ describe('createSseStream', () => {
   it('respects a caller-supplied heartbeatMs', () => {
     const { ac } = setup({ heartbeatMs: 1234 });
 
-    expect(harness.intervals[0].ms).toBe(1234);
+    expect(intervals.scheduled[0].delayMs).toBe(1234);
 
     ac.abort();
   });
@@ -137,10 +111,10 @@ describe('createSseStream', () => {
     const reader = readerOf(res);
     await readFrame(reader); // ": ok\n\n"
 
-    harness.intervals[0].cb();
+    intervals.fire(intervals.scheduled[0]);
     expect(await readFrame(reader)).toBe(':\n\n');
 
-    harness.intervals[0].cb();
+    intervals.fire(intervals.scheduled[0]);
     expect(await readFrame(reader)).toBe(':\n\n');
 
     ac.abort();
@@ -152,7 +126,7 @@ describe('createSseStream', () => {
 
     ac.abort();
 
-    expect(harness.intervals[0].cleared).toBe(true);
+    expect(intervals.scheduled[0].cleared).toBe(true);
   });
 
   it('emit.data writes a "data: <JSON>\\n\\n" frame', async () => {
@@ -257,7 +231,7 @@ describe('createSseStream', () => {
     getEmit().close();
 
     expect(cleanup).toHaveBeenCalledTimes(1);
-    expect(harness.intervals[0].cleared).toBe(true);
+    expect(intervals.scheduled[0].cleared).toBe(true);
 
     const { done } = await reader.read();
     expect(done).toBe(true);

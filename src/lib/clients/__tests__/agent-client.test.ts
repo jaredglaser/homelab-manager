@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { AgentClient, AgentClientError, type ZfsPool } from '../agent-client';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
 describe('AgentClient', () => {
   let client: AgentClient;
@@ -76,14 +77,20 @@ describe('AgentClient', () => {
 
     it('throws AgentClientError on fetch failure (network error)', async () => {
       // Network errors retry up to 3 times: reject all attempts so we see the final error.
-      fetchMock.mockRejectedValue(new Error('Connection refused'));
+      const timers = mockSetTimeout({ fireImmediately: true });
+      try {
+        fetchMock.mockRejectedValue(new Error('Connection refused'));
 
-      await expect(client.deploy({
-        stack: 'plex',
-        composeContent: 'version: "3"',
-        envContent: '',
-        action: 'deploy',
-      })).rejects.toThrow(AgentClientError);
+        await expect(client.deploy({
+          stack: 'plex',
+          composeContent: 'version: "3"',
+          envContent: '',
+          action: 'deploy',
+        })).rejects.toThrow(AgentClientError);
+        expect(timers.delays).toEqual([1000, 2000]);
+      } finally {
+        timers.restore();
+      }
     });
 
     it('throws AgentClientError when agent URL returns a redirect (3xx)', async () => {
@@ -447,9 +454,15 @@ describe('AgentClient', () => {
 
     it('throws AgentClientError when agent is unreachable', async () => {
       // Network errors retry up to 3 times: reject all attempts.
-      fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
+      const timers = mockSetTimeout({ fireImmediately: true });
+      try {
+        fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
-      await expect(client.health()).rejects.toThrow(AgentClientError);
+        await expect(client.health()).rejects.toThrow(AgentClientError);
+        expect(timers.delays).toEqual([1000, 2000]);
+      } finally {
+        timers.restore();
+      }
     });
 
     it('mints a fresh JWT per request via signer', async () => {
@@ -536,24 +549,15 @@ describe('AgentClient', () => {
   });
 
   describe('retry behaviour', () => {
-    // Collapse retry backoff sleeps so we don't wait real 1s/2s intervals.
     // Scoped to this block so other describe blocks keep real setTimeout.
-    let setTimeoutSpy: ReturnType<typeof spyOn>;
-    let capturedDelays: number[];
+    let timers: TimerMock;
 
     beforeEach(() => {
-      capturedDelays = [];
-      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-        ((fn: TimerHandler, delay?: number) => {
-          capturedDelays.push(delay ?? 0);
-          if (typeof fn === 'function') fn();
-          return 0 as unknown as ReturnType<typeof setTimeout>;
-        }) as unknown as typeof setTimeout,
-      );
+      timers = mockSetTimeout({ fireImmediately: true });
     });
 
     afterEach(() => {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     });
 
     const successResponse = () =>
@@ -576,7 +580,7 @@ describe('AgentClient', () => {
 
       expect(result.success).toBe(true);
       expect(fetchMock.mock.calls).toHaveLength(1);
-      expect(capturedDelays).toEqual([]);
+      expect(timers.delays).toEqual([]);
     });
 
     it('network error on attempts 1 & 2, success on 3 → fetch called 3 times', async () => {
@@ -589,7 +593,7 @@ describe('AgentClient', () => {
       expect(result.success).toBe(true);
       expect(fetchMock.mock.calls).toHaveLength(3);
       // 1s then 2s (baseMs 1000, maxExponent 2 → 2^0=1, 2^1=2).
-      expect(capturedDelays).toEqual([1000, 2000]);
+      expect(timers.delays).toEqual([1000, 2000]);
     });
 
     it('503 on attempt 1, 200 on attempt 2 → fetch called 2 times', async () => {
@@ -600,7 +604,7 @@ describe('AgentClient', () => {
 
       expect(result.success).toBe(true);
       expect(fetchMock.mock.calls).toHaveLength(2);
-      expect(capturedDelays).toEqual([1000]);
+      expect(timers.delays).toEqual([1000]);
     });
 
     it('400 on attempt 1 → throws immediately, fetch called once', async () => {
@@ -615,7 +619,7 @@ describe('AgentClient', () => {
       expect(thrown).toBeInstanceOf(AgentClientError);
       expect((thrown as AgentClientError).statusCode).toBe(400);
       expect(fetchMock.mock.calls).toHaveLength(1);
-      expect(capturedDelays).toEqual([]);
+      expect(timers.delays).toEqual([]);
     });
 
     it('500 (non-retryable 5xx) → throws immediately, fetch called once', async () => {
@@ -630,7 +634,7 @@ describe('AgentClient', () => {
       expect(thrown).toBeInstanceOf(AgentClientError);
       expect((thrown as AgentClientError).statusCode).toBe(500);
       expect(fetchMock.mock.calls).toHaveLength(1);
-      expect(capturedDelays).toEqual([]);
+      expect(timers.delays).toEqual([]);
     });
 
     it('504 all 3 attempts → throws AgentClientError with statusCode 504 after 3 fetches', async () => {
@@ -647,7 +651,7 @@ describe('AgentClient', () => {
       expect(thrown).toBeInstanceOf(AgentClientError);
       expect((thrown as AgentClientError).statusCode).toBe(504);
       expect(fetchMock.mock.calls).toHaveLength(3);
-      expect(capturedDelays).toEqual([1000, 2000]);
+      expect(timers.delays).toEqual([1000, 2000]);
     });
 
     it('network error all 3 attempts → throws with statusCode undefined after 3 fetches', async () => {
@@ -665,7 +669,7 @@ describe('AgentClient', () => {
       expect((thrown as AgentClientError).statusCode).toBeUndefined();
       expect((thrown as AgentClientError).wasTimeout).toBe(false);
       expect(fetchMock.mock.calls).toHaveLength(3);
-      expect(capturedDelays).toEqual([1000, 2000]);
+      expect(timers.delays).toEqual([1000, 2000]);
     });
 
     it('per-attempt timeout → throws with wasTimeout true, fetch called exactly once', async () => {
@@ -684,7 +688,7 @@ describe('AgentClient', () => {
       expect((thrown as AgentClientError).wasTimeout).toBe(true);
       expect((thrown as AgentClientError).statusCode).toBeUndefined();
       expect(fetchMock.mock.calls).toHaveLength(1);
-      expect(capturedDelays).toEqual([]);
+      expect(timers.delays).toEqual([]);
     });
 
     it('AbortError (runtime variant of timeout) → wasTimeout true, no retry', async () => {
@@ -701,7 +705,7 @@ describe('AgentClient', () => {
       expect(thrown).toBeInstanceOf(AgentClientError);
       expect((thrown as AgentClientError).wasTimeout).toBe(true);
       expect(fetchMock.mock.calls).toHaveLength(1);
-      expect(capturedDelays).toEqual([]);
+      expect(timers.delays).toEqual([]);
     });
 
     it('invalid JSON response → throws immediately (non-retryable), fetch called once', async () => {
@@ -721,7 +725,7 @@ describe('AgentClient', () => {
       expect(thrown).toBeInstanceOf(AgentClientError);
       expect((thrown as AgentClientError).message).toMatch(/invalid JSON/);
       expect(fetchMock.mock.calls).toHaveLength(1);
-      expect(capturedDelays).toEqual([]);
+      expect(timers.delays).toEqual([]);
     });
   });
 });

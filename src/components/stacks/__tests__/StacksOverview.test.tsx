@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockNavigate = mock(() => {});
 const mockCreateStack = mock(() => Promise.resolve({}));
@@ -24,18 +25,18 @@ mock.module('@/components/stacks/stacks-context', () => ({
   useStackStatusContext: () => ({ statusMap: mockStatusMap, deployVersion: 0 }),
 }));
 
-mock.module('@tanstack/react-router', () => ({
+mockModule<typeof import('@tanstack/react-router')>('@tanstack/react-router', (real) => ({ ...real, 
   useNavigate: () => mockNavigate,
 }));
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   createStack: mockCreateStack,
   scanDrift: mockScanDrift,
   resolveDrift: mockResolveDrift,
 }));
 
 let mockCanWrite = true;
-mock.module('@/hooks/useAuth', () => ({
+mockModule<typeof import('@/hooks/useAuth')>('@/hooks/useAuth', (real) => ({ ...real, 
   useCanWrite: () => mockCanWrite,
 }));
 

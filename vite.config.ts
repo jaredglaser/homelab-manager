@@ -12,7 +12,7 @@ const customLogger = {
   ...logger,
   warn(msg: string, options?: any) {
     // Suppress "use client" directive warnings from MUI and other libraries
-    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('\"use client\"')) {
+    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('"use client"')) {
       return
     }
     logger.warn(msg, options)
@@ -101,7 +101,7 @@ export default defineConfig(({ mode }) => {
         external: ['undici'],
         onwarn(warning, warn) {
           // Suppress "use client" directive warnings from MUI and other libraries
-          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('\"use client\"')) {
+          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {
             return
           }
           warn(warning)

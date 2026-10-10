@@ -10,6 +10,7 @@ import * as repoModule from '@/lib/git/repo';
 import { initBareRepo, commitFiles, listFilesInRepo, readFileFromRepo } from '@/lib/git/repo';
 import { MANIFEST, composePath } from '@/lib/stacks/stack-repo-layout';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
+import { mockModule } from '@/lib/test/mock-module';
 
 const AGENT_COMPOSE = 'services:\n  plex:\n    image: plex:host-only\n';
 const REPO_COMPOSE = 'services:\n  plex:\n    image: plex:repo\n';
@@ -24,15 +25,15 @@ let latestDeploys: DeployRecord[] = [];
 let agentConstructions = 0;
 let privateKeyDecrypts = 0;
 
-mock.module('@/lib/clients/database-client', () => ({
+mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
   databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => ({}) }) },
 }));
 
-mock.module('@/lib/config/database-config', () => ({
+mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
   loadDatabaseConfig: () => ({}),
 }));
 
-mock.module('@/lib/database/repositories/deploy-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/deploy-repository')>('@/lib/database/repositories/deploy-repository', (real) => ({ ...real, 
   DeployRepository: class {
     getLatestDeployPerStack = () => Promise.resolve(latestDeploys);
   },
@@ -43,14 +44,14 @@ const MANAGED_HOSTS = [
   { name: 'gamma', agentUrl: 'http://gamma:3001', capabilities: { docker: false } },
 ];
 
-mock.module('@/lib/database/repositories/host-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
   HostRepository: class {
     findAll = () => Promise.resolve(MANAGED_HOSTS);
     findByName = (name: string) => Promise.resolve(MANAGED_HOSTS.find((host) => host.name === name) ?? null);
   },
 }));
 
-mock.module('@/lib/clients/agent-client', () => ({
+mockModule<typeof import('@/lib/clients/agent-client')>('@/lib/clients/agent-client', (real) => ({ ...real, 
   AgentClient: class {
     constructor() {
       agentConstructions++;
@@ -70,7 +71,7 @@ mock.module('@/lib/clients/agent-client', () => ({
   },
 }));
 
-mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
   AgentKeypairsRepository: class {
     getPrivateKeyForHost = () => {
       privateKeyDecrypts++;
@@ -79,8 +80,8 @@ mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
   },
 }));
 
-mock.module('@/lib/crypto/agent-jwt', () => ({ signAgentJwt: () => Promise.resolve('jwt') }));
-mock.module('@/lib/crypto/master-key', () => ({ loadMasterKeyring: () => Promise.resolve({}) }));
+mockModule<typeof import('@/lib/crypto/agent-jwt')>('@/lib/crypto/agent-jwt', (real) => ({ ...real,  signAgentJwt: () => Promise.resolve('jwt') }));
+mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real,  loadMasterKeyring: () => Promise.resolve({}) }));
 
 function deployRecord(commitSha: string, overrides?: Partial<DeployRecord>): DeployRecord {
   return {
@@ -435,7 +436,7 @@ describe('resolveStackDriftItem', () => {
     inventory = [];
     const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
     const failing = mock(() => Promise.reject(new Error('connect ECONNREFUSED')));
-    mock.module('@/lib/clients/agent-client', () => ({
+    mockModule<typeof import('@/lib/clients/agent-client')>('@/lib/clients/agent-client', (real) => ({ ...real, 
       AgentClient: class {
         getStackInventory = failing;
       },
@@ -448,7 +449,7 @@ describe('resolveStackDriftItem', () => {
       expect(executeMock).not.toHaveBeenCalled();
       expect(await listFilesInRepo(repoPath)).toEqual([MANIFEST, composePath('plex')]);
     } finally {
-      mock.module('@/lib/clients/agent-client', () => ({
+      mockModule<typeof import('@/lib/clients/agent-client')>('@/lib/clients/agent-client', (real) => ({ ...real, 
         AgentClient: class {
           getStackInventory = () => { events.push('inventory'); return Promise.resolve({ stacks: inventory, errors: inventoryErrors }); };
           getStackCompose = () => { events.push('compose'); return composeResponse(); };
