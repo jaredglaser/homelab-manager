@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test';
 import { createElement, type ReactNode } from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { mockModule } from '@/lib/test/mock-module';
 import { FakeMuxConnection } from '@/lib/test/fake-mux';
-import { MockEventSource } from '@/lib/test/mock-event-source';
 
 const mockShowToast = mock((_message: string, _severity: string) => {});
 mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real, 
@@ -20,7 +19,6 @@ mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection'
 const { useStackStatus } = await import('@/hooks/useStackStatus');
 
 const STACK_STATUS_TOPIC = 'stack-status';
-const originalEventSource = globalThis.EventSource;
 
 let queryClient: QueryClient;
 
@@ -33,12 +31,6 @@ beforeEach(() => {
   fakeMux.status = { connected: false, error: null };
   queryClient = new QueryClient();
   mockShowToast.mockClear();
-  MockEventSource.reset();
-  (globalThis as unknown as Record<string, unknown>).EventSource = MockEventSource;
-});
-
-afterEach(() => {
-  (globalThis as unknown as Record<string, unknown>).EventSource = originalEventSource;
 });
 
 function mountStackStatus() {
@@ -64,10 +56,9 @@ function entry(overrides: Record<string, unknown> = {}) {
 }
 
 describe('useStackStatus', () => {
-  it('subscribes to the stack-status mux topic and opens no EventSource', () => {
+  it('subscribes to the stack-status mux topic on mount', () => {
     mountStackStatus();
     expect(fakeMux.subscribedTopics()).toEqual([STACK_STATUS_TOPIC]);
-    expect(MockEventSource.instances).toHaveLength(0);
   });
 
   it('starts with empty statusMap and deployVersion 0', () => {

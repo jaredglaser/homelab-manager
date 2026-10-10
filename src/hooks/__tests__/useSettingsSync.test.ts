@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { createElement, type ReactNode } from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { mockModule } from '@/lib/test/mock-module';
 import { FakeMuxConnection } from '@/lib/test/fake-mux';
-import { MockEventSource } from '@/lib/test/mock-event-source';
 
 const fakeMux = new FakeMuxConnection();
 mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection', (real) => ({
@@ -17,7 +16,6 @@ const { rawSettingsAtom } = await import('../settingsAtom');
 const { createStore, Provider: JotaiProvider, useAtomValue } = await import('jotai');
 
 const SETTINGS_TOPIC = 'settings';
-const originalEventSource = globalThis.EventSource;
 
 let queryClient: QueryClient;
 let store: ReturnType<typeof createStore>;
@@ -35,12 +33,6 @@ beforeEach(() => {
   fakeMux.status = { connected: false, error: null };
   queryClient = new QueryClient();
   store = createStore();
-  MockEventSource.reset();
-  (globalThis as unknown as Record<string, unknown>).EventSource = MockEventSource;
-});
-
-afterEach(() => {
-  (globalThis as unknown as Record<string, unknown>).EventSource = originalEventSource;
 });
 
 function useHarness() {
@@ -61,10 +53,9 @@ function sendChange(key: string, value: string) {
 }
 
 describe('useSettingsSync', () => {
-  it('subscribes to the settings mux topic and opens no EventSource', () => {
+  it('subscribes to the settings mux topic on mount', () => {
     mountSettings();
     expect(fakeMux.subscribedTopics()).toEqual([SETTINGS_TOPIC]);
-    expect(MockEventSource.instances).toHaveLength(0);
   });
 
   it('replaces all settings on init and merges single keys on change', () => {

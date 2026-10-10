@@ -23,7 +23,7 @@ interface ContainerDetailPanelProps {
   onIconChange: (serviceKeyEntity: string, iconSlug: string | null) => Promise<void>;
 }
 
-// SSE JSON.parse delivers ISO strings; useEventSource has no Zod coercion at the boundary.
+// Wire JSON delivers ISO strings and frames are parsed without Zod coercion at the boundary.
 function toDate(date: Date | null): Date | null {
   if (!date) return null;
   if (date instanceof Date) return date;
