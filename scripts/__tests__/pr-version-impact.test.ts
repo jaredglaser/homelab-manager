@@ -465,9 +465,12 @@ describe('renderBody', () => {
   });
 
   test('title is escaped so it cannot spoof table rows', () => {
+    const bs = String.fromCharCode(92);
     const body = renderBody('fix: a | b', '', '0.2.0', 'patch', 'none open yet');
-    expect(body).toContain('| PR title | `fix: a ' + String.fromCharCode(92) + '| b` |');
+    expect(body).toContain('| PR title | `fix: a ' + bs + '| b` |');
     expect(body).not.toContain('| PR title | `fix: a | b` |');
+    const body2 = renderBody('fix: c ' + bs + ' | d', '', '0.2.0', 'patch', 'none open yet');
+    expect(body2).toContain('| PR title | `fix: c ' + bs + bs + ' ' + bs + '| d` |');
   });
 });
 

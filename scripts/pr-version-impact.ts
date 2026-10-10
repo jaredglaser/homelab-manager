@@ -119,7 +119,7 @@ export function kindLabel(kind: Kind): string {
 }
 
 function codeSpan(value: string): string {
-  const escaped = value.replace(/[|\|]/g, '\\|').replace(/[\r\n]+/g, ' ');
+  const escaped = value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
   const runs = [...escaped.matchAll(/`+/g)].map((m) => m[0].length);
   const fence = '`'.repeat((runs.length ? Math.max(...runs) : 0) + 1);
   const pad = escaped.startsWith('`') || escaped.endsWith('`') || fence.length > 1 ? ' ' : '';
