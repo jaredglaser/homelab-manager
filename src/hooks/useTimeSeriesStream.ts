@@ -1,21 +1,28 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { z } from 'zod';
-import { useSseChannel } from './useSseChannel';
+import { useMuxChannel, type MuxChannel } from '@/lib/mux/use-mux-channel';
 import { useSSEBuffer } from './timeSeriesStream/useSSEBuffer';
 import { useVisibilityRefresh } from './timeSeriesStream/useVisibilityRefresh';
 import { useLatestByEntity } from './timeSeriesStream/useLatestByEntity';
 import type { RowAccessors } from './timeSeriesStream/types';
-import type { SseChannelDescriptor } from '@/lib/sse/define-sse-channel';
 
 const STALE_THRESHOLD_MS = 30000;
 const STALE_CHECK_INTERVAL_MS = 5000;
 const PRELOAD_TIMEOUT_MS = 8000;
 export const VISIBILITY_REFRESH_COOLDOWN_MS = 5000;
 const STALE_INITIAL_DATA_MS = 1500;
+const MAX_DROPPED_EVENTS = 50;
+
+/** A gap where the server shed live rows under backpressure. */
+export interface DroppedEvent {
+  topic: string;
+  count: number;
+  at: number;
+}
 
 interface UseTimeSeriesStreamOptions<TSchema extends z.ZodType<unknown[]>, TRow> {
-  /** Channel descriptor for the stats SSE endpoint; also revives `preloadFn`/`initialData` rows so both paths land on the same shape. */
-  channel: SseChannelDescriptor<TSchema, TRow[]>;
+  /** Mux channel for the stats topic, reviving `preloadFn`/`initialData` rows so both paths land on the same shape. */
+  channel: MuxChannel<TSchema, TRow[]>;
   /** Fetches historical rows (e.g. bucketed history) to seed the buffer, in the channel's raw wire shape. */
   preloadFn: () => Promise<z.infer<TSchema>>;
   getKey: (row: TRow) => string;
@@ -36,21 +43,25 @@ interface UseTimeSeriesStreamResult<TRow> {
   error: Error | null;
   hasData: boolean;
   isStale: boolean;
+  /** Cumulative count of live rows the server shed under backpressure. */
+  dropCount: number;
+  /** Gap markers for shed frames, oldest first. Each records the topic, how many rows were lost, and when the gap was observed. */
+  droppedEvents: DroppedEvent[];
 }
 
 /**
- * Time-windowed stream that preloads historical rows and merges subsequent SSE updates.
+ * Time-windowed stream that preloads historical rows and merges subsequent mux updates.
  * Composes the buffer, visibility refresh, and latest-by-entity sub-hooks; owns preload,
  * periodic refresh, and stale detection. `preloadFn`/`initialData` are revived here (when
- * the channel defines `revive`) so they land on the same row shape SSE messages already arrive in.
+ * the channel defines `revive`) so they land on the same row shape mux messages already arrive in.
  *
- * @param options.channel - Channel descriptor for the stats SSE endpoint (`src/lib/sse/channels/*.ts`).
+ * @param options.channel - Mux channel for the stats topic (`src/lib/sse/channels/*-stats.ts`).
  * @param options.preloadFn - Fetches historical rows (e.g. bucketed history) to seed the buffer.
- * @param options.getKey - Row key used for dedup against preload/SSE overlap.
+ * @param options.getKey - Row key used for dedup against preload/mux overlap.
  * @param options.getTime - Row timestamp (ms epoch); drives sort and eviction.
  * @param options.getEntity - Entity identifier driving the `latestByEntity` map.
  * @param options.windowSeconds - Retention window in seconds; rows beyond it are evicted (default 60).
- * @param options.updateIntervalMs - SSE flush cadence in ms (default 1000).
+ * @param options.updateIntervalMs - Mux flush cadence in ms (default 1000).
  * @param options.refreshIntervalMs - If set, periodic re-preload cadence in ms; keeps long-lived buffers bounded.
  * @param options.initialData - Cached preload (e.g. TanStack Query) for synchronous seed; refetched if older than ~1.5s.
  * @param options.debug - Logs preload and refresh activity.
@@ -58,10 +69,12 @@ interface UseTimeSeriesStreamResult<TRow> {
  * @returns Stream state:
  *   - `rows`: sorted ascending by time, within the window
  *   - `latestByEntity`: latest row per entity, structurally shared so reference equality skips work downstream
- *   - `isConnected`: SSE socket state
- *   - `error`: composed in preference order (channel error, i.e. sseError then serviceError, then preloadError)
- *   - `hasData`: true after the first seed or SSE flush
+ *   - `isConnected`: mux socket state
+ *   - `error`: composed in preference order (channel error, i.e. serviceError, then preloadError)
+ *   - `hasData`: true after the first seed or mux flush
  *   - `isStale`: true when no data has arrived for ~30s
+ *   - `dropCount`: cumulative count of rows shed by the server under backpressure
+ *   - `droppedEvents`: gap markers (topic, count, observed-at) for those shed frames
  */
 export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>({
   channel,
@@ -92,6 +105,8 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
 
   const [preloadError, setPreloadError] = useState<Error | null>(null);
   const [isStale, setIsStale] = useState(false);
+  const [dropCount, setDropCount] = useState(0);
+  const [droppedEvents, setDroppedEvents] = useState<DroppedEvent[]>([]);
   const preloadedRef = useRef(false);
 
   // Shared cooldown clock across preload, periodic refresh, and visibility refresh.
@@ -135,7 +150,6 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
       replaceBuffer(rows, { mode: 'seed' });
       lastRefreshRef.current = Date.now();
     };
-
     if (initialDataRef.current && initialDataRef.current.length > 0) {
       const revived = channelRef.current.revive
         ? channelRef.current.revive(initialDataRef.current)
@@ -181,7 +195,15 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     enqueue(incoming);
   }, [enqueue]);
 
-  // Keeps the buffer bounded at ~preload size regardless of how long the SSE stream has been running.
+  const handleDropped = useCallback((count: number) => {
+    setDropCount((prev) => prev + count);
+    setDroppedEvents((prev) => {
+      const next = [...prev, { topic: channelRef.current.topic, count, at: Date.now() }];
+      return next.length > MAX_DROPPED_EVENTS ? next.slice(next.length - MAX_DROPPED_EVENTS) : next;
+    });
+  }, []);
+
+  // Keeps the buffer bounded at ~preload size regardless of how long the mux stream has been running.
   // Without this, a 30-min window accumulates ~1800 raw rows/container.
   useEffect(() => {
     if (!refreshIntervalMs) return;
@@ -195,7 +217,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     lastRefreshRef,
   });
 
-  // SSE has no Last-Event-ID replay, so rows lost while disconnected need a re-preload.
+  // The mux does not replay missed history, so rows lost while disconnected need a re-preload.
   const onReconnect = useCallback(() => {
     // Re-arm the first-flush gate so the first frame paints even when the cooldown skips the refresh.
     resetFirstFlush();
@@ -203,11 +225,11 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     doRefreshRef.current().catch(() => {});
   }, [resetFirstFlush]);
 
-  const { isConnected, error: channelError } = useSseChannel(channel, {
+  const { isConnected, error: channelError } = useMuxChannel<TSchema, TRow[]>(channel, {
     onData: handleData,
+    onDropped: handleDropped,
     onReconnect,
     serviceErrorMessage: 'Database unavailable',
-    debug,
   });
 
   const error = channelError ?? preloadError;
@@ -227,5 +249,5 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     return () => clearInterval(id);
   }, [hasData, getLastDataTime]);
 
-  return { rows: sortedRows, latestByEntity, isConnected, error, hasData, isStale };
+  return { rows: sortedRows, latestByEntity, isConnected, error, hasData, isStale, dropCount, droppedEvents };
 }

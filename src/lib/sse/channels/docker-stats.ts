@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import { STATS_ERROR_EVENT } from '@/lib/sse/channels/stats-error-event';
+import { statsTopic } from '@/lib/mux/protocol';
+import type { MuxChannel } from '@/lib/mux/use-mux-channel';
 
 // time is epoch ms end to end: repository read path converts pg's timestamptz Date, so
 // this schema matches DockerStatsRow exactly and no revive step is needed.
@@ -27,3 +29,9 @@ export const dockerStatsChannel = defineSseChannel({
   errorEvent: STATS_ERROR_EVENT,
   schema: zDockerStatsWireRows,
 });
+
+// Live stats ride the WS mux, sharing the wire schema with the SSE channel above.
+export const dockerStatsMuxChannel: MuxChannel<typeof zDockerStatsWireRows> = {
+  topic: statsTopic('docker'),
+  schema: zDockerStatsWireRows,
+};
