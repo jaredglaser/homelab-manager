@@ -89,6 +89,10 @@ export interface UseMuxQueryOptions<TRevived, TState> {
   queryKey: QueryKey;
   initial: TState;
   fold: (state: TState, event: TRevived) => TState;
+  /** Observes each message after the fold commits it; for side effects only (toasts, counters, logs). */
+  onData?: (event: TRevived) => void;
+  /** Fired when the server emits this topic's `error` frame (not a connection-level error). */
+  onServiceError?: () => void;
   serviceErrorMessage?: string;
 }
 
@@ -125,14 +129,18 @@ export function useMuxQuery<TSchema extends z.ZodTypeAny, TRevived, TState>(
 
   const queryKeyRef = useRef(options.queryKey);
   queryKeyRef.current = options.queryKey;
+  const onDataRef = useRef(options.onData);
+  onDataRef.current = options.onData;
 
   const handleData = useCallback((event: TRevived) => {
     queryClient.setQueryData<TState>(queryKeyRef.current, (prev) =>
       foldRef.current(prev ?? initialRef.current, event));
+    onDataRef.current?.(event);
   }, [queryClient]);
 
   const { isConnected, error } = useMuxChannel(channel, {
     onData: handleData,
+    onServiceError: options.onServiceError,
     serviceErrorMessage: options.serviceErrorMessage,
   });
 

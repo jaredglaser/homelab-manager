@@ -8,6 +8,9 @@ import {
 } from '@/lib/mock/generators/docker';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
+import { generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
+import { loadDemoSettings } from '@/lib/mock/generators/settings';
+import { settingsUpdates, stackStatusUpdates } from '@/lib/mock/live-updates';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import { parseStatsTopic, type StatsTopicSource } from '@/lib/mux/protocol';
 
@@ -98,6 +101,20 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
         if (frame !== null) client.send(frame);
       }, STATS_INTERVAL_MS);
       topicCleanups.set(topic, () => clearInterval(feedTimer));
+      return;
+    }
+    if (topic === 'settings') {
+      topicCleanups.set(topic, settingsUpdates.on((message) => {
+        client.send(eventFrame(topic, 'data', message));
+      }));
+      client.send(eventFrame(topic, 'data', { type: 'init', settings: loadDemoSettings() }));
+      return;
+    }
+    if (topic === 'stack-status') {
+      topicCleanups.set(topic, stackStatusUpdates.on((message) => {
+        client.send(eventFrame(topic, 'data', message));
+      }));
+      client.send(eventFrame(topic, 'data', generateStackStatusSnapshot(new Date())));
       return;
     }
     if (!topic.startsWith('logs:')) {

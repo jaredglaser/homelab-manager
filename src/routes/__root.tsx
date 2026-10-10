@@ -1,8 +1,10 @@
 import { HeadContent, Outlet, Scripts, createRootRoute, useRouterState } from '@tanstack/react-router'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { lazy } from 'react'
 import AppShell from '@/components/AppShell'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { IS_MOCK_ENABLED } from '@/lib/constants/mock'
+import { queryClient } from '@/lib/query-client'
 
 import '../App.css'
 import '@fontsource/inter/index.css'
@@ -66,11 +68,16 @@ function RootLayout() {
   }
 
   return (
-    <AppShell>
-      <ErrorBoundary name="root">
-        <Outlet />
-      </ErrorBoundary>
-    </AppShell>
+    // Wraps AppShell itself so hooks it mounts (useSettingsSync via useMuxQuery)
+    // sit inside the query context; AppShell keeps its own provider for the tree
+    // below (same singleton client, so both share one cache).
+    <QueryClientProvider client={queryClient}>
+      <AppShell>
+        <ErrorBoundary name="root">
+          <Outlet />
+        </ErrorBoundary>
+      </AppShell>
+    </QueryClientProvider>
   );
 }
 
