@@ -17,6 +17,7 @@ import { Route as ProxmoxRouteImport } from './routes/proxmox'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StacksRouteImport } from './routes/stacks'
 import { Route as ZfsRouteImport } from './routes/zfs'
+import { Route as ApiAgentInventoryRouteImport } from './routes/api/agent-inventory'
 import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
@@ -72,6 +73,11 @@ const StacksRoute = StacksRouteImport.update({
 const ZfsRoute = ZfsRouteImport.update({
   id: '/zfs',
   path: '/zfs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentInventoryRoute = ApiAgentInventoryRouteImport.update({
+  id: '/api/agent-inventory',
+  path: '/api/agent-inventory',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDockerInventoryRoute = ApiDockerInventoryRouteImport.update({
@@ -165,6 +171,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
+  '/api/agent-inventory': typeof ApiAgentInventoryRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -190,6 +197,7 @@ export interface FileRoutesByTo {
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
+  '/api/agent-inventory': typeof ApiAgentInventoryRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -217,6 +225,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
+  '/api/agent-inventory': typeof ApiAgentInventoryRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/health': typeof ApiHealthRoute
@@ -245,6 +254,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stacks'
     | '/zfs'
+    | '/api/agent-inventory'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -270,6 +280,7 @@ export interface FileRouteTypes {
     | '/proxmox'
     | '/settings'
     | '/zfs'
+    | '/api/agent-inventory'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stacks'
     | '/zfs'
+    | '/api/agent-inventory'
     | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/health'
@@ -323,6 +335,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   StacksRoute: typeof StacksRouteWithChildren
   ZfsRoute: typeof ZfsRoute
+  ApiAgentInventoryRoute: typeof ApiAgentInventoryRoute
   ApiDockerInventoryRoute: typeof ApiDockerInventoryRoute
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
   ApiHealthRoute: typeof ApiHealthRoute
@@ -393,6 +406,13 @@ declare module '@tanstack/react-router' {
       path: '/zfs'
       fullPath: '/zfs'
       preLoaderRoute: typeof ZfsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent-inventory': {
+      id: '/api/agent-inventory'
+      path: '/api/agent-inventory'
+      fullPath: '/api/agent-inventory'
+      preLoaderRoute: typeof ApiAgentInventoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/docker-inventory': {
@@ -545,6 +565,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   StacksRoute: StacksRouteWithChildren,
   ZfsRoute: ZfsRoute,
+  ApiAgentInventoryRoute: ApiAgentInventoryRoute,
   ApiDockerInventoryRoute: ApiDockerInventoryRoute,
   ApiDockerStatsRoute: ApiDockerStatsRoute,
   ApiHealthRoute: ApiHealthRoute,

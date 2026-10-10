@@ -19,6 +19,12 @@ export interface ManagedHost {
   status: HostStatus;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * When the inventory sweep last probed this host, or null if it has never been
+   * swept. Deliberately separate from updatedAt, which every writer to this row
+   * bumps and so cannot answer "when was this agent last checked".
+   */
+  lastSweptAt: Date | null;
 }
 
 export interface CreateHostInput {
@@ -51,6 +57,7 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     status: row.status as HostStatus,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
+    lastSweptAt: (row.last_swept_at as Date | null | undefined) ?? null,
   };
 }
 
@@ -146,6 +153,20 @@ export class HostRepository {
     await this.pool.query(
       'UPDATE managed_hosts SET status = $1, updated_at = NOW() WHERE id = $2',
       [status, id],
+    );
+  }
+
+  /**
+   * Record that the inventory sweep probed this host at `at`. Deliberately does
+   * not touch updated_at: that column is bumped by every writer and is what made
+   * the inventory report a fresher sweep than actually ran. Stamped for every
+   * probed host, including a pending one whose status is left alone, because
+   * checkedAt answers "when did we last look", not "when did the status change".
+   */
+  async updateLastSweptAt(id: number, at: Date): Promise<void> {
+    await this.pool.query(
+      'UPDATE managed_hosts SET last_swept_at = $1 WHERE id = $2',
+      [at, id],
     );
   }
 
