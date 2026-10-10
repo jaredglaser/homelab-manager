@@ -42,6 +42,9 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '.output/**',
+      '.nitro/**',
+      '.tanstack/**',
+      'e2e-build/**',
       '**/dist/**',
       'coverage/**',
       'public/**',
