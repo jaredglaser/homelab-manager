@@ -17,6 +17,10 @@ shell for `git`, `grep` and read-only inspection; do not use it to write files.
 - No install step. You do not need `bun run setup` to read code. If a finding can only be settled by
   running something, say so and stop; the orchestrator decides whether that is worth a dispatch.
 
+## Standing checks
+
+- **PR title vs the diff.** The squash commit subject is the PR title and release-please versions the release from it. When the title's type, scope or breaking status no longer classifies the final diff (a `fix` that grew a feature, a scope rename, an API break without `!` or a `BREAKING CHANGE:` body line), report it as a finding: disposition `valid`, fix cost = rename the PR title, no code change. The Version impact comment CI keeps on the PR shows the current classification.
+
 ## Per finding, report
 
 1. **Disposition**: `valid`, `invalid`, `duplicate`, `fixed`, or `uncertain`.

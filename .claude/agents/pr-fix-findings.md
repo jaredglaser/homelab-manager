@@ -23,6 +23,7 @@ sets and its reasons. Agents that helpfully fix the declined ones create a secon
   package is not a workspace member and `--force` drifts its lockfile against the one the docker
   build uses.
 - Push from the detached head with an explicit refspec: `git push origin HEAD:<branch>`.
+- **Keep the PR title true to what you pushed.** Before pushing, re-classify your diff (type, scope, breaking) against the PR title. If it changed, edit the PR title with `gh pr edit <n> --title "..."` in the same push. The Version impact comment CI keeps on the PR shows the classification release-please will use.
 
 ## Applying a finding
 

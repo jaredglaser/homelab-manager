@@ -1,0 +1,75 @@
+name: PR Version Impact
+
+# The squash commit subject is the PR title and release-please versions the
+# release from it, so this job shows on every PR what merging it will do to the
+# next release. Kept out of ci.yml on purpose: `edited` re-runs on title/body
+# edits, and inside ci.yml that would re-run the full build/test/e2e matrix for
+# a rename.
+on:
+  pull_request:
+    # `edited` covers title and body edits (renames, BREAKING CHANGE footers).
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+# One comment per PR, edited in place. Only the newest event's content matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  title-lint:
+    name: PR Title Lint
+    runs-on: ubuntu-latest
+    # Fork PRs get a read-only token. Every PR here comes from a same-repo branch.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          no-cache: true
+
+      - name: Lint the PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: bun scripts/pr-version-impact.ts --lint
+
+  version-impact:
+    name: Version Impact Comment
+    runs-on: ubuntu-latest
+    # Fork PRs get a read-only token and commenting would fail. Every PR here
+    # comes from a same-repo branch.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          no-cache: true
+
+      - name: Post or update the version impact comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: bun scripts/pr-version-impact.ts

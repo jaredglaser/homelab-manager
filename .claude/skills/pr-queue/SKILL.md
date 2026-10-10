@@ -285,3 +285,11 @@ against a pre-retarget SHA. `scripts/restack.sh <branch> <new-base> <old-parent-
 You are the last gate. Before merging anything carrying a migration, check its number against the
 default branch and every other open PR, and renumber on the way in. AGENTS.md gotcha 23 covers why
 the collision is silent.
+
+## Release titles
+
+You are also the last gate for the release record: the squash commit subject is the PR title and
+release-please versions the release from it alone. Before calling a PR ready, read its Version
+impact comment (CI keeps one per PR) and make sure the title still classifies the final diff: type,
+scope and breaking status all count. A stale title silently drops the work from the version bump and
+the changelog, so rename first (`mcp__github__update_pull_request`) and merge after.
