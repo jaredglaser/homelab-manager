@@ -1,4 +1,4 @@
-import type { MuxTopicHandlers, MuxStatus } from '@/lib/mux/mux-connection';
+import type { MuxSubscribeError, MuxTopicHandlers, MuxStatus } from '@/lib/mux/mux-connection';
 import type { MuxEventFrame, MuxDroppedFrame, MuxEventKind } from '@/lib/mux/protocol';
 
 export class FakeMuxConnection {
@@ -51,5 +51,11 @@ export class FakeMuxConnection {
     for (const set of this.subscriptions.values()) {
       for (const handlers of set) handlers.onStatus?.(status);
     }
+  }
+
+  emitSubscribeRejected(topic: string, error: Pick<MuxSubscribeError, 'code' | 'message'>): void {
+    const set = this.subscriptions.get(topic);
+    if (!set) return;
+    for (const handlers of set) handlers.onSubscribeRejected?.({ topic, ...error });
   }
 }

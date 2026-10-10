@@ -70,6 +70,9 @@ export function useMuxChannel<TSchema extends z.ZodTypeAny, TRevived>(
         setServiceError(null);
         onDataRef.current(current.revive ? current.revive(parsed.data) : parsed.data as TRevived);
       },
+      onSubscribeRejected: (error) => {
+        setServiceError(new Error(error.message));
+      },
       onStatus: (next) => {
         const prev = prevConnectedRef.current;
         setStatus(next);
