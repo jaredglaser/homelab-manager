@@ -9,6 +9,8 @@ import type {
   StackDriftResolution,
   StackDriftResolutionResult,
 } from '@/types/stacks';
+import { generateStackStatusEntry } from '@/lib/mock/generators/stacks';
+import { stackStatusUpdates } from '@/lib/mock/live-updates';
 
 const MOCK_STACKS: StackSummary[] = [
   // nas01
@@ -323,12 +325,19 @@ export async function getStackDetail(opts: {
   };
 }
 
-export async function triggerDeploy(_opts: {
+export async function triggerDeploy(opts: {
   data: UIDeployRequest;
 }): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   // Simulate a short delay
   await new Promise((resolve) => setTimeout(resolve, 500));
-  return { deployId: MOCK_DEPLOY_HISTORY.length + 1, status: 'succeeded', logs: '' };
+  const deployId = MOCK_DEPLOY_HISTORY.length + 1;
+  stackStatusUpdates.emit({
+    type: 'deploy_changed',
+    stack: opts.data.stack,
+    host: opts.data.host,
+    outcome: { deployId, status: 'succeeded', action: opts.data.action, trigger: 'ui' },
+  });
+  return { deployId, status: 'succeeded', logs: '' };
 }
 
 export async function resumeDeploy(opts: {
@@ -441,7 +450,7 @@ export async function ensureVariablesExist(_opts: {
   // No-op in demo mode
 }
 
-export async function controlStack(_opts: {
+export async function controlStack(opts: {
   data:
     | { host: string; stack: string; action: 'start' | 'stop' | 'restart'; scope: 'stack' }
     | {
@@ -453,6 +462,14 @@ export async function controlStack(_opts: {
       };
 }): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 300));
+  const request = opts.data;
+  const entry = generateStackStatusEntry(new Date(), request.host, request.stack);
+  if (!entry) return;
+  const status = request.action === 'stop' ? 'exited' : 'running';
+  const containers = entry.containers.map((c) =>
+    request.scope === 'service' && c.service !== request.service ? c : { ...c, status },
+  );
+  stackStatusUpdates.emit([{ ...entry, containers }]);
 }
 
 export async function scanDrift(): Promise<StackDriftReport> {
