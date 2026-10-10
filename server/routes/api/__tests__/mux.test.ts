@@ -136,10 +136,12 @@ import {
 } from '../mux';
 import type { MuxFrameBody } from '@/lib/mux/protocol';
 import type { Peer } from 'crossws';
+import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
 interface FakePeer {
   id: string;
   request: Request;
+  bufferedAmount: number;
   sent: { type: string; ref?: number; ok?: boolean; error?: string; topic?: string; kind?: string; payload?: unknown; count?: number }[];
   sentRaw: string[];
   closeCalls: { code?: number; reason?: string }[];
@@ -151,6 +153,7 @@ function makePeer(id: string): FakePeer {
   const peer: FakePeer = {
     id,
     request: new Request('http://localhost:3000/api/mux'),
+    bufferedAmount: 0,
     sent: [],
     sentRaw: [],
     closeCalls: [],
@@ -275,12 +278,85 @@ describe('mux ws route', () => {
     const { calls, adapter } = makeAdapter();
     const { peer, h } = await openWith({ adapter });
     await h.message(peer as unknown as Peer, command('sub', ['inventory', 'logs:s/abc']));
-
     h.close(peer as unknown as Peer);
 
     expect(calls.every((c) => c.signal.aborted)).toBe(true);
     await h.message(peer as unknown as Peer, command('sub', ['inventory'], 9));
     expect(calls).toHaveLength(2);
+  });
+
+  describe('bulk drop policy under a synthetic slow consumer', () => {
+    let timeouts: TimerMock;
+    let intervals: TimerMock;
+
+    beforeEach(() => {
+      timeouts = mockSetTimeout();
+      intervals = mockSetInterval();
+    });
+
+    afterEach(() => {
+      intervals.restore();
+      timeouts.restore();
+    });
+
+    it('sheds bulk stats frames and reports per-topic counts on the tick', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['stats:docker', 'stats:zfs'], 1));
+      expect(peer.sent).toEqual([{ type: 'ack', ref: 1, ok: true }]);
+
+      for (let i = 1; i <= 3; i++) {
+        calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: i }] });
+      }
+      calls[1].emit({ topic: 'stats:zfs', kind: 'data', payload: [{ time: 1 }] });
+      expect(peer.sent).toHaveLength(1);
+
+      timeouts.fireNext();
+
+      expect(peer.sentRaw).toContain('{"type":"event","topic":"stats:docker","kind":"dropped","count":3}');
+      expect(peer.sentRaw).toContain('{"type":"event","topic":"stats:zfs","kind":"dropped","count":1}');
+      h.close(peer as unknown as Peer);
+    });
+
+    it('coalesces control frames to latest and keeps heartbeats flowing under pressure', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 1 } });
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 2 } });
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 3 } });
+
+      intervals.fireNext();
+      expect(peer.sentRaw).toContain('{"type":"ping"}');
+
+      timeouts.fireNext();
+      const events = peer.sent.filter((f) => f.type === 'event');
+      expect(events).toEqual([{ type: 'event', topic: 'inventory', kind: 'data', payload: { rev: 3 } }]);
+      h.close(peer as unknown as Peer);
+    });
+
+    it('flushes pending reports before resuming delivery once pressure clears', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['stats:docker', 'inventory'], 1));
+
+      calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: 1 }] });
+      calls[1].emit({ topic: 'inventory', kind: 'data', payload: { rev: 1 } });
+      peer.bufferedAmount = 0;
+      calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: 2 }] });
+
+      const dropIdx = peer.sentRaw.indexOf('{"type":"event","topic":"stats:docker","kind":"dropped","count":1}');
+      const invIdx = peer.sentRaw.indexOf('{"type":"event","topic":"inventory","kind":"data","payload":{"rev":1}}');
+      const dataIdx = peer.sentRaw.indexOf('{"type":"event","topic":"stats:docker","kind":"data","payload":[{"time":2}]}');
+      expect(dropIdx).toBeGreaterThanOrEqual(0);
+      expect(invIdx).toBeGreaterThan(dropIdx);
+      expect(dataIdx).toBeGreaterThan(invIdx);
+      h.close(peer as unknown as Peer);
+    });
   });
 });
 
