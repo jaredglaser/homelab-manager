@@ -1,3 +1,7 @@
+# homelab-manager self-hosting stack. Images are published to GHCR on every
+# push to main and on every release tag; HLM_IMAGE_TAG selects the image tag
+# for the whole stack (see self-hosting/README.md, "Image tags").
+
 x-postgres-env: &postgres-env
   POSTGRES_HOST: postgres
   POSTGRES_PORT: 5432
