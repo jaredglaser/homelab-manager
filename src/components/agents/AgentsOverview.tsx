@@ -1,17 +1,16 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
-import { listAgentsInventory, updateAgent, setAgentAutoUpdate } from '@/data/hosts/functions'
+import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
-import { useSseChannel } from '@/hooks/useSseChannel'
+import { useMuxChannel } from '@/lib/mux/use-mux-channel'
+import { AGENT_INVENTORY_TOPIC } from '@/lib/mux/protocol'
 import { agentInventoryChannel } from '@/lib/sse/channels/agent-inventory'
 import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/hooks/toastAtom'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -27,10 +26,9 @@ export type AgentsOverviewProps = {
   isLoading: boolean
   isError: boolean
   isAdmin: boolean
-  busyByHost: Record<number, 'update' | 'auto-update' | undefined>
+  busyByHost: Record<number, 'update' | undefined>
   feedbackByHost: Record<number, AgentRowFeedback>
   onUpdate: (hostId: number) => void
-  onAutoUpdateChange: (hostId: number, enabled: boolean) => void
   onRetry: () => void
 }
 
@@ -75,14 +73,12 @@ function AgentRow({
   busy,
   feedback,
   onUpdate,
-  onAutoUpdateChange,
 }: {
   agent: AgentInventoryEntry
   isAdmin: boolean
-  busy: 'update' | 'auto-update' | undefined
+  busy: 'update' | undefined
   feedback: AgentRowFeedback | undefined
   onUpdate: () => void
-  onAutoUpdateChange: (enabled: boolean) => void
 }) {
   return (
     <div className="px-4 py-3 border-b border-border last:border-0" data-testid={`agent-row-${agent.name}`}>
@@ -100,18 +96,6 @@ function AgentRow({
           )}
         </div>
         <div className="flex items-center gap-4 shrink-0">
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id={`agent-auto-update-${agent.id}`}
-              checked={agent.autoUpdate}
-              disabled={!isAdmin || busy !== undefined}
-              onCheckedChange={(checked) => onAutoUpdateChange(checked === true)}
-              aria-label={`Auto-update ${agent.name}`}
-            />
-            <Label htmlFor={`agent-auto-update-${agent.id}`} className="text-xs cursor-pointer">
-              Auto-update
-            </Label>
-          </div>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -158,7 +142,6 @@ export function AgentsOverviewView({
   busyByHost,
   feedbackByHost,
   onUpdate,
-  onAutoUpdateChange,
   onRetry,
 }: AgentsOverviewProps) {
   if (isLoading) {
@@ -207,7 +190,6 @@ export function AgentsOverviewView({
           busy={busyByHost[agent.id]}
           feedback={feedbackByHost[agent.id]}
           onUpdate={() => onUpdate(agent.id)}
-          onAutoUpdateChange={(enabled) => onAutoUpdateChange(agent.id, enabled)}
         />
       ))}
     </div>
@@ -235,7 +217,7 @@ export default function AgentsOverview() {
   const { showToast } = useToast()
   const { user, loading: authLoading, authEnabled } = useAuth()
   const isAdmin = !authLoading && (!authEnabled || user?.role === 'admin')
-  const [busyByHost, setBusyByHost] = useState<Record<number, 'update' | 'auto-update' | undefined>>({})
+  const [busyByHost, setBusyByHost] = useState<Record<number, 'update' | undefined>>({})
   const [feedbackByHost, setFeedbackByHost] = useState<Record<number, AgentRowFeedback>>({})
 
   const { data: agents = [], isLoading, isError } = useQuery({
@@ -244,8 +226,8 @@ export default function AgentsOverview() {
   })
 
   // Subscribes on mount, unsubscribes on unmount/route change: the worker sweep
-  // publishes a fresh snapshot over SSE, so the table updates without polling.
-  useSseChannel(agentInventoryChannel, {
+  // publishes a fresh snapshot over the mux, so the table updates without polling.
+  useMuxChannel({ ...agentInventoryChannel, topic: AGENT_INVENTORY_TOPIC }, {
     onData: useCallback(
       (snapshot: { entries: AgentInventoryEntry[] }) => {
         queryClient.setQueryData(AGENTS_INVENTORY_QUERY_KEY, snapshot.entries)
@@ -281,28 +263,6 @@ export default function AgentsOverview() {
     },
   })
 
-  const autoUpdateMutation = useMutation({
-    mutationFn: ({ hostId, enabled }: { hostId: number; enabled: boolean }) =>
-      setAgentAutoUpdate({ data: { hostId, autoUpdate: enabled } }),
-    onMutate: ({ hostId }) => setBusyByHost((prev) => ({ ...prev, [hostId]: 'auto-update' })),
-    onSuccess: (result, { hostId, enabled }) => {
-      setBusyByHost(({ [hostId]: _done, ...rest }) => rest)
-      void queryClient.invalidateQueries({ queryKey: AGENTS_INVENTORY_QUERY_KEY })
-      if (!result.propagation.applied && result.propagation.warning) {
-        showToast(`Saved, but the agent sidecar was not reconfigured: ${result.propagation.warning}`, 'warning')
-      } else {
-        showToast(`Auto-update ${enabled ? 'enabled' : 'disabled'} for ${result.host.name}`, 'success')
-      }
-    },
-    onError: (err: unknown, { hostId }) => {
-      setBusyByHost(({ [hostId]: _done, ...rest }) => rest)
-      const message = err instanceof Error ? err.message : 'Failed to save auto-update setting'
-      setFeedbackByHost((prev) => ({ ...prev, [hostId]: { severity: 'error', message } }))
-      void queryClient.invalidateQueries({ queryKey: AGENTS_INVENTORY_QUERY_KEY })
-      showToast(message, 'error')
-    },
-  })
-
   return (
     <div className="flex flex-col gap-4 max-w-2xl px-4 pb-6">
       <AgentsOverviewView
@@ -313,7 +273,6 @@ export default function AgentsOverview() {
         busyByHost={busyByHost}
         feedbackByHost={feedbackByHost}
         onUpdate={(hostId) => updateMutation.mutate(hostId)}
-        onAutoUpdateChange={(hostId, enabled) => autoUpdateMutation.mutate({ hostId, enabled })}
         onRetry={() => void queryClient.invalidateQueries({ queryKey: AGENTS_INVENTORY_QUERY_KEY })}
       />
     </div>
