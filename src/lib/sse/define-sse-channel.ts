@@ -1,9 +1,9 @@
 import type { z } from 'zod';
 
 /**
- * Structural identity for one SSE channel, shared by the server route and the client
- * (`useSseChannel`), so `url`/`errorEvent` can't drift between them like #262.
- * `schema` validates the parsed SSE payload. Most channels now match their wire shape
+ * Structural identity for one data channel, shared by the server side and the
+ * client so `url`/`errorEvent` can't drift between them like #262.
+ * `schema` validates the parsed stream payload. Most channels now match their wire shape
  * exactly (e.g. stats rows carry `time` as epoch-ms numbers already); `revive` is only
  * for channels whose wire shape still needs transforming (e.g. reviving Dates).
  */

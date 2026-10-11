@@ -100,7 +100,6 @@ const registry: Record<string, ServerFnMock> = {
   getHostPublicJwk: withData(hostsFns.getHostPublicJwk),
   rotateHostKeypair: withData(hostsFns.rotateHostKeypair),
   updateAgent: withData(hostsFns.updateAgent),
-  setAgentAutoUpdate: withData(hostsFns.setAgentAutoUpdate),
 
   // Git tokens
   listGitTokens: fn(gitTokenFns.listGitTokens),

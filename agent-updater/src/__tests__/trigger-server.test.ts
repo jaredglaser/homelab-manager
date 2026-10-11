@@ -92,6 +92,45 @@ describe('createTriggerHandler', () => {
     expect(state.updating).toBe(false);
   });
 
+  test('logs the triggered update outcome on success and failure', async () => {
+    const state = createTriggerState();
+    let release!: () => void;
+    const perform = mock(() => new Promise<UpdateResult>((resolve) => {
+      release = () => resolve({ success: true, previousImage: 'img:1', newImage: 'img:2' });
+    }));
+    const check = mock(() => Promise.resolve({ updateAvailable: true }));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }), state);
+
+    await handler(postRequest());
+    release();
+    await waitFor(() => !state.updating);
+
+    const state2 = createTriggerState();
+    let fail!: () => void;
+    const performFail = mock(() => new Promise<UpdateResult>((resolve) => {
+      fail = () => resolve({ success: false, error: 'pull failed', rolledBack: true });
+    }));
+    const handler2 = createTriggerHandler(createMockUpdater({ check, perform: performFail }), state2);
+    await handler2(postRequest());
+    fail();
+    await waitFor(() => !state2.updating);
+  });
+
+  test('logs a crash and clears the busy flag when performUpdate rejects', async () => {
+    const state = createTriggerState();
+    let release!: () => void;
+    const perform = mock(() => new Promise<UpdateResult>((_resolve, reject) => {
+      release = () => reject(new Error('docker daemon gone'));
+    }));
+    const check = mock(() => Promise.resolve({ updateAvailable: true }));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }), state);
+
+    await handler(postRequest());
+    release();
+    await waitFor(() => !state.updating);
+    expect(state.updating).toBe(false);
+  });
+
   test('returns 500 and clears the busy flag when the check throws', async () => {
     const state = createTriggerState();
     let checkCalls = 0;

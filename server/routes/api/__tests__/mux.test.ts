@@ -1,9 +1,67 @@
-import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach, beforeAll, spyOn } from 'bun:test';
+import { EventEmitter } from 'node:events';
+import type { PoolClient } from 'pg';
 import { mockModule } from '@/lib/test/mock-module';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 const mockAuthenticate = mock(async () => ({ id: 'test-user' } as unknown));
 const mockFindByName = mock(async (_: string) => null as null | { name: string; agentUrl: string });
 const mockGetPrivateKeyForHost = mock(async (_: string) => null as null | object);
+
+// Real server-init runs deploy recovery and DB shutdown hooks on import. Stub it to a no-op.
+mock.module('@/lib/server-init', () => ({}));
+
+class FakePoolClient extends EventEmitter {
+  queries: string[] = [];
+  released = false;
+  async query(sql: string): Promise<unknown> {
+    this.queries.push(sql);
+    return {};
+  }
+  release(): void {
+    this.released = true;
+  }
+}
+
+function makePoolHarness() {
+  const clients: FakePoolClient[] = [];
+  return {
+    clients,
+    async getPoolClient(): Promise<PoolClient> {
+      const client = new FakePoolClient();
+      clients.push(client);
+      return client as unknown as PoolClient;
+    },
+  };
+}
+
+const settingsHarness = makePoolHarness();
+const stackHarness = makePoolHarness();
+const settingsState = { all: new Map<string, string>(), values: new Map<string, string>() };
+const stackState = { snapshot: [] as DockerInventorySnapshotContainer[] };
+
+mockModule<typeof import('@/lib/settings/settings-broadcast-service')>(
+  '@/lib/settings/settings-broadcast-service',
+  (real) => ({
+    ...real,
+    settingsBroadcastService: new real.SettingsBroadcastService({
+      getPoolClient: settingsHarness.getPoolClient,
+      loadAllSettings: async () => new Map(settingsState.all),
+      loadSingleSetting: async (key) => settingsState.values.get(key) ?? null,
+    }),
+  }),
+);
+
+mockModule<typeof import('@/lib/stacks/stack-status-broadcast-service')>(
+  '@/lib/stacks/stack-status-broadcast-service',
+  (real) => ({
+    ...real,
+    stackStatusBroadcastService: new real.StackStatusBroadcastService({
+      getPoolClient: stackHarness.getPoolClient,
+      loadSnapshot: async () => stackState.snapshot,
+    }),
+  }),
+);
 
 mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({
   ...real,
@@ -46,18 +104,46 @@ mockModule<typeof import('@/lib/crypto/agent-jwt')>('@/lib/crypto/agent-jwt', (r
   signAgentJwt: async () => 'fake.jwt.token',
 }));
 
+// Real server-init runs deploy recovery and DB shutdown hooks on import. Stub it to a no-op.
+mock.module('@/lib/server-init', () => ({}));
+
+type StatsSubscribeCall = { source: string; onRows: (rows: unknown[]) => void; onError: () => void };
+const statsSubscribeCalls: StatsSubscribeCall[] = [];
+const statsSubscribeWaiters: ((call: StatsSubscribeCall) => void)[] = [];
+const mockStatsUnsubscribe = mock(() => {});
+
+function nextStatsSubscribe(): Promise<StatsSubscribeCall> {
+  return new Promise((resolve) => statsSubscribeWaiters.push(resolve));
+}
+
+mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database/subscription-service', (real) => ({
+  ...real,
+  statsPollService: {
+    subscribe: (source: string, onRows: (rows: unknown[]) => void, onError?: () => void) => {
+      const call: StatsSubscribeCall = { source, onRows, onError: onError ?? (() => {}) };
+      statsSubscribeCalls.push(call);
+      statsSubscribeWaiters.shift()?.(call);
+      return mockStatsUnsubscribe;
+    },
+    stop: async () => {},
+  },
+}));
+
 import {
   createMuxWsHandlers,
   defaultTopicAdapter,
   parseAgentSseBlock,
 } from '../mux';
-import { MAX_SESSION_TOPICS, MAX_SUB_BATCH } from '@/lib/mux/protocol';
+import { MAX_SESSION_TOPICS, MAX_SUB_BATCH, type MuxFrameBody } from '@/lib/mux/protocol';
 import type { Peer } from 'crossws';
+import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
 interface FakePeer {
   id: string;
   request: Request;
-  sent: { type: string; ref?: number; ok?: boolean; error?: string; code?: string; topic?: string; kind?: string; payload?: unknown }[];
+  bufferedAmount: number;
+  sent: { type: string; ref?: number; ok?: boolean; error?: string; code?: string; topic?: string; kind?: string; payload?: unknown; count?: number }[];
+  sentRaw: string[];
   closeCalls: { code?: number; reason?: string }[];
   send: (data: string) => void;
   close: (code?: number, reason?: string) => void;
@@ -67,9 +153,11 @@ function makePeer(id: string): FakePeer {
   const peer: FakePeer = {
     id,
     request: new Request('http://localhost:3000/api/mux'),
+    bufferedAmount: 0,
     sent: [],
+    sentRaw: [],
     closeCalls: [],
-    send: (data: string) => { peer.sent.push(JSON.parse(data)); },
+    send: (data: string) => { peer.sentRaw.push(data); peer.sent.push(JSON.parse(data)); },
     close: (code?: number, reason?: string) => { peer.closeCalls.push({ code, reason }); },
   };
   return peer;
@@ -79,7 +167,7 @@ function command(type: 'sub' | 'unsub', topics: string[], ref = 0): { text: () =
   return { text: () => JSON.stringify({ type, ref, topics }) };
 }
 
-type AdapterCall = { topic: string; emit: (frame: { topic: string; kind: string; payload: unknown }) => void; signal: AbortSignal };
+type AdapterCall = { topic: string; emit: (frame: MuxFrameBody) => void; signal: AbortSignal };
 
 function makeAdapter() {
   const calls: AdapterCall[] = [];
@@ -267,12 +355,85 @@ describe('mux ws route', () => {
     const { calls, adapter } = makeAdapter();
     const { peer, h } = await openWith({ adapter });
     await h.message(peer as unknown as Peer, command('sub', ['inventory', 'logs:s/abc']));
-
     h.close(peer as unknown as Peer);
 
     expect(calls.every((c) => c.signal.aborted)).toBe(true);
     await h.message(peer as unknown as Peer, command('sub', ['inventory'], 9));
     expect(calls).toHaveLength(2);
+  });
+
+  describe('bulk drop policy under a synthetic slow consumer', () => {
+    let timeouts: TimerMock;
+    let intervals: TimerMock;
+
+    beforeEach(() => {
+      timeouts = mockSetTimeout();
+      intervals = mockSetInterval();
+    });
+
+    afterEach(() => {
+      intervals.restore();
+      timeouts.restore();
+    });
+
+    it('sheds bulk stats frames and reports per-topic counts on the tick', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['stats:docker', 'stats:zfs'], 1));
+      expect(peer.sent).toEqual([{ type: 'ack', ref: 1, ok: true }]);
+
+      for (let i = 1; i <= 3; i++) {
+        calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: i }] });
+      }
+      calls[1].emit({ topic: 'stats:zfs', kind: 'data', payload: [{ time: 1 }] });
+      expect(peer.sent).toHaveLength(1);
+
+      timeouts.fireNext();
+
+      expect(peer.sentRaw).toContain('{"type":"event","topic":"stats:docker","kind":"dropped","count":3}');
+      expect(peer.sentRaw).toContain('{"type":"event","topic":"stats:zfs","kind":"dropped","count":1}');
+      h.close(peer as unknown as Peer);
+    });
+
+    it('coalesces control frames to latest and keeps heartbeats flowing under pressure', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 1 } });
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 2 } });
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 3 } });
+
+      intervals.fireNext();
+      expect(peer.sentRaw).toContain('{"type":"ping"}');
+
+      timeouts.fireNext();
+      const events = peer.sent.filter((f) => f.type === 'event');
+      expect(events).toEqual([{ type: 'event', topic: 'inventory', kind: 'data', payload: { rev: 3 } }]);
+      h.close(peer as unknown as Peer);
+    });
+
+    it('flushes pending reports before resuming delivery once pressure clears', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['stats:docker', 'inventory'], 1));
+
+      calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: 1 }] });
+      calls[1].emit({ topic: 'inventory', kind: 'data', payload: { rev: 1 } });
+      peer.bufferedAmount = 0;
+      calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: 2 }] });
+
+      const dropIdx = peer.sentRaw.indexOf('{"type":"event","topic":"stats:docker","kind":"dropped","count":1}');
+      const invIdx = peer.sentRaw.indexOf('{"type":"event","topic":"inventory","kind":"data","payload":{"rev":1}}');
+      const dataIdx = peer.sentRaw.indexOf('{"type":"event","topic":"stats:docker","kind":"data","payload":[{"time":2}]}');
+      expect(dropIdx).toBeGreaterThanOrEqual(0);
+      expect(invIdx).toBeGreaterThan(dropIdx);
+      expect(dataIdx).toBeGreaterThan(invIdx);
+      h.close(peer as unknown as Peer);
+    });
   });
 });
 
@@ -396,6 +557,257 @@ describe('logs adapter pipe', () => {
     expect(events[0].kind).toBe('error');
     expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
     expect((events[0].payload as { message?: string }).message).toContain('Unknown host');
+    h.close(peer as unknown as Peer);
+  });
+});
+
+type SentFrame = FakePeer['sent'][number];
+
+function dataFrames(peer: FakePeer, topic: string): SentFrame[] {
+  return peer.sent.filter((f) => f.type === 'event' && f.topic === topic && f.kind === 'data');
+}
+
+describe('control topics (settings, stack-status)', () => {
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+  async function until(predicate: () => boolean, maxRounds = 50): Promise<void> {
+    for (let i = 0; i < maxRounds && !predicate(); i++) await settle();
+  }
+
+  beforeAll(async () => {
+    // Pre-warm the adapters' dynamic import chain so init delivery is pure microtasks per test.
+    await import('@/lib/server-init');
+    await import('@/lib/settings/settings-broadcast-service');
+    await import('@/lib/stacks/stack-status-broadcast-service');
+    await import('@/lib/sse/channels/stack-status');
+  });
+  const expectedStackEntry = {
+    host: 'server1',
+    stack: 'plex',
+    containers: [
+      {
+        id: 'c1',
+        name: 'plex',
+        status: 'running',
+        image: 'plexinc/pms-docker',
+        service: 'plex',
+        ports: [],
+        mounts: [],
+      },
+    ],
+    updated_at: '2026-03-21T00:00:00.000Z',
+  };
+  let peerCounter = 0;
+
+  beforeEach(() => {
+    mockAuthenticate.mockImplementation(async () => ({ id: 'test-user' } as unknown));
+    settingsHarness.clients.length = 0;
+    stackHarness.clients.length = 0;
+    settingsState.all = new Map([['theme', 'dark']]);
+    settingsState.values = new Map([['theme', 'light']]);
+    stackState.snapshot = [
+      {
+        host: 'server1',
+        containerId: 'c1',
+        name: 'plex',
+        image: 'plexinc/pms-docker',
+        state: 'running',
+        composeProject: 'plex',
+        serviceKey: 'plex/plex',
+        startedAt: null,
+        finishedAt: null,
+        exitCode: null,
+        updatedAt: new Date('2026-03-21T00:00:00Z'),
+        labels: {},
+        ports: [],
+        mounts: [],
+      },
+    ];
+  });
+
+  it('delivers initial state for settings and stack-status on one connection', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer(`ctl-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['settings', 'stack-status'], 1));
+    await until(() => dataFrames(peer, 'settings').length >= 1 && dataFrames(peer, 'stack-status').length >= 1);
+
+    expect(dataFrames(peer, 'settings')).toHaveLength(1);
+    expect(dataFrames(peer, 'settings')[0].payload).toEqual({ type: 'init', settings: { theme: 'dark' } });
+    expect(dataFrames(peer, 'stack-status')).toHaveLength(1);
+    expect(dataFrames(peer, 'stack-status')[0].payload).toEqual([expectedStackEntry]);
+    expect(peer.sent.filter((f) => f.type === 'ack')).toEqual([{ type: 'ack', ref: 1, ok: true }]);
+    h.close(peer as unknown as Peer);
+  });
+
+  it('forwards live settings changes and stack deploy updates as data frames', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer(`ctl-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['settings', 'stack-status'], 1));
+    await until(() => dataFrames(peer, 'settings').length >= 1 && dataFrames(peer, 'stack-status').length >= 1);
+
+    settingsHarness.clients.at(-1)?.emit('notification', { channel: 'settings_change', payload: 'theme' });
+    await until(() => dataFrames(peer, 'settings').length >= 2);
+    expect(dataFrames(peer, 'settings')[1].payload).toEqual({ type: 'change', key: 'theme', value: 'light' });
+
+    const outcome = { deployId: 7, status: 'succeeded', action: 'deploy', trigger: 'ui' };
+    stackHarness.clients.at(-1)?.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({ stack: 'plex', host: 'server1', outcome }),
+    });
+    await until(() => dataFrames(peer, 'stack-status').length >= 2);
+    expect(dataFrames(peer, 'stack-status')[1].payload).toEqual({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome,
+    });
+    h.close(peer as unknown as Peer);
+  });
+
+  it('stops delivery on unsub and re-delivers current state on re-subscribe', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer(`ctl-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['settings', 'stack-status'], 1));
+    await until(() => dataFrames(peer, 'settings').length >= 1 && dataFrames(peer, 'stack-status').length >= 1);
+
+    await h.message(peer as unknown as Peer, command('unsub', ['settings', 'stack-status'], 2));
+    await settle();
+    const afterUnsub = peer.sent.length;
+    settingsHarness.clients.at(-1)?.emit('notification', { channel: 'settings_change', payload: 'theme' });
+    stackHarness.clients.at(-1)?.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({ stack: 'plex', host: 'server1' }),
+    });
+    await settle();
+    await settle();
+    expect(peer.sent.length).toBe(afterUnsub);
+    expect(dataFrames(peer, 'settings')).toHaveLength(1);
+    expect(dataFrames(peer, 'stack-status')).toHaveLength(1);
+
+    await h.message(peer as unknown as Peer, command('sub', ['settings', 'stack-status'], 3));
+    await until(() => dataFrames(peer, 'settings').length >= 2 && dataFrames(peer, 'stack-status').length >= 2);
+    expect(dataFrames(peer, 'settings')[1].payload).toEqual({ type: 'init', settings: { theme: 'dark' } });
+    expect(dataFrames(peer, 'stack-status')[1].payload).toEqual([expectedStackEntry]);
+  });
+});
+
+describe('stats topic adapters', () => {
+  beforeEach(() => {
+    statsSubscribeCalls.length = 0;
+    mockStatsUnsubscribe.mockClear();
+  });
+
+  it('subscribes each stats topic to its poll source and replays no history', async () => {
+    for (const [topic, source] of [
+      ['stats:docker', 'docker'],
+      ['stats:zfs', 'zfs'],
+      ['stats:proxmox', 'proxmox'],
+    ] as const) {
+      const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+      const peer = makePeer(`stats-${source}`);
+      await h.open(peer as unknown as Peer);
+      const subscribed = nextStatsSubscribe();
+      await h.message(peer as unknown as Peer, command('sub', [topic], 1));
+      const call = await subscribed;
+
+      expect(call.source).toBe(source);
+      expect(peer.sent).toEqual([{ type: 'ack', ref: 1, ok: true }]);
+      h.close(peer as unknown as Peer);
+    }
+  });
+
+  it('publishes poll deltas as data frames in the existing wire shape', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer('stats-delta');
+    await h.open(peer as unknown as Peer);
+    const subscribed = nextStatsSubscribe();
+    await h.message(peer as unknown as Peer, command('sub', ['stats:docker'], 1));
+    const call = await subscribed;
+
+    call.onRows([{ time: 1000, host: 'server1', cpu_percent: 1.5 }]);
+
+    expect(peer.sentRaw).toContain(
+      '{"type":"event","topic":"stats:docker","kind":"data","payload":[{"time":1000,"host":"server1","cpu_percent":1.5}]}',
+    );
+    h.close(peer as unknown as Peer);
+  });
+
+  it('surfaces poll failure as a recoverable error frame', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer('stats-error');
+    await h.open(peer as unknown as Peer);
+    const subscribed = nextStatsSubscribe();
+    await h.message(peer as unknown as Peer, command('sub', ['stats:zfs'], 1));
+    const call = await subscribed;
+
+    call.onError();
+
+    expect(peer.sentRaw).toContain(
+      '{"type":"event","topic":"stats:zfs","kind":"error","payload":{"message":"Stats polling failed, retrying","gone":false}}',
+    );
+    h.close(peer as unknown as Peer);
+  });
+
+  it('unsubscribing stops the poll subscription', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer('stats-unsub');
+    await h.open(peer as unknown as Peer);
+    const subscribed = nextStatsSubscribe();
+    await h.message(peer as unknown as Peer, command('sub', ['stats:proxmox'], 1));
+    await subscribed;
+
+    await h.message(peer as unknown as Peer, command('unsub', ['stats:proxmox'], 2));
+
+    expect(mockStatsUnsubscribe).toHaveBeenCalledTimes(1);
+    h.close(peer as unknown as Peer);
+  });
+
+  it('rejects an unregistered stats source with a gone error frame', async () => {
+    const emitted: MuxFrameBody[] = [];
+    await defaultTopicAdapter('stats:bogus', (frame) => emitted.push(frame), new AbortController().signal);
+
+    expect(emitted).toEqual([
+      { topic: 'stats:bogus', kind: 'error', payload: { message: 'Invalid stats topic', gone: true } },
+    ]);
+    expect(statsSubscribeCalls).toHaveLength(0);
+  });
+});
+
+describe('frame wire format', () => {
+  it('serializes existing kinds byte-identically', async () => {
+    const { calls, adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer('wire-existing');
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+    calls[0].emit({ topic: 'inventory', kind: 'data', payload: { type: 'init', containers: [] } });
+    calls[0].emit({ topic: 'inventory', kind: 'backlog_start', payload: {} });
+    calls[0].emit({ topic: 'inventory', kind: 'backlog_done', payload: {} });
+    calls[0].emit({ topic: 'inventory', kind: 'stream_end', payload: {} });
+    calls[0].emit({ topic: 'inventory', kind: 'error', payload: { message: 'x', gone: true } });
+
+    expect(peer.sentRaw.slice(1)).toEqual([
+      '{"type":"event","topic":"inventory","kind":"data","payload":{"type":"init","containers":[]}}',
+      '{"type":"event","topic":"inventory","kind":"backlog_start","payload":{}}',
+      '{"type":"event","topic":"inventory","kind":"backlog_done","payload":{}}',
+      '{"type":"event","topic":"inventory","kind":"stream_end","payload":{}}',
+      '{"type":"event","topic":"inventory","kind":"error","payload":{"message":"x","gone":true}}',
+    ]);
+    h.close(peer as unknown as Peer);
+  });
+
+  it('serializes dropped frames as kind, topic, count', async () => {
+    const { calls, adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer('wire-dropped');
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['stats:docker'], 1));
+    calls[0].emit({ topic: 'stats:docker', kind: 'dropped', count: 3 });
+
+    expect(peer.sentRaw[1]).toBe('{"type":"event","topic":"stats:docker","kind":"dropped","count":3}');
+
     h.close(peer as unknown as Peer);
   });
 });

@@ -35,17 +35,6 @@ export type UpdateAgentResult = HostOperationResult;
 /** Poll cadence while waiting for a restarted agent to report a new version. */
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
-/** Result of pushing the auto-update policy to the agent on the host. */
-export interface PolicyPropagation {
-  applied: boolean;
-  warning?: string;
-}
-
-export interface SetAgentAutoUpdateResult {
-  host: HostListItem;
-  propagation: PolicyPropagation;
-}
-
 export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
   findAll(): Promise<ManagedHost[]>;
@@ -54,7 +43,6 @@ export interface HostRepo {
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateLastSweptAt(id: number, at: Date): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null }): Promise<void>;
-  updateAutoUpdate(id: number, enabled: boolean): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
 
@@ -365,39 +353,6 @@ export async function handleUpdateAgent(
   await deps.repo.updateStatus(host.id, 'healthy');
   await deps.repo.updateAgentInfo(host.id, { version: newVersion });
   return { hostId: host.id, healthy: true, version: newVersion };
-}
-
-/**
- * Persist the per-agent auto-update opt-in, then best-effort push the policy
- * to the running agent so its agent-updater sidecar picks it up without a
- * manual redeploy. The DB row is the source of truth; propagation failure
- * never rolls the setting back, it is reported as a warning instead.
- */
-export async function handleSetAgentAutoUpdate(
-  deps: HostHandlerDeps & {
-    propagatePolicy?: (host: ManagedHost, enabled: boolean) => Promise<PolicyPropagation>;
-  },
-  data: { hostId: number; autoUpdate: boolean },
-): Promise<SetAgentAutoUpdateResult> {
-  const host = await deps.repo.findById(data.hostId);
-  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
-
-  await deps.repo.updateAutoUpdate(host.id, data.autoUpdate);
-
-  let propagation: PolicyPropagation;
-  if (!deps.propagatePolicy) {
-    propagation = { applied: false, warning: 'Policy propagation is not available in this deployment.' };
-  } else if (!host.capabilities.docker) {
-    propagation = {
-      applied: false,
-      warning: 'Host has no Docker capability, so there is no agent-updater to reconfigure. The setting is stored and applies when the host gains Docker capability.',
-    };
-  } else {
-    propagation = await deps.propagatePolicy(host, data.autoUpdate);
-  }
-
-  const updated = await deps.repo.findById(host.id);
-  return { host: toHostListItem(updated ?? host), propagation };
 }
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {
