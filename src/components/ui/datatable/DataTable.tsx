@@ -322,6 +322,7 @@ export function DataTable<TRow extends RowData>({
         {/* Sticky header: inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div
+            data-slot="datatable-header"
             className="grid border-b border-border bg-background sticky top-0 z-10"
             style={{ gridTemplateColumns: gridTemplate }}
           >
