@@ -1,5 +1,5 @@
 import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
-import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
+import { toHostListItem, getAgentImage, getAgentUpdaterImage } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
@@ -34,6 +34,10 @@ export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
 
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
+
+function digestPinnedImageRef(imageRef: string, digest: string): string {
+  return `${imageRef.slice(0, imageRef.lastIndexOf(':'))}@${digest}`;
+}
 
 export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
@@ -230,7 +234,11 @@ export async function handleUpdateAgent(
       ],
     };
   }
-  const targetImage = `${imageRef.slice(0, imageRef.lastIndexOf(':'))}@${digest}`;
+  const targetImage = digestPinnedImageRef(imageRef, digest);
+  // The updater digest fails open: null makes the sidecar skip its self-recreate rather than fail the agent update.
+  const updaterImageRef = getAgentUpdaterImage();
+  const updaterDigest = await resolveDigest(updaterImageRef).catch(() => null);
+  const updaterTargetImage = updaterDigest ? digestPinnedImageRef(updaterImageRef, updaterDigest) : null;
 
   let signer: () => Promise<string>;
   try {
@@ -255,7 +263,7 @@ export async function handleUpdateAgent(
     triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetImage }),
+      body: JSON.stringify({ targetImage, updaterTargetImage }),
       redirect: 'manual',
     });
   } catch (err) {
