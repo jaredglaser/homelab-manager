@@ -20,6 +20,7 @@ function startTriggerServer(updater: AgentUpdater, port: number): void {
 
 async function main(): Promise<void> {
   const containerName = process.env.HLM_WATCH_CONTAINER || 'hlm-agent';
+  const selfContainerName = process.env.HLM_SELF_CONTAINER || 'hlm-agent-updater';
   const imageName = process.env.HLM_WATCH_IMAGE;
 
   if (!imageName) {
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
 
   const updater = new AgentUpdater(docker, {
     containerName,
+    selfContainerName,
     imageName,
   }, healthReporter);
 
@@ -50,6 +52,12 @@ async function main(): Promise<void> {
     console.info('Trigger server disabled (HLM_TRIGGER_PORT=0); exiting.');
     return;
   }
+
+  // Fire and forget: a leftover only lingers if this cleanup never runs, and
+  // startup must not wait on docker for the trigger endpoint to come up.
+  void updater.removeRetiredSelf().catch((error: unknown) => {
+    console.error(`Retired sidecar cleanup failed: ${error instanceof Error ? error.message : error}`);
+  });
 
   // Nothing runs on a schedule: the process exists to serve the manual trigger
   // endpoint, so it just parks until a shutdown signal arrives.

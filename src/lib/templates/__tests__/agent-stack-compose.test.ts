@@ -91,6 +91,7 @@ describe('generateAgentStackCompose', () => {
       const parsed = parseYaml(generateAgentStackCompose(config));
       expect(parsed.services.agent.environment.AGENT_IMAGE).toBe('${AGENT_IMAGE}');
       expect(parsed.services['agent-updater'].environment.HLM_WATCH_IMAGE).toBe('${AGENT_IMAGE}');
+      expect(parsed.services['agent-updater'].environment.HLM_SELF_CONTAINER).toBe('hlm-agent-updater');
     }
   });
 

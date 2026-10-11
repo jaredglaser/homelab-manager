@@ -25,6 +25,7 @@ function createMockHealthReporter(healthy = true): HealthReporter {
 
 const defaultConfig: AgentUpdaterConfig = {
   containerName: 'hlm-agent',
+  selfContainerName: 'hlm-agent-updater',
   imageName: 'ghcr.io/org/agent:latest',
   healthCheckMaxAttempts: 1,
   healthCheckIntervalMs: 0,
@@ -911,6 +912,7 @@ describe('AgentUpdater', () => {
       // from the image healthcheck config, not the old 10x3s default.
       const config: AgentUpdaterConfig = {
         containerName: 'hlm-agent',
+        selfContainerName: defaultConfig.selfContainerName,
         imageName: defaultConfig.imageName,
       };
       const updater = new AgentUpdater(mockDocker as any, config, createMockHealthReporter());
@@ -918,6 +920,134 @@ describe('AgentUpdater', () => {
 
       expect(result.success).toBe(true);
       expect(inspectCount).toBeGreaterThan(10);
+    });
+  });
+
+  describe('recreateSelf', () => {
+    function createSelfDocker(overrides: {
+      containerInfo?: Record<string, unknown>;
+      repoDigests?: string[];
+      createError?: Error;
+      pullError?: Error;
+    } = {}) {
+      const renames: string[] = [];
+      const pulled: string[] = [];
+      const created: Array<Record<string, unknown>> = [];
+      const mockSelfContainer = {
+        inspect: mock(() => Promise.resolve(overrides.containerInfo ?? createMockContainerInfo())),
+        rename: mock((opts: { name: string }) => {
+          renames.push(opts.name);
+          return Promise.resolve();
+        }),
+      };
+      const mockNewContainer = { start: mock(() => Promise.resolve()) };
+      const mockDocker = {
+        getContainer: mock((_name: string) => mockSelfContainer),
+        getImage: mock(() => createMockImageInspect(overrides.repoDigests ?? ['ghcr.io/org/updater@sha256:olddigest'])),
+        pull: mock((imageName: string, cb: (err: Error | null, stream: NodeJS.ReadableStream) => void) => {
+          pulled.push(imageName);
+          cb(overrides.pullError ?? null, {} as NodeJS.ReadableStream);
+        }),
+        modem: createMockModem(),
+        createContainer: mock((options: Record<string, unknown>) => {
+          if (overrides.createError) return Promise.reject(overrides.createError);
+          created.push(options);
+          return Promise.resolve(mockNewContainer);
+        }),
+      };
+      return { mockDocker, mockNewContainer, renames, pulled, created };
+    }
+
+    test('pulls the new image, renames itself out of the canonical name, and recreates with the same config', async () => {
+      const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
+      const { mockDocker, mockNewContainer, renames, pulled, created } = createSelfDocker();
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      const result = await updater.recreateSelf(target);
+
+      expect(result.recreated).toBe(true);
+      expect(pulled).toEqual([target]);
+      expect(renames).toEqual(['hlm-agent-updater-old']);
+      expect(created).toHaveLength(1);
+      expect(created[0].Image).toBe(target);
+      expect(created[0].name).toBe('hlm-agent-updater');
+      expect(created[0].HostConfig).toEqual({ Binds: ['/var/run/docker.sock:/var/run/docker.sock'] });
+      expect(mockNewContainer.start).toHaveBeenCalledTimes(1);
+    });
+
+    test('skips the recreate when the sidecar already runs the target digest', async () => {
+      const target = 'ghcr.io/org/updater@sha256:olddigest';
+      const { mockDocker, renames, pulled, created } = createSelfDocker({
+        repoDigests: [target],
+      });
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      const result = await updater.recreateSelf(target);
+
+      expect(result.recreated).toBe(false);
+      expect(result.reason).toContain('already runs the target digest');
+      expect(pulled).toEqual([]);
+      expect(renames).toEqual([]);
+      expect(created).toEqual([]);
+    });
+
+    test('renames back and reports failure when the replacement container cannot be created', async () => {
+      const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
+      const { mockDocker, mockNewContainer, renames, created } = createSelfDocker({
+        createError: new Error('name conflict'),
+      });
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      const result = await updater.recreateSelf(target);
+
+      expect(result.recreated).toBe(false);
+      expect(result.error).toBe('name conflict');
+      expect(renames).toEqual(['hlm-agent-updater-old', 'hlm-agent-updater']);
+      expect(created).toEqual([]);
+      expect(mockNewContainer.start).not.toHaveBeenCalled();
+    });
+
+    test('never renames when the pull fails, leaving the running sidecar untouched', async () => {
+      const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
+      const { mockDocker, renames, created } = createSelfDocker({
+        pullError: new Error('registry unreachable'),
+      });
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      const result = await updater.recreateSelf(target);
+
+      expect(result.recreated).toBe(false);
+      expect(result.error).toBe('registry unreachable');
+      expect(renames).toEqual([]);
+      expect(created).toEqual([]);
+    });
+  });
+
+  describe('removeRetiredSelf', () => {
+    test('stops and removes the leftover retired container', async () => {
+      const mockRetired = {
+        inspect: mock(() => Promise.resolve(createMockContainerInfo())),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+      const mockDocker = { getContainer: mock((_name: string) => mockRetired) };
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      await updater.removeRetiredSelf();
+
+      expect(mockRetired.stop).toHaveBeenCalledTimes(1);
+      expect(mockRetired.remove).toHaveBeenCalledTimes(1);
+    });
+
+    test('does nothing when no retired container exists', async () => {
+      const mockDocker = {
+        getContainer: mock(() => {
+          throw new Error('no such container');
+        }),
+      };
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      await expect(updater.removeRetiredSelf()).resolves.toBeUndefined();
     });
   });
 

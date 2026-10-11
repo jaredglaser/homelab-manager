@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeAll, afterAll } from 'bun:test';
+import { describe, expect, test, mock, spyOn, beforeAll, afterAll } from 'bun:test';
 import { createTriggerHandler, createTriggerState } from '../trigger-server';
 import type { AgentUpdater, UpdateCheckResult, UpdateResult } from '../agent-updater';
 
@@ -18,10 +18,12 @@ afterAll(() => {
 function createMockUpdater(overrides: {
   check?: () => Promise<UpdateCheckResult>;
   perform?: () => Promise<UpdateResult>;
+  recreateSelf?: () => Promise<{ recreated: boolean; reason?: string; error?: string }>;
 } = {}): AgentUpdater {
   return {
     isUpToDate: overrides.check ?? mock(() => Promise.resolve({ upToDate: true })),
     performUpdate: overrides.perform ?? mock(() => Promise.resolve({ success: true })),
+    recreateSelf: overrides.recreateSelf ?? mock(() => Promise.resolve({ recreated: false })),
   } as unknown as AgentUpdater;
 }
 
@@ -205,5 +207,144 @@ describe('createTriggerHandler', () => {
 
     const again = await handler(postRequest());
     expect(again.status).toBe(200);
+  });
+
+  test('returns 400 when updaterTargetImage is present but not digest-pinned', async () => {
+    const check = mock(() => Promise.resolve({ upToDate: true }));
+    const handler = createTriggerHandler(createMockUpdater({ check }));
+
+    const response = await handler(triggerRequest({
+      targetImage: 'ghcr.io/org/agent@sha256:' + 'a'.repeat(64),
+      updaterTargetImage: 'ghcr.io/org/updater:latest',
+    }));
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toContain('updaterTargetImage');
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  test('recreates itself and exits after the agent update succeeds when updaterTargetImage is supplied', async () => {
+    const state = createTriggerState();
+    const updaterTarget = 'ghcr.io/org/updater@sha256:' + 'b'.repeat(64);
+    const recreateSelf = mock(() => Promise.resolve({ recreated: true }));
+    const exit = spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    try {
+      let release!: () => void;
+      const perform = mock(() => new Promise<UpdateResult>((resolve) => { release = () => resolve({ success: true }); }));
+      const check = mock(() => Promise.resolve({ upToDate: false, currentDigest: 'sha256:a' }));
+      const handler = createTriggerHandler(createMockUpdater({ check, perform, recreateSelf }), state);
+
+      const response = await handler(triggerRequest({
+        targetImage: 'ghcr.io/org/agent@sha256:' + 'a'.repeat(64),
+        updaterTargetImage: updaterTarget,
+      }));
+      expect(response.status).toBe(202);
+      expect(recreateSelf).not.toHaveBeenCalled();
+
+      release();
+      await waitFor(() => exit.mock.calls.length > 0);
+
+      expect(recreateSelf).toHaveBeenCalledWith(updaterTarget);
+      expect(exit).toHaveBeenCalledWith(0);
+    } finally {
+      exit.mockRestore();
+    }
+  });
+
+  test('does not recreate itself when the agent update fails', async () => {
+    const state = createTriggerState();
+    const recreateSelf = mock(() => Promise.resolve({ recreated: true }));
+    const exit = spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    try {
+      let release!: () => void;
+      const perform = mock(() => new Promise<UpdateResult>((resolve) => {
+        release = () => resolve({ success: false, error: 'health check failed', rolledBack: true });
+      }));
+      const check = mock(() => Promise.resolve({ upToDate: false }));
+      const handler = createTriggerHandler(createMockUpdater({ check, perform, recreateSelf }), state);
+
+      await handler(triggerRequest({
+        targetImage: 'ghcr.io/org/agent@sha256:' + 'a'.repeat(64),
+        updaterTargetImage: 'ghcr.io/org/updater@sha256:' + 'b'.repeat(64),
+      }));
+      release();
+      await waitFor(() => !state.updating);
+
+      expect(recreateSelf).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+    } finally {
+      exit.mockRestore();
+    }
+  });
+
+  test('stays up when the sidecar already runs the target updater digest', async () => {
+    const state = createTriggerState();
+    const recreateSelf = mock(() => Promise.resolve({ recreated: false, reason: 'sidecar already runs the target digest' }));
+    const exit = spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    try {
+      let release!: () => void;
+      const perform = mock(() => new Promise<UpdateResult>((resolve) => { release = () => resolve({ success: true }); }));
+      const check = mock(() => Promise.resolve({ upToDate: false }));
+      const handler = createTriggerHandler(createMockUpdater({ check, perform, recreateSelf }), state);
+
+      await handler(triggerRequest({
+        targetImage: 'ghcr.io/org/agent@sha256:' + 'a'.repeat(64),
+        updaterTargetImage: 'ghcr.io/org/updater@sha256:' + 'b'.repeat(64),
+      }));
+      release();
+      await waitFor(() => !state.updating);
+
+      expect(recreateSelf).toHaveBeenCalledTimes(1);
+      expect(exit).not.toHaveBeenCalled();
+      expect(state.updating).toBe(false);
+    } finally {
+      exit.mockRestore();
+    }
+  });
+
+  test('skips the self-recreate entirely when updaterTargetImage is absent', async () => {
+    const state = createTriggerState();
+    const recreateSelf = mock(() => Promise.resolve({ recreated: true }));
+    const exit = spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    try {
+      let release!: () => void;
+      const perform = mock(() => new Promise<UpdateResult>((resolve) => { release = () => resolve({ success: true }); }));
+      const check = mock(() => Promise.resolve({ upToDate: false }));
+      const handler = createTriggerHandler(createMockUpdater({ check, perform, recreateSelf }), state);
+
+      await handler(postRequest());
+      release();
+      await waitFor(() => !state.updating);
+
+      expect(recreateSelf).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+    } finally {
+      exit.mockRestore();
+    }
+  });
+
+  test('keeps the busy flag cleared when the self-recreate fails', async () => {
+    const state = createTriggerState();
+    const recreateSelf = mock(() => Promise.resolve({ recreated: false, error: 'name conflict' }));
+    const exit = spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    try {
+      let release!: () => void;
+      const perform = mock(() => new Promise<UpdateResult>((resolve) => { release = () => resolve({ success: true }); }));
+      const check = mock(() => Promise.resolve({ upToDate: false }));
+      const handler = createTriggerHandler(createMockUpdater({ check, perform, recreateSelf }), state);
+
+      await handler(triggerRequest({
+        targetImage: 'ghcr.io/org/agent@sha256:' + 'a'.repeat(64),
+        updaterTargetImage: 'ghcr.io/org/updater@sha256:' + 'b'.repeat(64),
+      }));
+      release();
+      await waitFor(() => !state.updating);
+
+      expect(exit).not.toHaveBeenCalled();
+      expect(state.updating).toBe(false);
+    } finally {
+      exit.mockRestore();
+    }
   });
 });

@@ -22,9 +22,9 @@ export function createTriggerHandler(updater: AgentUpdater, state: TriggerState 
       return Response.json({ error: 'An update is already in progress' }, { status: 409 });
     }
 
-    let body: { targetImage?: unknown } | null = null;
+    let body: { targetImage?: unknown; updaterTargetImage?: unknown } | null = null;
     try {
-      body = (await request.json()) as { targetImage?: unknown };
+      body = (await request.json()) as { targetImage?: unknown; updaterTargetImage?: unknown };
     } catch {
       body = null;
     }
@@ -38,6 +38,17 @@ export function createTriggerHandler(updater: AgentUpdater, state: TriggerState 
         );
       }
       targetImage = body.targetImage;
+    }
+    let updaterTargetImage: string | undefined;
+    if (body?.updaterTargetImage !== undefined && body?.updaterTargetImage !== null) {
+      // null means the manager could not pin the updater image this round: skip the self-recreate, keep serving.
+      if (typeof body.updaterTargetImage !== 'string' || !DIGEST_REF_PATTERN.test(body.updaterTargetImage)) {
+        return Response.json(
+          { error: 'updaterTargetImage must be an image reference pinned to a sha256 digest' },
+          { status: 400 },
+        );
+      }
+      updaterTargetImage = body.updaterTargetImage;
     }
 
     state.updating = true;
@@ -57,9 +68,18 @@ export function createTriggerHandler(updater: AgentUpdater, state: TriggerState 
     }
 
     void updater.performUpdate(targetImage)
-      .then((result) => {
+      .then(async (result) => {
         if (result.success) {
           console.info(`Triggered update completed: ${result.previousImage} → ${result.newImage}`);
+          if (updaterTargetImage) {
+            const self = await updater.recreateSelf(updaterTargetImage);
+            if (self.recreated) {
+              // The replacement container serves the trigger endpoint from here: this process only gets in its way.
+              console.info('Sidecar self-recreate done, exiting so the new container takes over');
+              process.exit(0);
+            }
+            if (self.reason) console.info(`Sidecar self-recreate skipped: ${self.reason}`);
+          }
         } else {
           console.error(`Triggered update failed: ${result.error}${result.rolledBack ? ' (rolled back)' : ''}`);
         }

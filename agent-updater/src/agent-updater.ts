@@ -3,6 +3,7 @@ import type { HealthReporter } from './health-reporter';
 
 export interface AgentUpdaterConfig {
   containerName: string;
+  selfContainerName: string;
   imageName: string;
   healthCheckMaxAttempts?: number;
   healthCheckIntervalMs?: number;
@@ -20,6 +21,13 @@ export interface UpdateResult {
   newImage?: string;
   error?: string;
   rolledBack?: boolean;
+}
+
+export interface SelfRecreateResult {
+  recreated: boolean;
+  /** Why the recreate was skipped when recreated is false and nothing failed. */
+  reason?: string;
+  error?: string;
 }
 
 export interface HealthWaitParams {
@@ -168,6 +176,80 @@ export class AgentUpdater {
     }
   }
 
+  /**
+   * Replace this sidecar's own container with the same config on a new image.
+   * A container cannot stop and remove itself: docker's stop waits for this
+   * process to exit, so the handover renames the live container out of the
+   * canonical name, creates and starts the replacement under it, and the
+   * caller exits. No rollback: a failed recreate leaves the old sidecar
+   * running, which the container's restart policy keeps alive.
+   */
+  async recreateSelf(newImage?: string): Promise<SelfRecreateResult> {
+    const image = newImage ?? this.config.imageName;
+    const targetDigest = image.includes('@') ? image.split('@')[1] : undefined;
+    try {
+      const container = this.docker.getContainer(this.config.selfContainerName);
+      const containerInfo = await container.inspect();
+      const runningDigest = await this.resolveRunningDigest(containerInfo);
+      if (targetDigest && runningDigest === targetDigest) {
+        console.info('Sidecar already runs the target digest, self-recreate skipped');
+        return { recreated: false, reason: 'sidecar already runs the target digest' };
+      }
+
+      console.info(`Pulling new sidecar image: ${image}`);
+      await this.pullImage(image);
+      const retiredName = `${this.config.selfContainerName}-old`;
+      console.info(`Renaming current sidecar container to ${retiredName}`);
+      await container.rename({ name: retiredName });
+      try {
+        console.info(`Creating replacement sidecar container: ${this.config.selfContainerName}`);
+        const newContainer = await this.docker.createContainer(
+          this.buildContainerOptions(image, containerInfo, this.config.selfContainerName),
+        );
+        await newContainer.start();
+      } catch (error) {
+        await container.rename({ name: this.config.selfContainerName }).catch(() => {});
+        throw error;
+      }
+      console.info(`Sidecar recreated from ${image}: the new container takes over`);
+      return { recreated: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Sidecar self-recreate failed: ${message}`);
+      return { recreated: false, error: message };
+    }
+  }
+
+  /**
+   * Remove the container a previous self-recreate retired. Best-effort and
+   * quiet: a leftover keeps serving with the old image only until this runs.
+   */
+  async removeRetiredSelf(): Promise<void> {
+    const retiredName = `${this.config.selfContainerName}-old`;
+    try {
+      const container = this.docker.getContainer(retiredName);
+      await container.inspect();
+      await container.stop().catch(() => {});
+      await container.remove();
+      console.info(`Removed retired sidecar container ${retiredName}`);
+    } catch {
+      // No leftover: the common case after a clean recreate or a fresh deploy.
+    }
+  }
+
+  private async resolveRunningDigest(containerInfo: Dockerode.ContainerInspectInfo): Promise<string> {
+    try {
+      const imageInfo = await this.docker.getImage(containerInfo.Image).inspect();
+      const digestRef = imageInfo.RepoDigests?.[0];
+      if (digestRef) {
+        return this.extractDigest(digestRef);
+      }
+    } catch {
+      // Fall through to the image ID below.
+    }
+    return this.extractDigest(containerInfo.Image);
+  }
+
   private extractDigest(imageId: string): string {
     if (imageId.includes('@')) {
       return imageId.split('@')[1];
@@ -222,10 +304,11 @@ export class AgentUpdater {
 
   private buildContainerOptions(
     image: string,
-    info: Dockerode.ContainerInspectInfo
+    info: Dockerode.ContainerInspectInfo,
+    containerName: string = this.config.containerName,
   ): Dockerode.ContainerCreateOptions {
     return {
-      name: this.config.containerName,
+      name: containerName,
       Image: image,
       // CI stamps AGENT_VERSION into the image; carrying the old one would
       // freeze the version the agent reports after an update.

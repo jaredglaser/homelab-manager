@@ -173,6 +173,7 @@ function buildAgentUpdater(config: AgentStackConfig): Record<string, unknown> {
     volumes: ['/var/run/docker.sock:/var/run/docker.sock'],
     environment: {
       HLM_WATCH_CONTAINER: 'hlm-agent',
+      HLM_SELF_CONTAINER: 'hlm-agent-updater',
       HLM_WATCH_IMAGE: '${AGENT_IMAGE}',
       HLM_AGENT_URL: 'http://hlm-agent:9090',
       HLM_TRIGGER_PORT: '9091',
