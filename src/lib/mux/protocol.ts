@@ -1,8 +1,16 @@
+/**
+ * Wire contract for /api/mux: every well-formed command frame gets exactly
+ * one ack; unparseable text is dropped without a reply. MAX_SESSION_TOPICS
+ * is a circuit breaker against runaway clients: a subscribe batch that
+ * would exceed it is rejected whole (code TOPIC_LIMIT_ERROR_CODE) while
+ * existing subscriptions keep running.
+ */
 export const INVENTORY_TOPIC = 'inventory';
 
-export const MAX_SESSION_TOPICS = 20;
+export const MAX_SESSION_TOPICS = 250;
 export const MAX_SUB_BATCH = 30;
 export const MAX_UNSUB_BATCH = 50;
+export const TOPIC_LIMIT_ERROR_CODE = 'topic_limit';
 
 const HOST_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 const CONTAINER_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
@@ -31,6 +39,7 @@ export interface MuxAckFrame {
   ref: number;
   ok: boolean;
   error?: string;
+  code?: string;
 }
 
 export interface MuxEventFrame {
