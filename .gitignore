@@ -14,12 +14,6 @@ count.txt
 .vinxi
 todos.json
 .claude
-!/.claude/
-/.claude/*
-!/.claude/agents/
-!/.claude/scripts/
-!/.claude/settings.json
-!/.claude/skills/
 nul
 .bash_profile
 .bashrc
