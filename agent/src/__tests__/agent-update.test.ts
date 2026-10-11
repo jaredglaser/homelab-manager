@@ -8,6 +8,7 @@ beforeAll(() => {
 const dockerStub = { ready: true } as never;
 
 const TARGET = 'ghcr.io/jaredglaser/homelab-manager-agent@sha256:' + 'a'.repeat(64);
+const UPDATER_TARGET = 'ghcr.io/jaredglaser/homelab-manager-agent-updater@sha256:' + 'b'.repeat(64);
 
 function updateRequest(body?: unknown): Request {
   return new Request('http://agent.local/agent/update', {
@@ -47,6 +48,63 @@ describe('handleAgentUpdate', () => {
           body: JSON.stringify({ targetImage: TARGET }),
         }),
       );
+    } finally {
+      restore();
+    }
+  });
+
+  test('forwards both digest-pinned targets to the updater', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const response = await handleAgentUpdate(
+        dockerStub,
+        'http://hlm-agent-updater:9091/trigger',
+        updateRequest({ targetImage: TARGET, updaterTargetImage: UPDATER_TARGET }),
+      );
+      expect(response.status).toBe(202);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://hlm-agent-updater:9091/trigger',
+        expect.objectContaining({
+          body: JSON.stringify({ targetImage: TARGET, updaterTargetImage: UPDATER_TARGET }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('drops a null updaterTargetImage instead of forwarding it', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const response = await handleAgentUpdate(
+        dockerStub,
+        'http://hlm-agent-updater:9091/trigger',
+        updateRequest({ targetImage: TARGET, updaterTargetImage: null }),
+      );
+      expect(response.status).toBe(202);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://hlm-agent-updater:9091/trigger',
+        expect.objectContaining({
+          body: JSON.stringify({ targetImage: TARGET }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('returns 400 for a floating updaterTargetImage instead of forwarding it', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const response = await handleAgentUpdate(
+        dockerStub,
+        'http://hlm-agent-updater:9091/trigger',
+        updateRequest({ targetImage: TARGET, updaterTargetImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest' }),
+      );
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('updaterTargetImage');
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       restore();
     }

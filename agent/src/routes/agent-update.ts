@@ -11,9 +11,9 @@ export async function handleAgentUpdate(
     return Response.json({ error: 'Docker capability not enabled' }, { status: 503 });
   }
 
-  let body: { targetImage?: unknown };
+  let body: { targetImage?: unknown; updaterTargetImage?: unknown };
   try {
-    body = (await request.json()) as { targetImage?: unknown };
+    body = (await request.json()) as { targetImage?: unknown; updaterTargetImage?: unknown };
   } catch {
     return Response.json(
       { error: 'Agent update requires a JSON body with a digest-pinned targetImage' },
@@ -26,13 +26,24 @@ export async function handleAgentUpdate(
       { status: 400 },
     );
   }
+  // null means the manager could not pin the updater image, so the sidecar must skip its self-recreate.
+  let updaterTargetImage: string | undefined;
+  if (body?.updaterTargetImage !== undefined && body?.updaterTargetImage !== null) {
+    if (typeof body.updaterTargetImage !== 'string' || !DIGEST_REF_PATTERN.test(body.updaterTargetImage)) {
+      return Response.json(
+        { error: 'updaterTargetImage must be an image reference pinned to a sha256 digest' },
+        { status: 400 },
+      );
+    }
+    updaterTargetImage = body.updaterTargetImage;
+  }
 
   let response: Response;
   try {
     response = await fetch(updaterUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetImage: body.targetImage }),
+      body: JSON.stringify(updaterTargetImage ? { targetImage: body.targetImage, updaterTargetImage } : { targetImage: body.targetImage }),
       signal: AbortSignal.timeout(30_000),
       redirect: 'manual',
     });

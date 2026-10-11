@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
-import { getAgentImage } from '@/lib/hosts/host-utils';
+import { getAgentImage, getAgentUpdaterImage } from '@/lib/hosts/host-utils';
 import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
 import {
   handleListHosts,
@@ -373,6 +373,7 @@ describe('handleUpdateAgent', () => {
 
   const TEST_DIGEST = 'sha256:' + 'b'.repeat(64);
   const TEST_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent@${TEST_DIGEST}`;
+  const TEST_UPDATER_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent-updater@${TEST_DIGEST}`;
 
   function updateDeps(
     repo?: Partial<HostRepo>,
@@ -407,11 +408,59 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(true);
       expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentImage());
+      expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentUpdaterImage());
       expect(fetchMock).toHaveBeenCalledWith(
         'http://192.168.1.10:9090/agent/update',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ targetImage: TEST_TARGET }),
+          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: TEST_UPDATER_TARGET }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('still triggers the agent update with updaterTargetImage null when only the updater digest is unresolvable', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      let calls = 0;
+      const resolveAgentImageDigest = mock(async (_imageRef: string) => {
+        calls++;
+        return calls === 1 ? TEST_DIGEST : null;
+      });
+      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://192.168.1.10:9090/agent/update',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: null }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('still triggers the agent update when the updater digest resolver throws', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      let calls = 0;
+      const resolveAgentImageDigest = mock(async (_imageRef: string) => {
+        calls++;
+        if (calls === 1) return TEST_DIGEST;
+        throw new Error('registry exploded');
+      });
+      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://192.168.1.10:9090/agent/update',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: null }),
         }),
       );
     } finally {
