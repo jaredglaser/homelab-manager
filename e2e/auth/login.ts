@@ -54,15 +54,20 @@ export async function login(page: Page, baseURL: string): Promise<Response> {
   const oidc = readOidc();
   const token = await mintOneTimeToken(oidc);
 
-  // Consume the one-time token: this logs the browser into Pocket ID.
+  // Consume the one-time token: this logs the browser into Pocket ID. The /lc
+  // page redirects to /login/alternative/code, which POSTs the token to establish
+  // the session; proceeding before that POST races it and the OIDC interaction
+  // then errors out with no session.
   await page.goto(`${oidc.issuerUrl}/lc/${token}`);
+  await page.waitForResponse((r) => r.url().includes('/api/one-time-access-token/'));
 
   const callbackPromise = page.waitForResponse((r) => r.url().includes('/api/auth/callback'));
   await page.goto(`${baseURL}/api/auth/login`);
 
   // First authorize for this user+client may show a consent screen; later ones are
-  // remembered server-side. Click through if present, otherwise proceed.
-  const consent = page.getByRole('button', { name: /authorize|allow|continue|consent/i });
+  // remembered server-side. Click through if present, otherwise proceed. Pocket ID
+  // v2's confirm button is labelled "Sign in".
+  const consent = page.getByRole('button', { name: /authorize|allow|continue|consent|sign in/i });
   await consent.click({ timeout: 3000 }).catch(() => {});
 
   const callback = await callbackPromise;
