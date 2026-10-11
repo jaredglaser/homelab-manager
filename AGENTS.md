@@ -263,6 +263,5 @@ Env vars documented in `.env.example`. `.env` sets `POSTGRES_HOST=localhost` for
 
 ## Agent-Specific Notes
 
-- **Claude Code** reads `CLAUDE.md`, a thin shim that imports this file in full (`@AGENTS.md`). Anything Claude-specific (hooks, skills, subagents) stays under `.claude/`.
 - **Codex** reads this file natively. Repo-local Codex skills live under `.codex/skills/`; Codex only auto-discovers skills from `~/.codex/skills` (or `$CODEX_HOME/skills`), so install the repo-local ones as symlinks with `.codex/scripts/install-repo-skills.sh`.
 - **Zed** reads this file natively as project instructions. Project settings and tasks live under `.zed/`. MCP servers are the one exception Zed configures at the user level, not per project; the snippet in [docs/development.md](docs/development.md) matches `.mcp.json`.
