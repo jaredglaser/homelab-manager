@@ -131,6 +131,17 @@ describe('MuxConnection', () => {
     expect(late.statuses).toEqual([{ connected: true, error: null }]);
   });
 
+  it('stops notifying a status listener after it unsubscribes', () => {
+    const handler = makeHandlers();
+    const unsubscribe = connection.subscribeStatus(handler.onStatus);
+    unsubscribe();
+
+    connection.subscribe('inventory', makeHandlers());
+    sockets[0].fireOpen();
+
+    expect(handler.statuses).toEqual([{ connected: false, error: null }]);
+  });
+
   describe('reconnect with recorded timers', () => {
     const origSetTimeout = globalThis.setTimeout;
     const origClearTimeout = globalThis.clearTimeout;
@@ -202,6 +213,31 @@ describe('MuxConnection', () => {
       sockets[1].fireOpen();
 
       expect(handler.statuses[handler.statuses.length - 1]).toEqual({ connected: true, error: null });
+    });
+
+    it('reconnects immediately when the tab becomes visible during a backoff wait', () => {
+      const handler = makeHandlers();
+      connection.subscribe('inventory', handler);
+      sockets[0].fireOpen();
+      sockets[0].fireClose();
+
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(sockets).toHaveLength(2);
+      expect(scheduledDelays).toEqual([1000]);
+    });
+
+    it('reconnects immediately when the browser comes back online during a backoff wait', () => {
+      const handler = makeHandlers();
+      connection.subscribe('inventory', handler);
+      sockets[0].fireOpen();
+      sockets[0].fireClose();
+
+      window.dispatchEvent(new Event('online'));
+
+      expect(sockets).toHaveLength(2);
+      expect(scheduledDelays).toEqual([1000]);
     });
   });
 });
