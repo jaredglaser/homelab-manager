@@ -160,7 +160,7 @@ describe('MuxConnection', () => {
 
   it('stops notifying a status listener after it unsubscribes', () => {
     const handler = makeHandlers();
-    const unsubscribe = connection.subscribeStatus(handler.onStatus);
+    const unsubscribe = connection.subscribeStatus(handler.onStatus!);
     unsubscribe();
 
     connection.subscribe('inventory', makeHandlers());
