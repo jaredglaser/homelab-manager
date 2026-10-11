@@ -17,6 +17,9 @@ const zAgentInventoryEntryWire = z.object({
   versionSource: z.enum(['live', 'stored', 'unknown']),
   agentImage: z.string().nullable(),
   agentImageTag: z.string().nullable(),
+  agentUpdaterImageDigest: z.string().nullable(),
+  agentUpdaterImageTag: z.string().nullable(),
+  updaterOutOfDate: z.boolean(),
   lastError: z.string().nullable(),
   checkedAt: z.string(),
 });

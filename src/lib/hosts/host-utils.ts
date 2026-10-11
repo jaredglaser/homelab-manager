@@ -22,6 +22,8 @@ export type HealthCheckOutcome =
       dockerVersion?: string;
       agentImage?: string | null;
       agentImageTag?: string | null;
+      agentUpdaterImageDigest?: string | null;
+      agentUpdaterImageTag?: string | null;
       infoSupported?: boolean;
     }
   | { healthy: false; reason?: AgentHealthFailureReason; error: string };

@@ -181,12 +181,14 @@ async function main() {
       // persists the results, then NOTIFies the server to push a snapshot.
       const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
       const { handleSweepAgentInventory } = await import('@/data/hosts/handlers');
+      const { resolveAgentImageDigest } = await import('@/lib/hosts/agent-image-digest');
       const sweeper = stack.use(
         new AgentInventorySweeper(
           {
             sweep: () =>
               handleSweepAgentInventory({
                 repo: hostRepo,
+                resolveAgentImageDigest,
                 checkHealth: async (url, hostName) => {
                   const signer = await getSigner(hostName);
                   return checkAgentHealth(url, undefined, fetch, signer ?? undefined);

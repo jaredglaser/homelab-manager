@@ -39,6 +39,7 @@ services:
       AGENT_HOST_NAME: test-host
       AGENT_IMAGE: \${AGENT_IMAGE}
       HLM_UPDATER_URL: http://hlm-agent-updater:9091/trigger
+      HLM_UPDATER_CONTAINER: hlm-agent-updater
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
@@ -90,6 +91,7 @@ services:
       AGENT_HOST_NAME: test-host
       AGENT_IMAGE: \${AGENT_IMAGE}
       HLM_UPDATER_URL: http://hlm-agent-updater:9091/trigger
+      HLM_UPDATER_CONTAINER: hlm-agent-updater
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
@@ -155,6 +157,7 @@ services:
       AGENT_HOST_NAME: test-host
       AGENT_IMAGE: \${AGENT_IMAGE}
       HLM_UPDATER_URL: http://hlm-agent-updater:9091/trigger
+      HLM_UPDATER_CONTAINER: hlm-agent-updater
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks

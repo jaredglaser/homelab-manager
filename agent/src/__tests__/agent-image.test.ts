@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
-import { createAgentImageResolver, parseImageTag, resolveAgentImage } from '../lib/agent-image';
+import { createAgentImageResolver, parseImageTag, resolveAgentImage, resolveUpdaterImageInfo } from '../lib/agent-image';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -199,5 +199,89 @@ describe('createAgentImageResolver', () => {
     await resolve();
     await resolve();
     expect(calls()).toBe(2);
+  });
+});
+
+describe('resolveUpdaterImageInfo', () => {
+  test('reports the sidecar image, tag, and repo digest', async () => {
+    const digest = 'sha256:' + 'd'.repeat(64);
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Image: 'sha256:sidecar-image-id',
+          Config: { Image: 'ghcr.io/x/updater:latest' },
+        })),
+      })),
+      getImage: mock(() => ({
+        inspect: mock(() => Promise.resolve({ RepoDigests: ['ghcr.io/x/updater@' + digest] })),
+      })),
+    };
+
+    expect(await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater')).toEqual({
+      image: 'ghcr.io/x/updater:latest',
+      imageTag: 'latest',
+      imageDigest: digest,
+    });
+  });
+
+  test('reports a digest-pinned image with a null tag', async () => {
+    const digest = 'sha256:' + 'd'.repeat(64);
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Image: 'sha256:sidecar-image-id',
+          Config: { Image: 'ghcr.io/x/updater@' + digest },
+        })),
+      })),
+      getImage: mock(() => ({
+        inspect: mock(() => Promise.resolve({ RepoDigests: ['ghcr.io/x/updater@' + digest] })),
+      })),
+    };
+
+    const result = await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater');
+    expect(result.imageTag).toBeNull();
+    expect(result.imageDigest).toBe(digest);
+  });
+
+  test('keeps the image but a null digest when the image inspect fails', async () => {
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Image: 'sha256:sidecar-image-id',
+          Config: { Image: 'ghcr.io/x/updater:latest' },
+        })),
+      })),
+      getImage: mock(() => ({
+        inspect: mock(() => Promise.reject(new Error('no such image'))),
+      })),
+    };
+
+    expect(await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater')).toEqual({
+      image: 'ghcr.io/x/updater:latest',
+      imageTag: 'latest',
+      imageDigest: null,
+    });
+  });
+
+  test('reports nothing on a ZFS-only host with no Docker', async () => {
+    expect(await resolveUpdaterImageInfo(null, 'hlm-agent-updater')).toEqual({
+      image: null,
+      imageTag: null,
+      imageDigest: null,
+    });
+  });
+
+  test('reports nothing when the container inspect fails', async () => {
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.reject(new Error('no such container'))),
+      })),
+    };
+
+    expect(await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater')).toEqual({
+      image: null,
+      imageTag: null,
+      imageDigest: null,
+    });
   });
 });

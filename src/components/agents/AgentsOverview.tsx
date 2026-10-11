@@ -16,6 +16,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 export const AGENTS_INVENTORY_QUERY_KEY = ['agents-inventory'] as const
 
+export const UPDATER_OUT_OF_DATE_MESSAGE =
+  'The agent-updater on this host is out of date and can no longer be updated remotely. Regenerate the compose stack: Settings, Manage Hosts, then run docker compose up -d on the host.'
+
 export type AgentRowFeedback = {
   severity: 'success' | 'info' | 'error'
   message: string
@@ -37,6 +40,21 @@ const STATUS_BADGE: Record<AgentInventoryEntry['status'], { label: string; varia
   offline: { label: 'Offline', variant: 'destructive' },
   unreachable: { label: 'Unreachable', variant: 'warning' },
   unknown: { label: 'Unknown', variant: 'outline' },
+}
+
+function UpdaterOutOfDateBadge() {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Badge variant="warning" className="h-4 text-[10px]" aria-label="agent-updater out of date">
+            updater out of date
+          </Badge>
+        }
+      />
+      <TooltipContent>{UPDATER_OUT_OF_DATE_MESSAGE}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 function StatusBadge({ status }: { status: AgentInventoryEntry['status'] }) {
@@ -89,6 +107,7 @@ function AgentRow({
             <p className="text-sm font-semibold truncate">{agent.name}</p>
             <StatusBadge status={agent.status} />
             <VersionCell agent={agent} />
+            {agent.updaterOutOfDate && <UpdaterOutOfDateBadge />}
           </div>
           <span className="text-xs font-mono text-muted-foreground block truncate">{agent.agentUrl}</span>
           {agent.status !== 'online' && agent.lastError && (
@@ -180,8 +199,19 @@ export function AgentsOverviewView({
     )
   }
 
+  const outOfDateCount = agents.filter((agent) => agent.updaterOutOfDate).length
+
   return (
     <div className="bg-card rounded-lg border border-border">
+      {outOfDateCount > 0 && (
+        <Alert variant="warning" className="mb-3" data-testid="updater-out-of-date-callout">
+          <TriangleAlert />
+          <AlertTitle>
+            The agent-updater is out of date on {outOfDateCount === 1 ? '1 host' : `${outOfDateCount} hosts`}
+          </AlertTitle>
+          <AlertDescription>{UPDATER_OUT_OF_DATE_MESSAGE}</AlertDescription>
+        </Alert>
+      )}
       {agents.map((agent) => (
         <AgentRow
           key={agent.id}
