@@ -1,10 +1,9 @@
 import { toast } from 'sonner';
 import { apiUrl } from '@/lib/utils/api-url';
-import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxEventFrame, type MuxServerFrame } from '@/lib/mux/protocol';
+import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxServerFrame, type MuxTopicFrame } from '@/lib/mux/protocol';
+import { RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS } from '@/lib/mux/keepalive';
 
-const BASE_BACKOFF_MS = 1_000;
-const MAX_BACKOFF_MS = 16_000;
-// Matches useEventSource: crossing this surfaces an error while retries continue forever.
+// Crossing this surfaces an error while retries continue forever.
 const ERROR_AFTER_ATTEMPTS = 5;
 
 export interface MuxSubscribeError {
@@ -14,7 +13,7 @@ export interface MuxSubscribeError {
 }
 
 export interface MuxTopicHandlers {
-  onEvent: (frame: MuxEventFrame) => void;
+  onEvent: (frame: MuxTopicFrame) => void;
   onStatus?: (status: MuxStatus) => void;
   /** A toast already fires once per rejected ack. Use this only for per-view error state. */
   onSubscribeRejected?: (error: MuxSubscribeError) => void;
@@ -197,7 +196,7 @@ export class MuxConnection {
         error: new Error('Connection failed after multiple attempts'),
       });
     }
-    const delay = Math.min(BASE_BACKOFF_MS * 2 ** (this.attempts - 1), MAX_BACKOFF_MS);
+    const delay = Math.min(RECONNECT_BASE_BACKOFF_MS * 2 ** (this.attempts - 1), RECONNECT_MAX_BACKOFF_MS);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();

@@ -16,8 +16,7 @@ function snapshot(id: number): AgentInventorySnapshot {
         versionSource: 'stored',
         agentImage: null,
         agentImageTag: null,
-        autoUpdate: false,
-        lastError: null,
+            lastError: null,
         checkedAt: new Date().toISOString(),
       },
     ],
@@ -111,6 +110,40 @@ describe('AgentInventoryBroadcastService', () => {
 
     expect(received.length).toBe(receivedAfter);
     still();
+    await service.stop();
+  });
+
+  it('reconnects with backoff when the listener client errors and reloads after recovery', async () => {
+    const notifyHandlers: Array<(msg?: unknown) => void> = [];
+    const errorHandlers: Array<(msg?: unknown) => void> = [];
+    let clientGeneration = 0;
+    const service = new AgentInventoryBroadcastService({
+      getPoolClient: async () => ({
+        on: (event: string, cb: (msg?: unknown) => void) => {
+          if (event === 'notification') notifyHandlers.push(cb);
+          if (event === 'error') errorHandlers.push(cb);
+        },
+        query: () => Promise.resolve({ rows: [] }),
+        release: () => {},
+        removeAllListeners: () => {},
+      }) as unknown as import('pg').PoolClient,
+      loadSnapshot: () => Promise.resolve(snapshot(clientGeneration + 10)),
+    });
+
+    const received: AgentInventorySnapshot[] = [];
+    const unsub = service.subscribe((s) => received.push(s));
+    await waitForCondition(() => received.length >= 1);
+
+    // Client error drops the listener and schedules a reconnect; after the new
+    // client registers, a NOTIFY on it reloads and delivers a fresh snapshot.
+    errorHandlers[0]!(new Error('connection terminated'));
+    await waitForCondition(() => notifyHandlers.length >= 2);
+    clientGeneration = 1;
+    notifyHandlers[1]!({ channel: 'agent_inventory_change' });
+    await waitForCondition(() => received.length >= 2);
+
+    expect(received[1]!.entries[0]!.id).toBe(11);
+    unsub();
     await service.stop();
   });
 });

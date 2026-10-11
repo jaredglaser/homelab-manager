@@ -67,8 +67,6 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
     `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,
     `HLM_STACKS_DIR=/opt/homelab-manager/stacks`,
-    `# Manual by default; the per-agent opt-in flips this to true.`,
-    `HLM_AUTO_UPDATE=false`,
   ];
 
   if (zfs) {
@@ -176,10 +174,7 @@ function buildAgentUpdater(config: AgentStackConfig): Record<string, unknown> {
     environment: {
       HLM_WATCH_CONTAINER: 'hlm-agent',
       HLM_WATCH_IMAGE: '${AGENT_IMAGE}',
-      HLM_CHECK_INTERVAL: '${HLM_CHECK_INTERVAL:-6h}',
       HLM_AGENT_URL: 'http://hlm-agent:9090',
-      // Manual by default: updates only run when this host opted in.
-      HLM_AUTO_UPDATE: '${HLM_AUTO_UPDATE:-false}',
       HLM_TRIGGER_PORT: '9091',
     },
     labels: ['hlm.managed=true', 'hlm.role=agent-updater'],

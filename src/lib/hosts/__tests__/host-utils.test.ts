@@ -19,7 +19,6 @@ describe('toHostListItem', () => {
     agentVersion: '1.0.0',
     agentImage: null,
     agentImageTag: null,
-    autoUpdate: false,
     status: 'healthy',
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-02T00:00:00Z'),
@@ -36,7 +35,6 @@ describe('toHostListItem', () => {
       agentVersion: '1.0.0',
       agentImage: null,
       agentImageTag: null,
-      autoUpdate: false,
       status: 'healthy',
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
@@ -48,7 +46,6 @@ describe('toHostListItem', () => {
       ...baseRow,
       agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
       agentImageTag: 'dev',
-      autoUpdate: false,
     };
     const item = toHostListItem(row);
     expect(item.agentImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');

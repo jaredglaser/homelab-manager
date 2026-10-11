@@ -19,20 +19,16 @@ const listAgentsInventory = mock((): Promise<AgentInventoryEntry[]> => Promise.r
 const updateAgent = mock((_data: { data: { hostId: number } }) =>
   Promise.resolve({}) as Promise<import('@/data/hosts/handlers').HostOperationResult>,
 )
-const setAgentAutoUpdate = mock((_data: { data: { hostId: number; autoUpdate: boolean } }) =>
-  Promise.resolve({} as import('@/data/hosts/handlers').SetAgentAutoUpdateResult as unknown),
-)
 
 mock.module('@/data/hosts/functions', () => ({
   listAgentsInventory: () => listAgentsInventory(),
   updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
-  setAgentAutoUpdate: (data: { data: { hostId: number; autoUpdate: boolean } }) => setAgentAutoUpdate(data),
 }))
 
 let sseHandler: ((snapshot: { entries: AgentInventoryEntry[] }) => void) | null = null
 
-mock.module('@/hooks/useSseChannel', () => ({
-  useSseChannel: (_channel: unknown, options: { onData: (data: { entries: AgentInventoryEntry[] }) => void }) => {
+mock.module('@/lib/mux/use-mux-channel', () => ({
+  useMuxChannel: (_channel: unknown, options: { onData: (data: { entries: AgentInventoryEntry[] }) => void }) => {
     sseHandler = options.onData
     return { isConnected: true, error: null }
   },
@@ -48,7 +44,6 @@ const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntr
   versionSource: 'live',
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentImageTag: 'latest',
-  autoUpdate: false,
   lastError: null,
   checkedAt: '2026-09-25T23:00:00.000Z',
   ...overrides,
@@ -65,7 +60,6 @@ function makeProps(overrides?: Partial<import('@/components/agents/AgentsOvervie
     busyByHost: {},
     feedbackByHost: {},
     onUpdate: mock(noop),
-    onAutoUpdateChange: mock(noop),
     onRetry: mock(noop),
     ...overrides,
   }
@@ -139,18 +133,8 @@ describe('AgentsOverviewView', () => {
     render(<AgentsOverviewView {...makeProps({ isAdmin: false, onUpdate })} />)
     const updateButton = screen.getByLabelText('Update homeserver')
     expect(updateButton.hasAttribute('disabled')).toBe(true)
-    expect(screen.getByLabelText('Auto-update homeserver').getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(updateButton)
     expect(onUpdate).not.toHaveBeenCalled()
-  })
-
-  it('reports auto-update toggle changes', async () => {
-    const { AgentsOverviewView } = await AgentsOverviewModule
-    const onAutoUpdateChange = mock(noop)
-    render(<AgentsOverviewView {...makeProps({ onAutoUpdateChange })} />)
-    const checkbox = screen.getByLabelText('Auto-update homeserver')
-    fireEvent.click(checkbox)
-    expect(onAutoUpdateChange).toHaveBeenCalledWith(1, true)
   })
 
   it('shows per-row feedback and busy state without affecting other rows', async () => {
@@ -158,7 +142,7 @@ describe('AgentsOverviewView', () => {
     render(
       <AgentsOverviewView
         {...makeProps({
-          agents: [makeAgent(), makeAgent({ id: 2, name: 'media-server', autoUpdate: true })],
+          agents: [makeAgent(), makeAgent({ id: 2, name: 'media-server' })],
           busyByHost: { 1: 'update' },
           feedbackByHost: { 2: { severity: 'success', message: 'Update confirmed, agent now on v0.3.0' } },
         })}
@@ -166,34 +150,14 @@ describe('AgentsOverviewView', () => {
     )
     expect(screen.getByLabelText('Update homeserver').hasAttribute('disabled')).toBe(true)
     expect(screen.getByLabelText('Update media-server').hasAttribute('disabled')).toBe(false)
-    expect(screen.getByLabelText('Auto-update homeserver').getAttribute('aria-disabled')).toBe('true')
-    expect(screen.getByLabelText('Auto-update media-server').getAttribute('aria-disabled')).toBe(null)
     expect(screen.getByText('Update confirmed, agent now on v0.3.0')).toBeDefined()
   })
 })
 
 describe('AgentsOverview (connected)', () => {
-  beforeEach(() => {
-    listAgentsInventory.mockImplementation(() => Promise.resolve([makeAgent(), makeAgent({ id: 2, name: 'media-server', autoUpdate: true })]))
+    beforeEach(() => {
+    listAgentsInventory.mockImplementation(() => Promise.resolve([makeAgent(), makeAgent({ id: 2, name: 'media-server' })]))
     updateAgent.mockImplementation(() => Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' }))
-    setAgentAutoUpdate.mockImplementation(() =>
-      Promise.resolve({
-        host: {
-          id: 1,
-          name: 'homeserver',
-          agentUrl: 'http://192.168.1.10:9090',
-          capabilities: { docker: true },
-          agentVersion: '0.2.0',
-          agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-          agentImageTag: 'latest',
-          autoUpdate: true,
-          status: 'healthy',
-          createdAt: '2026-01-01T00:00:00.000Z',
-          updatedAt: '2026-01-01T00:00:00.000Z',
-        },
-        propagation: { applied: true },
-      }),
-    )
     authState = { user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' }, loading: false, authEnabled: true }
   })
 
@@ -248,26 +212,11 @@ describe('AgentsOverview (connected)', () => {
     )
   })
 
-  it('persists the auto-update opt-in when the checkbox is toggled', async () => {
-    renderConnected()
-    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Auto-update homeserver'))
-    await waitFor(() => expect(setAgentAutoUpdate).toHaveBeenCalledWith({ data: { hostId: 1, autoUpdate: true } }))
-    await waitFor(() => expect(screen.getByLabelText('Auto-update homeserver').getAttribute('aria-checked')).toBe('false'))
-  })
-
-  it('reflects the stored auto-update value on load', async () => {
-    renderConnected()
-    await waitFor(() => expect(screen.getByLabelText('Auto-update media-server').getAttribute('aria-checked')).toBe('true'))
-    expect(screen.getByLabelText('Auto-update homeserver').getAttribute('aria-checked')).toBe('false')
-  })
-
   it('blocks updates for non-admins', async () => {
     authState = { user: { id: 2, email: 'a@b.c', name: 'Viewer', role: 'viewer' }, loading: false, authEnabled: true }
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     const updateButton = screen.getByLabelText('Update homeserver')
     expect(updateButton.hasAttribute('disabled')).toBe(true)
-    expect(screen.getByLabelText('Auto-update homeserver').getAttribute('aria-disabled')).toBe('true')
   })
 })

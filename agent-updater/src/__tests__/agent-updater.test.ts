@@ -26,7 +26,6 @@ function createMockHealthReporter(healthy = true): HealthReporter {
 const defaultConfig: AgentUpdaterConfig = {
   containerName: 'hlm-agent',
   imageName: 'ghcr.io/org/agent:latest',
-  checkIntervalMs: 60_000,
   healthCheckMaxAttempts: 1,
   healthCheckIntervalMs: 0,
 };
@@ -842,7 +841,6 @@ describe('AgentUpdater', () => {
       const config: AgentUpdaterConfig = {
         containerName: 'hlm-agent',
         imageName: defaultConfig.imageName,
-        checkIntervalMs: 60_000,
       };
       const updater = new AgentUpdater(mockDocker as any, config, createMockHealthReporter());
       const result = await updater.performUpdate();

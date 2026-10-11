@@ -13,7 +13,6 @@ function entry(id: number): AgentInventoryEntry {
     versionSource: 'stored',
     agentImage: null,
     agentImageTag: null,
-    autoUpdate: false,
     lastError: null,
     checkedAt: new Date().toISOString(),
   };
@@ -67,3 +66,14 @@ describe('AgentInventorySweeper', () => {
     expect(notifies).toBe(2);
   });
 });
+
+  it('stop is a no-op once aborted and asyncDispose stops the loop', async () => {
+    const sweeper = new AgentInventorySweeper({
+      sweep: () => Promise.resolve([]),
+      notifySweep: () => Promise.resolve(),
+    });
+    sweeper.stop();
+    // Second stop must not throw or re-abort through the guard.
+    sweeper.stop();
+    await sweeper[Symbol.asyncDispose]();
+  });
