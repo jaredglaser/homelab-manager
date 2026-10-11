@@ -130,6 +130,7 @@ mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database
 }));
 
 import {
+  MAX_PENDING_FRAMES,
   createMuxWsHandlers,
   defaultTopicAdapter,
   parseAgentSseBlock,
@@ -207,6 +208,76 @@ describe('mux ws route', () => {
     const peer = makePeer(`peer-${++peerCounter}`);
     await handlers.open(peer as unknown as Peer);
     expect(peer.closeCalls[0]?.code).toBe(1008);
+  });
+
+  function authGate(): { gate: Promise<unknown>; release: (user: unknown) => void } {
+    let release: (user: unknown) => void = () => {};
+    const gate = new Promise<unknown>((resolve) => { release = resolve; });
+    return { gate, release };
+  }
+
+  it('replays messages that arrive before open() finishes auth, in order', async () => {
+    const { gate, release } = authGate();
+    mockAuthenticate.mockImplementation(async () => gate);
+    const { calls, adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer(`race-${++peerCounter}`);
+    openPeers.push({ teardown: () => h.close(peer as unknown as Peer) });
+    const opened = h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+    await h.message(peer as unknown as Peer, command('unsub', ['inventory'], 2));
+
+    expect(calls).toHaveLength(0);
+    expect(peer.sent).toEqual([]);
+
+    release({ id: 'test-user' } as unknown);
+    await opened;
+
+    expect(calls.map((c) => c.topic)).toEqual(['inventory']);
+    expect(calls[0].signal.aborted).toBe(true);
+    expect(peer.sent).toEqual([
+      { type: 'ack', ref: 1, ok: true },
+      { type: 'ack', ref: 2, ok: true },
+    ]);
+  });
+
+  it('discards buffered messages unexecuted when auth then fails', async () => {
+    const { gate, release } = authGate();
+    mockAuthenticate.mockImplementation(async () => gate);
+    const { calls, adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer(`race-${++peerCounter}`);
+    const opened = h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+    expect(calls).toHaveLength(0);
+
+    release(null);
+    await opened;
+
+    expect(calls).toHaveLength(0);
+    expect(peer.sent).toEqual([]);
+    expect(peer.closeCalls[0]?.code).toBe(1008);
+  });
+
+  it('caps the pre-auth buffer instead of holding unbounded unauthenticated frames', async () => {
+    const { gate, release } = authGate();
+    mockAuthenticate.mockImplementation(async () => gate);
+    const { adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer(`race-${++peerCounter}`);
+    openPeers.push({ teardown: () => h.close(peer as unknown as Peer) });
+    const opened = h.open(peer as unknown as Peer);
+    for (let ref = 1; ref <= MAX_PENDING_FRAMES + 10; ref++) {
+      await h.message(peer as unknown as Peer, command('sub', ['inventory'], ref));
+    }
+
+    release({ id: 'test-user' } as unknown);
+    await opened;
+
+    const acks = peer.sent.filter((f) => f.type === 'ack');
+    expect(acks).toHaveLength(MAX_PENDING_FRAMES);
+    expect(acks.every((a) => a.ok === true)).toBe(true);
   });
 
   it('starts the adapter for each subscribed topic and acks the command', async () => {
