@@ -78,7 +78,7 @@ import pluginQuery from '@tanstack/eslint-plugin-query';
 import pluginRouter from '@tanstack/eslint-plugin-router';
 import globals from 'globals';
 
-// CLAUDE.md rules 14 and 15 applied to comment text. Comments are not AST nodes,
+// AGENTS.md rules 14 and 15 applied to comment text. Comments are not AST nodes,
 // so no-restricted-syntax cannot reach them; this is the smallest thing that can.
 const BANNED_COMMENT_PROSE = [
   [/[—–]/, 'an em dash or en dash'],
@@ -97,7 +97,7 @@ const localRules = {
           for (const c of context.sourceCode.getAllComments()) {
             for (const [re, label] of BANNED_COMMENT_PROSE) {
               if (re.test(c.value)) {
-                context.report({ loc: c.loc, message: `Comment contains ${label}. See CLAUDE.md rules 14 and 15.` });
+                context.report({ loc: c.loc, message: `Comment contains ${label}. See AGENTS.md rules 14 and 15.` });
                 break;
               }
             }
@@ -117,7 +117,7 @@ export default tseslint.config(
       '.output/**',
       '**/dist/**',
       'public/**',
-      'src/routeTree.gen.ts',   // CLAUDE.md rule 9: generated, never edited
+      'src/routeTree.gen.ts',   // AGENTS.md rule 9: generated, never edited
       '.claude/**',
       '.codex/**',
     ],
@@ -174,49 +174,49 @@ export default tseslint.config(
       '@typescript-eslint/return-await': ['error', 'always'],
       '@typescript-eslint/no-unnecessary-type-assertion': 'error',
 
-      // CLAUDE.md rule 1: no local .css files. Package CSS (xterm, fontsource) stays allowed.
+      // AGENTS.md rule 1: no local .css files. Package CSS (xterm, fontsource) stays allowed.
       'no-restricted-imports': ['error', {
-        patterns: [{ group: ['./*.css', '../*.css', '@/**/*.css'], message: 'TailwindCSS only. The single allowed stylesheet is src/App.css (CLAUDE.md rule 1).' }],
+        patterns: [{ group: ['./*.css', '../*.css', '@/**/*.css'], message: 'TailwindCSS only. The single allowed stylesheet is src/App.css (AGENTS.md rule 1).' }],
       }],
 
       'local/no-claudisms-in-comments': 'warn',
     },
   },
 
-  // CLAUDE.md rule 2: @/ outside __tests__, relative only within the same __tests__ dir.
+  // AGENTS.md rule 2: @/ outside __tests__, relative only within the same __tests__ dir.
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/**/__tests__/**'],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [
-          { group: ['../*'], message: 'Use the @/ alias for src imports outside __tests__ (CLAUDE.md rule 2).' },
-          { group: ['./*.css', '@/**/*.css'], message: 'TailwindCSS only (CLAUDE.md rule 1).' },
+          { group: ['../*'], message: 'Use the @/ alias for src imports outside __tests__ (AGENTS.md rule 2).' },
+          { group: ['./*.css', '@/**/*.css'], message: 'TailwindCSS only (AGENTS.md rule 1).' },
         ],
       }],
     },
   },
 
-  // CLAUDE.md rule 5 + the SSE seam. No type information required.
+  // AGENTS.md rule 5 + the SSE seam. No type information required.
   {
     files: ['src/routes/api/**/*.ts', 'agent/src/routes/**/*.ts'],
     ignores: ['**/__tests__/**'],
     rules: { 'no-restricted-syntax': ['error', ...SSE_SEAM_RESTRICTIONS] },
   },
 
-  // CLAUDE.md rule 7: no bare setTimeout awaits in tests.
+  // AGENTS.md rule 7: no bare setTimeout awaits in tests.
   {
     files: ['**/__tests__/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': ['error', {
         selector: "AwaitExpression > NewExpression[callee.name='Promise'] > :function CallExpression[callee.name='setTimeout']",
-        message: 'Do not await a bare setTimeout to let async settle (CLAUDE.md rule 7). Await a deterministic signal, use waitFor/findBy*, or spy on globalThis.setTimeout.',
+        message: 'Do not await a bare setTimeout to let async settle (AGENTS.md rule 7). Await a deterministic signal, use waitFor/findBy*, or spy on globalThis.setTimeout.',
       }],
     },
   },
   { files: ['src/lib/test/wait-for-condition.ts'], rules: { 'no-restricted-syntax': 'off' } },
 
-  // CLAUDE.md rule 8.
+  // AGENTS.md rule 8.
   {
     files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts', 'agent-updater/src/**/*.ts'],
     rules: { 'no-console': ['warn', { allow: ['error', 'info', 'warn'] }] },
@@ -287,7 +287,7 @@ Measured at **zero violations**. These are pure regression insurance and cost no
 | --- | ---: | --- |
 | All 5 SSE seam selectors (`src/routes/api/**`) | 0\* | \*One exception, below |
 | `@tanstack/query/exhaustive-deps` | 0 | queryKey missing a closed-over variable is a silent cache collision |
-| `@tanstack/query/stable-query-client` | 0 | CLAUDE.md rule 9 already mandates the singleton; this makes it structural |
+| `@tanstack/query/stable-query-client` | 0 | AGENTS.md rule 9 already mandates the singleton; this makes it structural |
 | `@tanstack/query/no-unstable-deps` | 0 | query result in a dep array causes render loops. Directly relevant to the streaming hooks |
 | `@tanstack/query/no-void-query-fn` | 0 | |
 | `@tanstack/query/infinite-query-property-order` | 0 | |
