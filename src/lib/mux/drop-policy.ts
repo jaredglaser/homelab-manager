@@ -9,6 +9,7 @@ export interface MuxDropPolicyConfig {
   reportIntervalMs: number;
 }
 
+// under the bun preset peer.bufferedAmount plateaus at ~16.5MiB (Bun send-buffer cap); keep these watermarks far below it, since beyond the cap bufferedAmount stops growing and the gate cannot see backlog
 export const DEFAULT_MUX_DROP_POLICY: MuxDropPolicyConfig = {
   highWaterBytes: 1024 * 1024,
   lowWaterBytes: 256 * 1024,
