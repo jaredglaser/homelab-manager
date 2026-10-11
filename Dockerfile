@@ -30,8 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 ARG VITE_AGENT_IMAGE_TAG=latest
 ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
 
-# vite.config.ts pins nitro preset 'bun' for all builds, so this emits the same
-# bun-native artifact local/CI builds produce.
 RUN bun run build
 
 CMD ["bun", ".output/server/index.mjs"]
