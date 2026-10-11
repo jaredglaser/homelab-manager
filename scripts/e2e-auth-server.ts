@@ -21,16 +21,17 @@ if (mode !== 'http' && mode !== 'https') {
 
 const serverEntry = path.resolve('e2e-build/realapp/server/index.mjs');
 
-// The node runner below cannot execute a bun-preset artifact; a vite-config
-// preset change flips the kind silently (nitro.json records the actual preset).
+// Bun cannot run a node-server artifact (crossws's node adapter throws at
+// startup when it detects bun); a vite-config preset change flips the kind
+// silently (nitro.json records the actual preset).
 const buildInfo: { preset: string } = JSON.parse(
   readFileSync(path.resolve('e2e-build/realapp/nitro.json'), 'utf8'),
 );
 const buildPreset = buildInfo.preset;
-if (buildPreset !== 'node-server') {
+if (buildPreset !== 'bun') {
   console.error(
-    `[e2e-auth-server] realapp built with preset '${buildPreset}', but this lane runs it under node; ` +
-      'rebuild with NITRO_PRESET=node-server or flip the lane to a bun runner.',
+    `[e2e-auth-server] realapp built with preset '${buildPreset}', but this lane runs it under bun; ` +
+      'rebuild (vite.config defaults to the bun preset) or run the artifact under node.',
   );
   process.exit(1);
 }
@@ -62,10 +63,7 @@ delete commonEnv.AUTH_DISABLED; // auth required
 const children: import('bun').Subprocess[] = [];
 function startNitro(port: number, redirectUri: string) {
   children.push(
-    // node, not bun: the node-server Nitro entry instantiates crossws's node
-    // adapter at startup (features.websocket is on) and that adapter hard-throws
-    // when it detects bun.
-    Bun.spawn(['node', serverEntry], {
+    Bun.spawn(['bun', serverEntry], {
       env: { ...commonEnv, PORT: String(port), OIDC_REDIRECT_URI: redirectUri },
       stdout: 'inherit',
       stderr: 'inherit',
