@@ -68,9 +68,7 @@ function RootLayout() {
   }
 
   return (
-    // Wraps AppShell itself so hooks it mounts (useSettingsSync via useMuxQuery)
-    // sit inside the query context; AppShell keeps its own provider for the tree
-    // below (same singleton client, so both share one cache).
+    // Covers hooks AppShell mounts above its own provider (same singleton, one cache).
     <QueryClientProvider client={queryClient}>
       <AppShell>
         <ErrorBoundary name="root">
