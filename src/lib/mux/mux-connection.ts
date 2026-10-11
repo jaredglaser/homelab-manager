@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import { apiUrl } from '@/lib/utils/api-url';
-import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxTopicFrame, type MuxServerFrame } from '@/lib/mux/protocol';
+import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxServerFrame, type MuxTopicFrame } from '@/lib/mux/protocol';
 import { RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS } from '@/lib/mux/keepalive';
 
 // Crossing this surfaces an error while retries continue forever.

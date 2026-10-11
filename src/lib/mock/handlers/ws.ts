@@ -6,11 +6,11 @@ import {
   generateContainerLogHistory,
   generateDockerSnapshot,
 } from '@/lib/mock/generators/docker';
-import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
-import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
 import { loadDemoSettings } from '@/lib/mock/generators/settings';
 import { settingsUpdates, stackStatusUpdates } from '@/lib/mock/live-updates';
+import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
+import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import { parseStatsTopic, type StatsTopicSource } from '@/lib/mux/protocol';
 
@@ -91,17 +91,6 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
       client.send(eventFrame(topic, 'data', { type: 'init', containers: generateDockerInventorySnapshot(new Date()) }));
       return;
     }
-    if (parseStatsTopic(topic) !== null) {
-      // Deltas only, no snapshot on subscribe: the REST preload owns history
-      // (gotcha 17), so the first rows arrive on the first poll tick.
-      let tick = 0;
-      const feedTimer = setInterval(() => {
-        const frame = statsTickFrame(topic, tick++, new Date());
-        if (frame !== null) client.send(frame);
-      }, STATS_INTERVAL_MS);
-      topicCleanups.set(topic, () => clearInterval(feedTimer));
-      return;
-    }
     if (topic === 'settings') {
       topicCleanups.set(topic, settingsUpdates.on((message) => {
         client.send(eventFrame(topic, 'data', message));
@@ -114,6 +103,17 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
         client.send(eventFrame(topic, 'data', message));
       }));
       client.send(eventFrame(topic, 'data', generateStackStatusSnapshot(new Date())));
+      return;
+    }
+    if (parseStatsTopic(topic) !== null) {
+      // Deltas only, no snapshot on subscribe: the REST preload owns history
+      // (gotcha 17), so the first rows arrive on the first poll tick.
+      let tick = 0;
+      const feedTimer = setInterval(() => {
+        const frame = statsTickFrame(topic, tick++, new Date());
+        if (frame !== null) client.send(frame);
+      }, STATS_INTERVAL_MS);
+      topicCleanups.set(topic, () => clearInterval(feedTimer));
       return;
     }
     if (!topic.startsWith('logs:')) {

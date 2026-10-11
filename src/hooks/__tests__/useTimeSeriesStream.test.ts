@@ -494,6 +494,40 @@ describe('useTimeSeriesStream preload and delta merge', () => {
     }
     expect(result.current.latestByEntity.get('x')?.key).toBe('x-2');
   });
+
+  it('keeps the series sorted when a live delta predates the newest seeded bucket', async () => {
+    const now = Date.now();
+    const preloadRows: TestRow[] = [
+      { key: 'x-9', time: now - 9000, entity: 'x' },
+      { key: 'x-7', time: now - 7000, entity: 'x' },
+      { key: 'x-5', time: now - 5000, entity: 'x' },
+    ];
+    const preloadFn = mock(() => Promise.resolve(preloadRows));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        channel: testChannel,
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+        updateIntervalMs: 50,
+      })
+    );
+    await waitFor(() => { expect(result.current.rows).toHaveLength(3); });
+
+    act(() => {
+      fakeMux.emitWire(TOPIC, 'data', [{ key: 'x-8', time: now - 8000, entity: 'x' }]);
+    });
+
+    await waitFor(() => { expect(result.current.rows).toHaveLength(4); });
+    const rows = result.current.rows;
+    expect(rows.map((r) => r.key)).toEqual(['x-9', 'x-8', 'x-7', 'x-5']);
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i].time).toBeGreaterThan(rows[i - 1].time);
+    }
+    expect(result.current.latestByEntity.get('x')?.key).toBe('x-5');
+  });
 });
 
 describe('useTimeSeriesStream dropped frames', () => {
