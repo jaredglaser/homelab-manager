@@ -1,11 +1,16 @@
 import { describe, it, expect } from 'bun:test';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 import { abortableSleep, isAbortError } from '../abortable-sleep';
 
 describe('abortableSleep', () => {
   it('should resolve after the specified duration', async () => {
-    const start = Date.now();
-    await abortableSleep(50, new AbortController().signal);
-    expect(Date.now() - start).toBeGreaterThanOrEqual(40);
+    const timers = mockSetTimeout({ fireImmediately: true });
+    try {
+      await abortableSleep(50, new AbortController().signal);
+      expect(timers.setSpy.mock.calls[0]?.[1]).toBe(50);
+    } finally {
+      timers.restore();
+    }
   });
 
   it('should reject immediately if signal is already aborted', async () => {

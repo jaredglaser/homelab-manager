@@ -3,7 +3,7 @@ import { fromJSON, toCrossJSONAsync } from 'seroval';
 // Both directions need the plugin list the TanStack client uses; without its
 // ShallowErrorPlugin an Error with a non-serializable own property (a ZodError)
 // fails to encode instead of reaching the client.
-import { defaultSerovalPlugins } from '@tanstack/router-core';
+import { defaultSerovalPlugins } from '@tanstack/router-core/ssr/client';
 
 import * as dockerFns from '@/lib/mock/functions/docker.functions';
 import * as zfsFns from '@/lib/mock/functions/zfs.functions';
@@ -48,7 +48,6 @@ const registry: Record<string, ServerFnMock> = {
   getHistoricalDockerStats: fn(dockerFns.getHistoricalDockerStats),
   getDockerEntityIcons: fn(dockerFns.getDockerEntityIcons),
   getContainerHistory: fn(dockerFns.getContainerHistory),
-  getContainerInfo: fn(dockerFns.getContainerInfo),
   updateContainerIcon: fn(dockerFns.updateContainerIcon),
   clearContainerIcon: fn(dockerFns.clearContainerIcon),
   controlContainer: fn(dockerFns.controlContainer),
@@ -70,12 +69,10 @@ const registry: Record<string, ServerFnMock> = {
   resumeDeploy: fn(stacksFns.resumeDeploy),
   rejectDeploy: fn(stacksFns.rejectDeploy),
   scanDrift: fn(stacksFns.scanDrift),
+  resolveDrift: fn(stacksFns.resolveDrift),
   getDeployHistory: fn(stacksFns.getDeployHistory),
   saveComposeFile: fn(stacksFns.saveComposeFile),
-  updateStackIcon: fn(stacksFns.updateStackIcon),
-  getStackVariables: fn(stacksFns.getStackVariables),
   getStackVariableValues: fn(stacksFns.getStackVariableValues),
-  getVariableValue: fn(stacksFns.getVariableValue),
   setVariableValue: fn(stacksFns.setVariableValue),
   deleteVariable: fn(stacksFns.deleteVariable),
   listManagedHostNames: fn(stacksFns.listManagedHostNames),
@@ -96,12 +93,11 @@ const registry: Record<string, ServerFnMock> = {
   // Managed hosts (mocks take the raw data object)
   listHosts: fn(hostsFns.listHosts),
   verifyHost: withData(hostsFns.verifyHost),
-  addHost: withData(hostsFns.addHost),
-  registerExistingHost: withData(hostsFns.registerExistingHost),
   updateHost: withData(hostsFns.updateHost),
   removeHost: withData(hostsFns.removeHost),
-  updateAgent: withData(hostsFns.updateAgent),
   checkHostHealth: withData(hostsFns.checkHostHealth),
+  getHostPublicJwk: withData(hostsFns.getHostPublicJwk),
+  rotateHostKeypair: withData(hostsFns.rotateHostKeypair),
 
   // Git tokens
   listGitTokens: fn(gitTokenFns.listGitTokens),

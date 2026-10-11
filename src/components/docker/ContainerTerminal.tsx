@@ -66,7 +66,7 @@ export default memo(function ContainerTerminal({
   const showSkeleton = !ready && !error && !frozen;
 
   return (
-    <div className="relative rounded-sm bg-(--chart-bg)! h-full min-h-0 flex flex-col overflow-hidden">
+    <div className="relative rounded-sm bg-chart-bg! h-full min-h-0 flex flex-col overflow-hidden">
       <div
         ref={containerRef}
         className={`flex-1 p-2 min-h-0 transition-opacity duration-300 ${!wordWrap ? 'overflow-x-auto overflow-y-hidden' : ''} ${showSkeleton ? 'opacity-0' : 'opacity-100'}`}
@@ -76,7 +76,7 @@ export default memo(function ContainerTerminal({
           {Array.from({ length: 14 }, (_, i) => (
             <Skeleton
               key={i}
-              className="h-4 rounded bg-(--accent)!"
+              className="h-4 rounded bg-accent!"
               style={{ width: `${45 + ((i * 37) % 50)}%` }}
             />
           ))}

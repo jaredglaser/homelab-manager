@@ -36,14 +36,6 @@ describe('StackSecretsRepository', () => {
     repo = new StackSecretsRepository(pool as unknown as Pool, keyring);
   });
 
-  it('list returns variable names sorted', async () => {
-    pool.results.push({ rows: [{ variable_name: 'A' }, { variable_name: 'B' }] });
-    expect(await repo.list('mystack')).toEqual(['A', 'B']);
-    const call = pool.query.mock.calls[0];
-    expect(call[0]).toContain('FROM stack_secrets');
-    expect(call[1]).toEqual(['mystack']);
-  });
-
   it('get returns null when row missing', async () => {
     pool.results.push({ rows: [] });
     expect(await repo.get('s', 'V')).toBeNull();

@@ -5,8 +5,6 @@ import {
 } from '@/lib/database/stats-rollup-backfill';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 interface QueryCall {
   text: string;
   values?: unknown[];
@@ -28,7 +26,7 @@ interface FakeOptions {
 
 function createFakeClient(options: FakeOptions = {}): FakeClient {
   const {
-    minTime = new Date(Date.now() - 5 * DAY_MS),
+    minTime = new Date(Date.UTC(2026, 0, 1, 12, 34, 56, 789)),
     rollupsExist = true,
     lockAcquired = true,
     failOn = () => false,
@@ -71,15 +69,18 @@ function refreshCalls(client: FakeClient, view: string): string[] {
 describe('runStatsRollupBackfill', () => {
   let infoSpy: ReturnType<typeof spyOn>;
   let errorSpy: ReturnType<typeof spyOn>;
+  let nowSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     infoSpy = spyOn(console, 'info').mockImplementation(() => {});
     errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    nowSpy = spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 0, 13, 13, 34, 30));
   });
 
   afterEach(() => {
     infoSpy.mockRestore();
     errorSpy.mockRestore();
+    nowSpy.mockRestore();
   });
 
   test('backfills from the earliest row, minute tier before hourly tier', async () => {
@@ -109,6 +110,19 @@ describe('runStatsRollupBackfill', () => {
 
     expect(refreshCalls(client, 'docker_stats_1m')).toHaveLength(1);
     expect(refreshCalls(client, 'docker_stats_1h')).toHaveLength(1);
+  });
+
+  test('emits a literal end timestamp when now falls inside the final window', async () => {
+    const minTime = new Date(Date.UTC(2026, 0, 1, 12, 34, 56, 789));
+    nowSpy.mockReturnValue(Date.UTC(2026, 0, 13, 12, 34, 30));
+    const client = createFakeClient({ minTime });
+
+    await runStatsRollupBackfill(createFakeDb(client));
+
+    const minute = refreshCalls(client, 'docker_stats_1m');
+    const hour = refreshCalls(client, 'docker_stats_1h');
+    expect(minute[minute.length - 1]).toContain("'2026-01-13T12:34:00.000Z'::timestamptz");
+    expect(hour[hour.length - 1]).toContain("'2026-01-13T12:00:00.000Z'::timestamptz");
   });
 
   test('sends each refresh as its own statement with no embedded semicolons', async () => {

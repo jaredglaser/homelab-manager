@@ -1,8 +1,18 @@
 import type Dockerode from 'dockerode';
+import type { AgentImageInfo } from '../lib/agent-image';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
-import pkg from '../../package.json';
-
-const { version } = pkg;
+// CI stamps AGENT_VERSION from the release tag at image build time. Local dev
+// falls back to the short commit hash, matching what non-tag CI images report.
+const resolveAgentVersion = (): string => {
+  if (process.env.AGENT_VERSION) return process.env.AGENT_VERSION;
+  try {
+    const { stdout, exitCode } = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD']);
+    if (exitCode === 0) return stdout.toString().trim();
+  } catch {
+    // No git binary or repo (e.g. running outside a checkout)
+  }
+  return 'dev';
+};
 
 interface DockerCapability {
   available: boolean;
@@ -66,18 +76,23 @@ export async function handleHealth(
  *
  * @param docker - Dockerode client, or null when Docker is not configured
  * @param zfsCapabilities - Pre-detected ZFS capabilities (detected once at startup)
- * @returns An HTTP Response whose JSON body includes status, agentVersion, and capabilities
+ * @param resolveImage - Lazy resolver for this agent's image; null fields mean undetermined
+ * @returns An HTTP Response whose JSON body includes status, agentVersion, agent image, and capabilities
  */
 export async function handleInfo(
   docker: Dockerode | null,
-  zfsCapabilities?: ZfsCapabilities
+  zfsCapabilities?: ZfsCapabilities,
+  resolveImage?: () => Promise<AgentImageInfo>
 ): Promise<Response> {
   const { dockerCapability, zfsAvailable, isHealthy } = await checkHealthy(docker, zfsCapabilities);
+  const agentImage = await resolveImage?.();
 
   return Response.json(
     {
       status: isHealthy ? 'healthy' : 'unhealthy',
-      agentVersion: version,
+      agentVersion: resolveAgentVersion(),
+      agentImage: agentImage?.image ?? null,
+      agentImageTag: agentImage?.tag ?? null,
       capabilities: {
         docker: dockerCapability,
         zfs: zfsAvailable

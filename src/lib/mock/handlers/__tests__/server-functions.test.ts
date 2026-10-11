@@ -1,6 +1,6 @@
 import { describe, it, expect, spyOn } from 'bun:test';
 import { toJSONAsync, fromCrossJSON } from 'seroval';
-import { defaultSerovalPlugins } from '@tanstack/router-core';
+import { defaultSerovalPlugins } from '@tanstack/router-core/ssr/client';
 
 import { handleServerFn } from '@/lib/mock/handlers/server-functions';
 import { encodeFunctionId } from '@/lib/mock/handlers/function-id';

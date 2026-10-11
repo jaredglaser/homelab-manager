@@ -564,47 +564,6 @@ describe('StatsRepository', () => {
     });
   });
 
-  describe('getContainerInfo', () => {
-    it('should query with container_id filter', async () => {
-      await repo.getContainerInfo('abc123');
-
-      expect(mockPool.queries).toHaveLength(1);
-      expect(mockPool.queries[0].sql).toContain('container_id = $1');
-      expect(mockPool.queries[0].sql).toContain('ORDER BY time DESC');
-      expect(mockPool.queries[0].sql).toContain('LIMIT 1');
-      expect(mockPool.queries[0].params).toEqual(['abc123']);
-    });
-
-    it('should append host filter when host is provided', async () => {
-      await repo.getContainerInfo('abc123', 'server1');
-
-      expect(mockPool.queries[0].sql).toContain('host = $2');
-      expect(mockPool.queries[0].params).toEqual(['abc123', 'server1']);
-    });
-
-    it('should not include host filter when host is undefined', async () => {
-      await repo.getContainerInfo('abc123');
-
-      expect(mockPool.queries[0].sql).not.toContain('host = $2');
-      expect(mockPool.queries[0].params).toEqual(['abc123']);
-    });
-
-    it('should return container info when found', async () => {
-      const info = { container_name: 'nginx', image: 'nginx:latest', host: 'server1' };
-      mockPool.pushResult([info]);
-
-      const result = await repo.getContainerInfo('abc123');
-      expect(result).toEqual(info);
-    });
-
-    it('should return null when no rows found', async () => {
-      mockPool.pushResult([]);
-
-      const result = await repo.getContainerInfo('nonexistent');
-      expect(result).toBeNull();
-    });
-  });
-
   describe('insertProxmoxStats', () => {
     it('should skip insert for empty rows', async () => {
       await repo.insertProxmoxStats([]);
@@ -944,12 +903,6 @@ describe('StatsRepository', () => {
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
       expect(mockPool.queries[1].sql).toContain('FROM docker_stats_1h_avg');
-    });
-
-    it('resolves container identity from the minute aggregate, not raw', async () => {
-      await repo.getContainerInfo('abc123');
-
-      expect(mockPool.queries[0].sql).toContain('FROM docker_stats_1m');
     });
   });
 

@@ -32,17 +32,19 @@ export const saveComposeFileSchema = z.object({
   content: z.string().min(1, 'Compose file content cannot be empty'),
 });
 
-export const updateStackIconSchema = z.object({
-  stackName: stackNameField,
-  iconSlug: z.string().min(1),
-});
-
 export const resumeDeploySchema = z.object({
   deployId: z.number().int().positive(),
 });
 
 export const rejectDeploySchema = z.object({
   deployId: z.number().int().positive(),
+});
+
+export const resolveDriftSchema = z.object({
+  stack: stackNameField,
+  host: z.string().min(1),
+  kind: z.enum(['ghost', 'untracked', 'content']),
+  resolution: z.enum(['trust_repo', 'trust_agent', 'remove']),
 });
 
 export const controlStackSchema = z.discriminatedUnion('scope', [

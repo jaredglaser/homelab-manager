@@ -1,0 +1,11 @@
+{
+  "languages": {
+    "TypeScript": { "tab_size": 2 },
+    "TSX": { "tab_size": 2 },
+    "JSON": { "tab_size": 2 },
+    "JSONC": { "tab_size": 2 },
+    "CSS": { "tab_size": 2 },
+    "YAML": { "tab_size": 2 },
+    "Markdown": { "tab_size": 2 }
+  }
+}

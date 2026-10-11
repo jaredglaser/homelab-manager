@@ -16,14 +16,6 @@ export class StackSecretsRepository {
     private readonly keyring: MasterKeyring,
   ) {}
 
-  async list(stackName: string): Promise<string[]> {
-    const result = await this.pool.query(
-      'SELECT variable_name FROM stack_secrets WHERE stack_name = $1 ORDER BY variable_name ASC',
-      [stackName],
-    );
-    return result.rows.map((r) => (r as { variable_name: string }).variable_name);
-  }
-
   async get(stackName: string, variableName: string): Promise<string | null> {
     const result = await this.pool.query(
       'SELECT ciphertext_jwe FROM stack_secrets WHERE stack_name = $1 AND variable_name = $2',

@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { useRef } from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { useSSEBuffer } from '../../timeSeriesStream/useSSEBuffer';
 import type { RowAccessors } from '../../timeSeriesStream/types';
+import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
 interface Row {
   key: string;
@@ -16,9 +17,6 @@ const defaultAccessors: RowAccessors<Row> = {
   entity: r => r.entity,
 };
 
-/** Captured flush callback from the hook's setInterval, invoked manually to advance the timer. */
-let flushTick: (() => void) | null = null;
-
 function renderBuffer(windowSeconds = 60, updateIntervalMs = 30) {
   return renderHook(() => {
     const accessorsRef = useRef<RowAccessors<Row>>(defaultAccessors);
@@ -27,25 +25,17 @@ function renderBuffer(windowSeconds = 60, updateIntervalMs = 30) {
 }
 
 describe('useSSEBuffer', () => {
-  let setIntervalSpy: ReturnType<typeof spyOn>;
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let intervals: TimerMock;
+  let timers: TimerMock;
 
   beforeEach(() => {
-    flushTick = null;
-    setIntervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(
-      ((fn: () => void) => {
-        flushTick = fn;
-        return 0;
-      }) as unknown as typeof setInterval
-    );
-    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout
-    );
+    intervals = mockSetInterval();
+    timers = mockSetTimeout({ fireImmediately: true });
   });
 
   afterEach(() => {
-    setIntervalSpy.mockRestore();
-    setTimeoutSpy.mockRestore();
+    intervals.restore();
+    timers.restore();
   });
 
   it('starts empty with hasData=false', () => {
@@ -97,7 +87,7 @@ describe('useSSEBuffer', () => {
     act(() => { result.current.replaceBuffer([{ key: 'a', time: now - 2000, entity: 'e' }], { mode: 'seed' }); });
 
     act(() => result.current.enqueue([{ key: 'live', time: now + 500, entity: 'e' }]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
     expect(result.current.sortedRows.map(r => r.key)).toContain('live');
 
     let stats = { bucketed: -1, liveTail: -1, total: -1 };
@@ -118,7 +108,7 @@ describe('useSSEBuffer', () => {
     act(() => { result.current.replaceBuffer([{ key: 'a', time: now - 2000, entity: 'e' }], { mode: 'seed' }); });
     // 'stale' is at time now - 1000, which is OLDER than the refresh snapshot's max (now).
     act(() => result.current.enqueue([{ key: 'stale', time: now - 1000, entity: 'e' }]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
 
     let stats = { bucketed: -1, liveTail: -1, total: -1 };
     act(() => {
@@ -142,7 +132,7 @@ describe('useSSEBuffer', () => {
       { key: 'live-late', time: now + 2000, entity: 'e' },
       { key: 'live-early', time: now + 1000, entity: 'e' },
     ]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
 
     act(() => {
       result.current.replaceBuffer(
@@ -173,7 +163,7 @@ describe('useSSEBuffer', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
 
-    // No flushTick call: the first frame after connect must paint on its own.
+    // No interval tick: the first frame after connect must paint on its own.
     act(() => result.current.enqueue([{ key: 'first', time: now, entity: 'e' }]));
 
     expect(result.current.sortedRows.map(r => r.key)).toEqual(['first']);
@@ -206,7 +196,7 @@ describe('useSSEBuffer', () => {
     // Second frame stays pending until the periodic flush.
     expect(result.current.sortedRows.map(r => r.key)).toEqual(['first']);
 
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
     expect(result.current.sortedRows.map(r => r.key)).toEqual(['first', 'second']);
   });
 
@@ -219,7 +209,7 @@ describe('useSSEBuffer', () => {
       { key: 'a', time: now - 1000, entity: 'e' },
       { key: 'b', time: now - 500, entity: 'e' },
     ]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
 
     expect(result.current.sortedRows.map(r => r.key)).toEqual(['a', 'b']);
   });
@@ -239,12 +229,12 @@ describe('useSSEBuffer', () => {
 
     // Flush once to trigger the cutoff path that evicts 'recycled' from the dedup set.
     act(() => result.current.enqueue([{ key: 'new', time: now, entity: 'e' }]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
     expect(result.current.sortedRows.map(r => r.key)).not.toContain('recycled');
 
     // Now enqueue a row reusing the evicted key. If dedup cleanup worked, it's accepted.
     act(() => result.current.enqueue([{ key: 'recycled', time: now + 100, entity: 'e' }]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
     const keys = result.current.sortedRows.map(r => r.key);
     expect(keys).toContain('recycled');
   });
@@ -263,7 +253,7 @@ describe('useSSEBuffer', () => {
     });
 
     act(() => result.current.enqueue([{ key: 'new', time: now, entity: 'e' }]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
 
     const keys = result.current.sortedRows.map(r => r.key);
     expect(keys).not.toContain('old');
@@ -285,7 +275,7 @@ describe('useSSEBuffer', () => {
     });
 
     act(() => result.current.enqueue([{ key: 'recent', time: now - 5000, entity: 'e' }]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
 
     const keys = result.current.sortedRows.map(r => r.key);
     expect(keys).not.toContain('old');
@@ -297,7 +287,7 @@ describe('useSSEBuffer', () => {
     const now = Date.now();
     act(() => { result.current.replaceBuffer([{ key: 'a', time: now - 1000, entity: 'e' }], { mode: 'seed' }); });
     const beforeKeys = result.current.sortedRows.map(r => r.key);
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
     // Buffer contents unchanged; flush skipped because no pending rows.
     expect(result.current.sortedRows.map(r => r.key)).toEqual(beforeKeys);
   });
@@ -307,7 +297,7 @@ describe('useSSEBuffer', () => {
     const now = Date.now();
     expect(result.current.hasData).toBe(false);
     act(() => result.current.enqueue([{ key: 'a', time: now, entity: 'e' }]));
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
     expect(result.current.hasData).toBe(true);
   });
 
@@ -327,7 +317,7 @@ describe('useSSEBuffer', () => {
         { mode: 'refresh', preserveLiveTail: true },
       );
     });
-    act(() => { flushTick?.(); });
+    act(() => { intervals.fire(intervals.scheduled[0]); });
 
     const keys = result.current.sortedRows.map(r => r.key);
     expect(keys).toContain('c');

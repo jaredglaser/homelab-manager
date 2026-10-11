@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn, type Mock } from 'bun:test';
 import { startMockServiceWorker } from '@/lib/mock/start';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
 interface MockedResponseEvent {
   response: { body: { cancel: () => Promise<void> } | null };
@@ -39,7 +40,7 @@ describe('startMockServiceWorker', () => {
   let serviceWorker: { controller: object | null; addEventListener: typeof addEventListener };
   let reload: Mock<() => void>;
   let consoleError: Mock<typeof console.error>;
-  let timeoutSpy: Mock<typeof setTimeout> | undefined;
+  let timers: TimerMock | undefined;
   let savedEnv: Record<string, string | undefined>;
 
   function setController(controller: object | null): void {
@@ -47,12 +48,7 @@ describe('startMockServiceWorker', () => {
   }
 
   function stubTimeout(mode: 'immediate' | 'never'): void {
-    timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
-      callback: () => void,
-    ): ReturnType<typeof setTimeout> => {
-      if (mode === 'immediate') callback();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof setTimeout);
+    timers = mockSetTimeout(mode === 'immediate' ? { fireImmediately: true } : {});
   }
 
   beforeEach(() => {
@@ -91,8 +87,8 @@ describe('startMockServiceWorker', () => {
   });
 
   afterEach(() => {
-    timeoutSpy?.mockRestore();
-    timeoutSpy = undefined;
+    timers?.restore();
+    timers = undefined;
     consoleError.mockRestore();
     Reflect.deleteProperty(navigator, 'serviceWorker');
     for (const key of ENV_KEYS) {
@@ -204,7 +200,7 @@ describe('startMockServiceWorker', () => {
 
     await startMockServiceWorker();
 
-    expect(timeoutSpy?.mock.calls[0][1]).toBe(3000);
+    expect(timers?.delays[0]).toBe(3000);
     expect(consoleError).toHaveBeenCalledTimes(1);
   });
 

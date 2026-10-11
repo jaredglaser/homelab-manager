@@ -77,6 +77,27 @@ describe('StackActionBar', () => {
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
+  it('disables the actions and names the running deploy while the server holds an active row', () => {
+    render(<StackActionBar {...defaultProps} activeDeploy={{ status: 'in_progress', action: 'update' }} />);
+    expect(screen.getByRole('status').textContent).toBe('Image update in progress');
+    for (const label of ['Deploy', 'Update images', 'Teardown', 'Delete Stack']) {
+      expect(screen.getByText(label).closest('button')?.disabled).toBe(true);
+    }
+  });
+
+  it('points at the Deploys tab when the active row is awaiting approval', () => {
+    render(<StackActionBar {...defaultProps} activeDeploy={{ status: 'pending', action: 'deploy' }} />);
+    expect(screen.getByRole('status').textContent).toBe('Deploy awaiting approval in the Deploys tab');
+    for (const label of ['Deploy', 'Update images', 'Teardown', 'Delete Stack']) {
+      expect(screen.getByText(label).closest('button')?.disabled).toBe(true);
+    }
+  });
+
+  it('renders no status note without an active deploy', () => {
+    render(<StackActionBar {...defaultProps} />);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('does not render a Force checkbox', () => {
     render(<StackActionBar {...defaultProps} />);
     expect(screen.queryByRole('checkbox')).toBeNull();

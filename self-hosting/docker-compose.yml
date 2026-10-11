@@ -54,7 +54,7 @@ services:
   # Also runs database migrations on startup, so it must run at least once per
   # install or upgrade before the web dashboard has a usable schema.
   worker:
-    image: ghcr.io/jaredglaser/homelab-manager-worker:latest
+    image: ghcr.io/jaredglaser/homelab-manager-worker:${HLM_IMAGE_TAG:-latest}
     container_name: homelab-worker
     command: bun src/worker/collector.ts
     environment:
@@ -82,7 +82,7 @@ services:
 
   # Web server - serves the dashboard UI and API
   web:
-    image: ghcr.io/jaredglaser/homelab-manager-web:latest
+    image: ghcr.io/jaredglaser/homelab-manager-web:${HLM_IMAGE_TAG:-latest}
     container_name: homelab-web
     ports:
       - "${WEB_PORT:-3000}:3000"

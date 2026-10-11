@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { BaseCollector } from '../base-collector';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
@@ -112,40 +113,79 @@ describe('BaseCollector', () => {
   });
 
   describe('error recovery', () => {
-    it('should retry on errors and abort cancels the backoff sleep', async () => {
-      const controller = new AbortController();
-      const collector = new TestCollector(db as any, config, controller);
+    it('should retry on errors and back off', async () => {
+      const timers = mockSetTimeout({ fireImmediately: true });
+      try {
+        const controller = new AbortController();
+        const collector = new TestCollector(db as any, config, controller);
 
-      let callCount = 0;
-      collector.collectFn = async () => {
-        callCount++;
-        if (callCount === 1) {
+        let callCount = 0;
+        collector.collectFn = async () => {
+          callCount++;
+          if (callCount === 1) {
+            throw new Error('Connection failed');
+          }
+          // Second call means we survived the backoff - abort now
+          controller.abort(new DOMException('Done', 'AbortError'));
+        };
+
+        await collector.run();
+        expect(callCount).toBe(2);
+        // error #1 backoff: baseMs 500 * 2^1
+        expect(timers.delays).toEqual([1000]);
+      } finally {
+        timers.restore();
+      }
+    });
+
+    it('abort during the backoff sleep cancels the sleep', async () => {
+      let sleepScheduled!: () => void;
+      const scheduled = new Promise<void>((resolve) => { sleepScheduled = resolve; });
+      const timers = mockSetTimeout({ onSchedule: () => sleepScheduled() });
+      try {
+        const controller = new AbortController();
+        const collector = new TestCollector(db as any, config, controller);
+
+        let callCount = 0;
+        collector.collectFn = async () => {
+          callCount++;
           throw new Error('Connection failed');
-        }
-        // Second call means we survived the backoff - abort now
-        controller.abort(new DOMException('Done', 'AbortError'));
-      };
+        };
 
-      await collector.run();
-      expect(callCount).toBe(2);
+        const runPromise = collector.run();
+        await scheduled;
+        controller.abort(new DOMException('Done', 'AbortError'));
+        await runPromise;
+        expect(callCount).toBe(1);
+        expect(timers.delays).toEqual([1000]);
+      } finally {
+        timers.restore();
+      }
     });
 
     it('backs off after a clean but unexpectedly fast return', async () => {
-      const controller = new AbortController();
-      const collector = new TestCollector(db as any, config, controller);
+      const timers = mockSetTimeout({ fireImmediately: true });
+      try {
+        const controller = new AbortController();
+        const collector = new TestCollector(db as any, config, controller);
 
-      let callCount = 0;
-      collector.collectFn = async () => {
-        callCount++;
-        // First cycle returns cleanly and almost instantly (< MIN_HEALTHY_CYCLE_MS),
-        // which must throttle rather than hot-loop. Abort on the next cycle.
-        if (callCount >= 2) {
-          controller.abort(new DOMException('Done', 'AbortError'));
-        }
-      };
+        let callCount = 0;
+        collector.collectFn = async () => {
+          callCount++;
+          // First cycle returns cleanly and almost instantly (< MIN_HEALTHY_CYCLE_MS),
+          // which must throttle rather than hot-loop. Abort on the next cycle.
+          if (callCount >= 2) {
+            controller.abort(new DOMException('Done', 'AbortError'));
+          }
+        };
 
-      await collector.run();
-      expect(callCount).toBe(2);
+        await collector.run();
+        expect(callCount).toBe(2);
+        // clean-but-fast cycle is throttled like error #1: baseMs 500 * 2^1
+        expect(timers.delays).toEqual([1000]);
+      } finally {
+        timers.restore();
+      }
     });
 
     it('reconnects immediately after a healthy-length cycle', async () => {

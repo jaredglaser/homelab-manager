@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+import { mockModule } from '@/lib/test/mock-module';
 
 const { renderHook, act } = await import('@testing-library/react');
 const { createElement } = await import('react');
@@ -7,7 +8,7 @@ type ReactNode = import('react').ReactNode;
 
 const mockUpdateSetting = mock(() => Promise.resolve());
 
-mock.module('@/data/settings/functions', () => ({
+mockModule<typeof import('@/data/settings/functions')>('@/data/settings/functions', (real) => ({ ...real, 
   updateSetting: mockUpdateSetting,
 }));
 

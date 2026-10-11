@@ -4,6 +4,7 @@ import type { DockerInventorySnapshotContainer, DockerInventoryBroadcastEvent } 
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
 import type { PoolClient } from 'pg';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -308,10 +309,7 @@ describe('DockerInventoryBroadcastService', () => {
   });
 
   it('executes reconnect callback and restarts listening after client error', async () => {
-    // Fire setTimeout synchronously so the reconnect callback runs in-test.
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     let connectCount = 0;
     const secondPoolClient = createMockPoolClient();
@@ -331,7 +329,7 @@ describe('DockerInventoryBroadcastService', () => {
 
     expect(connectCount).toBeGreaterThanOrEqual(2);
 
-    setTimeoutSpy.mockRestore();
+    timers.restore();
     await multiConnectService.stop();
   });
 
@@ -384,14 +382,7 @@ describe('DockerInventoryBroadcastService', () => {
     resetService.subscribe(() => {});
     await waitForCondition(() => client1.notificationHandlers.length > 0);
 
-    const capturedDelays: number[] = [];
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler, delay?: number) => {
-        capturedDelays.push(delay ?? 0);
-        if (typeof fn === 'function') fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     try {
       client1.emit('error', new Error('first disconnect'));
@@ -400,20 +391,20 @@ describe('DockerInventoryBroadcastService', () => {
       // error before that would carry over the stale backoff (1000ms instead of 500ms).
       await waitForCondition(() => client2.querySql !== null);
 
-      const firstCycleBackoffs = capturedDelays.filter((d) => d >= 500);
+      const firstCycleBackoffs = timers.delays.filter((d) => d >= 500);
       expect(firstCycleBackoffs[0]).toBe(500);
       expect(connectCount).toBeGreaterThanOrEqual(2);
 
       // If backoff weren't reset after the successful reconnect, the next
       // delay would be 1000ms (500 * 2) rather than the base 500ms.
-      capturedDelays.length = 0;
+      const resetMark = timers.delays.length;
       client2.emit('error', new Error('second disconnect'));
-      await waitForCondition(() => capturedDelays.some((d) => d >= 500));
+      await waitForCondition(() => timers.delays.slice(resetMark).some((d) => d >= 500));
 
-      const secondCycleBackoffs = capturedDelays.filter((d) => d >= 500);
+      const secondCycleBackoffs = timers.delays.slice(resetMark).filter((d) => d >= 500);
       expect(secondCycleBackoffs[0]).toBe(500);
     } finally {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
       await resetService.stop();
     }
   });
@@ -721,13 +712,7 @@ describe('DockerInventoryBroadcastService: connection failure retry', () => {
     let connectAttempts = 0;
     const goodClient = createMockPoolClient();
 
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler, _delay?: number) => {
-        // Fire synchronously so the retry loop resolves in-test.
-        if (typeof fn === 'function') fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     const service = new DockerInventoryBroadcastService({
       getPoolClient: async () => {
@@ -746,7 +731,7 @@ describe('DockerInventoryBroadcastService: connection failure retry', () => {
       // The service should have retried and connected on the second attempt.
       expect(connectAttempts).toBeGreaterThanOrEqual(2);
     } finally {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
       consoleSpy.mockRestore();
       await service.stop();
     }

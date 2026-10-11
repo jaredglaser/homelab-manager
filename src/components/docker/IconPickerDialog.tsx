@@ -75,8 +75,8 @@ export default function IconPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
-      <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-(--popover) w-[calc(100%-32px)] max-w-[calc(100%-32px)] sm:w-[720px] sm:max-w-[calc(100%-64px)] max-h-[600px] p-0">
-        <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-(--border) shrink-0 bg-(--popover)">
+      <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-popover w-[calc(100%-32px)] max-w-[calc(100%-32px)] sm:w-[720px] sm:max-w-[calc(100%-64px)] max-h-[min(600px,calc(100%-64px))] p-0">
+        <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-border shrink-0 bg-popover">
           <h2 className="text-sm font-semibold">
             Select Icon for {containerName}
           </h2>
@@ -118,7 +118,7 @@ export default function IconPickerDialog({
           </span>
         </div>
 
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 pb-4">
           <IconGrid
             filteredIcons={filteredIcons}
             currentIcon={displayedIcon}
@@ -127,12 +127,12 @@ export default function IconPickerDialog({
           />
         </div>
 
-        <DialogFooter className="flex-wrap justify-between px-5 py-3 border-t border-(--border) bg-(--popover)">
+        <DialogFooter className="flex-wrap justify-between px-5 py-3 border-t border-border bg-popover">
           <Button
             size="sm"
             variant="ghost"
             onClick={handleAutoDetect}
-            className={cn('text-xs text-(--muted-foreground)', isTouch && 'tap-target')}
+            className={cn('mr-auto text-xs text-muted-foreground', isTouch && 'tap-target')}
           >
             Use auto-detected
           </Button>

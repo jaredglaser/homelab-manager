@@ -1,7 +1,9 @@
 import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { StackDriftResolutionResult } from '@/types/stacks';
 import type { ToastSeverity } from '@/hooks/toastAtom';
 
 export interface DeployOutcomeEvent {
+  host: string;
   stack: string;
   action: DeployAction;
   status: DeployStatus;
@@ -53,15 +55,15 @@ export function formatDeployOutcome(evt: DeployOutcomeEvent): DeployOutcomeToast
   if (evt.status === 'pending' || evt.status === 'in_progress') return null;
 
   if (evt.status === 'queued') {
-    return { message: `Deploy of ${evt.stack} queued behind an active deploy`, severity: 'info' };
+    return { message: `Deploy of ${evt.host}/${evt.stack}${deploySuffix(evt.action, evt.trigger)} queued behind an active deploy`, severity: 'info' };
   }
 
   if (evt.status === 'no_change') {
     if (evt.trigger !== 'ui') return null;
-    return { message: `No changes detected for ${evt.stack}`, severity: 'info' };
+    return { message: `No changes detected for ${evt.host}/${evt.stack}`, severity: 'info' };
   }
 
-  const base = `${deployNoun(evt.action, evt.trigger)} of ${evt.stack}${deploySuffix(evt.action, evt.trigger)}`;
+  const base = `${deployNoun(evt.action, evt.trigger)} of ${evt.host}/${evt.stack}${deploySuffix(evt.action, evt.trigger)}`;
 
   if (evt.status === 'succeeded') {
     return { message: `${base} succeeded`, severity: 'success' };
@@ -69,6 +71,37 @@ export function formatDeployOutcome(evt: DeployOutcomeEvent): DeployOutcomeToast
 
   const detail = evt.message ? `: ${truncateDeployMessage(evt.message)}` : '';
   return { message: `${base} failed${detail}`, severity: 'error' };
+}
+
+/**
+ * A resolution that ran a deploy reports that deploy's outcome, because the
+ * deploy can fail after the destructive step has already overwritten or torn
+ * down the host's copy.
+ */
+export function formatDriftResolutionOutcome(
+  host: string,
+  stack: string,
+  result: Pick<StackDriftResolutionResult, 'recoveryCommitSha' | 'deployStatus'>,
+): DeployOutcomeToast {
+  const archived = result.recoveryCommitSha
+    ? `. Host copy archived in ${result.recoveryCommitSha.slice(0, 7)}.`
+    : '';
+
+  if (!result.deployStatus) {
+    return { message: `Resolved drift for ${host}/${stack}${archived}`, severity: 'success' };
+  }
+
+  const outcome = formatDeployOutcome({
+    host,
+    stack,
+    action: 'deploy',
+    status: result.deployStatus,
+    trigger: 'ui',
+  });
+  if (!outcome) {
+    return { message: `Drift resolution for ${host}/${stack} is still deploying${archived}`, severity: 'info' };
+  }
+  return { message: `${outcome.message}${archived}`, severity: outcome.severity };
 }
 
 export interface DeployToastGate {

@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { useEventSource } from '../useEventSource';
 import { MockEventSource } from '@/lib/test/mock-event-source';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
 const originalEventSource = globalThis.EventSource;
 
@@ -21,14 +22,14 @@ function simulateVisibilityChange(state: 'visible' | 'hidden') {
 
 describe('useEventSource', () => {
   describe('with immediate timers', () => {
-    let setTimeoutSpy: ReturnType<typeof spyOn>;
+    let timers: TimerMock;
 
     beforeEach(() => {
-      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout);
+      timers = mockSetTimeout({ fireImmediately: true });
     });
 
     afterEach(() => {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     });
 
     it('keeps reconnecting indefinitely after repeated failures', () => {
@@ -338,9 +339,7 @@ describe('useEventSource', () => {
     const warnMock = mock((..._args: unknown[]) => {});
     console.warn = warnMock;
 
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      (() => 0) as unknown as typeof setTimeout,
-    );
+    const timers = mockSetTimeout();
 
     let unmount: (() => void) | undefined;
     try {
@@ -354,19 +353,14 @@ describe('useEventSource', () => {
       expect(warnArg).toContain('[useEventSource]');
     } finally {
       unmount?.();
-      setTimeoutSpy.mockRestore();
+      timers.restore();
       console.warn = origWarn;
     }
   });
 
   describe('backoff and online recovery', () => {
     it('caps reconnect backoff delay at 16s', () => {
-      const delays: number[] = [];
-      const spy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, delay?: number) => {
-        delays.push(delay ?? 0);
-        fn();
-        return 0;
-      }) as unknown as typeof setTimeout);
+      const timers = mockSetTimeout({ fireImmediately: true });
 
       try {
         renderHook(() => useEventSource({ url: '/api/test', onData: () => {} }));
@@ -377,16 +371,14 @@ describe('useEventSource', () => {
           }
         });
 
-        expect(delays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 16_000, 16_000]);
+        expect(timers.delays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 16_000, 16_000]);
       } finally {
-        spy.mockRestore();
+        timers.restore();
       }
     });
 
     it('reconnects immediately on window online event while waiting out backoff', () => {
-      const spy = spyOn(globalThis, 'setTimeout').mockImplementation(
-        (() => 0) as unknown as typeof setTimeout,
-      );
+      const timers = mockSetTimeout();
 
       try {
         renderHook(() => useEventSource({ url: '/api/test', onData: () => {} }));
@@ -400,18 +392,17 @@ describe('useEventSource', () => {
         expect(MockEventSource.instances).toHaveLength(2);
         expect(MockEventSource.instances[1].closed).toBe(false);
       } finally {
-        spy.mockRestore();
+        timers.restore();
       }
     });
 
     it('resets retry budget on online reconnect', () => {
-      const delays: number[] = [];
       let invokeTimers = true;
-      const spy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, delay?: number) => {
-        delays.push(delay ?? 0);
-        if (invokeTimers) fn();
-        return 0;
-      }) as unknown as typeof setTimeout);
+      const timers = mockSetTimeout({
+        onSchedule: (timer) => {
+          if (invokeTimers) timers.fire(timer);
+        },
+      });
 
       try {
         renderHook(() => useEventSource({ url: '/api/test', onData: () => {} }));
@@ -422,7 +413,7 @@ describe('useEventSource', () => {
             MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
           }
         });
-        expect(delays[delays.length - 1]).toBe(16_000);
+        expect(timers.delays[timers.delays.length - 1]).toBe(16_000);
 
         // Leave the hook waiting in the backoff window, then come back online
         invokeTimers = false;
@@ -431,9 +422,9 @@ describe('useEventSource', () => {
 
         // Next failure starts the backoff ladder over at 1s
         act(() => { MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.(); });
-        expect(delays[delays.length - 1]).toBe(1_000);
+        expect(timers.delays[timers.delays.length - 1]).toBe(1_000);
       } finally {
-        spy.mockRestore();
+        timers.restore();
       }
     });
 

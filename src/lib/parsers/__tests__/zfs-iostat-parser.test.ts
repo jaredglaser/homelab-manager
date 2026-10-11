@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { parseZFSIOStat, isZFSIOStatCycleHeader, ZFSIOStatParser } from '../zfs-iostat-parser';
+import { parseZFSIOStat, isZFSIOStatCycleHeader } from '../zfs-iostat-parser';
 import type { ZFSIOStatRaw } from '@/types/zfs';
 
 describe('isZFSIOStatCycleHeader', () => {
@@ -219,6 +219,12 @@ describe('parseZFSIOStat', () => {
     expect(parseZFSIOStat('tank')).toBeNull();
   });
 
+  it('should reject lines whose numeric columns parse to NaN', () => {
+    // A bare '.' is the one shape that satisfies the [\d.]+ unit pattern but parses to NaN.
+    expect(parseZFSIOStat('tank  .  .  .  .  .  .')).toBeNull();
+    expect(parseZFSIOStat('  mirror-0  -  -  .  .  .  .')).toBeNull();
+  });
+
   it('should handle lines with exactly 7 columns', () => {
     const line = 'tank  1T  500G  10  5  1M  500K';
     const result = parseZFSIOStat(line);
@@ -331,124 +337,5 @@ describe('parseZFSIOStat', () => {
     expect(result!.capacity.free).toBeCloseTo(890 * 1024 * 1024 * 1024, 0);
     expect(result!.operations.read).toBe(10 * 1024);
     expect(result!.operations.write).toBeCloseTo(5 * 1024 * 1024, 0);
-  });
-});
-
-describe('ZFSIOStatParser', () => {
-  it('should skip first 2 header lines', () => {
-    const parser = new ZFSIOStatParser();
-
-    expect(parser.parseLine('capacity  operations  bandwidth')).toBeNull();
-    expect(parser.parseLine('pool  alloc  free  read  write')).toBeNull();
-  });
-
-  it('should parse data lines after headers', () => {
-    const parser = new ZFSIOStatParser();
-
-    parser.parseLine('header1');
-    parser.parseLine('header2');
-
-    const result = parser.parseLine('tank  1T  500G  10  5  1M  500K');
-    expect(result).not.toBeNull();
-    expect(result!.name).toBe('tank');
-  });
-
-  it('should parse multiple data lines', () => {
-    const parser = new ZFSIOStatParser();
-
-    parser.parseLine('header1');
-    parser.parseLine('header2');
-
-    const result1 = parser.parseLine('tank  1T  500G  10  5  1M  500K');
-    const result2 = parser.parseLine('  mirror-0  -  -  8  4  800K  400K');
-    const result3 = parser.parseLine('    sda1  -  -  4  2  400K  200K');
-
-    expect(result1).not.toBeNull();
-    expect(result1!.name).toBe('tank');
-    expect(result2).not.toBeNull();
-    expect(result2!.name).toBe('mirror-0');
-    expect(result3).not.toBeNull();
-    expect(result3!.name).toBe('sda1');
-  });
-
-  it('should filter lines via shouldProcessLine - empty lines', () => {
-    const parser = new ZFSIOStatParser();
-
-    expect(parser.shouldProcessLine('')).toBe(false);
-    expect(parser.shouldProcessLine('   ')).toBe(false);
-  });
-
-  it('should filter lines via shouldProcessLine - separator lines', () => {
-    const parser = new ZFSIOStatParser();
-
-    expect(parser.shouldProcessLine('----')).toBe(false);
-    expect(parser.shouldProcessLine('- - - - -')).toBe(false);
-    expect(parser.shouldProcessLine('  ----  ')).toBe(false);
-  });
-
-  it('should not filter valid data lines', () => {
-    const parser = new ZFSIOStatParser();
-
-    expect(parser.shouldProcessLine('tank  1T  500G  10  5  1M  500K')).toBe(true);
-    expect(parser.shouldProcessLine('  mirror-0  -  -  8  4  800K  400K')).toBe(true);
-  });
-
-  it('should parseHeader and return header info', () => {
-    const parser = new ZFSIOStatParser();
-
-    const header = parser.parseHeader('capacity  operations  bandwidth');
-    expect(header).toEqual({ headerLine: 'capacity  operations  bandwidth' });
-  });
-
-  it('should handle real zpool iostat workflow', () => {
-    const parser = new ZFSIOStatParser();
-
-    const lines = [
-      'capacity   operations   bandwidth',
-      'pool  alloc  free  read  write  read  write',
-      'tank  1.81T  890G  10  5  1.5M  750K',
-      '  mirror-0  -  -  8  4  1.2M  600K',
-      '    sda1  -  -  4  2  600K  300K',
-      '',
-      '----',
-      'capacity   operations   bandwidth',
-      'pool  alloc  free  read  write  read  write',
-      'tank  1.82T  889G  11  6  1.6M  800K',
-    ];
-
-    const results: ZFSIOStatRaw[] = [];
-
-    for (const line of lines) {
-      if (!parser.shouldProcessLine(line)) continue;
-      const parsed = parser.parseLine(line);
-      if (parsed) results.push(parsed);
-    }
-
-    // Should get 3 data lines from first output, then 1 from second (after headers reset)
-    expect(results.length).toBeGreaterThan(0);
-    expect(results[0].name).toBe('tank');
-  });
-
-  it('should track header count correctly', () => {
-    const parser = new ZFSIOStatParser();
-
-    // First two lines are headers
-    expect(parser.parseLine('line1')).toBeNull();
-    expect(parser.parseLine('line2')).toBeNull();
-
-    // Third line should attempt to parse
-    const result = parser.parseLine('tank  1T  500G  10  5  1M  500K');
-    expect(result).not.toBeNull();
-  });
-
-  it('should handle context parameter', () => {
-    const parser = new ZFSIOStatParser();
-    const context = { timestamp: Date.now(), lineNumber: 0 };
-
-    parser.parseLine('header1', context);
-    parser.parseLine('header2', context);
-
-    const result = parser.parseLine('tank  1T  500G  10  5  1M  500K', context);
-    expect(result).not.toBeNull();
   });
 });

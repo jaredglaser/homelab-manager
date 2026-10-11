@@ -17,6 +17,7 @@ import { composePath } from '@/lib/stacks/stack-repo-layout';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
+import { mockModule } from '@/lib/test/mock-module';
 
 describe('extractVariableNames', () => {
   test('extracts simple variable references', () => {
@@ -66,6 +67,7 @@ describe('toStackDeployRecord', () => {
     forceRecreate: false,
     logs: 'deploy ok',
     createdAt: new Date('2026-03-01T12:00:00Z'),
+    startedAt: null,
     postSuccess: null,
   };
 
@@ -194,7 +196,7 @@ describe('handleTriggerDeploy', () => {
     });
     await expect(
       handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' })
-    ).rejects.toThrow(/Deploy could not be queued/);
+    ).rejects.toThrow(/Deploy of server1\/myapp could not be started: no active host/);
   });
 
   test('passes compose content and commit SHA to buildRequest', async () => {
@@ -376,23 +378,23 @@ describe('controlStackForHost', () => {
   const mockStop = mock(() => Promise.resolve({ success: true, logs: '' }));
   const mockRestart = mock(() => Promise.resolve({ success: true, logs: '' }));
 
-  mock.module('@/lib/clients/database-client', () => ({
+  mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
     databaseConnectionManager: {
       getClient: mock(() => Promise.resolve({ getPool: () => ({}) })),
     },
   }));
 
-  mock.module('@/lib/config/database-config', () => ({
+  mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
     loadDatabaseConfig: mock(() => ({})),
   }));
 
-  mock.module('@/lib/database/repositories/host-repository', () => ({
+  mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
     HostRepository: class {
       findByName = mock(() => Promise.resolve({ name: 'server1', agentUrl: 'http://agent:3001' }));
     },
   }));
 
-  mock.module('@/lib/clients/agent-client', () => ({
+  mockModule<typeof import('@/lib/clients/agent-client')>('@/lib/clients/agent-client', (real) => ({ ...real, 
     AgentClient: class {
       start = mockStart;
       stop = mockStop;
@@ -400,17 +402,17 @@ describe('controlStackForHost', () => {
     },
   }));
 
-  mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+  mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
     AgentKeypairsRepository: class {
       getPrivateKeyForHost = mock(() => Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'x', d: 'd' }));
     },
   }));
 
-  mock.module('@/lib/crypto/agent-jwt', () => ({
+  mockModule<typeof import('@/lib/crypto/agent-jwt')>('@/lib/crypto/agent-jwt', (real) => ({ ...real, 
     signAgentJwt: mock(() => Promise.resolve('mock-jwt')),
   }));
 
-  mock.module('@/lib/crypto/master-key', () => ({
+  mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
     loadMasterKeyring: mock(() => Promise.resolve({})),
   }));
 
@@ -421,12 +423,12 @@ describe('controlStackForHost', () => {
     mockStart.mockClear();
     mockStop.mockClear();
     mockRestart.mockClear();
-    mock.module('@/lib/database/repositories/host-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
       HostRepository: class {
         findByName = mock(() => Promise.resolve({ name: 'server1', agentUrl: 'http://agent:3001' }));
       },
     }));
-    mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
       AgentKeypairsRepository: class {
         getPrivateKeyForHost = mock(() => Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'x', d: 'd' }));
       },
@@ -482,7 +484,7 @@ describe('controlStackForHost', () => {
   });
 
   test('throws when host is not found', async () => {
-    mock.module('@/lib/database/repositories/host-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
       HostRepository: class {
         findByName = mock(() => Promise.resolve(null));
       },
@@ -494,7 +496,7 @@ describe('controlStackForHost', () => {
   });
 
   test('throws when agent keypair is missing', async () => {
-    mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
       AgentKeypairsRepository: class {
         getPrivateKeyForHost = mock(() => Promise.resolve(null));
       },
@@ -511,6 +513,26 @@ describe('controlStackForHost', () => {
     await expect(
       controlStackForHost('server1', 'start', { stack: 'myapp', scope: 'stack' })
     ).rejects.toThrow(/docker compose start failed/);
+  });
+
+  test('rethrows when the agent call itself fails', async () => {
+    mockStop.mockRejectedValueOnce(new Error('agent unreachable'));
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    await expect(
+      controlStackForHost('server1', 'stop', { stack: 'myapp', scope: 'stack' })
+    ).rejects.toThrow('agent unreachable');
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  test('throws on an action outside the start/stop/restart set', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    await expect(
+      controlStackForHost('server1', 'pause' as never, { stack: 'myapp', scope: 'stack' })
+    ).rejects.toThrow(/Unknown action: pause/);
+    errorSpy.mockRestore();
   });
 });
 
@@ -569,22 +591,22 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
     // Re-registered every test (not just once at collection time): mock.module
     // replacements for these paths persist across describes in this file, so
     // each block must reassert its own before importing stack-service fresh.
-    mock.module('@/lib/clients/database-client', () => ({
+    mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
       databaseConnectionManager: {
         getClient: mock(() => Promise.resolve({ getPool: () => ({}) })),
       },
     }));
-    mock.module('@/lib/config/database-config', () => ({
+    mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
       loadDatabaseConfig: mock(() => ({})),
     }));
-    mock.module('@/lib/database/repositories/deploy-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/deploy-repository')>('@/lib/database/repositories/deploy-repository', (real) => ({ ...real, 
       DeployRepository: class {
         getById = mockGetById;
         rejectPending = mockRejectPending;
         notifyStackChange = mockNotifyStackChange;
       },
     }));
-    mock.module('@/lib/database/repositories/host-repository', () => ({
+    mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
       HostRepository: class {
         findByName = mockFindByName;
       },
@@ -618,6 +640,7 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
       forceRecreate: false,
       logs: null,
       createdAt: new Date(),
+      startedAt: null,
       postSuccess: null,
     };
 
@@ -686,5 +709,62 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
       trigger: 'git_push',
       message: 'Manually rejected',
     });
+  });
+
+  test('resumePendingDeploy builds a teardown request with no compose content', async () => {
+    pendingRecord = { ...pendingRecord, action: 'teardown', postSuccess: 'removeFromManifest' };
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    await resumePendingDeploy(42);
+
+    const [, , request] = mockResumePending.mock.calls[0] as [number, unknown, DeployRequest];
+    expect(request).toEqual({
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha,
+      trigger: 'git_push',
+      autoApproved: true,
+      postSuccess: 'removeFromManifest',
+      action: 'teardown',
+    });
+  });
+
+  test('resumePendingDeploy proceeds with empty compose when the file is absent at that commit', async () => {
+    pendingRecord = { ...pendingRecord, stack: 'sonarr' };
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    await resumePendingDeploy(42);
+
+    const [, , request] = mockResumePending.mock.calls[0] as [number, unknown, DeployRequest];
+    expect(request).toMatchObject({ action: 'deploy', composeContent: '' });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test('resumePendingDeploy throws when the deploy is no longer pending', async () => {
+    pendingRecord = { ...pendingRecord, status: 'succeeded' };
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    await expect(resumePendingDeploy(42)).rejects.toThrow(/not pending \(status: succeeded\)/);
+  });
+
+  test('rejectPendingDeploy throws when the deploy is no longer pending', async () => {
+    pendingRecord = { ...pendingRecord, status: 'failed' };
+    const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
+    await expect(rejectPendingDeploy(42)).rejects.toThrow(/not pending \(status: failed\)/);
+  });
+
+  test('rejectPendingDeploy throws when another client already claimed the deploy', async () => {
+    mockRejectPending.mockImplementationOnce(() => Promise.resolve(false));
+    const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
+    await expect(rejectPendingDeploy(42)).rejects.toThrow(/no longer pending/);
+    expect(mockNotifyStackChange).not.toHaveBeenCalled();
+  });
+
+  test('rejectPendingDeploy still succeeds when the change notification fails', async () => {
+    mockNotifyStackChange.mockImplementationOnce(() => Promise.reject(new Error('NOTIFY failed')));
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
+    expect(await rejectPendingDeploy(42)).toEqual({ deployId: 42 });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });

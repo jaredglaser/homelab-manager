@@ -1,8 +1,9 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@tanstack/react-router', () => ({
+mockModule<typeof import('@tanstack/react-router')>('@tanstack/react-router', (real) => ({ ...real, 
   Link: ({ children, to, hash, onClick, ...rest }: {
     children: React.ReactNode
     to: string
@@ -17,17 +18,17 @@ mock.module('@tanstack/react-router', () => ({
     select({ pathname: '/docker' }),
 }))
 
-mock.module('@/lib/query-client', () => ({
+mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real, 
   queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
 }))
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   listStacks: mock(() => Promise.resolve([])),
   listManagedHostNames: mock(() => Promise.resolve([])),
   createStack: mock(() => Promise.resolve({})),
 }))
 
-mock.module('@/lib/constants/preload-queries', () => ({
+mockModule<typeof import('@/lib/constants/preload-queries')>('@/lib/constants/preload-queries', (real) => ({ ...real, 
   DOCKER_PRELOAD_KEY: ['preload', 'docker-stats'],
   ZFS_PRELOAD_KEY: ['preload', 'zfs-stats'],
   PROXMOX_PRELOAD_KEY: ['preload', 'proxmox-stats'],
@@ -36,7 +37,7 @@ mock.module('@/lib/constants/preload-queries', () => ({
   preloadProxmoxStats: mock(() => Promise.resolve([])),
 }))
 
-mock.module('@/lib/utils/icon-resolver', () => ({
+mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolver', (real) => ({ ...real, 
   getIconUrl: (_icon: string, _fallback: string) => `/icons/${_icon}.png`,
   FALLBACK_ICON_URL: '/fallback.png',
   AVAILABLE_ICONS: [],
@@ -47,7 +48,7 @@ mock.module('@/components/ModeToggle', () => ({
 }))
 
 // IS_DEMO_MODE must be set before Header is imported so the cached constant is true.
-mock.module('@/lib/constants/demo', () => ({ IS_DEMO_MODE: true }))
+mockModule<typeof import('@/lib/constants/demo')>('@/lib/constants/demo', (real) => ({ ...real,  IS_DEMO_MODE: true }))
 
 const Header = (await import('@/components/header/Header')).default
 
