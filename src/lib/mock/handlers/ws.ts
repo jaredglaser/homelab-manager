@@ -5,6 +5,9 @@ import {
   generateContainerLogBatch,
   generateContainerLogHistory,
 } from '@/lib/mock/generators/docker';
+import { generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
+import { loadDemoSettings } from '@/lib/mock/generators/settings';
+import { settingsUpdates, stackStatusUpdates } from '@/lib/mock/live-updates';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 
 const LOG_INTERVAL_MS = 3000;
@@ -21,14 +24,20 @@ function eventFrame(topic: string, kind: string, payload: unknown): string {
 
 const mux = ws.link('*/api/mux');
 
-function onConnection({ client }: Parameters<Parameters<typeof mux.addEventListener<'connection'>>[1]>[0]): void {
-  const feedTimers = new Map<string, ReturnType<typeof setInterval>>();
+export interface MuxMockClient {
+  send(data: string): void;
+  addEventListener(type: 'message' | 'close', listener: (event: { data?: unknown }) => void): void;
+}
 
+// Event payloads follow the channel wire schemas in src/lib/sse/channels so the mux and
+// the retired SSE streams stay shape-identical.
+export function createConnectionHandler({ client }: { client: MuxMockClient }): void {
+  const topicCleanups = new Map<string, () => void>();
   const stopTopic = (topic: string) => {
-    const timer = feedTimers.get(topic);
-    if (timer !== undefined) {
-      clearInterval(timer);
-      feedTimers.delete(topic);
+    const cleanup = topicCleanups.get(topic);
+    if (cleanup !== undefined) {
+      topicCleanups.delete(topic);
+      cleanup();
     }
   };
 
@@ -36,6 +45,20 @@ function onConnection({ client }: Parameters<Parameters<typeof mux.addEventListe
     stopTopic(topic);
     if (topic === 'inventory') {
       client.send(eventFrame(topic, 'data', { type: 'init', containers: generateDockerInventorySnapshot(new Date()) }));
+      return;
+    }
+    if (topic === 'settings') {
+      topicCleanups.set(topic, settingsUpdates.on((message) => {
+        client.send(eventFrame(topic, 'data', message));
+      }));
+      client.send(eventFrame(topic, 'data', { type: 'init', settings: loadDemoSettings() }));
+      return;
+    }
+    if (topic === 'stack-status') {
+      topicCleanups.set(topic, stackStatusUpdates.on((message) => {
+        client.send(eventFrame(topic, 'data', message));
+      }));
+      client.send(eventFrame(topic, 'data', generateStackStatusSnapshot(new Date())));
       return;
     }
     if (!topic.startsWith('logs:')) {
@@ -55,9 +78,10 @@ function onConnection({ client }: Parameters<Parameters<typeof mux.addEventListe
     client.send(eventFrame(topic, 'backlog_start', {}));
     client.send(eventFrame(topic, 'data', generateContainerLogHistory(containerName, new Date())));
     client.send(eventFrame(topic, 'backlog_done', {}));
-    feedTimers.set(topic, setInterval(() => {
+    const feedTimer = setInterval(() => {
       client.send(eventFrame(topic, 'data', generateContainerLogBatch(containerName, new Date())));
-    }, LOG_INTERVAL_MS));
+    }, LOG_INTERVAL_MS);
+    topicCleanups.set(topic, () => clearInterval(feedTimer));
   };
 
   client.addEventListener('message', (event) => {
@@ -78,9 +102,12 @@ function onConnection({ client }: Parameters<Parameters<typeof mux.addEventListe
   });
 
   client.addEventListener('close', () => {
-    for (const timer of feedTimers.values()) clearInterval(timer);
-    feedTimers.clear();
+    for (const topic of [...topicCleanups.keys()]) stopTopic(topic);
   });
+}
+
+function onConnection({ client }: Parameters<Parameters<typeof mux.addEventListener<'connection'>>[1]>[0]): void {
+  createConnectionHandler({ client: client as unknown as MuxMockClient });
 }
 
 export const wsHandlers = [mux.addEventListener('connection', onConnection)];
