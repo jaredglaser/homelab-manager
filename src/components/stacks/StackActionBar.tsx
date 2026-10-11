@@ -11,6 +11,13 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useIsMobile } from '@/hooks/useMediaQuery';
+import type { DeployAction } from '@/lib/deploy/types';
+
+/** A deploy_history row the server still counts as active for this stack+host. */
+export interface ActiveDeployInfo {
+  status: 'pending' | 'in_progress';
+  action: DeployAction;
+}
 
 const UPDATE_IMAGES_HINT =
   'Pulls newer images for every service and recreates containers whose image changed. Also applies any undeployed compose changes.';
@@ -24,6 +31,20 @@ interface StackActionBarProps {
   onTeardown: () => void;
   onDelete: () => void;
   isDeploying: boolean;
+  activeDeploy?: ActiveDeployInfo | null;
+}
+
+const ACTION_LABELS: Record<DeployAction, string> = {
+  deploy: 'Deploy',
+  update: 'Image update',
+  teardown: 'Teardown',
+};
+
+function describeActiveDeploy(active: ActiveDeployInfo): string {
+  const label = ACTION_LABELS[active.action];
+  return active.status === 'pending'
+    ? `${label} awaiting approval in the Deploys tab`
+    : `${label} in progress`;
 }
 
 export default function StackActionBar({
@@ -32,9 +53,11 @@ export default function StackActionBar({
   onTeardown,
   onDelete,
   isDeploying,
+  activeDeploy = null,
 }: StackActionBarProps) {
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const blocked = isDeploying || activeDeploy !== null;
 
   function runFromSheet(action: () => void) {
     setSheetOpen(false);
@@ -44,7 +67,7 @@ export default function StackActionBar({
   if (isMobile) {
     return (
       <div className="flex items-center gap-2">
-        <Button className="h-11 flex-1" disabled={isDeploying} onClick={onDeploy}>
+        <Button className="h-11 flex-1" disabled={blocked} onClick={onDeploy}>
           {isDeploying ? <Spinner className="size-4 text-inherit" /> : <Play size={16} />}
           Deploy
         </Button>
@@ -66,11 +89,17 @@ export default function StackActionBar({
               <SheetTitle>Stack actions</SheetTitle>
             </SheetHeader>
             <SheetBody className="flex flex-col gap-4 p-4">
+              {activeDeploy && (
+                <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {activeDeploy.status === 'in_progress' && <Spinner className="size-3" />}
+                  {describeActiveDeploy(activeDeploy)}
+                </span>
+              )}
               <div className="flex flex-col gap-1.5">
                 <Button
                   variant="secondary"
                   className="h-11 w-full justify-start"
-                  disabled={isDeploying}
+                  disabled={blocked}
                   onClick={() => runFromSheet(onUpdate)}
                 >
                   <RefreshCw size={16} />
@@ -82,7 +111,7 @@ export default function StackActionBar({
               <Button
                 variant="outline"
                 className={`h-11 w-full justify-start ${DESTRUCTIVE_CLASSES}`}
-                disabled={isDeploying}
+                disabled={blocked}
                 onClick={() => runFromSheet(onTeardown)}
               >
                 <Square size={16} />
@@ -92,7 +121,7 @@ export default function StackActionBar({
               <Button
                 variant="outline"
                 className={`h-11 w-full justify-start ${DESTRUCTIVE_CLASSES}`}
-                disabled={isDeploying}
+                disabled={blocked}
                 onClick={() => runFromSheet(onDelete)}
               >
                 <Trash2 size={16} />
@@ -107,7 +136,7 @@ export default function StackActionBar({
 
   return (
     <div className="flex items-center gap-2">
-      <Button size="sm" disabled={isDeploying} onClick={onDeploy}>
+      <Button size="sm" disabled={blocked} onClick={onDeploy}>
         {isDeploying ? <Spinner className="size-3.5 text-inherit" /> : <Play size={14} />}
         Deploy
       </Button>
@@ -118,7 +147,7 @@ export default function StackActionBar({
             <Button
               variant="secondary"
               size="sm"
-              disabled={isDeploying}
+              disabled={blocked}
               onClick={onUpdate}
             />
           }
@@ -132,7 +161,7 @@ export default function StackActionBar({
       <Button
         variant="outline"
         size="sm"
-        disabled={isDeploying}
+        disabled={blocked}
         onClick={onTeardown}
         className={DESTRUCTIVE_CLASSES}
       >
@@ -140,11 +169,18 @@ export default function StackActionBar({
         Teardown
       </Button>
 
+      {activeDeploy && (
+        <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {activeDeploy.status === 'in_progress' && <Spinner className="size-3" />}
+          {describeActiveDeploy(activeDeploy)}
+        </span>
+      )}
+
       <div className="ml-auto">
         <Button
           variant="outline"
           size="sm"
-          disabled={isDeploying}
+          disabled={blocked}
           onClick={onDelete}
           className={DESTRUCTIVE_CLASSES}
         >

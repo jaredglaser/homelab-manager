@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:te
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { DataTable, SPARKLINE_MIN_WIDTH, type DataTableProps } from '../DataTable';
 import type { ColumnDef } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import * as useSettingsModule from '@/hooks/useSettings';
 
 interface TestRow {
@@ -11,7 +12,7 @@ interface TestRow {
   children?: TestRow[];
 }
 
-const columns: ColumnDef<TestRow, unknown>[] = [
+const columns: ColumnDef<DataTableFeatures, TestRow, unknown>[] = [
   {
     id: 'name',
     accessorKey: 'name',
@@ -421,7 +422,7 @@ describe('DataTable', () => {
   });
 
   it('uses meta.flex value in grid template for flex columns', () => {
-    const flexColumns: ColumnDef<TestRow, unknown>[] = [
+    const flexColumns: ColumnDef<DataTableFeatures, TestRow, unknown>[] = [
       {
         id: 'name',
         header: 'Name',
@@ -486,7 +487,7 @@ describe('DataTable', () => {
       settingsSpy.mockRestore();
     });
 
-    const metricColumns: ColumnDef<TestRow, unknown>[] = [
+    const metricColumns: ColumnDef<DataTableFeatures, TestRow, unknown>[] = [
       {
         id: 'name',
         accessorKey: 'name',

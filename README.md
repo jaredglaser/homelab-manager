@@ -72,7 +72,7 @@ Full instructions: [Self-Hosting Guide](self-hosting/README.md). For local devel
 - [x] Historical data UI with time-bucketed charts
 - [x] Proxmox API integration
 - [x] Stack management with GitOps deploy pipeline
-- [x] Host management UI with agent sidecar provisioning
+- [x] Host management UI with agent sidecar enrollment
 - [x] Encrypted-at-rest stack secrets and agent keypairs (JWE)
 - [x] Agent-updater sidecar for automatic container updates
 - [x] Pre-built Docker image on a container registry

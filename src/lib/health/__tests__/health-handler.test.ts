@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { handleHealth, checkDatabase } from '@/lib/health/health-handler';
+import { mockModule } from '@/lib/test/mock-module';
 
 describe('handleHealth', () => {
   let errorSpy: ReturnType<typeof spyOn>;
@@ -47,10 +48,10 @@ describe('checkDatabase', () => {
     const query = mock(() => Promise.resolve({ rows: [] }));
     const getClient = mock(() => Promise.resolve({ getPool: () => ({ query }) }));
 
-    mock.module('@/lib/clients/database-client', () => ({
+    mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
       databaseConnectionManager: { getClient },
     }));
-    mock.module('@/lib/config/database-config', () => ({
+    mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
       loadDatabaseConfig: () => ({ host: 'db', port: 5432 }),
     }));
 

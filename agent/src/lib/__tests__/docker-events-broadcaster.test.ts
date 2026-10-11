@@ -11,6 +11,7 @@ import {
   portCandidatesFromList,
 } from '../docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../docker-events-broadcaster';
+import { waitForCondition } from '../test/wait-for-condition';
 
 const originalConsoleError = console.error;
 
@@ -161,9 +162,6 @@ describe('subscribe: multiple subscribers', () => {
     const received2: BroadcasterEvent[] = [];
     const unsub1 = await subscribe(docker as any, () => {});
     const unsub2 = await subscribe(docker as any, (e) => received2.push(e));
-
-    await new Promise((r) => setTimeout(r, 20));
-
     unsub1();
 
     // Emit a start event; subscriber2 should still receive it
@@ -173,7 +171,7 @@ describe('subscribe: multiple subscribers', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received2.some((e) => e.op === 'upsert'));
     unsub2();
 
     const upserts = received2.filter((e) => e.op === 'upsert');
@@ -189,15 +187,13 @@ describe('subscribe: upsert events', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'start',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -225,15 +221,13 @@ describe('subscribe: upsert events', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'stop',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -261,15 +255,13 @@ describe('subscribe: upsert events', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'die',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -292,15 +284,13 @@ describe('subscribe: upsert events', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'start',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received.some((e) => e.op === 'destroy'));
     unsub();
 
     const destroys = received.filter((e) => e.op === 'destroy');
@@ -318,15 +308,13 @@ describe('subscribe: destroy events', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'destroy',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received.some((e) => e.op === 'destroy'));
     unsub();
 
     const destroys = received.filter((e) => e.op === 'destroy');
@@ -342,15 +330,13 @@ describe('subscribe: destroy events', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'destroy',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received.some((e) => e.op === 'destroy'));
 
     // A second subscriber should see an init without c1
     const received2: BroadcasterEvent[] = [];
@@ -369,11 +355,10 @@ describe('subscribe: stream reconnect', () => {
     const docker = makeDocker([], eventsEmitter);
 
     const unsub = await subscribe(docker as any, () => {});
-    await new Promise((r) => setTimeout(r, 20));
 
     // Emit stream error; broadcaster should log and schedule reconnect
     eventsEmitter.emit('error', new Error('stream error'));
-    await new Promise((r) => setTimeout(r, 20));
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
     unsub();
 
@@ -385,10 +370,9 @@ describe('subscribe: stream reconnect', () => {
     const docker = makeDocker([], eventsEmitter);
 
     const unsub = await subscribe(docker as any, () => {});
-    await new Promise((r) => setTimeout(r, 20));
 
     eventsEmitter.emit('end');
-    await new Promise((r) => setTimeout(r, 20));
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
     unsub();
 
@@ -396,20 +380,15 @@ describe('subscribe: stream reconnect', () => {
   });
 
   test('clears reconnecting state on stream end when no subscribers remain', async () => {
-    const originalSetTimeout = globalThis.setTimeout;
     const eventsEmitter = new EventEmitter();
     const docker = makeDocker([], eventsEmitter);
 
     const unsub = await subscribe(docker as any, () => {});
-    await new Promise((r) => originalSetTimeout(r, 20));
-
     unsub();
     eventsEmitter.emit('end');
-    await new Promise((r) => originalSetTimeout(r, 20));
 
     const docker2 = makeDocker([], new EventEmitter());
     const unsub2 = await subscribe(docker2 as any, () => {});
-    await new Promise((r) => originalSetTimeout(r, 20));
     unsub2();
 
     expect(docker2.getEvents).toHaveBeenCalled();
@@ -431,7 +410,7 @@ describe('subscribe: stream reconnect', () => {
       };
 
       const unsub = await subscribe(docker as any, () => {});
-      await new Promise((r) => originalSetTimeout(r, 10));
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       expect(console.error).toHaveBeenCalled();
       expect(timerCallbacks.length).toBeGreaterThan(0);
@@ -459,7 +438,6 @@ describe('subscribe: stream reconnect', () => {
     };
 
     const unsub = await subscribe(docker as any, () => {});
-    await new Promise((r) => originalSetTimeout(r, 20));
 
     (globalThis as any).setTimeout = (cb: () => void, _delay: number) => {
       timerCallbacks.push(cb);
@@ -468,12 +446,11 @@ describe('subscribe: stream reconnect', () => {
 
     try {
       eventsEmitter.emit('error', new Error('disconnect'));
-      await new Promise((r) => originalSetTimeout(r, 10));
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       for (const cb of timerCallbacks) {
         await (cb as () => Promise<void> | void)();
       }
-      await new Promise((r) => originalSetTimeout(r, 20));
 
       expect(console.error).toHaveBeenCalled();
     } finally {
@@ -490,7 +467,6 @@ describe('subscribe: stream reconnect', () => {
     const docker = makeDocker([], eventsEmitter);
 
     const unsub = await subscribe(docker as any, () => {});
-    await new Promise((r) => originalSetTimeout(r, 30));
 
     // Intercept setTimeout to capture the reconnect timer
     (globalThis as any).setTimeout = (cb: () => void, _delay: number) => {
@@ -500,7 +476,7 @@ describe('subscribe: stream reconnect', () => {
 
     try {
       eventsEmitter.emit('error', new Error('disconnect'));
-      await new Promise((r) => originalSetTimeout(r, 10));
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       // Unsubscribe before the timer fires
       unsub();
@@ -514,7 +490,6 @@ describe('subscribe: stream reconnect', () => {
       let getEventsCallsBefore = docker.getEvents.mock.calls.length;
       const docker2 = makeDocker([], new EventEmitter());
       const unsub2 = await subscribe(docker2 as any, () => {});
-      await new Promise((r) => originalSetTimeout(r, 20));
       unsub2();
 
       // The fresh broadcaster (reset by unsub cleanup) should call getEvents again
@@ -535,13 +510,11 @@ describe('subscribe: cleanup (last unsubscribe)', () => {
 
     const unsub1 = await subscribe(docker as any, () => {});
     const unsub2 = await subscribe(docker as any, () => {});
-    await new Promise((r) => setTimeout(r, 20));
 
     unsub1();
     expect(destroySpy).not.toHaveBeenCalled();
 
     unsub2();
-    await new Promise((r) => setTimeout(r, 10));
     expect(destroySpy).toHaveBeenCalledTimes(1);
   });
 
@@ -553,7 +526,6 @@ describe('subscribe: cleanup (last unsubscribe)', () => {
 
     const unsub1 = await subscribe(docker as any, () => {});
     const unsub2 = await subscribe(docker as any, () => {});
-    await new Promise((r) => setTimeout(r, 20));
 
     unsub1();
     expect(destroySpy).not.toHaveBeenCalled();
@@ -585,7 +557,6 @@ describe('subscribe: error handling', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
 
     const initialLength = received.length;
 
@@ -594,8 +565,6 @@ describe('subscribe: error handling', () => {
       Action: 'exec_create',
       Actor: { ID: 'c1' },
     }) + '\n'));
-
-    await new Promise((r) => setTimeout(r, 20));
     unsub();
 
     expect(received.length).toBe(initialLength);
@@ -607,7 +576,6 @@ describe('subscribe: error handling', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
 
     const initialLength = received.length;
 
@@ -616,8 +584,6 @@ describe('subscribe: error handling', () => {
       Action: 'connect',
       Actor: { ID: 'net1' },
     }) + '\n'));
-
-    await new Promise((r) => setTimeout(r, 20));
     unsub();
 
     expect(received.length).toBe(initialLength);
@@ -628,11 +594,9 @@ describe('subscribe: error handling', () => {
     const docker = makeDocker([], eventsEmitter);
 
     const unsub = await subscribe(docker as any, () => {});
-    await new Promise((r) => setTimeout(r, 20));
 
     // Should not throw
     eventsEmitter.emit('data', Buffer.from('not valid json\n'));
-    await new Promise((r) => setTimeout(r, 20));
     unsub();
   });
 
@@ -647,18 +611,14 @@ describe('subscribe: error handling', () => {
     };
 
     const unsub = await subscribe(docker as any, () => {});
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'start',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
     unsub();
-
-    expect(console.error).toHaveBeenCalled();
   });
 });
 
@@ -685,15 +645,13 @@ describe('broadcastToAll: subscriber isolation', () => {
       if (e.op !== 'init') received2.push(e);
     });
 
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'destroy',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received1.some((e) => e.op === 'destroy'));
     unsubA();
     unsubB();
     unsubC();
@@ -712,7 +670,6 @@ describe('_handleDockerEventForTesting', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
 
     await _handleDockerEventForTesting(docker as any, {
       Type: 'container',
@@ -740,15 +697,13 @@ describe('subscribe: error handling (data handler catch path)', () => {
     });
 
     const unsub = await subscribe(docker as any, throwingCallback);
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'start',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 50));
+    await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
     unsub();
 
     // The .catch on the handleDockerEvent call should have logged the error
@@ -776,15 +731,13 @@ describe('subscribe: pause and unpause events (Fix 2)', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'pause',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -812,15 +765,13 @@ describe('subscribe: pause and unpause events (Fix 2)', () => {
 
     const received: BroadcasterEvent[] = [];
     const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
-
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'unpause',
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await waitForCondition(() => received.some((e) => e.op === 'upsert'));
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
@@ -861,7 +812,6 @@ describe('subscribe: reconnect fresh init (Fix 3)', () => {
     try {
       const received: BroadcasterEvent[] = [];
       const unsub = await subscribe(docker as any, (e) => received.push(e));
-      await new Promise((r) => originalSetTimeout(r, 20));
 
       // Intercept setTimeout to capture the reconnect callback (fires immediately)
       (globalThis as any).setTimeout = (cb: () => void) => {
@@ -871,7 +821,7 @@ describe('subscribe: reconnect fresh init (Fix 3)', () => {
 
       // Simulate stream error to trigger scheduleReconnect
       eventsEmitter.emit('error', new Error('disconnected'));
-      await new Promise((r) => originalSetTimeout(r, 10));
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       // Verify we captured the reconnect callback
       expect(capturedReconnectCallback).not.toBeNull();
@@ -882,7 +832,6 @@ describe('subscribe: reconnect fresh init (Fix 3)', () => {
       // Fire the reconnect; triggers startEventsSubscription(docker, true)
       // which calls listContainers (reconnect path) and broadcasts fresh init
       await (capturedReconnectCallback as unknown as () => Promise<void>)();
-      await new Promise((r) => originalSetTimeout(r, 20));
 
       unsub();
 
@@ -1122,7 +1071,6 @@ describe('_resetBroadcasterForTesting: with active reconnect timer', () => {
     const docker = makeDocker([], eventsEmitter);
 
     const unsub = await subscribe(docker as any, () => {});
-    await new Promise((r) => originalSetTimeout(r, 20));
 
     // Intercept setTimeout to capture the reconnect timer
     (globalThis as any).setTimeout = (cb: () => void, _delay: number) => {
@@ -1133,7 +1081,7 @@ describe('_resetBroadcasterForTesting: with active reconnect timer', () => {
     try {
       // Trigger a stream error; scheduleReconnect will capture a timer via mocked setTimeout
       eventsEmitter.emit('error', new Error('disconnect'));
-      await new Promise((r) => originalSetTimeout(r, 10));
+      await waitForCondition(() => (console.error as ReturnType<typeof mock>).mock.calls.length > 0);
 
       // Reset while the timer is pending; exercises lines 224-225
       _resetBroadcasterForTesting();

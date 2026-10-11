@@ -13,7 +13,7 @@ const MAX_SEED_AGE_MS = SPARKLINE_TIME_WINDOW_MS - 5_000;
 
 // Keep an accumulator briefly after its last subscriber leaves so the
 // unmount/remount the virtualizer triggers when repositioning rows resumes
-// instead of reseeding (CLAUDE.md gotcha 12).
+// instead of reseeding (AGENTS.md gotcha 12).
 const EVICTION_GRACE_MS = 30000;
 
 const EMPTY: SparklinePoint[] = [];

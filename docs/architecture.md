@@ -171,7 +171,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Liveness heartbeat, status only (unauthenticated) |
-| GET | `/info` | Agent version + Docker/ZFS capability detail (authenticated) |
+| GET | `/info` | Agent version, the image reference and tag the agent runs, and Docker/ZFS capability detail (authenticated) |
 | GET | `/auth/verify` | JWT verification |
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
@@ -188,9 +188,8 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/stacks/status` | List stacks in working directory |
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
-| POST | `/agent/update` | Self-update: pull new image, recreate container, verify health |
 
-**Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work.
+**Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work. `ALLOW_LOGS=1` is required for container log streaming; without it the proxy returns 403 on `/containers/{id}/logs`.
 
 ### Agent-Updater Sidecar (`agent-updater/`)
 
@@ -217,8 +216,8 @@ DeployRequest -> Validate -> Resolve Secrets -> Dispatch to Agent -> Record Resu
 
 - **Change detection:** Content hashing to skip no-op deploys
 - **Secret resolution:** Pluggable `SecretResolver` interface. Resolves `${SECRET:name}` variable references in compose files; values are stored JWE-encrypted in the `stack_secrets` table
-- **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host. A git push blocked by an active deploy is persisted in `deploy_queue` (newest per stack+host wins) and dispatched once the active deploy reaches a terminal state, unless a newer commit already deployed successfully in the meantime; blocked UI deploys still get an immediate failed response
-- **Stuck-deploy recovery:** `startup-recovery.ts` fails stranded `in_progress` rows at boot; `DeployWatchdog` rescans on an interval (default 20-minute threshold via `DEPLOY_WATCHDOG_TIMEOUT_MINUTES`)
+- **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host. A git push blocked by an active deploy is persisted in `deploy_queue` (newest per stack+host wins) and dispatched once the active deploy reaches a terminal state, unless a newer commit already deployed successfully in the meantime; blocked UI deploys still get an immediate failed response that names the blocking deploy (awaiting approval, or in progress and for how long). The pipeline also broadcasts the `in_progress` transition on the stack-status channel, so the stack editor disables its actions while a pending or in-progress row exists instead of letting the click fail server-side. Image-update dispatch runs in the background: the trigger request returns `in_progress` as soon as the row is marked, because the agent call can hold for up to 16 minutes and a request held that long invites replay by proxies/browsers; the terminal outcome reaches clients through the stack-status channel (`triggerDeploy` is a POST server function for the same reason)
+- **Stuck-deploy recovery:** `startup-recovery.ts` fails stranded `in_progress` rows at boot; `DeployWatchdog` rescans on an interval (default 20-minute threshold via `DEPLOY_WATCHDOG_TIMEOUT_MINUTES`). The watchdog is the last line of defense only: a background image-update dispatch that crashes in-process fails its row immediately (status + NOTIFY + queue drain), so the user can retry right away instead of waiting out the threshold. The watchdog covers only a crashed server process, where nothing is left to fail the row
 - **Agent client:** HTTP wrapper for communicating with agents (deploy/teardown/restart)
 
 **Database tables:**
@@ -342,7 +341,7 @@ stacks:
 At-rest encryption uses a versioned keyring of symmetric keys (base64, 256-bit) resolved at startup: `MASTER_KEY`/`MASTER_KEY_FILE` maps to KID `v1`, and `MASTER_KEY_<KID>` variants enroll additional keys for rotation (see the self-hosting guide's Master Key Rotation section).
 
 - **Stack secrets** (`stack_secrets` table): name/value pairs stored as JWE-encrypted blobs. The deploy pipeline resolves `${SECRET:name}` references in compose files before dispatching to agents (`src/lib/crypto/encrypted-value.ts`)
-- **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted; the public JWK is injected into the agent container as the `AGENT_TRUSTED_PUBKEY` env var when the dashboard provisions the agent (`src/lib/services/agent-provisioning-service.ts`). The dev compose flow writes the JWK to `data/dev-agent-pubkey.json` and the agent loads it via `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)
+- **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted; the public JWK is returned to the operator during the Add Host wizard's Verify step, who installs it in the agent as the `AGENT_TRUSTED_PUBKEY` env var and restarts it (`src/data/hosts/handlers.ts`). The dev compose flow writes the JWK to `data/dev-agent-pubkey.json` and the agent loads it via `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)
 - `src/lib/crypto/master-key.ts` handles key resolution and exports the AES-GCM key object used by the JWE helpers
 
 ### Stacks UI
@@ -353,14 +352,12 @@ Full stack management interface at `/stacks` (top-level navigation).
 |-----------|---------|
 | `StackActionBar` | Deploy, teardown, restart action buttons |
 | `ComposeEditor` | Monaco YAML editor with Compose schema validation |
-| `ContainerList` | Running containers for a stack with status |
 | `DeployHistoryList` / `DeployHistoryRow` | Deploy history timeline with rollback |
 | `VariablesPanel` / `VariableRow` | Stack variables editor (JWE-encrypted in `stack_secrets`) |
 | `CreateStackDialog` | Create new stack |
 | `DeleteStackDialog` | Stack deletion confirmation |
 | `RollbackDialog` | Rollback to previous deployment |
 | `StackSettingsDialog` | Stack settings editor |
-| `SyncStatusBadge` | Git sync status badge |
 
 **Real-time updates:** The `useStackStatus` hook subscribes to `/api/stack-status` SSE endpoint. Container status changes and deployment completions are broadcast to all connected browsers.
 

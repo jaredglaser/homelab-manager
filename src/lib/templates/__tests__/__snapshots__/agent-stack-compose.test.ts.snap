@@ -15,6 +15,7 @@ services:
       EVENTS: 1
       INFO: 1
       IMAGES: 1
+      ALLOW_LOGS: 1
       NETWORKS: 1
       VOLUMES: 1
       VERSION: 1
@@ -36,8 +37,10 @@ services:
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
+      AGENT_IMAGE: \${AGENT_IMAGE}
       DOCKER_HOST: tcp://socket-proxy:2375
-    volumes: []
+    volumes:
+      - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
     networks:
       - agent-internal
       - agent-public
@@ -84,7 +87,9 @@ services:
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
+      AGENT_IMAGE: \${AGENT_IMAGE}
     volumes:
+      - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
       - /dev/zfs:/dev/zfs
@@ -124,6 +129,7 @@ services:
       EVENTS: 1
       INFO: 1
       IMAGES: 1
+      ALLOW_LOGS: 1
       NETWORKS: 1
       VOLUMES: 1
       VERSION: 1
@@ -145,8 +151,10 @@ services:
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
+      AGENT_IMAGE: \${AGENT_IMAGE}
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
+      - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
       - /dev/zfs:/dev/zfs
@@ -190,6 +198,7 @@ exports[`generateAgentStackEnv generates env for Docker-only host 1`] = `
 "AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:latest
 AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:latest
 HLM_AGENT_PORT=9090
+HLM_STACKS_DIR=/opt/homelab-manager/stacks
 "
 `;
 
@@ -197,6 +206,7 @@ exports[`generateAgentStackEnv generates env for ZFS-only host 1`] = `
 "AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:v1.0.0
 AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:v1.0.0
 HLM_AGENT_PORT=9090
+HLM_STACKS_DIR=/opt/homelab-manager/stacks
 HLM_ZFS_UID=1100
 HLM_ZFS_GID=1100
 "
@@ -206,6 +216,7 @@ exports[`generateAgentStackEnv generates env for Docker + ZFS host 1`] = `
 "AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:latest
 AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:latest
 HLM_AGENT_PORT=9090
+HLM_STACKS_DIR=/opt/homelab-manager/stacks
 HLM_ZFS_UID=1100
 HLM_ZFS_GID=1100
 DOCKER_GID=999

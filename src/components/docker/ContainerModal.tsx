@@ -42,7 +42,7 @@ function TabSwitch({
   isRunning: boolean;
 }) {
   return (
-    <div className="inline-flex gap-0.5 rounded-full p-0.5 bg-(--background)">
+    <div className="inline-flex gap-0.5 rounded-full p-0.5 bg-background">
       {TABS.map(({ key, label, Icon }) => {
         const active = value === key;
         const disabled = key === 'terminal' && !isRunning;
@@ -54,12 +54,12 @@ function TabSwitch({
             onClick={() => onChange(key)}
             className={[
               'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all',
-              active ? 'bg-(--popover) shadow-(--shadow-1)' : '',
+              active ? 'bg-popover shadow-(--shadow-1)' : '',
               disabled
                 ? 'text-(--text-disabled) cursor-not-allowed'
                 : active
                   ? 'text-foreground cursor-pointer'
-                  : 'text-(--muted-foreground) cursor-pointer',
+                  : 'text-muted-foreground cursor-pointer',
             ].join(' ')}
           >
             <Icon size={12} />
@@ -107,7 +107,7 @@ function ModalHeader({
 
   return (
     <div
-      className="grid [grid-template-columns:1fr_auto_1fr] px-3 py-2 border-b border-(--border) shrink-0 bg-(--popover) min-h-[52px] items-center gap-2"
+      className="grid [grid-template-columns:1fr_auto_1fr] px-3 py-2 border-b border-border shrink-0 bg-popover min-h-[52px] items-center gap-2"
     >
       <div className="flex items-center gap-3 min-w-0">
         <img
@@ -145,7 +145,7 @@ function ModalHeader({
             variant="ghost"
             size="icon-sm"
             onClick={onWrapToggle}
-            className={`p-1! shrink-0 ${wordWrap ? 'text-(--primary)!' : 'text-(--text-disabled)!'}`}
+            className={`p-1! shrink-0 ${wordWrap ? 'text-primary!' : 'text-(--text-disabled)!'}`}
             aria-label="Toggle word wrap"
           >
             <WrapText size={16} />
@@ -155,7 +155,7 @@ function ModalHeader({
 
       <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
 
-      <div className="w-px h-5 shrink-0 bg-(--border)" />
+      <div className="w-px h-5 shrink-0 bg-border" />
 
       <IconTooltip label="Close">
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close modal" className="p-1! shrink-0">
@@ -227,7 +227,7 @@ export default memo(function ContainerModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <DialogContent className="flex flex-col min-h-0 overflow-hidden rounded-lg bg-(--popover) w-[calc(100%-64px)] max-w-[1200px] h-[calc(100vh-80px)] p-0">
+      <DialogContent className="flex flex-col min-h-0 overflow-hidden rounded-lg bg-popover w-[calc(100%-64px)] max-w-[1200px] h-[calc(100vh-80px)] p-0">
       <ModalHeader
         inventory={inventory}
         containerId={containerId}
@@ -264,7 +264,7 @@ export default memo(function ContainerModal({
           </div>
         )}
         {!terminalMounted && activeTab === 'terminal' && (
-          <div className="flex-1 min-h-0 bg-(--chart-bg)" />
+          <div className="flex-1 min-h-0 bg-chart-bg" />
         )}
 
         {activeTab === 'history' && (

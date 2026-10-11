@@ -48,12 +48,12 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
       return controlStack({ data });
     },
     onSuccess: (_, { action, target }) => {
-      const targetName = target.scope === 'stack' ? stackName : `${target.service} (in ${stackName})`;
+      const targetName = target.scope === 'stack' ? `${host}/${stackName}` : `${target.service} in ${host}/${stackName}`;
       toast.success(`${targetName} ${ACTION_PAST[action]} successfully`);
       setActiveKey(null);
     },
     onError: (err, { action, target }) => {
-      const targetName = target.scope === 'stack' ? stackName : `${target.service} (in ${stackName})`;
+      const targetName = target.scope === 'stack' ? `${host}/${stackName}` : `${target.service} in ${host}/${stackName}`;
       console.error(`[StackContainersPanel] ${action} failed for ${targetName}:`, err);
       toast.error(`Failed to ${action} ${targetName}: ${err instanceof Error ? err.message : String(err)}`);
       setActiveKey(null);
@@ -125,10 +125,10 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           {containers.map((container) => (
             <div
               key={container.id}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 px-2 rounded hover:bg-(--accent) group"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 px-2 rounded hover:bg-accent group"
             >
               <span
-                className={`w-2 h-2 rounded-full flex-shrink-0 ${container.status === 'running' ? 'bg-green-500' : 'bg-red-500'}`}
+                className={`w-2 h-2 rounded-full shrink-0 ${container.status === 'running' ? 'bg-green-500' : 'bg-red-500'}`}
                 aria-label={`status: ${container.status}`}
               />
               <span className="font-medium text-sm truncate min-w-0">{container.name}</span>
@@ -216,7 +216,7 @@ function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[];
           return (
             <span
               key={portKey(port, idx)}
-              className={`font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) shrink-0 ${published ? 'text-foreground' : 'text-(--muted-foreground)'}`}
+              className={`font-mono text-[10px] px-1 py-0.5 rounded bg-chart-bg shrink-0 ${published ? 'text-foreground' : 'text-muted-foreground'}`}
             >
               {formatPortMapping(port)}
             </span>
@@ -227,7 +227,7 @@ function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[];
             <TooltipTrigger
               render={
                 <span
-                  className="font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) text-(--muted-foreground) shrink-0"
+                  className="font-mono text-[10px] px-1 py-0.5 rounded bg-chart-bg text-muted-foreground shrink-0"
                   tabIndex={0}
                   aria-label={`${overflowPorts.length} more ports`}
                 >
@@ -249,7 +249,7 @@ function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[];
             <TooltipTrigger
               render={
                 <span
-                  className="shrink-0 text-(--muted-foreground) hover:text-foreground"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
                   tabIndex={0}
                   aria-label={mountLabel}
                 >
@@ -382,7 +382,7 @@ function TerminalDialogContent({ container, host }: { container: StackContainer;
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center px-1 py-1 border-b border-(--border)">
+      <div className="flex items-center px-1 py-1 border-b border-border">
         <ShellSelect
           value={effectiveShell}
           onChange={handleShellChange}

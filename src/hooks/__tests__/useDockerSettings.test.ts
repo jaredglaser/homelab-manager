@@ -1,4 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
+import { mockModule } from '@/lib/test/mock-module';
 
 const { renderHook, act } = await import('@testing-library/react');
 const { createElement } = await import('react');
@@ -6,11 +7,11 @@ type ReactNode = import('react').ReactNode;
 
 const mockUpdateSetting = mock(() => Promise.resolve());
 
-mock.module('@/data/settings/functions', () => ({
+mockModule<typeof import('@/data/settings/functions')>('@/data/settings/functions', (real) => ({ ...real, 
   updateSetting: mockUpdateSetting,
 }));
 
-mock.module('@/hooks/toastAtom', () => ({
+mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real, 
   useToast: () => ({ showToast: mock(() => {}) }),
 }));
 

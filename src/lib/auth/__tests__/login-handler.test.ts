@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, afterEach, beforeEach } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { buildStateCookie, generatePkcePair } from '@/lib/auth/login-handler';
+import { mockModule } from '@/lib/test/mock-module';
 
 // Module mocks must be registered before importing the handler so its dynamic
 // `await import()` calls receive the stubs.
@@ -14,11 +15,11 @@ const MockOidcClient = mock(function (_config: unknown) {
   return { getAuthorizationUrl: mockGetAuthorizationUrl };
 });
 
-mock.module('@/lib/auth/oidc-client', () => ({
+mockModule<typeof import('@/lib/auth/oidc-client')>('@/lib/auth/oidc-client', (real) => ({ ...real, 
   OidcClient: MockOidcClient,
 }));
 
-mock.module('@/lib/auth/oidc-secrets', () => ({
+mockModule<typeof import('@/lib/auth/oidc-secrets')>('@/lib/auth/oidc-secrets', (real) => ({ ...real, 
   getOidcClientSecret: mock(async () => 'test-secret'),
 }));
 

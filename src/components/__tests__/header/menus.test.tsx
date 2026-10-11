@@ -3,27 +3,28 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { StackSummary } from '@/types/stacks'
 import type { MenuRouteKey } from '@/components/header/nav-config'
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockListStacks = mock((): Promise<StackSummary[]> => Promise.resolve([]))
 const mockListManagedHostNames = mock((): Promise<string[]> => Promise.resolve([]))
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   listStacks: mockListStacks,
   listManagedHostNames: mockListManagedHostNames,
   createStack: mock(() => Promise.resolve({})),
 }))
 
-mock.module('@/lib/utils/icon-resolver', () => ({
+mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolver', (real) => ({ ...real, 
   getIconUrl: (_icon: string, _fallback: string) => `/icons/${_icon}.png`,
   FALLBACK_ICON_URL: '/fallback.png',
   AVAILABLE_ICONS: [],
 }))
 
-mock.module('@/lib/query-client', () => ({
+mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real, 
   queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
 }))
 
-mock.module('@/lib/constants/preload-queries', () => ({
+mockModule<typeof import('@/lib/constants/preload-queries')>('@/lib/constants/preload-queries', (real) => ({ ...real, 
   DOCKER_PRELOAD_KEY: ['preload', 'docker-stats'],
   ZFS_PRELOAD_KEY: ['preload', 'zfs-stats'],
   PROXMOX_PRELOAD_KEY: ['preload', 'proxmox-stats'],
@@ -34,7 +35,7 @@ mock.module('@/lib/constants/preload-queries', () => ({
 
 // Render Link as a plain anchor so tests don't need a full router context.
 // params substitutes $key placeholders so hrefs reflect the actual resolved path.
-mock.module('@tanstack/react-router', () => ({
+mockModule<typeof import('@tanstack/react-router')>('@tanstack/react-router', (real) => ({ ...real, 
   Link: ({ children, to, hash, params, onClick, ...rest }: {
     children: React.ReactNode
     to: string

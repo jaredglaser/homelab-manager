@@ -3,11 +3,12 @@ import type { Pool } from 'pg';
 import type { MasterKeyring } from '@/lib/crypto/master-key';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { resetStackSecretsMiddlewareState } from '@/middleware/stack-secrets-middleware';
+import { mockModule } from '@/lib/test/mock-module';
 
 const fakeKeyring: MasterKeyring = { activeKid: 'v1', keys: new Map() };
 const mockLoadMasterKeyring = mock(() => Promise.resolve(fakeKeyring));
 
-mock.module('@/lib/crypto/master-key', () => ({
+mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
   loadMasterKeyring: mockLoadMasterKeyring,
 }));
 

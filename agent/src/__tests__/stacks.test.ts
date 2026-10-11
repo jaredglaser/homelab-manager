@@ -1491,6 +1491,50 @@ describe('handleStackInventory', () => {
     expect(response.status).toBe(500);
     expect(result.error).toContain('Failed to read stacks directory');
   });
+
+  test('warns when the configured stacks directory does not exist', async () => {
+    const missingDir = join(TEST_STACKS_DIR, 'does-not-exist');
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await handleStackInventory(missingDir);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.stacks).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain(missingDir);
+    expect(String(warnSpy.mock.calls[0][0])).toContain('inventory will be empty');
+    warnSpy.mockRestore();
+  });
+
+  test('logs directories skipped for failing stack name validation', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, '.hidden'), { recursive: true });
+    mkdirSync(join(TEST_STACKS_DIR, 'bad name'), { recursive: true });
+    mkdirSync(join(TEST_STACKS_DIR, 'good'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'good', 'docker-compose.yml'), 'services: {}');
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+
+    expect(response.status).toBe(200);
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    const logged = String(infoSpy.mock.calls[0][0]);
+    expect(logged).toContain('.hidden');
+    expect(logged).toContain('bad name');
+    infoSpy.mockRestore();
+  });
+
+  test('logs stack directories missing a compose file', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'empty-stack'), { recursive: true });
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+
+    expect(response.status).toBe(200);
+    expect(infoSpy).toHaveBeenCalledTimes(1);
+    expect(String(infoSpy.mock.calls[0][0])).toContain('empty-stack');
+    infoSpy.mockRestore();
+  });
 });
 
 describe('handleGetStackCompose', () => {

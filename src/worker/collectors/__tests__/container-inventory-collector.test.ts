@@ -4,6 +4,7 @@ import type { DockerContainerEventRepository, NewContainerEvent } from '@/lib/da
 import type { ManagedHostInfo } from '../container-inventory-collector';
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
 import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
 /**
  * Stream connector whose generator never completes on its own; it only ends
@@ -74,27 +75,17 @@ function createMockRepo(snapshotRows: DockerContainerEventRow[] = []) {
   return { repo, inserted };
 }
 
-/** Spy that makes setTimeout fire its callback immediately. */
-function spyImmediateTimeout() {
-  return spyOn(globalThis, 'setTimeout').mockImplementation(
-    ((fn: TimerHandler) => {
-      if (typeof fn === 'function') fn();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof setTimeout,
-  );
-}
-
 describe('ContainerInventoryCollector: state-change dedup', () => {
   let abortController: AbortController;
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let timers: TimerMock;
 
   beforeEach(() => {
     abortController = new AbortController();
-    setTimeoutSpy = spyImmediateTimeout();
+    timers = mockSetTimeout({ fireImmediately: true });
   });
 
   afterEach(() => {
-    setTimeoutSpy.mockRestore();
+    timers.restore();
     abortController.abort();
   });
 
@@ -171,15 +162,15 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
 
 describe('ContainerInventoryCollector: ports/mounts fingerprinting', () => {
   let abortController: AbortController;
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let timers: TimerMock;
 
   beforeEach(() => {
     abortController = new AbortController();
-    setTimeoutSpy = spyImmediateTimeout();
+    timers = mockSetTimeout({ fireImmediately: true });
   });
 
   afterEach(() => {
-    setTimeoutSpy.mockRestore();
+    timers.restore();
     abortController.abort();
   });
 
@@ -307,16 +298,7 @@ describe('ContainerInventoryCollector: flap dampening', () => {
   });
 
   it('scheduleDestroyWrite skips write when cache already records destroy', async () => {
-    const timers: Array<{ fn: TimerHandler; id: number }> = [];
-    let idCounter = 0;
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler) => {
-        const id = ++idCounter;
-        timers.push({ fn, id });
-        return id as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
-    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation(() => {});
+    const timers = mockSetTimeout();
 
     const snapshot = [makeRow({ containerId: 'abc123', eventType: 'destroy' })];
     const { repo, inserted } = createMockRepo(snapshot);
@@ -325,32 +307,17 @@ describe('ContainerInventoryCollector: flap dampening', () => {
     await (collector as any).hydrateCache();
 
     (collector as any).scheduleDestroyWrite('abc123');
-    expect(timers).toHaveLength(1);
+    expect(timers.pending).toHaveLength(1);
 
-    const { fn } = timers[0];
-    timers.splice(0, 1);
-    await (typeof fn === 'function' ? Promise.resolve(fn()) : Promise.resolve());
+    await timers.fire(timers.pending[0]);
 
     expect(inserted).toHaveLength(0);
 
-    setTimeoutSpy.mockRestore();
-    clearTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('flap (A→B→A within window) collapses to zero writes', async () => {
-    const timers: Array<{ fn: TimerHandler; delay: number; id: number }> = [];
-    let idCounter = 0;
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler, delay?: number) => {
-        const id = ++idCounter;
-        timers.push({ fn, delay: delay ?? 0, id });
-        return id as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
-    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
-      const idx = timers.findIndex((t) => t.id === id);
-      if (idx !== -1) timers.splice(idx, 1);
-    });
+    const timers = mockSetTimeout();
 
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
@@ -360,34 +327,22 @@ describe('ContainerInventoryCollector: flap dampening', () => {
 
     // A→B (exited)
     (collector as any).scheduleWrite(makeContainer({ state: 'exited' }), 'upsert');
-    expect(timers).toHaveLength(1);
+    expect(timers.pending).toHaveLength(1);
 
     // B→A (running): cancels prior timer, schedules new one
     (collector as any).scheduleWrite(makeContainer({ state: 'running' }), 'upsert');
-    expect(timers).toHaveLength(1);
+    expect(timers.pending).toHaveLength(1);
 
     // Fire the surviving timer (state = running, same as cache → no write)
-    const { fn } = timers[0];
-    timers.splice(0, 1);
-    if (typeof fn === 'function') fn();
+    timers.fire(timers.pending[0]);
 
     expect(inserted).toHaveLength(0);
 
-    setTimeoutSpy.mockRestore();
-    clearTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('single transition (A→B) writes one row after the window fires', async () => {
-    const timers: Array<{ fn: TimerHandler; id: number }> = [];
-    let idCounter = 0;
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler) => {
-        const id = ++idCounter;
-        timers.push({ fn, id });
-        return id as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
-    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation(() => {});
+    const timers = mockSetTimeout();
 
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
@@ -396,31 +351,28 @@ describe('ContainerInventoryCollector: flap dampening', () => {
     await (collector as any).hydrateCache();
 
     (collector as any).scheduleWrite(makeContainer({ state: 'exited' }), 'upsert');
-    expect(timers).toHaveLength(1);
+    expect(timers.pending).toHaveLength(1);
 
-    const { fn } = timers[0];
-    timers.splice(0, 1);
-    await (typeof fn === 'function' ? Promise.resolve(fn()) : Promise.resolve());
+    await timers.fire(timers.pending[0]);
 
     expect(inserted).toHaveLength(1);
     expect(inserted[0].eventType === 'upsert' && inserted[0].state).toBe('exited');
 
-    setTimeoutSpy.mockRestore();
-    clearTimeoutSpy.mockRestore();
+    timers.restore();
   });
 });
 
 describe('ContainerInventoryCollector: init reconciliation', () => {
   let abortController: AbortController;
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let timers: TimerMock;
 
   beforeEach(() => {
     abortController = new AbortController();
-    setTimeoutSpy = spyImmediateTimeout();
+    timers = mockSetTimeout({ fireImmediately: true });
   });
 
   afterEach(() => {
-    setTimeoutSpy.mockRestore();
+    timers.restore();
     abortController.abort();
   });
 
@@ -509,7 +461,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
 
   it('reconnects after SSE error with exponential backoff', async () => {
     let callCount = 0;
-    const setTimeoutSpy = spyImmediateTimeout();
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     const { repo } = createMockRepo();
     const streamConnector: StreamConnector = async () => {
@@ -527,7 +479,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
     await collector.run();
 
     expect(callCount).toBeGreaterThanOrEqual(2);
-    setTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('stops cleanly when abort signal fires', async () => {
@@ -546,7 +498,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
 
   it('throws on a connect failure and triggers reconnect', async () => {
     let callCount = 0;
-    const setTimeoutSpy = spyImmediateTimeout();
+    const timers = mockSetTimeout({ fireImmediately: true });
     const { repo } = createMockRepo();
     const streamConnector: StreamConnector = async () => {
       callCount++;
@@ -561,7 +513,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
     await collector.run();
 
     expect(callCount).toBeGreaterThanOrEqual(3);
-    setTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('abort before run starts causes immediate exit', async () => {
@@ -606,7 +558,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
   });
 
   it('drops SSE frames failing schema validation and continues', async () => {
-    const setTimeoutSpy = spyImmediateTimeout();
+    const timers = mockSetTimeout({ fireImmediately: true });
 
     const { repo, inserted } = createMockRepo();
     const streamConnector = fixedStream([
@@ -618,7 +570,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
-    setTimeoutSpy.mockRestore();
+    timers.restore();
   });
 });
 
@@ -634,25 +586,12 @@ describe('ContainerInventoryCollector: reconcileInit clears pending writes (Fix 
   });
 
   it('purges pending flap-window writes when collect() errors and triggers reconnect', async () => {
-    const capturedTimers: Array<{ fn: TimerHandler; delay: number; id: number }> = [];
-    let idCounter = 0;
-    const cleared: number[] = [];
-    // Fire ≥500ms backoff timers synchronously so run() progresses; leave 250ms
-    // flap-window timers captured but unfired so we can assert they get cleared.
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler, delay?: number) => {
-        const id = ++idCounter;
-        capturedTimers.push({ fn, delay: delay ?? 0, id });
-        if ((delay ?? 0) >= 500 && typeof fn === 'function') {
-          queueMicrotask(() => fn());
-        }
-        return id as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
-    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
-      cleared.push(Number(id));
-      const idx = capturedTimers.findIndex((t) => t.id === id);
-      if (idx !== -1) capturedTimers.splice(idx, 1);
+    // Fire ≥500ms backoff timers so run() progresses; leave 250ms flap-window
+    // timers captured but unfired so we can assert they get cleared.
+    const timers: TimerMock = mockSetTimeout({
+      onSchedule: (timer) => {
+        if (timer.delayMs >= 500) queueMicrotask(() => timers.fire(timer));
+      },
     });
 
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
@@ -682,51 +621,37 @@ describe('ContainerInventoryCollector: reconcileInit clears pending writes (Fix 
     const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await collector.run();
 
-    const flapTimers = capturedTimers.filter((t) => t.delay === 250);
+    const flapTimers = timers.pending.filter((t) => t.delayMs === 250);
     expect(flapTimers).toHaveLength(0);
-    expect(cleared.length).toBeGreaterThan(0);
+    expect(timers.clearSpy.mock.calls.length).toBeGreaterThan(0);
 
     const pendingWrites: Map<string, unknown> = (collector as any).pendingWrites;
     expect(pendingWrites.size).toBe(0);
 
     expect(inserted).toHaveLength(0);
 
-    setTimeoutSpy.mockRestore();
-    clearTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('reconcileInit cancels stale pending timers before processing the new snapshot', async () => {
-    const capturedTimers: Array<{ fn: TimerHandler; id: number }> = [];
-    let idCounter = 0;
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler) => {
-        const id = ++idCounter;
-        capturedTimers.push({ fn, id });
-        return id as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
-    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
-      const idx = capturedTimers.findIndex((t) => t.id === id);
-      if (idx !== -1) capturedTimers.splice(idx, 1);
-    });
+    const timers = mockSetTimeout();
 
     const { repo, inserted } = createMockRepo();
     const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
 
     // Schedule a write that should be cancelled by reconcileInit
     (collector as any).scheduleWrite(makeContainer({ state: 'running' }), 'upsert');
-    expect(capturedTimers).toHaveLength(1);
+    expect(timers.pending).toHaveLength(1);
 
     // reconcileInit should cancel pending timers before processing
     await (collector as any).reconcileInit([]);
 
-    // The pending timer should have been cancelled (spliced out by clearTimeout mock)
-    expect(capturedTimers).toHaveLength(0);
+    // The pending timer should have been cancelled
+    expect(timers.pending).toHaveLength(0);
     // No writes should have happened from the cancelled timer
     expect(inserted).toHaveLength(0);
 
-    setTimeoutSpy.mockRestore();
-    clearTimeoutSpy.mockRestore();
+    timers.restore();
   });
 });
 
@@ -742,21 +667,7 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
   });
 
   it('DB insert rejection logs reconnect-intent message, aborts the current cycle controller, and purges pending writes', async () => {
-    const capturedTimers: Array<{ fn: TimerHandler; id: number; delay: number }> = [];
-    let idCounter = 0;
-    const cleared: number[] = [];
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler, delay?: number) => {
-        const id = ++idCounter;
-        capturedTimers.push({ fn, id, delay: delay ?? 0 });
-        return id as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
-    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
-      cleared.push(Number(id));
-      const idx = capturedTimers.findIndex((t) => t.id === id);
-      if (idx !== -1) capturedTimers.splice(idx, 1);
-    });
+    const timers = mockSetTimeout();
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
@@ -775,11 +686,11 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
     (collector as any).scheduleWrite(makeContainer({ state: 'exited', exitCode: 1 }), 'upsert');
     (collector as any).scheduleWrite(makeContainer({ id: 'other', state: 'exited' }), 'upsert');
 
-    const flapTimers = capturedTimers.filter((t) => t.delay === 250);
+    const flapTimers = timers.pending.filter((t) => t.delayMs === 250);
     expect(flapTimers.length).toBeGreaterThanOrEqual(2);
     const firstTimer = flapTimers[0];
 
-    if (typeof firstTimer.fn === 'function') firstTimer.fn();
+    timers.fire(firstTimer);
     await Promise.resolve();
     await Promise.resolve();
 
@@ -797,14 +708,12 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
     const cache: Map<string, { state: string | null }> = (collector as any).stateCache;
     expect(cache.get('abc123')?.state).toBe('running');
 
-    void cleared;
-    setTimeoutSpy.mockRestore();
-    clearTimeoutSpy.mockRestore();
+    timers.restore();
     errorSpy.mockRestore();
   });
 
   it('after DB-write failure, run() reconnects and reconcileInit resyncs state from the new snapshot', async () => {
-    const setTimeoutSpy = spyImmediateTimeout();
+    const timers = mockSetTimeout({ fireImmediately: true });
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
@@ -856,24 +765,12 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
     );
     expect(reconnectLog).toBeDefined();
 
-    setTimeoutSpy.mockRestore();
+    timers.restore();
     errorSpy.mockRestore();
   });
 
   it('DB-write failure from a destroy timer also triggers reconnect', async () => {
-    const capturedTimers: Array<{ fn: TimerHandler; id: number }> = [];
-    let idCounter = 0;
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler) => {
-        const id = ++idCounter;
-        capturedTimers.push({ fn, id });
-        return id as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
-    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
-      const idx = capturedTimers.findIndex((t) => t.id === id);
-      if (idx !== -1) capturedTimers.splice(idx, 1);
-    });
+    const timers = mockSetTimeout();
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
     const repo = {
@@ -886,10 +783,10 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
     (collector as any).collectAbort = cycleAbort;
 
     (collector as any).scheduleDestroyWrite('abc123');
-    const destroyTimer = capturedTimers[capturedTimers.length - 1];
+    const destroyTimer = timers.scheduled[timers.scheduled.length - 1];
     expect(destroyTimer).toBeDefined();
 
-    if (typeof destroyTimer.fn === 'function') destroyTimer.fn();
+    timers.fire(destroyTimer);
     await Promise.resolve();
     await Promise.resolve();
 
@@ -903,8 +800,7 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
     const pending: Map<string, unknown> = (collector as any).pendingWrites;
     expect(pending.size).toBe(0);
 
-    setTimeoutSpy.mockRestore();
-    clearTimeoutSpy.mockRestore();
+    timers.restore();
     errorSpy.mockRestore();
   });
 });

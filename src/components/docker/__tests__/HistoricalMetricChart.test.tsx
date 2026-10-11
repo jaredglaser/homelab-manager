@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { EChartsOption } from 'echarts';
+import { mockModule } from '@/lib/test/mock-module';
 
 /**
  * The component renders through echarts-for-react (ReactECharts), not echarts
@@ -20,7 +21,7 @@ mock.module('echarts-for-react', () => ({
 
 const use12HourTime = { value: false };
 
-mock.module('@/hooks/useSettings', () => ({
+mockModule<typeof import('@/hooks/useSettings')>('@/hooks/useSettings', (real) => ({ ...real, 
   useGeneralSettings: () => ({
     general: { use12HourTime: use12HourTime.value },
     retention: {},
@@ -60,7 +61,7 @@ describe('HistoricalMetricChart', () => {
     cleanup();
   });
 
-  it('renders the title and an echarts canvas, building an option with axes and a line series', () => {
+  it('renders the title and an echarts canvas, building an option with axes and a line series', async () => {
     render(
       <HistoricalMetricChart
         title="CPU %"
@@ -73,7 +74,7 @@ describe('HistoricalMetricChart', () => {
     );
 
     expect(screen.getByText('CPU %')).toBeDefined();
-    expect(screen.getByTestId('react-echarts')).toBeDefined();
+    expect(await screen.findByTestId('react-echarts')).toBeDefined();
 
     const option = lastOption();
     const xAxis = option.xAxis as { type: string; min: number; max: number };
