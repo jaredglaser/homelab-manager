@@ -449,6 +449,53 @@ describe('useTimeSeriesStream mux flush', () => {
   });
 });
 
+describe('useTimeSeriesStream preload and delta merge', () => {
+  it('merges preload history and live deltas with no duplicate points or zigzag', async () => {
+    const now = Date.now();
+    const preloadRows: TestRow[] = [
+      { key: 'x-9', time: now - 9000, entity: 'x' },
+      { key: 'x-7', time: now - 7000, entity: 'x' },
+      { key: 'x-5', time: now - 5000, entity: 'x' },
+    ];
+    const preloadFn = mock(() => Promise.resolve(preloadRows));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        channel: testChannel,
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+        updateIntervalMs: 50,
+      })
+    );
+    await waitFor(() => { expect(result.current.rows).toHaveLength(3); });
+
+    act(() => {
+      fakeMux.emitWire(TOPIC, 'data', [
+        { key: 'x-3', time: now - 3000, entity: 'x' },
+        { key: 'x-5', time: now - 5000, entity: 'x' },
+        { key: 'x-4', time: now - 4000, entity: 'x' },
+      ]);
+    });
+    act(() => {
+      fakeMux.emitWire(TOPIC, 'data', [
+        { key: 'x-3', time: now - 3000, entity: 'x' },
+        { key: 'x-2', time: now - 2000, entity: 'x' },
+      ]);
+    });
+
+    await waitFor(() => { expect(result.current.rows).toHaveLength(6); });
+
+    const rows = result.current.rows;
+    expect(rows.map((r) => r.key)).toEqual(['x-9', 'x-7', 'x-5', 'x-4', 'x-3', 'x-2']);
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i].time).toBeGreaterThan(rows[i - 1].time);
+    }
+    expect(result.current.latestByEntity.get('x')?.key).toBe('x-2');
+  });
+});
+
 describe('useTimeSeriesStream dropped frames', () => {
   it('surfaces a dropped frame as a visible gap count and marker, never silent', async () => {
     const preloadFn = mock(() => Promise.resolve([]));
