@@ -323,4 +323,33 @@ describe('useSSEBuffer', () => {
     expect(keys).toContain('c');
     expect(keys).toContain('b');
   });
+
+  it('flush merges rows that predate the buffer tail in sorted order', () => {
+    const { result } = renderBuffer(60, 30);
+    const now = Date.now();
+    act(() => {
+      result.current.replaceBuffer(
+        [
+          { key: 'x-9', time: now - 9000, entity: 'e' },
+          { key: 'x-7', time: now - 7000, entity: 'e' },
+          { key: 'x-5', time: now - 5000, entity: 'e' },
+        ],
+        { mode: 'seed' },
+      );
+    });
+    act(() => result.current.enqueue([{ key: 'x-8', time: now - 8000, entity: 'e' }]));
+    act(() => { intervals.fire(intervals.scheduled[0]); });
+
+    expect(result.current.sortedRows.map(r => r.key)).toEqual(['x-9', 'x-8', 'x-7', 'x-5']);
+  });
+
+  it('a row flushed after a replaceBuffer lands sorted instead of appended', () => {
+    const { result } = renderBuffer(60, 30);
+    const now = Date.now();
+    act(() => { result.current.replaceBuffer([{ key: 'c', time: now - 2000, entity: 'e' }], { mode: 'seed' }); });
+    act(() => result.current.enqueue([{ key: 'b', time: now - 3000, entity: 'e' }]));
+    act(() => { intervals.fire(intervals.scheduled[0]); });
+
+    expect(result.current.sortedRows.map(r => r.key)).toEqual(['b', 'c']);
+  });
 });

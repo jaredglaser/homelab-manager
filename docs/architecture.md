@@ -7,7 +7,7 @@ graph TD
     Browser["Browser<br/>(multiple tabs)"]
 
     subgraph TanStack_Start["TanStack Start Server"]
-        SSE["SSE Endpoints<br/>(server routes)"]
+        Mux["WS Mux<br/>(/api/mux topics)"]
         PollSvc["StatsPollService<br/>(shared 1s poll)"]
         StackBroadcast["StackStatusBroadcastService<br/>(LISTEN docker_container_change + deploy_change)"]
     end
@@ -36,9 +36,9 @@ graph TD
 
     ProxmoxHost["Proxmox VE<br/>REST API"]
 
-    Browser <-->|"SSE streaming"| SSE
-    SSE -->|"Subscribe"| PollSvc
-    SSE -->|"Subscribe"| StackBroadcast
+    Browser <-->|"one WebSocket<br/>(topics)"| Mux
+    Mux -->|"Subscribe"| PollSvc
+    Mux -->|"Subscribe"| StackBroadcast
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| DockerTable
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| ZFSTable
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| ProxmoxTable
@@ -53,7 +53,7 @@ graph TD
 ```
 
 The frontend reads stats from the database, not directly from Docker/ZFS APIs. This enables:
-- **Shared polling** - `StatsPollService` runs 1 query/sec per source, broadcasting results to all SSE clients
+- **Shared polling** - `StatsPollService` runs 1 query/sec per source, broadcasting results to every subscribed WS mux topic
 - **Direct DB queries** with seq-based cursors - no intermediate cache layer
 - **Stale data detection** at both global (30+ second warning) and per-entity levels (amber highlighting for individual hosts/containers)
 
@@ -81,12 +81,12 @@ The worker connects to agent sidecars on each managed host via SSE. For Docker s
 flowchart LR
     DB["TimescaleDB"]
     PollSvc["StatsPollService<br/>(1s shared poll)"]
-    SSE["SSE Endpoints<br/>(subscribers)"]
+    Mux["WS Mux<br/>(/api/mux topic adapters)"]
     Hook["useTimeSeriesStream<br/>(hook)"]
     Table["Virtualized Table<br/>(CSS Grid)"]
 
     PollSvc -->|"Poll every 1s"| DB
-    DB -->|"New rows"| PollSvc -->|"Broadcast"| SSE -->|"SSE push"| Hook --> Table
+    DB -->|"New rows"| PollSvc -->|"Broadcast"| Mux -->|"topic frames"| Hook --> Table
 ```
 
 ### How It Works
@@ -97,14 +97,15 @@ flowchart LR
 4. **ContainerInventoryCollector** connects to each agent's `/containers/events` endpoint and persists container inventory events to `docker_container_events`
 5. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows, and inserts into TimescaleDB
 6. Stats are **inserted** into TimescaleDB wide hypertables
-7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to all subscribed SSE endpoints
-8. **SSE endpoints** subscribe to the poll service; multiple browser tabs share the same poll - only 1 DB query/sec per source
-9. The **`useTimeSeriesStream` hook** preloads history via REST, then merges SSE updates into a time-windowed buffer with stale detection
-10. **Virtualized tables** render via the shared `DataTable` component (CSS Grid + conditional `useVirtualizer`). Tables under 150 rows use `contentVisibility: 'auto'` so the browser natively skips layout/paint for off-screen rows while preserving Collapse animations on nested detail panels (which break under virtualization); larger tables enable contained virtualization. Per-entity stale indicators highlight hosts that stop reporting
+7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to the mux topic adapters behind `stats:*`
+8. **One WebSocket at `/api/mux`** (`server/routes/api/mux.ts`) carries every live topic: `inventory`, `settings`, `stack-status` (control class), `stats:docker|zfs|proxmox`, and `logs:<host>/<containerId>` (bulk class). Multiple browser tabs share the same connection and the same poll - only 1 DB query/sec per source
+9. **Subscribe protocol** - the client sends `{ type: 'sub' | 'unsub', ref, topics }`; each command is answered by one `{ type: 'ack', ref, ok }` (with `error`/`code` on rejection), and topic data arrives as `{ type: 'event', topic, kind, payload }` with `kind` of `data`, `backlog_start`, `backlog_done`, `stream_end`, `error`, or `dropped`. Re-subscribing a topic restarts its adapter and re-delivers initial state (snapshots or log backlog) - that is the resync mechanism; after every reconnect the client re-sends its full topic set. Bulk frames are shed under socket backpressure and reported as `dropped` counts, and a session holds at most 250 topics (circuit breaker)
+10. The **`useTimeSeriesStream` hook** preloads history via REST, then merges topic updates into a time-windowed buffer with stale detection; shed frames surface as gap markers
+11. **Virtualized tables** render via the shared `DataTable` component (CSS Grid + conditional `useVirtualizer`). Tables under 150 rows use `contentVisibility: 'auto'` so the browser natively skips layout/paint for off-screen rows while preserving Collapse animations on nested detail panels (which break under virtualization); larger tables enable contained virtualization. Per-entity stale indicators highlight hosts that stop reporting
 
 ## Proxmox Data Model
 
-Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` discriminator column to distinguish cluster, node, qemu, lxc, and storage entities (similar to how ZFS uses `entity_type` for pool/vdev/disk). This keeps the architecture consistent: one table -> one StatsPollService source -> one SSE stream -> one `useTimeSeriesStream` hook.
+Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` discriminator column to distinguish cluster, node, qemu, lxc, and storage entities (similar to how ZFS uses `entity_type` for pool/vdev/disk). This keeps the architecture consistent: one table -> one StatsPollService source -> one mux topic -> one `useTimeSeriesStream` hook.
 
 - **Bidirectional conversion**: `overviewToRows()` converts the Proxmox API overview to flat DB rows; `buildProxmoxOverview()` reconstructs the overview from latest rows per entity
 - **Runtime-configurable interval**: The Proxmox poll interval (1s or 10s) can be changed via the settings UI; changes propagate via `SettingsListener` -> `ProxmoxCollector.pollInterval` setter
@@ -237,17 +238,17 @@ flowchart LR
     CIC["ContainerInventoryCollector"]
     DB["docker_container_events table<br/>+ NOTIFY docker_container_change"]
     BS["StackStatusBroadcastService<br/>(LISTEN docker_container_change + deploy_change)"]
-    SSE["/api/stack-status SSE"]
+    Mux["stack-status topic<br/>(/api/mux)"]
     UI["useStackStatus hook"]
 
-    DE --> AE --> CIC --> DB --> BS --> SSE --> UI
+    DE --> AE --> CIC --> DB --> BS --> Mux --> UI
 ```
 
 - **Agent** subscribes to Docker daemon events, streams container inventory via SSE
 - **ContainerInventoryCollector** (worker) persists events to the `docker_container_events` table
 - **StackStatusBroadcastService** (server) listens to PostgreSQL `NOTIFY` on `docker_container_change` and `deploy_change` channels
-- **SSE endpoint** sends initial full snapshot on connect, then incremental updates
-- **Event types:** `{ type: 'status', entries: [...] }` and `{ type: 'deploy_changed', stack, host }`
+- **Topic adapter** sends the full `StackStatusEntry[]` snapshot on every subscribe (and re-subscribe), then incremental updates over the `/api/mux` WebSocket
+- **Payloads:** a `StackStatusEntry[]` array (snapshot, and per-stack entries on container changes) and `{ type: 'deploy_changed', stack, host, outcome? }`
 
 ### Git Management (`src/lib/git/`)
 
@@ -359,7 +360,7 @@ Full stack management interface at `/stacks` (top-level navigation).
 | `RollbackDialog` | Rollback to previous deployment |
 | `StackSettingsDialog` | Stack settings editor |
 
-**Real-time updates:** The `useStackStatus` hook subscribes to `/api/stack-status` SSE endpoint. Container status changes and deployment completions are broadcast to all connected browsers.
+**Real-time updates:** The `useStackStatus` hook subscribes to the `stack-status` topic on the `/api/mux` WebSocket. Container status changes and deployment completions are broadcast to all connected browsers.
 
 ### Host Management (Settings UI)
 

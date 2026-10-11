@@ -2,16 +2,14 @@ import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
 import type { MuxFrameBody } from '../../../src/lib/mux/protocol';
 import type { MuxDropPolicyConfig, MuxWriteQueue } from '../../../src/lib/mux/drop-policy';
+import { PING_INTERVAL_MS, RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS } from '../../../src/lib/mux/keepalive';
 
 const LOGS_TOPIC_PREFIX = 'logs:';
 const STATS_TOPIC_PREFIX = 'stats:';
 const INVENTORY_TOPIC = 'inventory';
 const SETTINGS_TOPIC = 'settings';
 const STACK_STATUS_TOPIC = 'stack-status';
-const PING_INTERVAL_MS = 25_000;
 export const MAX_PENDING_FRAMES = 64;
-const AGENT_BASE_BACKOFF_MS = 1_000;
-const AGENT_MAX_BACKOFF_MS = 16_000;
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
 type EmitFrame = (frame: MuxFrameBody) => void;
@@ -195,7 +193,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
         console.error('[mux-ws] log upstream degraded:', err instanceof Error ? err.message : String(err), { host, containerId });
         emit({ topic, kind: 'error', payload: { message: LOGS_DEGRADED_MESSAGE, gone: false } });
       }
-      const delay = Math.min(AGENT_BASE_BACKOFF_MS * 2 ** (attempt - 1), AGENT_MAX_BACKOFF_MS);
+      const delay = Math.min(RECONNECT_BASE_BACKOFF_MS * 2 ** (attempt - 1), RECONNECT_MAX_BACKOFF_MS);
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, delay);
         signal.addEventListener('abort', () => {

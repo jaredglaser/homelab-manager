@@ -21,7 +21,7 @@
 | **Server Runtime** | [Nitro](https://nitro.build/) | Server engine under TanStack Start (pinned to a nightly build via `nitro-nightly`) |
 | **Validation** | [Zod](https://zod.dev) | Schema validation |
 | **Charts** | [Apache ECharts](https://echarts.apache.org/) | Interactive charts - sparklines, dual-series, and historical metric charts |
-| **Terminal** | [xterm.js](https://xtermjs.org/) | Container log viewer with live SSE streaming |
-| **State** | [Jotai](https://jotai.org) | Atomic state management - settings atoms with optimistic updates and SSE sync |
+| **Terminal** | [xterm.js](https://xtermjs.org/) | Container log viewer with live log streaming over the WS mux |
+| **State** | [Jotai](https://jotai.org) | Atomic state management - settings atoms with optimistic updates and live sync over the WS mux |
 | **Testing** | [`bun:test`](https://bun.sh/docs/cli/test) + [Happy-DOM](https://github.com/capricorn86/happy-dom) + [Testing Library](https://testing-library.com) | Test runner, DOM environment, and component testing utilities |
 | **Language** | TypeScript + React 19 | Type-safe UI development |

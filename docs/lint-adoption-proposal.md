@@ -2,6 +2,8 @@
 
 Status: research deliverable. Nothing in this document was installed, configured, or committed beyond the document itself at the time of writing (2026-07-25, tree `d2e3e4f`). The adoption landed on 2026-10-08; the adoption PR body carries the numbers re-measured against the newer tree. One recommendation was dropped at adoption: the comment-prose rule (sections 4 and 7) is not worth a lint rule, and the comment guidelines stay prose in AGENTS.md.
 
+**Update (2026-10-10):** the SSE surface this document's seam rule guarded no longer exists. The seven per-stream SSE routes, the `createSseStream`/`createBroadcastSseHandler`/`createStatsSseHandler` factories, and the `useEventSource`/`useSseChannel`/`createReconnectingEventSource` hooks were deleted after every channel moved onto the WS mux (`/api/mux`; protocol in [architecture.md](architecture.md)). The seam rules were rewritten against the mux seam and the current rule text lives in `eslint.config.mjs`. Everything below is the historical record of the adoption decision, measured at `d2e3e4f`; the routes, hooks, and scripts it names existed only at that tree.
+
 Every violation count below was **measured**, not estimated: ESLint 10.8.0 with typescript-eslint 8.65.0 was installed in a scratch directory outside the repo and run against this worktree at `d2e3e4f`. Where a number is projected rather than measured, it says so.
 
 ---
@@ -347,7 +349,7 @@ A disable directive naming a rule that is not configured is a **hard error**, no
 
 ---
 
-## 6. The SSE seam rule, verbatim
+## 6. The SSE seam rule, verbatim (historical - the guarded surface was deleted 2026-10-10)
 
 This is the hard requirement. All five shapes from the specification are expressible in `no-restricted-syntax` with no custom plugin, and all five were validated empirically.
 
