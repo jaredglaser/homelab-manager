@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { useSseChannel } from '@/hooks/useSseChannel';
+import { useMuxQuery } from '@/lib/mux/use-mux-channel';
+import { INVENTORY_TOPIC } from '@/lib/mux/protocol';
 import { dockerInventoryChannel } from '@/lib/sse/channels/docker-inventory';
 import type {
   DockerInventorySnapshotContainer,
@@ -31,39 +31,43 @@ export function mergeUpsert(
   };
 }
 
-export function useDockerInventory(): UseDockerInventoryResult {
-  const [inventory, setInventory] = useState<Map<string, DockerInventorySnapshotContainer>>(new Map());
-
-  const handleData = useCallback((event: DockerInventoryBroadcastEvent) => {
-    if (event.type === 'init') {
-      const next = new Map<string, DockerInventorySnapshotContainer>();
-      for (const container of event.containers) {
-        next.set(`${container.host}/${container.containerId}`, container);
-      }
-      setInventory(next);
-    } else if (event.type === 'upsert') {
-      const container = event.container;
-      setInventory((prev) => {
-        const next = new Map(prev);
-        const key = `${container.host}/${container.containerId}`;
-        next.set(key, mergeUpsert(prev.get(key), container));
-        return next;
-      });
-    } else if (event.type === 'destroy') {
-      const key = `${event.host}/${event.containerId}`;
-      setInventory((prev) => {
-        if (!prev.has(key)) return prev;
-        const next = new Map(prev);
-        next.delete(key);
-        return next;
-      });
+export function foldInventory(
+  prev: Map<string, DockerInventorySnapshotContainer>,
+  event: DockerInventoryBroadcastEvent,
+): Map<string, DockerInventorySnapshotContainer> {
+  if (event.type === 'init') {
+    const next = new Map<string, DockerInventorySnapshotContainer>();
+    for (const container of event.containers) {
+      next.set(`${container.host}/${container.containerId}`, container);
     }
-  }, []);
+    return next;
+  }
+  if (event.type === 'upsert') {
+    const container = event.container;
+    const next = new Map(prev);
+    const key = `${container.host}/${container.containerId}`;
+    next.set(key, mergeUpsert(prev.get(key), container));
+    return next;
+  }
+  const key = `${event.host}/${event.containerId}`;
+  if (!prev.has(key)) return prev;
+  const next = new Map(prev);
+  next.delete(key);
+  return next;
+}
 
-  const { isConnected, error } = useSseChannel(dockerInventoryChannel, {
-    onData: handleData,
-    serviceErrorMessage: 'Inventory stream unavailable',
-  });
+const EMPTY_INVENTORY = new Map<string, DockerInventorySnapshotContainer>();
 
-  return { inventory, isConnected, error };
+export function useDockerInventory(): UseDockerInventoryResult {
+  const { state, isConnected, error } = useMuxQuery(
+    { ...dockerInventoryChannel, topic: INVENTORY_TOPIC },
+    {
+      queryKey: ['docker-inventory'],
+      initial: EMPTY_INVENTORY,
+      fold: foldInventory,
+      serviceErrorMessage: 'Inventory stream unavailable',
+    },
+  );
+
+  return { inventory: state, isConnected, error };
 }
