@@ -29,6 +29,14 @@ function postRequest(): Request {
   return new Request('http://localhost/trigger', { method: 'POST' });
 }
 
+function triggerRequest(body: unknown): Request {
+  return new Request('http://localhost/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 function waitFor(cond: () => boolean): Promise<void> {
   return new Promise((resolve) => {
     const tick = () => (cond() ? resolve() : setTimeout(tick, 5));
@@ -41,6 +49,53 @@ describe('createTriggerHandler', () => {
     const handler = createTriggerHandler(createMockUpdater());
     const response = await handler(new Request('http://localhost/trigger', { method: 'GET' }));
     expect(response.status).toBe(405);
+  });
+
+  test('returns 400 and does not check when targetImage is a floating tag', async () => {
+    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const handler = createTriggerHandler(createMockUpdater({ check }));
+    const state = createTriggerState();
+
+    const response = await handler(triggerRequest({ targetImage: 'ghcr.io/org/agent:latest' }));
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toContain('digest');
+    expect(check).not.toHaveBeenCalled();
+    expect(state.updating).toBe(false);
+  });
+
+  test('returns 400 when targetImage is present but not a valid sha256 digest', async () => {
+    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const handler = createTriggerHandler(createMockUpdater({ check }));
+
+    const response = await handler(triggerRequest({ targetImage: 'ghcr.io/org/agent@sha256:nothex' }));
+
+    expect(response.status).toBe(400);
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  test('passes a digest-pinned targetImage through to check and perform', async () => {
+    const target = 'ghcr.io/org/agent@sha256:' + 'c'.repeat(64);
+    const check = mock(() => Promise.resolve({ updateAvailable: true, currentDigest: 'sha256:a', remoteDigest: target }));
+    const perform = mock(() => Promise.resolve({ success: true }));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }));
+
+    const response = await handler(triggerRequest({ targetImage: target }));
+
+    expect(response.status).toBe(202);
+    expect(check).toHaveBeenCalledWith(target);
+    expect(perform).toHaveBeenCalledWith(target);
+  });
+
+  test('keeps the legacy floating-tag path when the body carries no targetImage', async () => {
+    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const handler = createTriggerHandler(createMockUpdater({ check }));
+
+    const response = await handler(postRequest());
+
+    expect(response.status).toBe(200);
+    expect(check).toHaveBeenCalledWith(undefined);
   });
 
   test('returns 200 updateAvailable false when the agent is current', async () => {

@@ -3,37 +3,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory'
 
-// Register module mocks before any component import: a mock.module call made
-// after the module graph has loaded leaves it wired to the real server fns.
-let authState: { user: { id: number; email: string; name: string | null; role: 'admin' | 'operator' | 'viewer' } | null; loading: boolean; authEnabled: boolean } = {
-  user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' },
-  loading: false,
-  authEnabled: true,
-}
-
-mock.module('@/hooks/useAuth', () => ({
-  useAuth: () => authState,
-}))
-
-const listAgentsInventory = mock((): Promise<AgentInventoryEntry[]> => Promise.resolve([]))
-const updateAgent = mock((_data: { data: { hostId: number } }) =>
-  Promise.resolve({}) as Promise<import('@/data/hosts/handlers').HostOperationResult>,
-)
-
-mock.module('@/data/hosts/functions', () => ({
-  listAgentsInventory: () => listAgentsInventory(),
-  updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
-}))
-
-let sseHandler: ((snapshot: { entries: AgentInventoryEntry[] }) => void) | null = null
-
-mock.module('@/lib/mux/use-mux-channel', () => ({
-  useMuxChannel: (_channel: unknown, options: { onData: (data: { entries: AgentInventoryEntry[] }) => void }) => {
-    sseHandler = options.onData
-    return { isConnected: true, error: null }
-  },
-}))
-
 const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntry => ({
   id: 1,
   name: 'homeserver',

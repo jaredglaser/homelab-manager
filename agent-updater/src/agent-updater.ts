@@ -56,7 +56,7 @@ export class AgentUpdater {
   }
 
   /** Check whether a newer image digest is available on the registry. */
-  async checkForUpdate(): Promise<UpdateCheckResult> {
+  async checkForUpdate(targetImage?: string): Promise<UpdateCheckResult> {
     try {
       const container = this.docker.getContainer(this.config.containerName);
       const containerInfo = await container.inspect();
@@ -67,7 +67,7 @@ export class AgentUpdater {
         imageInfo.RepoDigests?.[0] ?? containerInfo.Image
       );
 
-      const remoteImage = this.docker.getImage(this.config.imageName);
+      const remoteImage = this.docker.getImage(targetImage ?? this.config.imageName);
       const distribution = await remoteImage.distribution();
       const remoteDigest = distribution.Descriptor?.digest as string | undefined;
 
@@ -85,7 +85,8 @@ export class AgentUpdater {
   }
 
   /** Pull new image, stop old container, recreate with same config, verify health. Rolls back on failure. */
-  async performUpdate(): Promise<UpdateResult> {
+  async performUpdate(targetImage?: string): Promise<UpdateResult> {
+    const image = targetImage ?? this.config.imageName;
     let previousImage: string | undefined;
     let containerInfo: Dockerode.ContainerInspectInfo | undefined;
     let teardownCompleted = false;
@@ -97,8 +98,8 @@ export class AgentUpdater {
       // new image, which would make rollback a no-op.
       previousImage = await this.resolvePreviousImageRef(containerInfo);
 
-      console.info(`Pulling new image: ${this.config.imageName}`);
-      await this.pullImage(this.config.imageName);
+      console.info(`Pulling new image: ${image}`);
+      await this.pullImage(image);
 
       console.info(`Stopping container: ${this.config.containerName}`);
       await container.stop();
@@ -106,10 +107,10 @@ export class AgentUpdater {
       teardownCompleted = true;
 
       console.info(`Creating container: ${this.config.containerName}`);
-      const newContainer = await this.recreateContainer(containerInfo);
+      const newContainer = await this.recreateContainer(containerInfo, image);
       await newContainer.start();
 
-      const wait = await this.resolveHealthWaitParams();
+      const wait = await this.resolveHealthWaitParams(image);
       const healthy = await this.waitForHealthy(newContainer, wait.maxAttempts, wait.intervalMs);
       if (!healthy) {
         console.info('Docker health check failed, rolling back to previous image');
@@ -117,7 +118,7 @@ export class AgentUpdater {
         return {
           success: false,
           previousImage,
-          newImage: this.config.imageName,
+          newImage: image,
           error: 'Health check failed after update',
           rolledBack,
         };
@@ -130,17 +131,17 @@ export class AgentUpdater {
         return {
           success: false,
           previousImage,
-          newImage: this.config.imageName,
+          newImage: image,
           error: 'Agent HTTP health check failed after update',
           rolledBack,
         };
       }
 
-      console.info(`Successfully updated to ${this.config.imageName}`);
+      console.info(`Successfully updated to ${image}`);
       return {
         success: true,
         previousImage,
-        newImage: this.config.imageName,
+        newImage: image,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -152,7 +153,7 @@ export class AgentUpdater {
         return {
           success: false,
           previousImage,
-          newImage: this.config.imageName,
+          newImage: image,
           error: message,
           rolledBack,
         };
@@ -161,7 +162,7 @@ export class AgentUpdater {
       return {
         success: false,
         previousImage,
-        newImage: this.config.imageName,
+        newImage: image,
         error: message,
       };
     }
@@ -187,10 +188,10 @@ export class AgentUpdater {
     return containerInfo.Image;
   }
 
-  private async resolveHealthWaitParams(): Promise<HealthWaitParams> {
+  private async resolveHealthWaitParams(image: string): Promise<HealthWaitParams> {
     let derived: HealthWaitParams;
     try {
-      const imageInfo = await this.docker.getImage(this.config.imageName).inspect();
+      const imageInfo = await this.docker.getImage(image).inspect();
       derived = deriveHealthWaitParams(imageInfo.Config?.Healthcheck);
     } catch {
       derived = deriveHealthWaitParams(undefined);
@@ -244,9 +245,10 @@ export class AgentUpdater {
   }
 
   private async recreateContainer(
-    previousInfo: Dockerode.ContainerInspectInfo
+    previousInfo: Dockerode.ContainerInspectInfo,
+    image: string
   ): Promise<Dockerode.Container> {
-    const createOptions = this.buildContainerOptions(this.config.imageName, previousInfo);
+    const createOptions = this.buildContainerOptions(image, previousInfo);
     return this.docker.createContainer(createOptions);
   }
 

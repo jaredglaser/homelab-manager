@@ -1,5 +1,8 @@
 import type { AgentUpdater } from './agent-updater';
 
+// Digest-only target: a floating tag would let the sidecar converge to an image newer than the manager itself runs.
+const DIGEST_REF_PATTERN = /@sha256:[0-9a-f]{64}$/;
+
 export interface TriggerState {
   updating: boolean;
 }
@@ -19,10 +22,28 @@ export function createTriggerHandler(updater: AgentUpdater, state: TriggerState 
       return Response.json({ error: 'An update is already in progress' }, { status: 409 });
     }
 
+    let body: { targetImage?: unknown } | null = null;
+    try {
+      body = (await request.json()) as { targetImage?: unknown };
+    } catch {
+      body = null;
+    }
+    let targetImage: string | undefined;
+    if (body?.targetImage !== undefined) {
+      // Absent targetImage keeps the legacy floating-tag path for already-deployed relays.
+      if (typeof body.targetImage !== 'string' || !DIGEST_REF_PATTERN.test(body.targetImage)) {
+        return Response.json(
+          { error: 'targetImage must be an image reference pinned to a sha256 digest' },
+          { status: 400 },
+        );
+      }
+      targetImage = body.targetImage;
+    }
+
     state.updating = true;
     let check;
     try {
-      check = await updater.checkForUpdate();
+      check = await updater.checkForUpdate(targetImage);
     } catch (error) {
       state.updating = false;
       const message = error instanceof Error ? error.message : String(error);
@@ -35,7 +56,7 @@ export function createTriggerHandler(updater: AgentUpdater, state: TriggerState 
       return Response.json({ updateAvailable: false, currentDigest: check.currentDigest ?? null });
     }
 
-    void updater.performUpdate()
+    void updater.performUpdate(targetImage)
       .then((result) => {
         if (result.success) {
           console.info(`Triggered update completed: ${result.previousImage} → ${result.newImage}`);

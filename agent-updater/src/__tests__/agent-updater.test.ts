@@ -132,6 +132,35 @@ describe('AgentUpdater', () => {
       expect(result.remoteDigest).toBe('sha256:new-digest');
     });
 
+    test('queries the registry for the target digest instead of the configured tag', async () => {
+      const target = 'ghcr.io/org/agent@sha256:' + 'd'.repeat(64);
+      const mockContainer = {
+        inspect: mock(() => Promise.resolve(createMockContainerInfo({ Image: 'sha256:old-image-id' }))),
+      };
+      const mockLocalImage = {
+        inspect: mock(() => Promise.resolve({ RepoDigests: ['ghcr.io/org/agent@sha256:old-digest'] })),
+      };
+      const mockRemoteImage = {
+        distribution: mock(() => Promise.resolve({ Descriptor: { digest: target } })),
+      };
+      const seen: string[] = [];
+      const mockDocker = {
+        getContainer: mock(() => mockContainer),
+        getImage: mock((name: string) => {
+          seen.push(name);
+          return seen.length === 1 ? mockLocalImage : mockRemoteImage;
+        }),
+      };
+
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+      const result = await updater.checkForUpdate(target);
+
+      expect(seen[1]).toBe(target);
+      expect(result.updateAvailable).toBe(true);
+      expect(result.currentDigest).toBe('sha256:old-digest');
+      expect(result.remoteDigest).toBe(target);
+    });
+
     test('returns updateAvailable false when digests match', async () => {
       const containerInfo = createMockContainerInfo({
         Image: 'sha256:some-image-id',
@@ -257,6 +286,48 @@ describe('AgentUpdater', () => {
       expect(mockNewContainer.start).toHaveBeenCalledTimes(1);
       expect(mockDocker.createContainer).toHaveBeenCalledTimes(1);
       expect(mockHealthReporter.checkAgentHealth).toHaveBeenCalledTimes(1);
+    });
+
+    test('pulls and recreates from the digest-pinned target instead of the configured tag', async () => {
+      const target = 'ghcr.io/org/agent@sha256:' + 'e'.repeat(64);
+      const containerInfo = createMockContainerInfo();
+      const newContainerInfo = createMockContainerInfo({
+        State: { Running: true, Health: { Status: 'healthy' } },
+      });
+
+      const mockOldContainer = {
+        inspect: mock(() => Promise.resolve(containerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+      const mockNewContainer = {
+        start: mock(() => Promise.resolve()),
+        inspect: mock(() => Promise.resolve(newContainerInfo)),
+      };
+
+      const pulled: string[] = [];
+      const created: string[] = [];
+      const mockDocker = {
+        getContainer: mock(() => mockOldContainer),
+        getImage: mock(() => createMockImageInspect()),
+        pull: mock((imageName: string, cb: (err: Error | null, stream: NodeJS.ReadableStream) => void) => {
+          pulled.push(imageName);
+          cb(null, {} as NodeJS.ReadableStream);
+        }),
+        modem: createMockModem(),
+        createContainer: mock((options: { Image: string }) => {
+          created.push(options.Image);
+          return Promise.resolve(mockNewContainer);
+        }),
+      };
+
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+      const result = await updater.performUpdate(target);
+
+      expect(result.success).toBe(true);
+      expect(result.newImage).toBe(target);
+      expect(pulled).toEqual([target]);
+      expect(created).toEqual([target]);
     });
 
     test('considers container healthy when no healthcheck is defined and running', async () => {
