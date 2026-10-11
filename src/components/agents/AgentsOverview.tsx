@@ -181,7 +181,7 @@ export function AgentsOverviewView({
   }
 
   return (
-    <div className="bg-card rounded-lg border border-border divide-y-0">
+    <div className="bg-card rounded-lg border border-border">
       {agents.map((agent) => (
         <AgentRow
           key={agent.id}
