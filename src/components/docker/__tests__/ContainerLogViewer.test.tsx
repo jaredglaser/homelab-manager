@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, afterAll } from 'bun:test';
 import { render, screen, waitFor } from '@testing-library/react';
+import { mockModule } from '@/lib/test/mock-module';
 
 // Track mock terminal instances for lifecycle testing
 const mockTerminalInstances: { dispose: ReturnType<typeof mock>; loadAddon: ReturnType<typeof mock>; open: ReturnType<typeof mock> }[] = [];
@@ -46,7 +47,7 @@ mock.module('@xterm/xterm/css/xterm.css', () => ({}));
 // Mock useContainerLogs
 let mockReturnValue = { isConnected: false, error: null as Error | null };
 
-mock.module('@/hooks/useContainerLogs', () => ({
+mockModule<typeof import('@/hooks/useContainerLogs')>('@/hooks/useContainerLogs', (real) => ({ ...real, 
   useContainerLogs: (opts: { containerId: string; host: string }) => {
     lastCallOpts = opts;
     return mockReturnValue;

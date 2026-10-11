@@ -30,6 +30,13 @@ for (const path of PACKAGES) manifests.set(path, await readManifest(path));
 
 const root = manifests.get("package.json")!.deps;
 
+// Root's `typescript` is the @typescript/typescript6 shim (TS 6 API for
+// typescript-eslint). The shared compiler lives in the `@typescript/native`
+// alias, so compare its version against the other packages' `typescript`.
+if (typeof root["@typescript/native"] === "string") {
+  root["typescript"] = root["@typescript/native"].replace(/^npm:typescript@/, "");
+}
+
 if (process.argv[2] === "--apply") {
   for (const path of PACKAGES.slice(1)) {
     const { deps, raw } = manifests.get(path)!;

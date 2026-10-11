@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDetail } from '@/types/stacks';
+import { mockModule } from '@/lib/test/mock-module';
 
 // Integration test: exercises the REAL ComposeEditor (Controller + shared form)
 // against the deploy guard in StackEditorForm. Only Monaco and the router hooks
@@ -17,17 +18,17 @@ mock.module('@monaco-editor/react', () => ({
 }));
 
 const realRouter = await import('@tanstack/react-router');
-mock.module('@tanstack/react-router', () => ({
+mockModule<typeof import('@tanstack/react-router')>('@tanstack/react-router', (real) => ({ ...real, 
   ...realRouter,
   useNavigate: () => mock(() => {}),
   useBlocker: () => ({ status: 'idle', proceed: () => {}, reset: () => {} }),
 }));
 
-mock.module('@/hooks/useAuth', () => ({ useCanWrite: () => true }));
+mockModule<typeof import('@/hooks/useAuth')>('@/hooks/useAuth', (real) => ({ ...real,  useCanWrite: () => true }));
 
 const mockTriggerDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
 const realFns = await import('@/data/stacks/functions');
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   ...realFns,
   getStackVariableValues: mock(() => Promise.resolve({})),
   getDeployHistory: mock(() => Promise.resolve([])),

@@ -2,8 +2,9 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { GitTokenWithUser } from '@/lib/database/repositories/git-token-repository';
 import { withStartContext } from '@/lib/test/start-context';
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@/middleware/auth-middleware', () => ({
+mockModule<typeof import('@/middleware/auth-middleware')>('@/middleware/auth-middleware', (real) => ({ ...real, 
   authMiddleware: {
     options: {
       type: 'function',
@@ -28,18 +29,18 @@ mock.module('@/middleware/auth-middleware', () => ({
 const mockPool = { query: mock(async () => ({ rows: [] })) };
 const mockGetClient = mock(async () => ({ getPool: () => mockPool }));
 
-mock.module('@/lib/clients/database-client', () => ({
+mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
   databaseConnectionManager: { getClient: mockGetClient },
 }));
-mock.module('@/lib/config/database-config', () => ({
+mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
   loadDatabaseConfig: () => ({}),
 }));
 
 const mockEncryptValue = mock(async (_plaintext: string, _keyring: unknown) => 'jwe:encrypted:token');
-mock.module('@/lib/crypto/encrypted-value', () => ({
+mockModule<typeof import('@/lib/crypto/encrypted-value')>('@/lib/crypto/encrypted-value', (real) => ({ ...real, 
   encryptValue: mockEncryptValue,
 }));
-mock.module('@/lib/crypto/master-key', () => ({
+mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
   loadMasterKeyring: mock(async () => ({ activeKid: 'v1', keys: new Map() })),
 }));
 
@@ -53,7 +54,7 @@ const mockCreate = mock(async (input: { userId: number; encryptedToken: string; 
 const mockFindAll = mock(async (): Promise<GitTokenWithUser[]> => []);
 const mockDeleteById = mock(async (_id: number) => {});
 
-mock.module('@/lib/database/repositories/git-token-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/git-token-repository')>('@/lib/database/repositories/git-token-repository', (real) => ({ ...real, 
   GitTokenRepository: class MockGitTokenRepository {
     constructor() {}
     create = mockCreate;

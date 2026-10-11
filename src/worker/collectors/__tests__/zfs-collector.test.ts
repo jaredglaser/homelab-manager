@@ -1,8 +1,9 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { ZFSCollector } from '../zfs-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
 import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
 /** Wrap a list of ZFS iostat lines as `{ line }` frames (optionally with an agent timestamp). */
 function lineFrames(lines: string[], timestamp?: number): unknown[] {
@@ -333,6 +334,16 @@ describe('ZFSCollector', () => {
   });
 
   describe('reconnection', () => {
+    let timers: TimerMock;
+
+    beforeEach(() => {
+      timers = mockSetTimeout({ fireImmediately: true });
+    });
+
+    afterEach(() => {
+      timers.restore();
+    });
+
     it('run() reconnects after stream error with backoff', async () => {
       let callCount = 0;
 
@@ -358,6 +369,8 @@ describe('ZFSCollector', () => {
       await collector.run();
 
       expect(callCount).toBeGreaterThanOrEqual(2);
+      // error #1 backoff: baseMs 500 * 2^1
+      expect(timers.delays).toEqual([1000]);
     });
 
     it('run() reconnects after a connect failure with backoff', async () => {
@@ -380,6 +393,8 @@ describe('ZFSCollector', () => {
       await collector.run();
 
       expect(callCount).toBeGreaterThanOrEqual(3);
+      // two error backoffs: baseMs 500 * 2^1 then 2^2
+      expect(timers.delays).toEqual([1000, 2000]);
     });
   });
 

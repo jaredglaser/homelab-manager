@@ -14,6 +14,7 @@ import { MISSING_REPO_COMPOSE_MESSAGE } from '@/lib/stacks/stack-drift-service';
 import { parseManifest } from '@/lib/git/manifest';
 import { MANIFEST, composePath, serializeManifest } from '@/lib/stacks/stack-repo-layout';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
+import { mockModule } from '@/lib/test/mock-module';
 
 const PLEX_COMPOSE = 'services:\n  plex:\n    image: plex:repo\n';
 
@@ -26,13 +27,13 @@ let inventoryByHost = new Map<string, AgentStackInventoryEntry[]>();
 let inventoryErrorsByHost = new Map<string, AgentStackInventoryError[]>();
 let unreachableHosts = new Set<string>();
 
-mock.module('@/lib/clients/database-client', () => ({
+mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
   databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => ({}) }) },
 }));
 
-mock.module('@/lib/config/database-config', () => ({ loadDatabaseConfig: () => ({}) }));
+mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real,  loadDatabaseConfig: () => ({}) }));
 
-mock.module('@/lib/database/repositories/deploy-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/deploy-repository')>('@/lib/database/repositories/deploy-repository', (real) => ({ ...real, 
   DeployRepository: class {
     getLatestDeployPerStack = () =>
       latestDeploysError ? Promise.reject(latestDeploysError) : Promise.resolve(latestDeploys);
@@ -44,14 +45,14 @@ mock.module('@/lib/database/repositories/deploy-repository', () => ({
   },
 }));
 
-mock.module('@/lib/database/repositories/host-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
   HostRepository: class {
     findAll = () => Promise.resolve(managedHosts);
     findByName = (name: string) => Promise.resolve(managedHosts.find((h) => h.name === name) ?? null);
   },
 }));
 
-mock.module('@/lib/clients/agent-client', () => ({
+mockModule<typeof import('@/lib/clients/agent-client')>('@/lib/clients/agent-client', (real) => ({ ...real, 
   AgentClient: class {
     getStackInventory: () => Promise<{
       stacks: AgentStackInventoryEntry[];
@@ -71,14 +72,14 @@ mock.module('@/lib/clients/agent-client', () => ({
   },
 }));
 
-mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
   AgentKeypairsRepository: class {
     getPrivateKeyForHost = () => Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'x', d: 'd' });
   },
 }));
 
-mock.module('@/lib/crypto/agent-jwt', () => ({ signAgentJwt: () => Promise.resolve('jwt') }));
-mock.module('@/lib/crypto/master-key', () => ({ loadMasterKeyring: () => Promise.resolve({}) }));
+mockModule<typeof import('@/lib/crypto/agent-jwt')>('@/lib/crypto/agent-jwt', (real) => ({ ...real,  signAgentJwt: () => Promise.resolve('jwt') }));
+mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real,  loadMasterKeyring: () => Promise.resolve({}) }));
 
 function host(name: string, dockerEnabled: boolean): ManagedHost {
   return {

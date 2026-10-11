@@ -1,16 +1,15 @@
-import { describe, it, expect, spyOn } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
 import { abortableSleep, isAbortError } from '../abortable-sleep';
 
 describe('abortableSleep', () => {
   it('should resolve after the specified duration', async () => {
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout,
-    );
+    const timers = mockSetTimeout({ fireImmediately: true });
     try {
       await abortableSleep(50, new AbortController().signal);
-      expect(setTimeoutSpy.mock.calls[0]?.[1]).toBe(50);
+      expect(timers.setSpy.mock.calls[0]?.[1]).toBe(50);
     } finally {
-      setTimeoutSpy.mockRestore();
+      timers.restore();
     }
   });
 
