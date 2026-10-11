@@ -50,6 +50,7 @@ const TEST_HOST: ManagedHost = {
   status: 'healthy',
   createdAt: new Date(),
   updatedAt: new Date(),
+  lastSweptAt: null,
 };
 
 async function buildPlexChangeCommits(repoPath: string): Promise<{ sha1: string; sha2: string }> {

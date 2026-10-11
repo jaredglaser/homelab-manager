@@ -3,10 +3,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDriftItem } from '@/types/stacks';
 import { STACKS_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys';
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockResolveDrift = mock(() => Promise.resolve({}));
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   resolveDrift: mockResolveDrift,
 }));
 

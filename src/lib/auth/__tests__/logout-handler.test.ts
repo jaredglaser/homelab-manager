@@ -6,6 +6,7 @@ import {
   type LogoutHandlerDeps,
 } from '@/lib/auth/logout-handler';
 import { buildClearSessionCookie } from '@/lib/auth/session-cookie';
+import { mockModule } from '@/lib/test/mock-module';
 
 // mock.module intercepts dynamic imports inside logoutGetHandler.
 const mockIsAuthDisabled = mock(() => false);
@@ -18,7 +19,7 @@ const mockLoadAuthConfig = mock(() => ({
   roleMapping: { admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' },
 }));
 
-mock.module('@/lib/config/auth-config', () => ({
+mockModule<typeof import('@/lib/config/auth-config')>('@/lib/config/auth-config', (real) => ({ ...real, 
   isAuthDisabled: mockIsAuthDisabled,
   isSecureCookie: mockIsSecureCookie,
   loadAuthConfig: mockLoadAuthConfig,
@@ -31,18 +32,18 @@ const mockBuildSessionManager = mock(async () => ({
   revokeSession: mockRevokeSession,
 }));
 
-mock.module('@/lib/auth/session-manager', () => ({
+mockModule<typeof import('@/lib/auth/session-manager')>('@/lib/auth/session-manager', (real) => ({ ...real, 
   buildSessionManager: mockBuildSessionManager,
 }));
 
 const mockGetLogoutUrl = mock(async (_uri: string, _hint?: string) => null as string | null);
-mock.module('@/lib/auth/oidc-client', () => ({
+mockModule<typeof import('@/lib/auth/oidc-client')>('@/lib/auth/oidc-client', (real) => ({ ...real, 
   OidcClient: class {
     getLogoutUrl(uri: string, hint?: string) { return mockGetLogoutUrl(uri, hint); }
   },
 }));
 
-mock.module('@/lib/auth/oidc-secrets', () => ({
+mockModule<typeof import('@/lib/auth/oidc-secrets')>('@/lib/auth/oidc-secrets', (real) => ({ ...real, 
   getOidcClientSecret: mock(async () => 'mock-secret'),
 }));
 

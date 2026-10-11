@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 
-const { renderHook } = await import('@testing-library/react');
+const { renderHook, act } = await import('@testing-library/react');
 const { useEChartTimeScroll } = await import('../useEChartTimeScroll');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,11 +78,21 @@ describe('useEChartTimeScroll', () => {
     return { current: document.createElement('div') };
   }
 
+  function makeInstance(setOption: (opt: unknown) => void, isDisposed = false) {
+    return { setOption, isDisposed: () => isDisposed };
+  }
+
+  function markReady(result: { current: (instance: unknown) => void }, instance: unknown) {
+    act(() => {
+      result.current(instance);
+    });
+  }
+
   it('does not schedule rAF before the target becomes visible', () => {
     const mockSetOption = mock(() => {});
     const chartRef = {
       current: {
-        getEchartsInstance: () => ({ setOption: mockSetOption }),
+        getEchartsInstance: () => makeInstance(mockSetOption),
       },
     };
 
@@ -98,7 +108,7 @@ describe('useEChartTimeScroll', () => {
     const mockSetOption = mock(() => {});
     const chartRef = {
       current: {
-        getEchartsInstance: () => ({ setOption: mockSetOption }),
+        getEchartsInstance: () => makeInstance(mockSetOption),
       },
     };
     const targetRef = makeTargetRef();
@@ -110,21 +120,74 @@ describe('useEChartTimeScroll', () => {
     expect(rafCallbacks.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('calls setOption with xAxis min/max on each frame', () => {
+  it('skips setOption until onChartReady fires with the live instance', () => {
+    // Regression: merging xAxis-only into echarts-for-react's bare temporary
+    // instance throws in CartesianAxisView.render and kills the rAF loop.
     const mockSetOption = mock(() => {});
+    const instance = makeInstance(mockSetOption);
     const chartRef = {
       current: {
-        getEchartsInstance: () => ({ setOption: mockSetOption }),
+        getEchartsInstance: () => instance,
       },
     };
     const targetRef = makeTargetRef();
 
-    renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
+    const { result } = renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
     ioInstances[0].emit(targetRef.current, true);
 
-    const cb = rafCallbacks[0];
+    expect(() => rafCallbacks[0](performance.now())).not.toThrow();
+    expect(mockSetOption).not.toHaveBeenCalled();
+
+    markReady(result, instance);
+    rafCallbacks[1](performance.now());
+
+    expect(mockSetOption).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips setOption when the live instance differs from the ready one', () => {
+    // A remount or re-init puts a fresh bare instance on the element while the
+    // hook still holds the previously-ready one; only the ready instance is driven.
+    const readySetOption = mock(() => {});
+    const bareSetOption = mock(() => {});
+    const readyInstance = makeInstance(readySetOption);
+    const bareInstance = makeInstance(bareSetOption);
+    let live = bareInstance;
+    const chartRef = {
+      current: {
+        getEchartsInstance: () => live,
+      },
+    };
+    const targetRef = makeTargetRef();
+
+    const { result } = renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
+    ioInstances[0].emit(targetRef.current, true);
+    markReady(result, readyInstance);
+
+    expect(() => rafCallbacks[0](performance.now())).not.toThrow();
+    expect(bareSetOption).not.toHaveBeenCalled();
+
+    live = readyInstance;
+    rafCallbacks[1](performance.now());
+
+    expect(readySetOption).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls setOption with xAxis min/max on each frame once ready', () => {
+    const mockSetOption = mock(() => {});
+    const instance = makeInstance(mockSetOption);
+    const chartRef = {
+      current: {
+        getEchartsInstance: () => instance,
+      },
+    };
+    const targetRef = makeTargetRef();
+
+    const { result } = renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
+    ioInstances[0].emit(targetRef.current, true);
+    markReady(result, instance);
+
     const beforeCall = Date.now();
-    cb(performance.now());
+    rafCallbacks[0](performance.now());
     const afterCall = Date.now();
 
     expect(mockSetOption).toHaveBeenCalledTimes(1);
@@ -140,10 +203,29 @@ describe('useEChartTimeScroll', () => {
     const chartRef = { current: null };
     const targetRef = makeTargetRef();
 
-    renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
+    const { result } = renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
     ioInstances[0].emit(targetRef.current, true);
+    markReady(result, makeInstance(mock(() => {})));
 
     expect(() => rafCallbacks[0](performance.now())).not.toThrow();
+  });
+
+  it('skips setOption once the instance is disposed', () => {
+    const mockSetOption = mock(() => {});
+    const instance = makeInstance(mockSetOption, true);
+    const chartRef = {
+      current: {
+        getEchartsInstance: () => instance,
+      },
+    };
+    const targetRef = makeTargetRef();
+
+    const { result } = renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
+    ioInstances[0].emit(targetRef.current, true);
+    markReady(result, instance);
+
+    expect(() => rafCallbacks[0](performance.now())).not.toThrow();
+    expect(mockSetOption).not.toHaveBeenCalled();
   });
 
   it('cancels animation frame on unmount', () => {

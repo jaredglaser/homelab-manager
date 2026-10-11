@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FormProvider, useForm } from 'react-hook-form';
 import type { StackFormValues } from '@/components/stacks/stack-form';
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockGetValues = mock((): Promise<Record<string, string>> =>
   Promise.resolve({ DB_URL: 'super-secret', SECRET_KEY: 'super-secret' }));
@@ -12,7 +13,7 @@ const mockEnsureVariablesExist = mock(() => Promise.resolve(undefined));
 
 const realModule = await import('@/data/stacks/functions');
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   ...realModule,
   getStackVariableValues: mockGetValues,
   setVariableValue: mockSetSecret,
@@ -21,7 +22,7 @@ mock.module('@/data/stacks/functions', () => ({
 }));
 
 const mockShowToast = mock((_message: string, _severity: string) => {});
-mock.module('@/hooks/toastAtom', () => ({
+mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real, 
   useToast: () => ({ showToast: mockShowToast }),
 }));
 

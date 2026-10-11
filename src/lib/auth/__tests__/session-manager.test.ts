@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { SessionManager, resetSessionManagerState } from '../session-manager';
 import type { SessionManagerDeps } from '../session-manager';
 import type { AuthUser } from '@/lib/auth/types';
+import { mockModule } from '@/lib/test/mock-module';
 
 // Mock the JWE encryption module so tests don't need real crypto keys
 const mockEncryptValue = mock(async (_plaintext: string, _keyring: unknown) => 'jwe:mock:encrypted');
@@ -10,7 +11,7 @@ const mockDecryptValue = mock(async (ciphertext: string, _keyring: unknown) =>
   ciphertext.replace('jwe:mock:', ''),
 );
 
-mock.module('@/lib/crypto/encrypted-value', () => ({
+mockModule<typeof import('@/lib/crypto/encrypted-value')>('@/lib/crypto/encrypted-value', (real) => ({ ...real, 
   encryptValue: mockEncryptValue,
   decryptValue: mockDecryptValue,
 }));
@@ -20,13 +21,13 @@ const mockBuiltPool = { query: mock(async () => ({ rows: [] })) };
 const mockGetClient = mock(async () => ({ getPool: () => mockBuiltPool }));
 const mockLoadMasterKeyring = mock(async () => ({ activeKid: 'v1', keys: new Map() }));
 
-mock.module('@/lib/clients/database-client', () => ({
+mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
   databaseConnectionManager: { getClient: mockGetClient },
 }));
-mock.module('@/lib/config/database-config', () => ({
+mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({ ...real, 
   loadDatabaseConfig: () => ({}),
 }));
-mock.module('@/lib/crypto/master-key', () => ({
+mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
   loadMasterKeyring: mockLoadMasterKeyring,
 }));
 

@@ -4,6 +4,7 @@ import {
   type StartupRecoveryRepo,
   type WatchdogController,
 } from '../startup-recovery';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
 function createRepo(overrides: Partial<StartupRecoveryRepo> = {}): StartupRecoveryRepo {
   return {
@@ -24,23 +25,15 @@ function createWatchdog(): WatchdogController & { startMock: ReturnType<typeof m
 }
 
 describe('performStartupRecovery', () => {
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
-  let capturedDelays: number[];
+  let timers: TimerMock;
 
   beforeEach(() => {
-    capturedDelays = [];
     // Fire retry()'s abortableSleep synchronously so tests don't wait on real timers.
-    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler, delay?: number) => {
-        capturedDelays.push(delay ?? 0);
-        if (typeof fn === 'function') fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
+    timers = mockSetTimeout({ fireImmediately: true });
   });
 
   afterEach(() => {
-    setTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('starts the watchdog when no rows are recovered', async () => {

@@ -2,12 +2,13 @@ import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { DockerStatsRow } from '@/types/docker';
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@/hooks/toastAtom', () => ({
+mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real, 
   useToast: () => ({ showToast: () => {} }),
 }));
 
-mock.module('@/hooks/usePulseIndicator', () => ({
+mockModule<typeof import('@/hooks/usePulseIndicator')>('@/hooks/usePulseIndicator', (real) => ({ ...real, 
   usePulseIndicator: () => ({
     indicatorRef: { current: null },
     pingRef: { current: null },
@@ -17,7 +18,7 @@ mock.module('@/hooks/usePulseIndicator', () => ({
 
 /** Records every buildContainerChartData call so tests can assert reuse vs rebuild */
 const chartDataCalls: DockerStatsRow[][] = [];
-mock.module('@/hooks/useContainerChartData', () => ({
+mockModule<typeof import('@/hooks/useContainerChartData')>('@/hooks/useContainerChartData', (real) => ({ ...real, 
   buildContainerChartData: (chartData: DockerStatsRow[]) => {
     chartDataCalls.push(chartData);
     return { sparklineData: undefined, dataPoints: [] };
@@ -47,7 +48,7 @@ mock.module('@xterm/addon-fit', () => ({
 }));
 mock.module('@xterm/xterm/css/xterm.css', () => ({}));
 
-mock.module('@/hooks/useContainerLogs', () => ({
+mockModule<typeof import('@/hooks/useContainerLogs')>('@/hooks/useContainerLogs', (real) => ({ ...real, 
   useContainerLogs: () => ({ isConnected: false, error: null }),
 }));
 
@@ -55,7 +56,7 @@ mock.module('@/hooks/useContainerLogs', () => ({
 mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
   default: () => <div data-testid="echarts-mock" />,
 }));
-mock.module('@/hooks/useEChartTimeScroll', () => ({
+mockModule<typeof import('@/hooks/useEChartTimeScroll')>('@/hooks/useEChartTimeScroll', (real) => ({ ...real, 
   useEChartTimeScroll: () => {},
 }));
 
@@ -63,7 +64,7 @@ mock.module('@/components/docker/ContainerActionButtons', () => ({
   default: () => null,
 }));
 
-mock.module('@/lib/utils/icon-resolver', () => ({
+mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolver', (real) => ({ ...real, 
   getIconUrl: () => '/icon.png',
   FALLBACK_ICON_URL: '/fallback.png',
   AVAILABLE_ICONS: [],
