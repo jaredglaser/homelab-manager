@@ -1,6 +1,7 @@
 import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
-import { toHostListItem } from '@/lib/hosts/host-utils';
+import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
@@ -191,6 +192,7 @@ export async function handleUpdateAgent(
   deps: HostHandlerDeps & {
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
     checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
   },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
@@ -214,6 +216,22 @@ export async function handleUpdateAgent(
   // other cause would make a later version read look like a change that never happened.
   const preInfoUnsupported = preCheck.infoSupported === false;
 
+  const resolveDigest = deps.resolveAgentImageDigest ?? resolveAgentImageDigest;
+  const imageRef = getAgentImage();
+  const digest = await resolveDigest(imageRef);
+  if (!digest) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Could not resolve the agent image digest from the registry',
+      suggestions: [
+        'Verify ghcr.io/jaredglaser/homelab-manager-agent is reachable and public',
+        'Check the VITE_AGENT_IMAGE_TAG the dashboard was built with',
+      ],
+    };
+  }
+  const targetImage = `${imageRef.slice(0, imageRef.lastIndexOf(':'))}@${digest}`;
+
   let signer: () => Promise<string>;
   try {
     signer = await deps.getSigner(host.name);
@@ -236,7 +254,8 @@ export async function handleUpdateAgent(
     const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
     triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${jwt}` },
+      headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetImage }),
       redirect: 'manual',
     });
   } catch (err) {

@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
+import { getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
 import {
   handleListHosts,
@@ -370,11 +371,19 @@ describe('handleRotateHostKeypair', () => {
 describe('handleUpdateAgent', () => {
   const getSigner = mock(async (_name: string) => mock(async () => 'jwt-token'));
 
-  function updateDeps(repo?: Partial<HostRepo>, checkHealth?: (url: string, hostName: string) => Promise<import('@/lib/hosts/host-utils').HealthCheckOutcome>) {
+  const TEST_DIGEST = 'sha256:' + 'b'.repeat(64);
+  const TEST_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent@${TEST_DIGEST}`;
+
+  function updateDeps(
+    repo?: Partial<HostRepo>,
+    checkHealth?: (url: string, hostName: string) => Promise<import('@/lib/hosts/host-utils').HealthCheckOutcome>,
+    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>,
+  ) {
     return {
       ...baseDeps(repo),
       getSigner,
       checkHealth: checkHealth ?? mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })),
+      resolveAgentImageDigest: resolveAgentImageDigest ?? mock(async (_imageRef: string) => TEST_DIGEST),
     };
   }
 
@@ -388,6 +397,42 @@ describe('handleUpdateAgent', () => {
   it('throws when host not found', async () => {
     const deps = updateDeps({ findById: mock(() => Promise.resolve(null)) });
     await expect(handleUpdateAgent(deps, { hostId: 99 })).rejects.toThrow('not found');
+  });
+
+  it('resolves the build-time image to a digest and sends it as the trigger target', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      const resolveAgentImageDigest = mock(async (_imageRef: string) => TEST_DIGEST);
+      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentImage());
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://192.168.1.10:9090/agent/update',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ targetImage: TEST_TARGET }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('fails without triggering when the registry cannot resolve the digest', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, undefined, mock(async (_imageRef: string) => null));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.error).toBe('Could not resolve the agent image digest from the registry');
+        expect(result.suggestions).toContain('Verify ghcr.io/jaredglaser/homelab-manager-agent is reachable and public');
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
   });
 
   it('fails before update when the agent is unreachable', async () => {
