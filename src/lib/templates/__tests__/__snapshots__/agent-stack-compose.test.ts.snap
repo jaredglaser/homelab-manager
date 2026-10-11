@@ -59,9 +59,7 @@ services:
     environment:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
-      HLM_CHECK_INTERVAL: \${HLM_CHECK_INTERVAL:-6h}
       HLM_AGENT_URL: http://hlm-agent:9090
-      HLM_AUTO_UPDATE: \${HLM_AUTO_UPDATE:-false}
       HLM_TRIGGER_PORT: "9091"
     labels:
       - hlm.managed=true
@@ -110,9 +108,7 @@ services:
     environment:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
-      HLM_CHECK_INTERVAL: \${HLM_CHECK_INTERVAL:-6h}
       HLM_AGENT_URL: http://hlm-agent:9090
-      HLM_AUTO_UPDATE: \${HLM_AUTO_UPDATE:-false}
       HLM_TRIGGER_PORT: "9091"
     labels:
       - hlm.managed=true
@@ -185,9 +181,7 @@ services:
     environment:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
-      HLM_CHECK_INTERVAL: \${HLM_CHECK_INTERVAL:-6h}
       HLM_AGENT_URL: http://hlm-agent:9090
-      HLM_AUTO_UPDATE: \${HLM_AUTO_UPDATE:-false}
       HLM_TRIGGER_PORT: "9091"
     labels:
       - hlm.managed=true
@@ -208,8 +202,6 @@ exports[`generateAgentStackEnv generates env for Docker-only host 1`] = `
 AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:latest
 HLM_AGENT_PORT=9090
 HLM_STACKS_DIR=/opt/homelab-manager/stacks
-# Manual by default; the per-agent opt-in flips this to true.
-HLM_AUTO_UPDATE=false
 "
 `;
 
@@ -218,8 +210,6 @@ exports[`generateAgentStackEnv generates env for ZFS-only host 1`] = `
 AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:v1.0.0
 HLM_AGENT_PORT=9090
 HLM_STACKS_DIR=/opt/homelab-manager/stacks
-# Manual by default; the per-agent opt-in flips this to true.
-HLM_AUTO_UPDATE=false
 HLM_ZFS_UID=1100
 HLM_ZFS_GID=1100
 "
@@ -230,8 +220,6 @@ exports[`generateAgentStackEnv generates env for Docker + ZFS host 1`] = `
 AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:latest
 HLM_AGENT_PORT=9090
 HLM_STACKS_DIR=/opt/homelab-manager/stacks
-# Manual by default; the per-agent opt-in flips this to true.
-HLM_AUTO_UPDATE=false
 HLM_ZFS_UID=1100
 HLM_ZFS_GID=1100
 DOCKER_GID=999

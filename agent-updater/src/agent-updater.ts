@@ -4,7 +4,6 @@ import type { HealthReporter } from './health-reporter';
 export interface AgentUpdaterConfig {
   containerName: string;
   imageName: string;
-  checkIntervalMs: number;
   healthCheckMaxAttempts?: number;
   healthCheckIntervalMs?: number;
 }

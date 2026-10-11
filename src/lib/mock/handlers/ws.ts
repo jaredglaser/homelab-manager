@@ -98,6 +98,14 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
       client.send(eventFrame(topic, 'data', { type: 'init', settings: loadDemoSettings() }));
       return;
     }
+    if (topic === 'agent-inventory') {
+      void import('@/lib/mock/functions/hosts.functions').then(({ listAgentsInventory }) =>
+        listAgentsInventory().then((entries) => {
+          client.send(eventFrame(topic, 'data', { entries, sweptAt: new Date().toISOString() }));
+        }),
+      );
+      return;
+    }
     if (topic === 'stack-status') {
       topicCleanups.set(topic, stackStatusUpdates.on((message) => {
         client.send(eventFrame(topic, 'data', message));

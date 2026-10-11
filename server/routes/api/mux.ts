@@ -9,6 +9,7 @@ const STATS_TOPIC_PREFIX = 'stats:';
 const INVENTORY_TOPIC = 'inventory';
 const SETTINGS_TOPIC = 'settings';
 const STACK_STATUS_TOPIC = 'stack-status';
+const AGENT_INVENTORY_TOPIC = 'agent-inventory';
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
 type EmitFrame = (frame: MuxFrameBody) => void;
@@ -72,6 +73,17 @@ async function inventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSig
   );
   const unsubscribe = dockerInventoryBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: event });
+  });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
+async function agentInventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  const { agentInventoryBroadcastService } = await import(
+    '../../../src/lib/agents/agent-inventory-broadcast-service'
+  );
+  const unsubscribe = agentInventoryBroadcastService.subscribe((snapshot) => {
+    emit({ topic, kind: 'data', payload: snapshot });
   });
   signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
@@ -352,6 +364,9 @@ export const defaultTopicAdapter: TopicAdapter = (topic, emit, signal) => {
   }
   if (topic === STACK_STATUS_TOPIC) {
     return stackStatusAdapter(topic, emit, signal);
+  }
+  if (topic === AGENT_INVENTORY_TOPIC) {
+    return agentInventoryAdapter(topic, emit, signal);
   }
   if (topic.startsWith(LOGS_TOPIC_PREFIX)) {
     return logsAdapter(topic, emit, signal);

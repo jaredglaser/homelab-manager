@@ -1,8 +1,6 @@
 import Dockerode from 'dockerode';
 import { AgentUpdater } from './agent-updater';
 import { HealthReporter } from './health-reporter';
-import { parseInterval } from './parse-interval';
-import { parseAutoUpdate, AUTO_UPDATE_ENV } from './parse-auto-update';
 import { createTriggerHandler, createTriggerState } from './trigger-server';
 
 function parseTriggerPort(raw: string | undefined): number | null {
@@ -23,19 +21,9 @@ function startTriggerServer(updater: AgentUpdater, port: number): void {
 async function main(): Promise<void> {
   const containerName = process.env.HLM_WATCH_CONTAINER || 'hlm-agent';
   const imageName = process.env.HLM_WATCH_IMAGE;
-  const intervalStr = process.env.HLM_CHECK_INTERVAL || '6h';
 
   if (!imageName) {
     console.error('HLM_WATCH_IMAGE environment variable is required');
-    process.exit(1);
-  }
-
-  let checkIntervalMs: number;
-  try {
-    checkIntervalMs = parseInterval(intervalStr);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(message);
     process.exit(1);
   }
 
@@ -43,26 +31,13 @@ async function main(): Promise<void> {
   const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
   const healthReporter = new HealthReporter(agentUrl);
 
-  // Manual by default: unless the operator explicitly opted this agent in,
-  // the updater must never check for or apply updates on its own.
-  const autoUpdateRaw = process.env[AUTO_UPDATE_ENV];
-  const autoUpdate = parseAutoUpdate(autoUpdateRaw);
-  if (autoUpdate === null) {
-    console.error(`Invalid ${AUTO_UPDATE_ENV} value: '${autoUpdateRaw}'. Must be 'true' or 'false'.`);
-    process.exit(1);
-  }
-
   const updater = new AgentUpdater(docker, {
     containerName,
     imageName,
-    checkIntervalMs,
   }, healthReporter);
 
   console.info(`Agent updater started, watching container '${containerName}' for image '${imageName}'`);
-  console.info(`Check interval: ${intervalStr} (${checkIntervalMs}ms)`);
-  if (!autoUpdate) {
-    console.info('Automatic updates are disabled for this agent (manual by default). Set HLM_AUTO_UPDATE=true to opt in.');
-  }
+  console.info('Updates are manual only: the manager triggers them via the agent relay.');
 
   const triggerPort = parseTriggerPort(process.env.HLM_TRIGGER_PORT);
   if (triggerPort === null) {
@@ -71,43 +46,17 @@ async function main(): Promise<void> {
   }
   if (triggerPort > 0) {
     startTriggerServer(updater, triggerPort);
+  } else {
+    console.info('Trigger server disabled (HLM_TRIGGER_PORT=0); exiting.');
+    return;
   }
 
-  let shutdownRequested = false;
-
-  function requestShutdown(): void {
-    console.info('Shutdown signal received, finishing current cycle...');
-    shutdownRequested = true;
-  }
-
-  process.on('SIGINT', requestShutdown);
-  process.on('SIGTERM', requestShutdown);
-
-  while (!shutdownRequested) {
-    if (autoUpdate) {
-      try {
-        const check = await updater.checkForUpdate();
-
-        if (check.updateAvailable) {
-          console.info(`Update available: ${check.currentDigest} → ${check.remoteDigest}`);
-          const result = await updater.performUpdate();
-
-          if (result.success) {
-            console.info(`Update completed: ${result.previousImage} → ${result.newImage}`);
-          } else {
-            console.error(`Update failed: ${result.error}${result.rolledBack ? ' (rolled back)' : ''}`);
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`Update check error: ${message}`);
-      }
-    }
-
-    if (shutdownRequested) break;
-
-    await new Promise((resolve) => setTimeout(resolve, checkIntervalMs));
-  }
+  // Nothing runs on a schedule: the process exists to serve the manual trigger
+  // endpoint, so it just parks until a shutdown signal arrives.
+  await new Promise<void>((resolve) => {
+    process.once('SIGINT', resolve);
+    process.once('SIGTERM', resolve);
+  });
 
   console.info('Agent updater shut down gracefully');
 }

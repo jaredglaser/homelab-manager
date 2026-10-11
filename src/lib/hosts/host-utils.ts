@@ -10,8 +10,6 @@ export interface HostListItem {
   agentVersion: string | null;
   agentImage: string | null;
   agentImageTag: string | null;
-  /** Per-agent auto-update opt-in; false (manual) by default. */
-  autoUpdate: boolean;
   status: HostStatus;
   createdAt: string;
   updatedAt: string;
@@ -44,7 +42,6 @@ export function toHostListItem(
     agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agentVersion,
     agentImage: row.agentImage,
     agentImageTag: row.agentImageTag,
-    autoUpdate: row.autoUpdate,
     status: overrides?.status ?? row.status,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

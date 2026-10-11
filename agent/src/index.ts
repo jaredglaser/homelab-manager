@@ -12,7 +12,6 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
-import { handleAgentUpdaterPolicy, parseUpdaterPolicyRequest } from './routes/agent-updater-policy';
 
 const portEnv = process.env.AGENT_PORT;
 let PORT = 9090;
@@ -162,12 +161,6 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
 
   if (url.pathname === '/agent/update' && request.method === 'POST') return handleAgentUpdate(docker, UPDATER_TRIGGER_URL);
-  if (url.pathname === '/agent/updater-policy' && request.method === 'POST') {
-    return parseUpdaterPolicyRequest(request).then((parsed) => {
-      if (parsed instanceof Response) return parsed;
-      return handleAgentUpdaterPolicy(docker, parsed.autoUpdate);
-    });
-  }
 
   return null;
 }

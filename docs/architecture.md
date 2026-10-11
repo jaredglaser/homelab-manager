@@ -190,7 +190,6 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
 | POST | `/agent/update` | Relay a manual update to the agent-updater sidecar |
-| POST | `/agent/updater-policy` | Recreate the agent-updater container with a new auto-update policy |
 
 **Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work. `ALLOW_LOGS=1` is required for container log streaming; without it the proxy returns 403 on `/containers/{id}/logs`.
 
@@ -198,7 +197,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 
 Separate Bun service that monitors and updates agent containers without manual Docker commands. Connects directly to the Docker socket proxy (bypasses the agent, which cannot replace its own container).
 
-**Update policy:** manual by default. Unless the `HLM_AUTO_UPDATE` env var is exactly `true`, the updater never checks for or applies updates on its own; the manager's per-host manual update action drives updates through the agent relay. Each host opts in individually via the persisted `managed_hosts.auto_update` setting, which the manager pushes to the agent (JWT-authenticated) so the agent recreates this container with the matching env value.
+**Update policy:** manual only. The updater never checks for or applies updates on its own; the manager's per-host manual update action drives updates through the agent relay.
 
 **Manual trigger:** the updater serves an internal-only HTTP endpoint (`HLM_TRIGGER_PORT`, default 9091, reachable only from the host's Docker network). `POST /trigger` checks the registry and, when a newer digest exists, answers 202 and performs the update asynchronously. The agent relays the manager's update requests to it.
 
