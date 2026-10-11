@@ -12,7 +12,7 @@ const customLogger = {
   ...logger,
   warn(msg: string, options?: any) {
     // Suppress "use client" directive warnings from MUI and other libraries
-    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('\"use client\"')) {
+    if (msg.includes('Module level directives cause errors when bundled') && msg.includes('"use client"')) {
       return
     }
     logger.warn(msg, options)
@@ -24,8 +24,12 @@ const isDev = process.env.NODE_ENV !== 'production'
 function buildAliases(): Record<string, string> {
   // Demo and e2e modes no longer swap server-function modules at build time;
   // MSW intercepts the real RPC/SSE network calls instead (see src/lib/mock).
+  // monaco-worker-manager imports a deep monaco-editor subpath that the exports map refuses to resolve.
   return {
     '@': fileURLToPath(new URL('./src', import.meta.url)),
+    'monaco-editor/esm/vs/editor/editor.worker.js': fileURLToPath(
+      new URL('./node_modules/monaco-editor/esm/vs/editor/editor.worker.js', import.meta.url),
+    ),
   }
 }
 
@@ -97,7 +101,7 @@ export default defineConfig(({ mode }) => {
         external: ['undici'],
         onwarn(warning, warn) {
           // Suppress "use client" directive warnings from MUI and other libraries
-          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('\"use client\"')) {
+          if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {
             return
           }
           warn(warning)

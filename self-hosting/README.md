@@ -249,6 +249,8 @@ Two separate credentials are involved, neither of which is an env var:
 > **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and sends the public JWK to the agent. Each deploy request carries a short-lived signed JWT; the agent verifies it against the trusted public key.
 >
 > **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose stack for the agent and handles key exchange during the Verify step. Set `AGENT_HOST_NAME` on the agent to the host name you enter in the wizard (see [Agent Environment](#agent-environment)). Once connectivity is confirmed, the keypair is stored and the host is ready.
+>
+> **Rotating a host keypair:** Use **Settings → Managed Hosts → key icon** on the host row, then **Rotate keypair** (confirm twice). The dialog shows the new public JWK; copy it into the agent's `AGENT_TRUSTED_PUBKEY` (or `AGENT_TRUSTED_PUBKEY_FILE`) in that machine's `.env` and recreate the agent container. Until you do, every authenticated call to that agent fails with 401: the dashboard signs with the new key immediately, and the agent still trusts the old one. The dialog stays open with the new key until you close it.
 
 ### PostgreSQL Connection
 

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFormContext } from 'react-hook-form';
 import type { StackDetail, StackDeployRecord, DeployStatus } from '@/types/stacks';
 import { DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys';
+import { mockModule } from '@/lib/test/mock-module';
 
 // Router hooks are the only things StackEditorForm needs from the router; stub
 // them so we can drive the blocker state and observe navigation.
@@ -15,14 +16,14 @@ const resetSpy = mock(() => {});
 let blockerReturn: { status: 'idle' | 'blocked'; proceed: () => void; reset: () => void } = {
   status: 'idle', proceed: proceedSpy, reset: resetSpy,
 };
-mock.module('@tanstack/react-router', () => ({
+mockModule<typeof import('@tanstack/react-router')>('@tanstack/react-router', (real) => ({ ...real, 
   ...realRouter,
   useNavigate: () => navigateSpy,
   useBlocker: (opts: typeof capturedBlockerOpts) => { capturedBlockerOpts = opts; return blockerReturn; },
 }));
 
 let mockCanWrite = true;
-mock.module('@/hooks/useAuth', () => ({
+mockModule<typeof import('@/hooks/useAuth')>('@/hooks/useAuth', (real) => ({ ...real, 
   useCanWrite: () => mockCanWrite,
 }));
 
@@ -87,7 +88,7 @@ mock.module('@/components/stacks/DeleteStackDialog', () => ({
 }));
 
 const mockShowToast = mock((_message: string, _severity: string) => {});
-mock.module('@/hooks/toastAtom', () => ({ useToast: () => ({ showToast: mockShowToast }) }));
+mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real,  useToast: () => ({ showToast: mockShowToast }) }));
 
 type DeleteResult = { status: 'removed'; commitSha: string } | { status: 'teardown-pending'; deployId: number };
 // Fresh id per call: the deployToastGate singleton dedupes by id across this whole file.
@@ -106,7 +107,7 @@ const mockScanDrift = mock(() => Promise.resolve({
 }));
 const mockGetDeployHistory = mock((_args: unknown): Promise<StackDeployRecord[]> => Promise.resolve([]));
 const realFns = await import('@/data/stacks/functions');
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   ...realFns,
   getDeployHistory: mockGetDeployHistory,
   listManagedHostNames: mock(() => Promise.resolve([])),

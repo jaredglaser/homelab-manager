@@ -2,10 +2,11 @@ import { describe, expect, it, mock } from 'bun:test';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDriftReport } from '@/types/stacks';
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockResolveDrift = mock(() => Promise.resolve({}));
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   resolveDrift: mockResolveDrift,
 }));
 

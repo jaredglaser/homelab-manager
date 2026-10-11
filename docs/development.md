@@ -64,7 +64,7 @@ COMPOSE_PROFILES="management"
 ### Step 2: Start the Dev Stack
 
 ```bash
-bun run setup              # Installs homelab-manager and agent
+bun run setup              # Installs homelab-manager, agent, and agent-updater
 
 # Terminal 1: Start all Docker services
 bun run dev:local:up
@@ -85,6 +85,19 @@ This starts:
 The stacks feature uses an in-app git repo to store Docker Compose files. Clone it and add some sample containers so the dashboard has data to display:
 
 **Docker monitoring:** The local compose file seeds a localhost agent (via `HOMELAB_DEV_SEED=true`, which generates a dev Ed25519 keypair and writes the public JWK to `data/dev-agent-pubkey.json` for the agent to read) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams; it does not connect to Docker directly. No host port is needed for the Docker socket.
+
+#### Rotating the Dev Agent Keypair
+
+Development-only. Self-hosters follow the procedure in [self-hosting/README.md](../self-hosting/README.md#rotating-a-host-keypair) instead: they edit the agent's `AGENT_TRUSTED_PUBKEY` env var on the host machine, not a file inside this repo.
+
+Rotating a host's keypair (Settings → Managed Hosts → key icon, or the SQL below) updates only the database. The agent keeps trusting the old key from `data/dev-agent-pubkey.json` and the worker keeps signing with the key it loaded at startup, so stats, inventory, logs, and deploys all fail with 401 until both are resynced:
+
+```bash
+docker exec homelab-db-local psql -U homelab -d homelab -t -A -c "SELECT public_jwk::text FROM agent_keypairs WHERE host_name = 'localhost'" > data/dev-agent-pubkey.json
+docker restart hlm-agent homelab-worker-local
+```
+
+This assumes the default dev seed values: host name `localhost` (`DEV_HOST_NAME`), pubkey path `data/dev-agent-pubkey.json` (`DEV_AGENT_PUBKEY_FILE`), and Postgres user/database `homelab`/`homelab` from `.env`. Adjust the command if you overrode any of them.
 
 Cloning requires a per-user git token. Log in as `dev-admin` using a one-time URL from `data/dev-oidc-logins.txt` (see [docs/dev-oidc.md](dev-oidc.md)), then generate a token under **Settings → Auth Management → Generate Git Token**. When git prompts for credentials, enter any username and the token as the password (keeping the token out of shell history and `.git/config`):
 
@@ -216,6 +229,14 @@ bun run test:coverage:all   # Run tests in both with coverage thresholds
 - Enforced by `bun run test` (which pipes `--coverage` to `scripts/check-coverage.js`) and CI. Bare `bun test --isolate` does NOT enforce the thresholds.
 
 Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).
+
+### Shared Dependency Versions
+
+The three packages (homelab-manager, agent, agent-updater) are independent Bun projects with their own lockfiles; they install separately so each Docker image build resolves exactly its own `bun.lock` (the agent and agent-updater images are built from their own directories and pinned to their own lockfiles). Dependencies in the shared set (`dockerode`, `jose`, `zod`, `@types/dockerode`, `@types/bun`, `typescript`) are versioned once, in the root `package.json`:
+
+- `bun run deps:check` fails when a package's shared dep differs from root or uses a caret/tilde range. CI runs this on every PR.
+- `bun run deps:sync` copies root's versions into the other manifests and reinstalls the affected packages.
+- Bump shared deps by editing root `package.json`, running `bun install` at the root, then `bun run deps:sync`.
 
 ### End-to-End (Playwright + MSW)
 

@@ -7,6 +7,7 @@ export type { HostListItem } from '@/lib/hosts/host-utils';
 export interface KeypairsDep {
   createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
+  getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
 }
 
 export interface AddHostResult {
@@ -120,6 +121,31 @@ export async function handleUpdateHost(
 
   const updated = await deps.repo.update(data.hostId, fields);
   return toHostListItem(updated);
+}
+
+export async function handleGetHostPublicJwk(
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { hostId: number },
+): Promise<{ publicJwk: import('jose').JWK }> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const publicJwk = await deps.keypairs.getPublicJwkForHost(host.name);
+  if (!publicJwk) {
+    throw new Error(`No agent keypair found for host ${host.name}`);
+  }
+  return { publicJwk };
+}
+
+export async function handleRotateHostKeypair(
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { hostId: number },
+): Promise<{ hostId: number; publicJwk: import('jose').JWK }> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const { publicJwk } = await deps.keypairs.createForHost(host.name);
+  return { hostId: host.id, publicJwk };
 }
 
 /**

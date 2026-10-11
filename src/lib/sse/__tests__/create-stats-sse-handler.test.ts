@@ -1,10 +1,12 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { mockSetInterval } from '@/lib/test/mock-timers';
 import { createStatsSseHandler } from '../create-stats-sse-handler';
 import { dockerStatsChannel } from '../channels/docker-stats';
 import { zfsStatsChannel } from '../channels/zfs-stats';
 import { proxmoxStatsChannel } from '../channels/proxmox-stats';
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@/lib/auth/sse-auth', () => ({
+mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({ ...real, 
   authenticateSSE: mock(async () => ({ id: 1, role: 'admin' })),
 }));
 
@@ -31,7 +33,7 @@ function setupStatsPollService() {
     return unsubscribe;
   });
 
-  mock.module('@/lib/database/subscription-service', () => ({
+  mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database/subscription-service', (real) => ({ ...real, 
     statsPollService: { subscribe },
   }));
 
@@ -146,7 +148,7 @@ describe('createStatsSseHandler', () => {
     const subscribe = mock(() => {
       throw new Error('poll service unavailable');
     });
-    mock.module('@/lib/database/subscription-service', () => ({
+    mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database/subscription-service', (real) => ({ ...real, 
       statsPollService: { subscribe },
     }));
 
@@ -170,7 +172,7 @@ describe('createStatsSseHandler', () => {
   });
 
   it('carries the shared heartbeat cadence: a comment frame follows the initial flush on an idle stream', async () => {
-    const setSpy = spyOn(globalThis, 'setInterval');
+    const intervals = mockSetInterval();
     setupStatsPollService();
     const handler = createStatsSseHandler('docker', dockerStatsChannel);
     const ac = new AbortController();
@@ -178,9 +180,9 @@ describe('createStatsSseHandler', () => {
     await handler({ request: makeRequest(ac) });
 
     // StatsPollService only calls sendData on new rows, so idle streams need the shared heartbeat.
-    expect(setSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
+    expect(intervals.setSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
 
-    setSpy.mockRestore();
+    intervals.restore();
     ac.abort();
   });
 });

@@ -1,16 +1,17 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { mockModule } from '@/lib/test/mock-module';
 
 const controlContainerMock = mock(() => Promise.resolve());
 
-mock.module('@/data/docker/functions', () => ({
+mockModule<typeof import('@/data/docker/functions')>('@/data/docker/functions', (real) => ({ ...real, 
   controlContainer: controlContainerMock,
 }));
 
 const showToastMock = mock();
 
-mock.module('@/hooks/toastAtom', () => ({
+mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real, 
   useToast: () => ({ showToast: showToastMock }),
 }));
 
