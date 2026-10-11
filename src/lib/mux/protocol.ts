@@ -95,8 +95,6 @@ export function parseStatsTopic(topic: string): StatsTopicSource | null {
 
 const TOPIC_REGISTRY = new Map<string, MuxTopicSpec>([
   [INVENTORY_TOPIC, { class: 'control' }],
-  [SETTINGS_TOPIC, { class: 'control' }],
-  [STACK_STATUS_TOPIC, { class: 'control' }],
   [statsTopic('docker'), { class: 'bulk' }],
   [statsTopic('zfs'), { class: 'bulk' }],
   [statsTopic('proxmox'), { class: 'bulk' }],
@@ -109,7 +107,12 @@ export function lookupTopicSpec(topic: string): MuxTopicSpec | null {
 }
 
 export function isValidTopic(topic: unknown): topic is string {
-  return typeof topic === 'string' && lookupTopicSpec(topic) !== null;
+  if (typeof topic !== 'string') return false;
+  return (
+    topic === SETTINGS_TOPIC ||
+    topic === STACK_STATUS_TOPIC ||
+    lookupTopicSpec(topic) !== null
+  );
 }
 
 export function parseCommandFrame(raw: unknown): MuxCommandFrame | null {
