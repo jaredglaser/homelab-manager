@@ -64,6 +64,10 @@ Open http://localhost:3000.
 
 Full instructions: [Self-Hosting Guide](self-hosting/README.md). For local development setup (source checkout, HMR, sample data), see the [Development Guide](docs/development.md).
 
+## Releases
+
+Releases are automated with [release-please](https://github.com/googleapis/release-please). The squash commit subject (the PR title) is the release input: release-please maintains a standing release PR from the conventional-commit history, and merging it tags `vX.Y.Z`, publishes versioned images to GHCR, and creates the GitHub Release with generated notes. What shipped in each version is in [CHANGELOG.md](CHANGELOG.md), and which image tag to run is covered in the [self-hosting guide](self-hosting/README.md#image-tags). The full mechanics are documented in [AGENTS.md](AGENTS.md) under CI/CD.
+
 ## Roadmap
 
 - [x] TimescaleDB persistence with automatic compression
@@ -76,6 +80,7 @@ Full instructions: [Self-Hosting Guide](self-hosting/README.md). For local devel
 - [x] Encrypted-at-rest stack secrets and agent keypairs (JWE)
 - [x] Agent-updater sidecar for automatic container updates
 - [x] Pre-built Docker image on a container registry
+- [x] Automated releases (release-please): versioned images, changelog, and GitHub Releases
 - [x] Live demo deployed to GitHub Pages
 - [x] Authentication (OIDC with Pocket ID support): required by default with `AUTH_DISABLED=true` as the opt-out; setup documented in the [self-hosting guide](self-hosting/README.md#authentication-oidc)
 - [ ] Return to TanStack Start streaming server functions (pending upstream abort signal fix)
