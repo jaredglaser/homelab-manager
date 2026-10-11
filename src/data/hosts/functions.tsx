@@ -1,15 +1,15 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
-import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema, registerExistingHostSchema, verifyHostSchema, updateHostSchema } from '@/data/hosts/schemas';
+import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateAgent, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
+  handleUpdateHost, handleVerifyHost, handleGetHostPublicJwk, handleRotateHostKeypair,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
-export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
+export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult } from '@/data/hosts/handlers';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
@@ -68,60 +68,15 @@ async function buildProbeCheckHealth(): Promise<
   }
 }
 
-async function loadDockerClient(socketProxyUrl: string) {
-  const Dockerode = (await import('dockerode')).default;
-  let parsed: URL;
-  try {
-    parsed = new URL(socketProxyUrl.replace(/^tcp:/, 'http:'));
-  } catch {
-    throw new Error(`Invalid socketProxyUrl "${socketProxyUrl}": must be a valid URL with tcp://, http://, or https:// scheme`);
-  }
-  const protocol = parsed.protocol === 'https:' ? 'https' : 'http';
-  return new Dockerode({ host: parsed.hostname, port: Number(parsed.port) || 2375, protocol });
+function makeKeypairsDep(
+  keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
+) {
+  return {
+    createForHost: (name: string) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
+    deleteForHost: (name: string) => keypairs.deleteForHost(name),
+    getPublicJwkForHost: (name: string) => keypairs.getPublicJwkForHost(name),
+  };
 }
-
-export const addHost = createServerFn()
-  .middleware([authMiddleware])
-  .inputValidator(addHostSchema)
-  .handler(async ({ data, context }): Promise<AddHostResult> => {
-    requireRole('admin')(context.user);
-    const baseDeps = await loadDeps();
-    const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
-    const keypairs = await loadKeypairsRepo();
-    const provService = new AgentProvisioningService();
-    return handleAddHost({
-      ...baseDeps,
-      keypairs: {
-        createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
-        deleteForHost: (name) => keypairs.deleteForHost(name),
-      },
-      checkHealth: await buildCheckHealth(keypairs),
-      provision: async (url, opts) => {
-        const docker = await loadDockerClient(url);
-        return provService.provision(docker, opts);
-      },
-      removeAgent: async (url, hostId) => {
-        const docker = await loadDockerClient(url);
-        await provService.removeAgent(docker, hostId);
-      },
-    }, data);
-  });
-
-export const registerExistingHost = createServerFn()
-  .middleware([authMiddleware])
-  .inputValidator(registerExistingHostSchema)
-  .handler(async ({ data, context }): Promise<AddHostResult> => {
-    requireRole('admin')(context.user);
-    const baseDeps = await loadDeps();
-    const keypairs = await loadKeypairsRepo();
-    return handleRegisterExistingHost({
-      ...baseDeps,
-      keypairs: {
-        createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
-        deleteForHost: (name) => keypairs.deleteForHost(name),
-      },
-    }, data);
-  });
 
 export const verifyHost = createServerFn()
   .middleware([authMiddleware])
@@ -132,10 +87,7 @@ export const verifyHost = createServerFn()
     const keypairs = await loadKeypairsRepo();
     return handleVerifyHost({
       ...baseDeps,
-      keypairs: {
-        createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
-        deleteForHost: (name) => keypairs.deleteForHost(name),
-      },
+      keypairs: makeKeypairsDep(keypairs),
     }, data);
   });
 
@@ -148,10 +100,6 @@ export const removeHost = createServerFn()
     return handleRemoveHost({
       ...baseDeps,
       keypairs: {
-        createForHost: async (name) => {
-          const keypairs = await loadKeypairsRepo();
-          return keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk }));
-        },
         deleteForHost: async (name) => {
           try {
             const keypairs = await loadKeypairsRepo();
@@ -171,25 +119,6 @@ export const listHosts = createServerFn()
     return handleListHosts(deps);
   });
 
-export const updateAgent = createServerFn()
-  .middleware([authMiddleware])
-  .inputValidator(updateAgentSchema)
-  .handler(async ({ data, context }): Promise<HostOperationResult> => {
-    requireRole('admin')(context.user);
-    const baseDeps = await loadDeps();
-    const keypairs = await loadKeypairsRepo();
-    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
-    return handleUpdateAgent({
-      ...baseDeps,
-      getSigner: async (hostname) => {
-        const privateKey = await keypairs.getPrivateKeyForHost(hostname);
-        if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
-        return () => signAgentJwt(privateKey, hostname);
-      },
-      checkHealth: await buildCheckHealth(keypairs),
-    }, data);
-  });
-
 export const checkHostHealth = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(checkHostHealthSchema)
@@ -205,4 +134,24 @@ export const updateHost = createServerFn()
     requireRole('admin')(context.user);
     const deps = await loadDeps();
     return handleUpdateHost(deps, data);
+  });
+
+export const getHostPublicJwk = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(getHostPublicJwkSchema)
+  .handler(async ({ data, context }): Promise<{ publicJwk: import('jose').JWK }> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    return handleGetHostPublicJwk({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
+  });
+
+export const rotateHostKeypair = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(rotateHostKeypairSchema)
+  .handler(async ({ data, context }): Promise<{ hostId: number; publicJwk: import('jose').JWK }> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    return handleRotateHostKeypair({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
   });

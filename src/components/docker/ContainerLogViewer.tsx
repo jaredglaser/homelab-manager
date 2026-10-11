@@ -153,7 +153,7 @@ export default memo(function ContainerLogViewer({
   const showSkeleton = !ready && !error;
 
   return (
-    <div className="relative rounded-sm bg-(--chart-bg)! h-full min-h-0 flex flex-col overflow-hidden">
+    <div className="relative rounded-sm bg-chart-bg! h-full min-h-0 flex flex-col overflow-hidden">
       <div className="relative flex-1 min-h-0">
         <div
           ref={containerRef}
@@ -166,7 +166,7 @@ export default memo(function ContainerLogViewer({
           {Array.from({ length: 14 }, (_, i) => (
             <Skeleton
               key={i}
-              className="h-4 rounded bg-(--accent)!"
+              className="h-4 rounded bg-accent!"
               style={{ width: `${45 + ((i * 37) % 50)}%` }}
             />
           ))}

@@ -17,14 +17,14 @@ describe('ContainerStateChip', () => {
   it('renders restarting state with pulsing warning dot', () => {
     renderChip('restarting');
     const dot = screen.getByLabelText('restarting');
-    expect(dot.className).toContain('bg-(--warning)');
+    expect(dot.className).toContain('bg-warning');
     expect(dot.className).toContain('animate-pulse');
   });
 
   it('renders paused state with info dot (non-pulsing)', () => {
     renderChip('paused');
     const dot = screen.getByLabelText('paused');
-    expect(dot.className).toContain('bg-(--info)');
+    expect(dot.className).toContain('bg-info');
     expect(dot.className).not.toContain('animate-pulse');
   });
 

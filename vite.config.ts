@@ -16,7 +16,7 @@ const customLogger = {
       return
     }
     logger.warn(msg, options)
-  },
+  }
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -24,8 +24,12 @@ const isDev = process.env.NODE_ENV !== 'production'
 function buildAliases(): Record<string, string> {
   // Demo and e2e modes no longer swap server-function modules at build time;
   // MSW intercepts the real RPC/SSE network calls instead (see src/lib/mock).
+  // monaco-worker-manager imports a deep monaco-editor subpath that the exports map refuses to resolve.
   return {
     '@': fileURLToPath(new URL('./src', import.meta.url)),
+    'monaco-editor/esm/vs/editor/editor.worker.js': fileURLToPath(
+      new URL('./node_modules/monaco-editor/esm/vs/editor/editor.worker.js', import.meta.url),
+    ),
   }
 }
 
@@ -67,15 +71,17 @@ export default defineConfig(({ mode }) => {
       viteReact(),
     ],
     ssr: {
-      external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
+      external: ['undici'],
     },
     optimizeDeps: {
-      exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams', '@tanstack/start-server-core'],
+      exclude: ['@tanstack/start-server-core'],
       // Pre-bundle MSW so demo/e2e mode does not trigger a mid-session dep
       // re-optimization (which invalidates in-flight module hashes and 404s
       // already-loaded dynamic imports). MSW is lazy-loaded, so without this Vite
       // only discovers it after the first navigation.
       include: ['msw', 'msw/browser'],
+      // FIX: Vite 8 holdUntilCrawlEnd deadlock - this app never fires the crawl end signal, so setting it to false commits immediately after bundling (pre-Vite8 behavior)
+      holdUntilCrawlEnd: false,
     },
     preview: {
       host: true,
@@ -92,7 +98,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       rolldownOptions: {
-        external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
+        external: ['undici'],
         onwarn(warning, warn) {
           // Suppress "use client" directive warnings from MUI and other libraries
           if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {

@@ -1,11 +1,12 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { mockModule } from '@/lib/test/mock-module';
 
-mock.module('@/lib/utils/icon-resolver', () => ({
+mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolver', (real) => ({ ...real, 
   AVAILABLE_ICONS: ['nginx', 'redis', 'postgres', 'docker'],
 }));
 
-mock.module('@/lib/constants/ui-timing', () => ({
+mockModule<typeof import('@/lib/constants/ui-timing')>('@/lib/constants/ui-timing', (real) => ({ ...real, 
   SELECTION_FEEDBACK_MS: 0,
 }));
 

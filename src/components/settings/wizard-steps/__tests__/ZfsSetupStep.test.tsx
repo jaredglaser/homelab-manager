@@ -17,12 +17,12 @@ function renderStep() {
 }
 
 describe('ZfsSetupStep copy button placement', () => {
-  it('renders the copy button in a header row above the pre block, not overlapping it', () => {
+  it('overlays the copy button on the pre block instead of stacking it in a header row', () => {
     renderStep()
     const copyButton = screen.getByLabelText('Copy ZFS setup commands')
     const pre = screen.getByText(/useradd/).closest('pre')
     expect(pre).not.toBeNull()
-    expect(copyButton.closest('.absolute')).toBeNull()
+    expect(copyButton.closest('.absolute')).not.toBeNull()
     expect(pre?.contains(copyButton)).toBe(false)
   })
 })

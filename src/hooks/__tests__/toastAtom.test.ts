@@ -1,12 +1,13 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockSuccess = mock(() => {});
 const mockInfo = mock(() => {});
 const mockWarning = mock(() => {});
 const mockError = mock(() => {});
 
-mock.module('sonner', () => ({
+mockModule<typeof import('sonner')>('sonner', (real) => ({ ...real, 
   toast: {
     success: mockSuccess,
     info: mockInfo,

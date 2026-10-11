@@ -245,7 +245,7 @@ export default memo(function ContainerMetricsChart({
 
   const chartRef = useRef<ReactECharts | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  useEChartTimeScroll(chartRef, windowMs, wrapperRef);
+  const onChartReady = useEChartTimeScroll(chartRef, windowMs, wrapperRef);
 
   const currentValues = useMemo(() => {
     const last = dataPoints.at(-1);
@@ -254,11 +254,11 @@ export default memo(function ContainerMetricsChart({
   }, [dataPoints]);
 
   return (
-    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--chart-bg)">
+    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-chart-bg">
       <div ref={wrapperRef} className="flex-1 min-h-0">
-        <DualSeriesChartRenderer ref={chartRef} option={option} />
+        <DualSeriesChartRenderer ref={chartRef} option={option} onChartReady={onChartReady} />
       </div>
-      <div className="border-t border-(--border) shrink-0">
+      <div className="border-t border-border shrink-0">
         <HorizontalScrollRow bgVar="--chart-bg">
           {METRIC_DEFS.map((m) => (
             <LegendChip

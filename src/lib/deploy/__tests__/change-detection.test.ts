@@ -37,6 +37,7 @@ describe('detectChanges', () => {
     forceRecreate: false,
     logs: null,
     createdAt: new Date(),
+    startedAt: null,
     postSuccess: null,
   };
 

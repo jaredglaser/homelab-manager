@@ -2,9 +2,10 @@ import { useMemo } from 'react';
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
+import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import type { GuestRow } from '@/types/proxmox';
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
-import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
+import { EMPTY_CELL } from '@/components/ui/table';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { nameColumn, statusColumn, metricColumn } from '@/components/ui/datatable/columns';
 import { GuestCell } from '@/components/proxmox/GuestCell';
@@ -18,14 +19,14 @@ interface GuestSectionProps {
   useAbbreviatedUnits: boolean;
 }
 
-const BORDER = 'border-t border-(--border)';
+const BORDER = 'border-t border-border';
 
 const metricGroups: MetricGroup[] = [
   { label: 'CPU / Memory', columnIds: ['cpu', 'memory'] },
   { label: 'Network', columnIds: ['netin', 'netout'] },
 ];
 
-function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<GuestRow, unknown>[] {
+function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<DataTableFeatures, GuestRow, unknown>[] {
   return [
     nameColumn<GuestRow>({
       getLabel: (row) => row.name,
@@ -45,7 +46,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
         return formatAsPercentParts(row.cpu, true);
       },
     }),
@@ -69,7 +70,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
         return formatBytesParts(row.netin, false, false);
       },
     }),
@@ -79,7 +80,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
         return formatBytesParts(row.netout, false, false);
       },
     }),
@@ -100,7 +101,7 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-(--level1)`}
+        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-level1`}
       >
         <ChevronRight
           size={16}

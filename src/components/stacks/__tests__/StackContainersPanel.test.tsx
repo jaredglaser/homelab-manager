@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
+import { mockModule } from '@/lib/test/mock-module';
 
 mock.module('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
@@ -16,11 +17,11 @@ const mockControlStack = mock(async () => {});
 const mockToastSuccess = mock((_message: string) => {});
 const mockToastError = mock((_message: string) => {});
 
-mock.module('sonner', () => ({
+mockModule<typeof import('sonner')>('sonner', (real) => ({ ...real, 
   toast: { success: mockToastSuccess, error: mockToastError },
 }));
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   controlStack: mockControlStack,
 }));
 
@@ -36,14 +37,14 @@ mock.module('@/components/docker/ContainerTerminal', () => ({
   ),
 }));
 
-mock.module('@/hooks/useDockerSettings', () => ({
+mockModule<typeof import('@/hooks/useDockerSettings')>('@/hooks/useDockerSettings', (real) => ({ ...real, 
   useDockerSettings: () => ({
     getContainerShell: () => undefined,
     setContainerShell: () => {},
   }),
 }));
 
-mock.module('@/lib/constants/demo', () => ({ IS_DEMO_MODE: false }));
+mockModule<typeof import('@/lib/constants/demo')>('@/lib/constants/demo', (real) => ({ ...real,  IS_DEMO_MODE: false }));
 
 const { default: StackContainersPanel } = await import('@/components/stacks/StackContainersPanel');
 

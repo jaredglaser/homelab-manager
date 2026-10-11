@@ -9,7 +9,7 @@ Use this when the user wants tests added or expanded.
 
 Before editing:
 
-1. Read `CLAUDE.md` for testing rules and coverage constraints.
+1. Read `AGENTS.md` for testing rules and coverage constraints.
 2. Read the source file and any existing co-located test file in `__tests__/`.
 3. Prefer extending an existing test file over creating a new pattern for the same module.
 
@@ -30,6 +30,6 @@ After editing, run the narrowest useful test command first, then broader verific
 
 1. `bun test <test-file>`
 2. `bun test --coverage <test-file>` when the task is focused on coverage for that module
-3. Repo-level verification required by `CLAUDE.md` after code changes
+3. Repo-level verification required by `AGENTS.md` after code changes
 
 If you cannot run the commands, say so clearly and explain why.
