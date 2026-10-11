@@ -20,7 +20,9 @@ export function lowerBound<T>(arr: T[], cutoff: number, getTime: (item: T) => nu
 }
 
 /**
- * Stable merge of two ascending runs into one ascending array. Rows from `a` win ties.
+ * Stable merge of two ascending runs into one ascending array (rows from `a` win ties).
+ * O(k log k + log n) when the batch appends at the tail, O(n + k) when it predates the
+ * buffer tail, so out-of-order batches stay time-sorted instead of being appended.
  */
 function mergeSorted<T>(a: T[], b: T[], getTime: (item: T) => number): T[] {
   const out: T[] = [];
