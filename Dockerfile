@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 ARG VITE_AGENT_IMAGE_TAG=latest
 ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
 
-RUN bun run build
+# NITRO_PRESET=bun makes the image artifact bun-native; local builds outside Docker stay on node-server
+RUN NITRO_PRESET=bun bun run build
 
 CMD ["bun", ".output/server/index.mjs"]
