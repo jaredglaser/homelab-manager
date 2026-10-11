@@ -47,9 +47,9 @@ export interface RunInput {
 export const MARKER = '<!-- version-impact -->';
 const RE_TYPE = /^([A-Za-z]+)(\([^)]*\))?!?:/;
 const RE_BREAKING = /^[A-Za-z]+(\([^)]*\))?!:/;
-const RE_BREAKING_NOTE = /BREAKING[ -]CHANGE:( |$)/m;
+const RE_BREAKING_NOTE = /^BREAKING[ -]CHANGE:[ \t]*\S/m;
 const KNOWN_TYPES = 'feat feature fix perf revert chore docs style refactor test build ci'.split(' ');
-const CHANGELOG_TYPES = ['feat', 'fix', 'perf', 'revert'];
+const CHANGELOG_TYPES = ['feat', 'feature', 'fix', 'perf', 'revert'];
 
 export function classify(title: string, body: string): Classification {
   const m = RE_TYPE.exec(title);
@@ -62,6 +62,7 @@ export function classify(title: string, body: string): Classification {
 
 export function contribKind(version: string, cls: Classification): Kind {
   if (!cls.parsed) return 'none';
+  if (!cls.breaking && !CHANGELOG_TYPES.includes(cls.type)) return 'none';
   const preMajor = version.split('.')[0] === '0';
   if (cls.breaking) return preMajor ? 'minor' : 'major';
   if (preMajor) return 'patch';
@@ -69,7 +70,7 @@ export function contribKind(version: string, cls: Classification): Kind {
 }
 
 export function bumpVersion(version: string, kind: Kind): string {
-  const [major, minor, patch] = version.split('.').map(Number);
+  const [major, minor, patch] = version.split(/[.+-]/).map(Number);
   switch (kind) {
     case 'major':
       return `${major + 1}.0.0`;
@@ -117,10 +118,25 @@ export function kindLabel(kind: Kind): string {
   }
 }
 
+function codeSpan(value: string): string {
+  const escaped = value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+  const runs = [...escaped.matchAll(/`+/g)].map((m) => m[0].length);
+  const fence = '`'.repeat((runs.length ? Math.max(...runs) : 0) + 1);
+  const pad = escaped.startsWith('`') || escaped.endsWith('`') || fence.length > 1 ? ' ' : '';
+  return fence + pad + escaped + pad + fence;
+}
+
 export function renderBody(title: string, body: string, version: string, kind: Kind, proposal: string): string {
   const cls = classify(title, body);
-  const nextLine =
-    kind === 'none' ? 'no contribution' : `\`v${version}\` -> \`v${bumpVersion(version, kind)}\``;
+  const hidden = cls.parsed && !cls.breaking && !CHANGELOG_TYPES.includes(cls.type);
+  const nextLine = hidden
+    ? 'no release on its own'
+    : kind === 'none'
+      ? 'no contribution'
+      : `\`v${version}\` -> \`v${bumpVersion(version, kind)}\``;
+  const contributeLine = hidden
+    ? 'nothing on its own (it ships with the next feat/fix/perf/revert release)'
+    : kindLabel(kind);
   const classLine = cls.parsed ? `\`${cls.type}\`` : '**not a conventional commit**';
   let changelogLine: string;
   if (!cls.parsed) {
@@ -134,19 +150,21 @@ export function renderBody(title: string, body: string, version: string, kind: K
   if (!cls.parsed) {
     warnLines +=
       '> :warning: **This PR title is not a conventional commit.** Merged as-is, release-please will not bump the version and this work will be missing from the changelog. Rename the PR title to `type(scope): summary` before merge.\n';
-  } else if (!KNOWN_TYPES.includes(cls.type)) {
-    warnLines += `> :warning: **Unrecognized type \`${cls.type}\`.** It parses and bumps the patch, but it has no changelog section, so the work will be missing from the changelog. Use one of: ${KNOWN_TYPES.join(' ')}.\n`;
+  } else if (hidden && !KNOWN_TYPES.includes(cls.type)) {
+    warnLines += '> :warning: **Unrecognized type `' + cls.type + '`.** It parses, but it has no changelog section and cuts no release on its own. Use one of: ' + KNOWN_TYPES.join(' ') + '.\n';
+  } else if (hidden) {
+    warnLines += '> :warning: **Type `' + cls.type + '` cuts no release on its own.** It is hidden from the changelog and ships only with the next feat/fix/perf/revert or breaking change.\n';
   }
   return `${MARKER}
 ## Version impact
 
 | | |
 |---|---|
-| PR title | \`${title}\` |
+| PR title | ${codeSpan(title)} |
 | Conventional commit | ${classLine} |
 | Breaking change | ${cls.breaking ? 'yes' : 'no'} |
 | Current release | \`v${version}\` |
-| This PR contributes | ${kindLabel(kind)} |
+| This PR contributes | ${contributeLine} |
 | Next release if this PR lands alone | ${nextLine} |
 | Changelog entry | ${changelogLine} |
 | Standing release PR | ${proposal} |
@@ -175,18 +193,23 @@ export function lint(title: string, body: string): { ok: boolean; message: strin
       message: `FAIL: unknown commit type '${cls.type}'. Use one of: ${KNOWN_TYPES.join(' ')}`,
     };
   }
+  const hidden = !cls.breaking && !CHANGELOG_TYPES.includes(cls.type);
   return {
     ok: true,
-    message: `OK: PR title classifies as '${cls.type}'${cls.breaking ? ' (breaking)' : ''} and release-please will version it.`,
+    message: hidden
+      ? `OK: PR title classifies as '${cls.type}' and release-please will version it only together with a feat/fix/perf/revert or breaking change.`
+      : `OK: PR title classifies as '${cls.type}'${cls.breaking ? ' (breaking)' : ''} and release-please will version it.`,
   };
 }
 
 export async function proposalLine(version: string, kind: Kind, api: GhApi, repo: string): Promise<string> {
   const prTitle = (await api.listOpenPrTitles(repo)).find((t) => t.startsWith('chore(main): release ')) ?? '';
   if (!prTitle) {
-    return `none open yet. The next run opens one at \`v${bumpVersion(version, kind)}\` for this bump`;
+    return kind === 'none'
+      ? 'none open yet. One opens when a feat/fix/perf/revert or breaking change lands'
+      : `none open yet. The next run opens one at \`v${bumpVersion(version, kind)}\` for this bump`;
   }
-  const proposed = prTitle.slice(prTitle.lastIndexOf(' ') + 1);
+  const proposed = prTitle.slice(prTitle.lastIndexOf(' ') + 1).replace(/[|`\r\n]/g, '');
   const proposalKind = changeKind(version, proposed);
   if (kind !== 'none' && kindRank(kind) > kindRank(proposalKind)) {
     return `\`v${proposed}\` open. This PR raises it to \`v${bumpVersion(version, kind)}\``;
