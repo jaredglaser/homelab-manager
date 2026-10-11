@@ -20,7 +20,7 @@ function createMockUpdater(overrides: {
   perform?: () => Promise<UpdateResult>;
 } = {}): AgentUpdater {
   return {
-    checkForUpdate: overrides.check ?? mock(() => Promise.resolve({ updateAvailable: false })),
+    isUpToDate: overrides.check ?? mock(() => Promise.resolve({ upToDate: true })),
     performUpdate: overrides.perform ?? mock(() => Promise.resolve({ success: true })),
   } as unknown as AgentUpdater;
 }
@@ -52,7 +52,7 @@ describe('createTriggerHandler', () => {
   });
 
   test('returns 400 and does not check when targetImage is a floating tag', async () => {
-    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const check = mock(() => Promise.resolve({ upToDate: true }));
     const handler = createTriggerHandler(createMockUpdater({ check }));
     const state = createTriggerState();
 
@@ -66,7 +66,7 @@ describe('createTriggerHandler', () => {
   });
 
   test('returns 400 when targetImage is present but not a valid sha256 digest', async () => {
-    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const check = mock(() => Promise.resolve({ upToDate: true }));
     const handler = createTriggerHandler(createMockUpdater({ check }));
 
     const response = await handler(triggerRequest({ targetImage: 'ghcr.io/org/agent@sha256:nothex' }));
@@ -77,7 +77,7 @@ describe('createTriggerHandler', () => {
 
   test('passes a digest-pinned targetImage through to check and perform', async () => {
     const target = 'ghcr.io/org/agent@sha256:' + 'c'.repeat(64);
-    const check = mock(() => Promise.resolve({ updateAvailable: true, currentDigest: 'sha256:a', remoteDigest: target }));
+    const check = mock(() => Promise.resolve({ upToDate: false, currentDigest: 'sha256:a', remoteDigest: target }));
     const perform = mock(() => Promise.resolve({ success: true }));
     const handler = createTriggerHandler(createMockUpdater({ check, perform }));
 
@@ -89,7 +89,7 @@ describe('createTriggerHandler', () => {
   });
 
   test('keeps the legacy floating-tag path when the body carries no targetImage', async () => {
-    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const check = mock(() => Promise.resolve({ upToDate: true }));
     const handler = createTriggerHandler(createMockUpdater({ check }));
 
     const response = await handler(postRequest());
@@ -99,7 +99,7 @@ describe('createTriggerHandler', () => {
   });
 
   test('returns 200 updateAvailable false when the agent is current', async () => {
-    const check = mock(() => Promise.resolve({ updateAvailable: false, currentDigest: 'sha256:a' }));
+    const check = mock(() => Promise.resolve({ upToDate: true, currentDigest: 'sha256:a' }));
     const perform = mock(() => Promise.resolve({ success: true }));
     const handler = createTriggerHandler(createMockUpdater({ check, perform }));
 
@@ -114,7 +114,7 @@ describe('createTriggerHandler', () => {
     const state = createTriggerState();
     let release!: () => void;
     const perform = mock(() => new Promise<UpdateResult>((resolve) => { release = () => resolve({ success: true }); }));
-    const check = mock(() => Promise.resolve({ updateAvailable: true, currentDigest: 'sha256:a', remoteDigest: 'sha256:b' }));
+    const check = mock(() => Promise.resolve({ upToDate: false, currentDigest: 'sha256:a', remoteDigest: 'sha256:b' }));
     const handler = createTriggerHandler(createMockUpdater({ check, perform }), state);
 
     const response = await handler(postRequest());
@@ -133,7 +133,7 @@ describe('createTriggerHandler', () => {
     const state = createTriggerState();
     let release!: () => void;
     const perform = mock(() => new Promise<UpdateResult>((resolve) => { release = () => resolve({ success: true }); }));
-    const check = mock(() => Promise.resolve({ updateAvailable: true }));
+    const check = mock(() => Promise.resolve({ upToDate: false }));
     const handler = createTriggerHandler(createMockUpdater({ check, perform }), state);
 
     const first = await handler(postRequest());
@@ -153,7 +153,7 @@ describe('createTriggerHandler', () => {
     const perform = mock(() => new Promise<UpdateResult>((resolve) => {
       release = () => resolve({ success: true, previousImage: 'img:1', newImage: 'img:2' });
     }));
-    const check = mock(() => Promise.resolve({ updateAvailable: true }));
+    const check = mock(() => Promise.resolve({ upToDate: false }));
     const handler = createTriggerHandler(createMockUpdater({ check, perform }), state);
 
     await handler(postRequest());
@@ -177,7 +177,7 @@ describe('createTriggerHandler', () => {
     const perform = mock(() => new Promise<UpdateResult>((_resolve, reject) => {
       release = () => reject(new Error('docker daemon gone'));
     }));
-    const check = mock(() => Promise.resolve({ updateAvailable: true }));
+    const check = mock(() => Promise.resolve({ upToDate: false }));
     const handler = createTriggerHandler(createMockUpdater({ check, perform }), state);
 
     await handler(postRequest());
@@ -193,7 +193,7 @@ describe('createTriggerHandler', () => {
       checkCalls++;
       return checkCalls === 1
         ? Promise.reject(new Error('registry unreachable'))
-        : Promise.resolve({ updateAvailable: false } as UpdateCheckResult);
+        : Promise.resolve({ upToDate: true } as UpdateCheckResult);
     });
     const handler = createTriggerHandler(createMockUpdater({ check }), state);
 

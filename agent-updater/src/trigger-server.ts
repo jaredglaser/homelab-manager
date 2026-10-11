@@ -43,7 +43,7 @@ export function createTriggerHandler(updater: AgentUpdater, state: TriggerState 
     state.updating = true;
     let check;
     try {
-      check = await updater.checkForUpdate(targetImage);
+      check = await updater.isUpToDate(targetImage);
     } catch (error) {
       state.updating = false;
       const message = error instanceof Error ? error.message : String(error);
@@ -51,7 +51,7 @@ export function createTriggerHandler(updater: AgentUpdater, state: TriggerState 
       return Response.json({ error: message }, { status: 500 });
     }
 
-    if (!check.updateAvailable) {
+    if (check.upToDate) {
       state.updating = false;
       return Response.json({ updateAvailable: false, currentDigest: check.currentDigest ?? null });
     }

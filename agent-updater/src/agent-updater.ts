@@ -9,9 +9,9 @@ export interface AgentUpdaterConfig {
 }
 
 export interface UpdateCheckResult {
-  updateAvailable: boolean;
+  upToDate: boolean;
   currentDigest?: string;
-  remoteDigest?: string;
+  targetDigest?: string;
 }
 
 export interface UpdateResult {
@@ -55,8 +55,8 @@ export class AgentUpdater {
     this.healthReporter = healthReporter;
   }
 
-  /** Check whether a newer image digest is available on the registry. */
-  async checkForUpdate(targetImage?: string): Promise<UpdateCheckResult> {
+  /** True when the running image already matches the target (manager-supplied or configured). */
+  async isUpToDate(targetImage?: string): Promise<UpdateCheckResult> {
     try {
       const container = this.docker.getContainer(this.config.containerName);
       const containerInfo = await container.inspect();
@@ -72,15 +72,15 @@ export class AgentUpdater {
       const remoteDigest = distribution.Descriptor?.digest as string | undefined;
 
       if (!remoteDigest) {
-        return { updateAvailable: false, currentDigest };
+        return { upToDate: true, currentDigest };
       }
 
-      const updateAvailable = currentDigest !== remoteDigest;
-      return { updateAvailable, currentDigest, remoteDigest };
+      const upToDate = currentDigest === remoteDigest;
+      return { upToDate, currentDigest, targetDigest: remoteDigest };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Failed to check for update: ${message}`);
-      return { updateAvailable: false };
+      return { upToDate: false };
     }
   }
 

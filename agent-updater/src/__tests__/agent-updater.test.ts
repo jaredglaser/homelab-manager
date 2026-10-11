@@ -91,8 +91,8 @@ function createMockModem() {
 }
 
 describe('AgentUpdater', () => {
-  describe('checkForUpdate', () => {
-    test('returns updateAvailable true when digests differ', async () => {
+  describe('isUpToDate', () => {
+    test('returns upToDate false when digests differ', async () => {
       const containerInfo = createMockContainerInfo({
         Image: 'sha256:old-image-id',
       });
@@ -125,11 +125,11 @@ describe('AgentUpdater', () => {
       };
 
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
-      const result = await updater.checkForUpdate();
+      const result = await updater.isUpToDate();
 
-      expect(result.updateAvailable).toBe(true);
+      expect(result.upToDate).toBe(false);
       expect(result.currentDigest).toBe('sha256:old-digest');
-      expect(result.remoteDigest).toBe('sha256:new-digest');
+      expect(result.targetDigest).toBe('sha256:new-digest');
     });
 
     test('queries the registry for the target digest instead of the configured tag', async () => {
@@ -153,15 +153,15 @@ describe('AgentUpdater', () => {
       };
 
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
-      const result = await updater.checkForUpdate(target);
+      const result = await updater.isUpToDate(target);
 
       expect(seen[1]).toBe(target);
-      expect(result.updateAvailable).toBe(true);
+      expect(result.upToDate).toBe(false);
       expect(result.currentDigest).toBe('sha256:old-digest');
-      expect(result.remoteDigest).toBe(target);
+      expect(result.targetDigest).toBe(target);
     });
 
-    test('returns updateAvailable false when digests match', async () => {
+    test('returns upToDate true when digests match', async () => {
       const containerInfo = createMockContainerInfo({
         Image: 'sha256:some-image-id',
       });
@@ -194,14 +194,14 @@ describe('AgentUpdater', () => {
       };
 
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
-      const result = await updater.checkForUpdate();
+      const result = await updater.isUpToDate();
 
-      expect(result.updateAvailable).toBe(false);
+      expect(result.upToDate).toBe(true);
       expect(result.currentDigest).toBe('sha256:same-digest');
-      expect(result.remoteDigest).toBe('sha256:same-digest');
+      expect(result.targetDigest).toBe('sha256:same-digest');
     });
 
-    test('returns updateAvailable false when check fails', async () => {
+    test('returns upToDate false when the check throws', async () => {
       const mockContainer = {
         inspect: mock(() => Promise.reject(new Error('container not found'))),
       };
@@ -211,12 +211,12 @@ describe('AgentUpdater', () => {
       };
 
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
-      const result = await updater.checkForUpdate();
+      const result = await updater.isUpToDate();
 
-      expect(result.updateAvailable).toBe(false);
+      expect(result.upToDate).toBe(false);
     });
 
-    test('returns updateAvailable false when remote digest is missing', async () => {
+    test('returns upToDate false when the remote digest is missing', async () => {
       const containerInfo = createMockContainerInfo();
       const mockContainer = {
         inspect: mock(() => Promise.resolve(containerInfo)),
@@ -242,9 +242,9 @@ describe('AgentUpdater', () => {
       };
 
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
-      const result = await updater.checkForUpdate();
+      const result = await updater.isUpToDate();
 
-      expect(result.updateAvailable).toBe(false);
+      expect(result.upToDate).toBe(true);
       expect(result.currentDigest).toBe('sha256:abc123');
     });
   });
