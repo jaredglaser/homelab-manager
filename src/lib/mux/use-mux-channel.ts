@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import type { z } from 'zod';
 import { muxConnection, type MuxStatus } from '@/lib/mux/mux-connection';
-import type { MuxEventFrame } from '@/lib/mux/protocol';
+import type { MuxTopicFrame } from '@/lib/mux/protocol';
 
 export interface MuxChannel<TSchema extends z.ZodTypeAny, TRevived = z.infer<TSchema>> {
   topic: string;
@@ -40,7 +40,7 @@ export function useMuxChannel<TSchema extends z.ZodTypeAny, TRevived>(
 
   useEffect(() => {
     return muxConnection.subscribe(channel.topic, {
-      onEvent: (frame: MuxEventFrame) => {
+      onEvent: (frame: MuxTopicFrame) => {
         const current = channelRef.current;
         if (frame.kind === 'error') {
           setServiceError(new Error(serviceErrorMessageRef.current ?? `${current.topic} stream unavailable`));
