@@ -245,7 +245,7 @@ served over [MSW](https://mswjs.io) - the same in-browser mock backend that powe
 demo mode - so there is no database or backend to stand up.
 
 Unit tests run in Happy-DOM, so they cannot exercise real layout and overflow, the
-service worker, EventSource streaming end to end, canvas charts, the virtualizer's
+service worker, WebSocket streaming end to end, canvas charts, the virtualizer's
 real measurement, cross-tab broadcast, focus and scroll, or multi-step navigation
 with live data. **A flow earns a Playwright test only when it needs one of those**;
 anything else belongs in `bun test`, which is faster and easier to debug.

@@ -1,16 +1,17 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
+import type { MuxFrameBody } from '../../../src/lib/mux/protocol';
+import type { MuxDropPolicyConfig, MuxWriteQueue } from '../../../src/lib/mux/drop-policy';
+import { PING_INTERVAL_MS, RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS } from '../../../src/lib/mux/keepalive';
 
 const LOGS_TOPIC_PREFIX = 'logs:';
+const STATS_TOPIC_PREFIX = 'stats:';
 const INVENTORY_TOPIC = 'inventory';
 const SETTINGS_TOPIC = 'settings';
 const STACK_STATUS_TOPIC = 'stack-status';
-const PING_INTERVAL_MS = 25_000;
-const AGENT_BASE_BACKOFF_MS = 1_000;
-const AGENT_MAX_BACKOFF_MS = 16_000;
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
-type EmitFrame = (frame: { topic: string; kind: string; payload: unknown }) => void;
+type EmitFrame = (frame: MuxFrameBody) => void;
 type TopicAdapter = (topic: string, emit: EmitFrame, signal: AbortSignal) => void | Promise<void>;
 
 interface TopicStream {
@@ -20,6 +21,7 @@ interface TopicStream {
 interface MuxSession {
   topics: Map<string, TopicStream>;
   pingTimer: ReturnType<typeof setInterval> | null;
+  outbox: MuxWriteQueue;
 }
 
 const sessions = new Map<string, MuxSession>();
@@ -29,6 +31,7 @@ function stopTopic(session: MuxSession, topic: string): void {
   if (stream) {
     session.topics.delete(topic);
     stream.controller.abort();
+    session.outbox.clearTopic(topic);
   }
 }
 
@@ -38,17 +41,15 @@ function teardownSession(peer: Peer): void {
   sessions.delete(peer.id);
   if (session.pingTimer !== null) clearInterval(session.pingTimer);
   for (const topic of [...session.topics.keys()]) stopTopic(session, topic);
+  session.outbox.dispose();
 }
 
-function startTopic(peer: Peer, session: MuxSession, topic: string, adapter: TopicAdapter): void {
+function startTopic(session: MuxSession, topic: string, adapter: TopicAdapter): void {
   stopTopic(session, topic);
   const controller = new AbortController();
   session.topics.set(topic, { controller });
   const emit: EmitFrame = (frame) => {
-    try {
-      peer.send(JSON.stringify({ type: 'event', ...frame }));
-    } catch (err) {
-      console.error('[mux-ws] peer.send failed:', err instanceof Error ? err.message : String(err), { topic });
+    if (session.outbox.pushFrame(frame) === 'failed') {
       controller.abort();
     }
   };
@@ -95,6 +96,23 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
   const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
   });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
+async function statsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  const { parseStatsTopic } = await import('../../../src/lib/mux/protocol');
+  const source = parseStatsTopic(topic);
+  if (!source) {
+    emit({ topic, kind: 'error', payload: { message: 'Invalid stats topic', gone: true } });
+    return;
+  }
+  await import('../../../src/lib/server-init');
+  const { statsPollService } = await import('../../../src/lib/database/subscription-service');
+  const unsubscribe = statsPollService.subscribe(
+    source,
+    (rows) => emit({ topic, kind: 'data', payload: rows }),
+    () => emit({ topic, kind: 'error', payload: { message: 'Stats polling failed, retrying', gone: false } }),
+  );
   signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
@@ -171,7 +189,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
         console.error('[mux-ws] log upstream degraded:', err instanceof Error ? err.message : String(err), { host, containerId });
         emit({ topic, kind: 'error', payload: { message: LOGS_DEGRADED_MESSAGE, gone: false } });
       }
-      const delay = Math.min(AGENT_BASE_BACKOFF_MS * 2 ** (attempt - 1), AGENT_MAX_BACKOFF_MS);
+      const delay = Math.min(RECONNECT_BASE_BACKOFF_MS * 2 ** (attempt - 1), RECONNECT_MAX_BACKOFF_MS);
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, delay);
         signal.addEventListener('abort', () => {
@@ -234,6 +252,7 @@ async function pipeAgentSse(
 
 export interface MuxWsDeps {
   topicAdapter: TopicAdapter;
+  dropPolicy?: MuxDropPolicyConfig;
 }
 
 export function createMuxWsHandlers(deps: MuxWsDeps) {
@@ -252,14 +271,24 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
         return;
       }
 
-      const session: MuxSession = { topics: new Map(), pingTimer: null };
+      const { MuxWriteQueue, DEFAULT_MUX_DROP_POLICY } = await import('../../../src/lib/mux/drop-policy');
+      const session: MuxSession = {
+        topics: new Map(),
+        pingTimer: null,
+        outbox: new MuxWriteQueue({
+          send: (json) => {
+            peer.send(json);
+          },
+          getBufferedBytes: () => peer.bufferedAmount,
+          config: deps.dropPolicy ?? DEFAULT_MUX_DROP_POLICY,
+          onSendError: (err, topic) => {
+            console.error('[mux-ws] peer.send failed:', err instanceof Error ? err.message : String(err), { topic });
+          },
+        }),
+      };
       sessions.set(peer.id, session);
       session.pingTimer = setInterval(() => {
-        try {
-          peer.send(JSON.stringify({ type: 'ping' }));
-        } catch {
-          // peer gone; close handler tears the session down
-        }
+        session.outbox.pushPing();
       }, PING_INTERVAL_MS);
     },
 
@@ -293,7 +322,7 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
           return;
         }
         for (const topic of command.topics) {
-          startTopic(peer, session, topic, deps.topicAdapter);
+          startTopic(session, topic, deps.topicAdapter);
         }
       } else {
         for (const topic of command.topics) {
@@ -326,6 +355,9 @@ export const defaultTopicAdapter: TopicAdapter = (topic, emit, signal) => {
   }
   if (topic.startsWith(LOGS_TOPIC_PREFIX)) {
     return logsAdapter(topic, emit, signal);
+  }
+  if (topic.startsWith(STATS_TOPIC_PREFIX)) {
+    return statsAdapter(topic, emit, signal);
   }
   emit({ topic, kind: 'error', payload: { message: `Unsupported topic: ${topic}`, gone: true } });
 };
