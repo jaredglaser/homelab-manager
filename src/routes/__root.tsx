@@ -1,8 +1,10 @@
 import { HeadContent, Outlet, Scripts, createRootRoute, useRouterState } from '@tanstack/react-router'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { lazy } from 'react'
 import AppShell from '@/components/AppShell'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import { IS_MOCK_ENABLED } from '@/lib/constants/mock'
+import { queryClient } from '@/lib/query-client'
 
 import '../App.css'
 import '@fontsource/inter/index.css'
@@ -66,11 +68,14 @@ function RootLayout() {
   }
 
   return (
-    <AppShell>
-      <ErrorBoundary name="root">
-        <Outlet />
-      </ErrorBoundary>
-    </AppShell>
+    // AppShell's own provider sits below it; without this, hooks it mounts above (useSettingsSync) throw No QueryClient during prerender.
+    <QueryClientProvider client={queryClient}>
+      <AppShell>
+        <ErrorBoundary name="root">
+          <Outlet />
+        </ErrorBoundary>
+      </AppShell>
+    </QueryClientProvider>
   );
 }
 

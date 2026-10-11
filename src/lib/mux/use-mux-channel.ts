@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import type { z } from 'zod';
 import { muxConnection, type MuxStatus } from '@/lib/mux/mux-connection';
-import type { MuxEventFrame } from '@/lib/mux/protocol';
+import type { MuxTopicFrame } from '@/lib/mux/protocol';
 
 export interface MuxChannel<TSchema extends z.ZodTypeAny, TRevived = z.infer<TSchema>> {
   topic: string;
@@ -40,7 +40,7 @@ export function useMuxChannel<TSchema extends z.ZodTypeAny, TRevived>(
 
   useEffect(() => {
     return muxConnection.subscribe(channel.topic, {
-      onEvent: (frame: MuxEventFrame) => {
+      onEvent: (frame: MuxTopicFrame) => {
         const current = channelRef.current;
         if (frame.kind === 'error') {
           setServiceError(new Error(serviceErrorMessageRef.current ?? `${current.topic} stream unavailable`));
@@ -73,6 +73,10 @@ export interface UseMuxQueryOptions<TRevived, TState> {
   queryKey: QueryKey;
   initial: TState;
   fold: (state: TState, event: TRevived) => TState;
+  /** Observes each message after the fold commits it; for side effects only (toasts, counters, logs). */
+  onData?: (event: TRevived) => void;
+  /** Fired when the server emits this topic's `error` frame (not a connection-level error). */
+  onServiceError?: () => void;
   serviceErrorMessage?: string;
 }
 
@@ -109,14 +113,18 @@ export function useMuxQuery<TSchema extends z.ZodTypeAny, TRevived, TState>(
 
   const queryKeyRef = useRef(options.queryKey);
   queryKeyRef.current = options.queryKey;
+  const onDataRef = useRef(options.onData);
+  onDataRef.current = options.onData;
 
   const handleData = useCallback((event: TRevived) => {
     queryClient.setQueryData<TState>(queryKeyRef.current, (prev) =>
       foldRef.current(prev ?? initialRef.current, event));
+    onDataRef.current?.(event);
   }, [queryClient]);
 
   const { isConnected, error } = useMuxChannel(channel, {
     onData: handleData,
+    onServiceError: options.onServiceError,
     serviceErrorMessage: options.serviceErrorMessage,
   });
 
