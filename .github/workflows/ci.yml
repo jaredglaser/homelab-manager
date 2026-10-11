@@ -8,6 +8,9 @@ on:
   # No branches filter: a mid-stack PR targets its parent PR's branch, not main, and a
   # filter here silently gives it zero check runs instead of a failure anyone can see.
   pull_request:
+  # The release flow dispatches tag builds explicitly: a tag pushed with
+  # GITHUB_TOKEN triggers no push event.
+  workflow_dispatch:
 
 # One run per ref: a newer push cancels the in-progress run for the same branch or
 # PR, so rapid merges to main (e.g. a batch of Dependabot PRs) don't each run CI to
@@ -36,6 +39,7 @@ jobs:
           persist-credentials: false
 
       - name: Detect dependency changes
+        if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
@@ -143,6 +147,7 @@ jobs:
           persist-credentials: false
 
       - name: Detect dependency changes
+        if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
@@ -205,6 +210,7 @@ jobs:
           persist-credentials: false
 
       - name: Detect dependency changes
+        if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: changes
         with:
@@ -366,6 +372,11 @@ jobs:
           else
             BASE_SHA="$PUSH_BEFORE_SHA"
           fi
+          # Tag dispatch runs carry no base SHA. The previous release tag
+          # gives the upgrade check a real pre-release state.
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_SHA="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          fi
           if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             echo "No usable base commit, comparing HEAD against itself"
             BASE_SHA="$(git rev-parse HEAD)"
@@ -408,12 +419,22 @@ jobs:
     name: Publish Docker Images
     runs-on: ubuntu-latest
     needs: [build-test, agent, agent-updater, e2e, migrations]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read
       packages: write
 
     steps:
+      # Tag builds only. A v-prefixed ref that is not v<major>.<minor>.<patch>
+      # must never claim the latest tag or reach the release job.
+      - name: Validate the release ref shape
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if ! echo "$GITHUB_REF_NAME" | grep -Eq '^v(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
+            echo "ref $GITHUB_REF_NAME is not v<major>.<minor>.<patch>"
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -617,6 +638,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists"
+            exit 0
+          fi
           case "$GITHUB_REF_NAME" in
             *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --prerelease ;;
             *)   gh release create "$GITHUB_REF_NAME" --generate-notes ;;
