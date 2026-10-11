@@ -130,16 +130,19 @@ mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database
 }));
 
 import {
+  MAX_PENDING_FRAMES,
   createMuxWsHandlers,
   defaultTopicAdapter,
   parseAgentSseBlock,
 } from '../mux';
 import { MAX_SESSION_TOPICS, MAX_SUB_BATCH, type MuxFrameBody } from '@/lib/mux/protocol';
 import type { Peer } from 'crossws';
+import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
 interface FakePeer {
   id: string;
   request: Request;
+  bufferedAmount: number;
   sent: { type: string; ref?: number; ok?: boolean; error?: string; code?: string; topic?: string; kind?: string; payload?: unknown; count?: number }[];
   sentRaw: string[];
   closeCalls: { code?: number; reason?: string }[];
@@ -151,6 +154,7 @@ function makePeer(id: string): FakePeer {
   const peer: FakePeer = {
     id,
     request: new Request('http://localhost:3000/api/mux'),
+    bufferedAmount: 0,
     sent: [],
     sentRaw: [],
     closeCalls: [],
@@ -204,6 +208,76 @@ describe('mux ws route', () => {
     const peer = makePeer(`peer-${++peerCounter}`);
     await handlers.open(peer as unknown as Peer);
     expect(peer.closeCalls[0]?.code).toBe(1008);
+  });
+
+  function authGate(): { gate: Promise<unknown>; release: (user: unknown) => void } {
+    let release: (user: unknown) => void = () => {};
+    const gate = new Promise<unknown>((resolve) => { release = resolve; });
+    return { gate, release };
+  }
+
+  it('replays messages that arrive before open() finishes auth, in order', async () => {
+    const { gate, release } = authGate();
+    mockAuthenticate.mockImplementation(async () => gate);
+    const { calls, adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer(`race-${++peerCounter}`);
+    openPeers.push({ teardown: () => h.close(peer as unknown as Peer) });
+    const opened = h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+    await h.message(peer as unknown as Peer, command('unsub', ['inventory'], 2));
+
+    expect(calls).toHaveLength(0);
+    expect(peer.sent).toEqual([]);
+
+    release({ id: 'test-user' } as unknown);
+    await opened;
+
+    expect(calls.map((c) => c.topic)).toEqual(['inventory']);
+    expect(calls[0].signal.aborted).toBe(true);
+    expect(peer.sent).toEqual([
+      { type: 'ack', ref: 1, ok: true },
+      { type: 'ack', ref: 2, ok: true },
+    ]);
+  });
+
+  it('discards buffered messages unexecuted when auth then fails', async () => {
+    const { gate, release } = authGate();
+    mockAuthenticate.mockImplementation(async () => gate);
+    const { calls, adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer(`race-${++peerCounter}`);
+    const opened = h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+    expect(calls).toHaveLength(0);
+
+    release(null);
+    await opened;
+
+    expect(calls).toHaveLength(0);
+    expect(peer.sent).toEqual([]);
+    expect(peer.closeCalls[0]?.code).toBe(1008);
+  });
+
+  it('caps the pre-auth buffer instead of holding unbounded unauthenticated frames', async () => {
+    const { gate, release } = authGate();
+    mockAuthenticate.mockImplementation(async () => gate);
+    const { adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer(`race-${++peerCounter}`);
+    openPeers.push({ teardown: () => h.close(peer as unknown as Peer) });
+    const opened = h.open(peer as unknown as Peer);
+    for (let ref = 1; ref <= MAX_PENDING_FRAMES + 10; ref++) {
+      await h.message(peer as unknown as Peer, command('sub', ['inventory'], ref));
+    }
+
+    release({ id: 'test-user' } as unknown);
+    await opened;
+
+    const acks = peer.sent.filter((f) => f.type === 'ack');
+    expect(acks).toHaveLength(MAX_PENDING_FRAMES);
+    expect(acks.every((a) => a.ok === true)).toBe(true);
   });
 
   it('starts the adapter for each subscribed topic and acks the command', async () => {
@@ -332,12 +406,85 @@ describe('mux ws route', () => {
     const { calls, adapter } = makeAdapter();
     const { peer, h } = await openWith({ adapter });
     await h.message(peer as unknown as Peer, command('sub', ['inventory', 'logs:s/abc']));
-
     h.close(peer as unknown as Peer);
 
     expect(calls.every((c) => c.signal.aborted)).toBe(true);
     await h.message(peer as unknown as Peer, command('sub', ['inventory'], 9));
     expect(calls).toHaveLength(2);
+  });
+
+  describe('bulk drop policy under a synthetic slow consumer', () => {
+    let timeouts: TimerMock;
+    let intervals: TimerMock;
+
+    beforeEach(() => {
+      timeouts = mockSetTimeout();
+      intervals = mockSetInterval();
+    });
+
+    afterEach(() => {
+      intervals.restore();
+      timeouts.restore();
+    });
+
+    it('sheds bulk stats frames and reports per-topic counts on the tick', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['stats:docker', 'stats:zfs'], 1));
+      expect(peer.sent).toEqual([{ type: 'ack', ref: 1, ok: true }]);
+
+      for (let i = 1; i <= 3; i++) {
+        calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: i }] });
+      }
+      calls[1].emit({ topic: 'stats:zfs', kind: 'data', payload: [{ time: 1 }] });
+      expect(peer.sent).toHaveLength(1);
+
+      timeouts.fireNext();
+
+      expect(peer.sentRaw).toContain('{"type":"event","topic":"stats:docker","kind":"dropped","count":3}');
+      expect(peer.sentRaw).toContain('{"type":"event","topic":"stats:zfs","kind":"dropped","count":1}');
+      h.close(peer as unknown as Peer);
+    });
+
+    it('coalesces control frames to latest and keeps heartbeats flowing under pressure', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 1 } });
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 2 } });
+      calls[0].emit({ topic: 'inventory', kind: 'data', payload: { rev: 3 } });
+
+      intervals.fireNext();
+      expect(peer.sentRaw).toContain('{"type":"ping"}');
+
+      timeouts.fireNext();
+      const events = peer.sent.filter((f) => f.type === 'event');
+      expect(events).toEqual([{ type: 'event', topic: 'inventory', kind: 'data', payload: { rev: 3 } }]);
+      h.close(peer as unknown as Peer);
+    });
+
+    it('flushes pending reports before resuming delivery once pressure clears', async () => {
+      const { calls, adapter } = makeAdapter();
+      const { peer, h } = await openWith({ adapter });
+      peer.bufferedAmount = 2 * 1024 * 1024;
+      await h.message(peer as unknown as Peer, command('sub', ['stats:docker', 'inventory'], 1));
+
+      calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: 1 }] });
+      calls[1].emit({ topic: 'inventory', kind: 'data', payload: { rev: 1 } });
+      peer.bufferedAmount = 0;
+      calls[0].emit({ topic: 'stats:docker', kind: 'data', payload: [{ time: 2 }] });
+
+      const dropIdx = peer.sentRaw.indexOf('{"type":"event","topic":"stats:docker","kind":"dropped","count":1}');
+      const invIdx = peer.sentRaw.indexOf('{"type":"event","topic":"inventory","kind":"data","payload":{"rev":1}}');
+      const dataIdx = peer.sentRaw.indexOf('{"type":"event","topic":"stats:docker","kind":"data","payload":[{"time":2}]}');
+      expect(dropIdx).toBeGreaterThanOrEqual(0);
+      expect(invIdx).toBeGreaterThan(dropIdx);
+      expect(dataIdx).toBeGreaterThan(invIdx);
+      h.close(peer as unknown as Peer);
+    });
   });
 });
 

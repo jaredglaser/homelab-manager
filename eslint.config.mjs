@@ -5,36 +5,47 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
-// Exported while disabled so the follow-up WS-style rewrite can rework the set in place.
-export const SSE_SEAM_RESTRICTIONS = [
-  {
-    selector: "NewExpression[callee.name='ReadableStream']",
-    message:
-      'SSE routes must build their Response with createSseStream(). A hand-rolled ReadableStream silently drops the heartbeat, the initial flush, and abort teardown.',
-  },
-  {
-    selector:
-      "Property[key.value=/^content-type$/i] > Literal[value=/^text\\/event-stream/], Property[key.name=/^[Cc]ontent-?[Tt]ype$/] > Literal[value=/^text\\/event-stream/], Property[key.value=/^content-type$/i] > TemplateLiteral > TemplateElement[value.cooked=/^text\\/event-stream/]",
-    message:
-      'Do not set the SSE Content-Type by hand. Return createSseStream(request, { onStart }); the seam owns the response headers.',
-  },
-  {
-    selector:
-      "Literal[value=/^(data|event|id|retry):\\s/], Literal[value=/^:[^\\n]*\\n\\n$/], TemplateLiteral > TemplateElement[value.cooked=/^(data|event|id|retry):\\s/], TemplateLiteral > TemplateElement[value.cooked=/^:[^\\n]*\\n\\n$/]",
-    message:
-      'Hand-written SSE frame grammar. Use the SseEmitter from createSseStream(): emit.data(payload), emit.event(name, payload), or emit.raw(chunk) for already-framed upstream bytes.',
-  },
-  {
-    selector: "CallExpression[callee.name='setInterval']",
-    message:
-      'Routes must not run their own timer. createSseStream() already owns the heartbeat; a second interval is a duplicate heartbeat that will drift. If a route genuinely needs a timer, add an eslint-disable-next-line with a reason.',
-  },
-  {
-    selector:
-      "CallExpression[callee.name='createSseStream'] Property[key.name='heartbeatMs']:not([value.type='Literal'][value.value>0][value.value<10000])",
-    message:
-      'heartbeatMs must be a numeric literal between 1 and 9999. The Bun default HTTP idleTimeout is 10s, so a slower (or disabled) heartbeat fails to prevent the very disconnect it exists to prevent.',
-  },
+// WS mux seam: one browser WebSocket, frames built at the mux seam, keepalive
+// timing from one constants module, and a tripwire against the deleted SSE surface.
+const WS_MUX_SOCKET = {
+  selector: "NewExpression[callee.name='WebSocket']",
+  message:
+    'Do not open a raw WebSocket outside the mux seam. Use MuxConnection from src/lib/mux/mux-connection.ts for live topics. The exec terminal keeps its direct socket in src/hooks/useContainerTerminal.ts with its server bridge in server/routes/api/docker-exec.',
+};
+
+const WS_MUX_FRAME = {
+  selector:
+    ":matches(Property[key.name='type'], Property[key.value='type']) > Literal[value=/^(?:sub|unsub|ack|event|ping)$/]",
+  message:
+    'Hand-rolled mux frame. Build wire frames at the mux seam (src/lib/mux/* via src/lib/mux/protocol.ts, or the server endpoint server/routes/api/mux.ts) so the frame grammar stays in one place.',
+};
+
+const WS_MUX_TIMING_LITERAL = {
+  selector:
+    "Property[key.name=/(?:^|[^a-zA-Z])(?:ping|PING)|Ping/][value.type='Literal'][value.raw=/^[0-9]/], Property[key.name=/heartbeat|keepalive|backoff|retr(?:y|ies)|reconnect/i][value.type='Literal'][value.raw=/^[0-9]/], Property[key.value=/(?:^|[^a-zA-Z])(?:ping|PING)|Ping/][value.type='Literal'][value.raw=/^[0-9]/], Property[key.value=/heartbeat|keepalive|backoff|retr(?:y|ies)|reconnect/i][value.type='Literal'][value.raw=/^[0-9]/]",
+  message:
+    'Mux keepalive and reconnect timing must reference src/lib/mux/keepalive.ts (PING_INTERVAL_MS, RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS). A numeric literal here drifts from the shared cadence.',
+};
+
+const WS_MUX_TIMING_CONST = {
+  selector:
+    "VariableDeclarator[id.name=/(?:^|[^a-zA-Z])(?:ping|PING)|Ping/][init.type='Literal'][init.raw=/^[0-9]/], VariableDeclarator[id.name=/heartbeat|keepalive|reconnect/i][init.type='Literal'][init.raw=/^[0-9]/]",
+  message:
+    'Mux keepalive and reconnect constants live in src/lib/mux/keepalive.ts (PING_INTERVAL_MS, RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS). Reference them instead of re-hardcoding the cadence.',
+};
+
+const WS_MUX_SSE_TRIPWIRE = {
+  selector: "Identifier[name='createSseStream']",
+  message:
+    'createSseStream is the deleted web SSE seam. Stream over the WS mux (src/lib/mux). The only sanctioned createSseStream is the agent-side seam agent/src/lib/sse-stream.ts for web-to-agent hops.',
+};
+
+export const WS_MUX_SEAM_RESTRICTIONS = [
+  WS_MUX_SOCKET,
+  WS_MUX_FRAME,
+  WS_MUX_TIMING_LITERAL,
+  WS_MUX_TIMING_CONST,
+  WS_MUX_SSE_TRIPWIRE,
 ];
 
 export default tseslint.config(
@@ -141,13 +152,69 @@ export default tseslint.config(
     },
   },
 
-  // SSE seam selectors disabled while the SSE routes migrate to the WebSocket mux
-  // (PR #510). The rule set gets rewritten around the WS style in a follow-up PR;
-  // SSE_SEAM_RESTRICTIONS above keeps the old selectors for that rewrite.
+  // WS mux seam at call sites: everything outside the seam files below goes
+  // through the mux instead of owning a socket, frames, or keepalive timing.
   {
-    files: ['src/routes/api/**/*.ts', 'agent/src/routes/**/*.ts'],
+    files: [
+      'src/**/*.{ts,tsx}',
+      'server/**/*.ts',
+      'scripts/**/*.ts',
+      'e2e/**/*.ts',
+      'vite.config.ts',
+      'playwright.config.ts',
+    ],
+    ignores: [
+      '**/__tests__/**',
+      'src/lib/mux/**',
+      'src/lib/mock/**',
+      'src/lib/test/**',
+      'src/hooks/useContainerTerminal.ts',
+      'server/routes/api/docker-exec/**',
+      'server/routes/api/mux.ts',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_SOCKET,
+        WS_MUX_FRAME,
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+      ],
+    },
+  },
+  // The mux seam owns frame construction and its timing internals, and the mock
+  // and test doubles emulate it, so only the socket and tripwire rules bind here.
+  {
+    files: ['src/lib/mux/**/*.ts', 'src/lib/mock/**/*.ts', 'src/lib/test/**/*.ts'],
+    ignores: ['**/__tests__/**', 'src/lib/mux/mux-connection.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', WS_MUX_SOCKET, WS_MUX_SSE_TRIPWIRE],
+    },
+  },
+  // mux-connection.ts is the sanctioned client WebSocket site and imports its
+  // timing from keepalive.ts, so only the timing and tripwire rules bind here.
+  {
+    files: ['src/lib/mux/mux-connection.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+    },
+  },
+  // The exec terminal keeps a direct socket end to end (hook plus server bridge).
+  {
+    files: ['src/hooks/useContainerTerminal.ts', 'server/routes/api/docker-exec/**/*.ts'],
     ignores: ['**/__tests__/**'],
-    rules: { 'no-restricted-syntax': 'off' },
+    rules: {
+      'no-restricted-syntax': ['error', WS_MUX_FRAME, WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+    },
+  },
+  // The server endpoint originates ack and event frames and imports its timing
+  // from keepalive.ts, so only the socket, timing, and tripwire rules bind here.
+  {
+    files: ['server/routes/api/mux.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', WS_MUX_SOCKET, WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+    },
   },
 
   // 0 findings since the rule 7 cleanup, so it lands as error per the calibration rule.

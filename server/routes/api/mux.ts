@@ -1,15 +1,16 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
 import type { MuxFrameBody } from '../../../src/lib/mux/protocol';
+import type { MuxDropPolicyConfig, MuxWriteQueue } from '../../../src/lib/mux/drop-policy';
+import { PING_INTERVAL_MS, RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS } from '../../../src/lib/mux/keepalive';
 
 const LOGS_TOPIC_PREFIX = 'logs:';
 const STATS_TOPIC_PREFIX = 'stats:';
 const INVENTORY_TOPIC = 'inventory';
 const SETTINGS_TOPIC = 'settings';
 const STACK_STATUS_TOPIC = 'stack-status';
-const PING_INTERVAL_MS = 25_000;
-const AGENT_BASE_BACKOFF_MS = 1_000;
-const AGENT_MAX_BACKOFF_MS = 16_000;
+const AGENT_INVENTORY_TOPIC = 'agent-inventory';
+export const MAX_PENDING_FRAMES = 64;
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
 type EmitFrame = (frame: MuxFrameBody) => void;
@@ -22,15 +23,20 @@ interface TopicStream {
 interface MuxSession {
   topics: Map<string, TopicStream>;
   pingTimer: ReturnType<typeof setInterval> | null;
+  outbox: MuxWriteQueue;
 }
 
 const sessions = new Map<string, MuxSession>();
+// messages arriving before async open() finishes auth are buffered here and replayed only
+// after auth succeeds; without this the client's first sub commands are silently dropped
+const pendingMessages = new Map<string, string[]>();
 
 function stopTopic(session: MuxSession, topic: string): void {
   const stream = session.topics.get(topic);
   if (stream) {
     session.topics.delete(topic);
     stream.controller.abort();
+    session.outbox.clearTopic(topic);
   }
 }
 
@@ -40,17 +46,15 @@ function teardownSession(peer: Peer): void {
   sessions.delete(peer.id);
   if (session.pingTimer !== null) clearInterval(session.pingTimer);
   for (const topic of [...session.topics.keys()]) stopTopic(session, topic);
+  session.outbox.dispose();
 }
 
-function startTopic(peer: Peer, session: MuxSession, topic: string, adapter: TopicAdapter): void {
+function startTopic(session: MuxSession, topic: string, adapter: TopicAdapter): void {
   stopTopic(session, topic);
   const controller = new AbortController();
   session.topics.set(topic, { controller });
   const emit: EmitFrame = (frame) => {
-    try {
-      peer.send(JSON.stringify({ type: 'event', ...frame }));
-    } catch (err) {
-      console.error('[mux-ws] peer.send failed:', err instanceof Error ? err.message : String(err), { topic });
+    if (session.outbox.pushFrame(frame) === 'failed') {
       controller.abort();
     }
   };
@@ -73,6 +77,17 @@ async function inventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSig
   );
   const unsubscribe = dockerInventoryBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: event });
+  });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
+async function agentInventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  const { agentInventoryBroadcastService } = await import(
+    '../../../src/lib/agents/agent-inventory-broadcast-service'
+  );
+  const unsubscribe = agentInventoryBroadcastService.subscribe((snapshot) => {
+    emit({ topic, kind: 'data', payload: snapshot });
   });
   signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
@@ -190,7 +205,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
         console.error('[mux-ws] log upstream degraded:', err instanceof Error ? err.message : String(err), { host, containerId });
         emit({ topic, kind: 'error', payload: { message: LOGS_DEGRADED_MESSAGE, gone: false } });
       }
-      const delay = Math.min(AGENT_BASE_BACKOFF_MS * 2 ** (attempt - 1), AGENT_MAX_BACKOFF_MS);
+      const delay = Math.min(RECONNECT_BASE_BACKOFF_MS * 2 ** (attempt - 1), RECONNECT_MAX_BACKOFF_MS);
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, delay);
         signal.addEventListener('abort', () => {
@@ -253,81 +268,113 @@ async function pipeAgentSse(
 
 export interface MuxWsDeps {
   topicAdapter: TopicAdapter;
+  dropPolicy?: MuxDropPolicyConfig;
 }
 
 export function createMuxWsHandlers(deps: MuxWsDeps) {
+  async function handleCommand(peer: Peer, session: MuxSession, text: string): Promise<void> {
+    const { parseCommandFrame, MAX_SESSION_TOPICS, TOPIC_LIMIT_ERROR_CODE } = await import('../../../src/lib/mux/protocol');
+    let raw: unknown;
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const command = parseCommandFrame(raw);
+    if (!command) {
+      peer.send(JSON.stringify({ type: 'ack', ref: 0, ok: false, error: 'Invalid command' }));
+      return;
+    }
+
+    if (command.type === 'sub') {
+      const missing = command.topics.filter((t) => !session.topics.has(t));
+      if (session.topics.size + missing.length > MAX_SESSION_TOPICS) {
+        peer.send(JSON.stringify({
+          type: 'ack',
+          ref: command.ref,
+          ok: false,
+          error: `Session topic limit (${MAX_SESSION_TOPICS}) reached. Unsubscribe unused topics`,
+          code: TOPIC_LIMIT_ERROR_CODE,
+        }));
+        return;
+      }
+      for (const topic of command.topics) {
+        startTopic(session, topic, deps.topicAdapter);
+      }
+    } else {
+      for (const topic of command.topics) {
+        stopTopic(session, topic);
+      }
+    }
+    peer.send(JSON.stringify({ type: 'ack', ref: command.ref, ok: true }));
+  }
+
   return {
     async open(peer: Peer) {
       try {
         const { authenticateSSE } = await import('../../../src/lib/auth/sse-auth');
         const user = await authenticateSSE(peer.request as unknown as Request);
         if (!user) {
+          pendingMessages.delete(peer.id);
           try { peer.close(1008, 'Unauthorized'); } catch { /* already closed */ }
           return;
         }
       } catch (err) {
+        pendingMessages.delete(peer.id);
         console.error('[mux-ws] auth failed:', err instanceof Error ? err.message : String(err));
         try { peer.close(1011, 'Internal error'); } catch { /* already closed */ }
         return;
       }
 
-      const session: MuxSession = { topics: new Map(), pingTimer: null };
+      const { MuxWriteQueue, DEFAULT_MUX_DROP_POLICY } = await import('../../../src/lib/mux/drop-policy');
+      const session: MuxSession = {
+        topics: new Map(),
+        pingTimer: null,
+        outbox: new MuxWriteQueue({
+          send: (json) => {
+            peer.send(json);
+          },
+          getBufferedBytes: () => peer.bufferedAmount,
+          config: deps.dropPolicy ?? DEFAULT_MUX_DROP_POLICY,
+          onSendError: (err, topic) => {
+            console.error('[mux-ws] peer.send failed:', err instanceof Error ? err.message : String(err), { topic });
+          },
+        }),
+      };
       sessions.set(peer.id, session);
       session.pingTimer = setInterval(() => {
-        try {
-          peer.send(JSON.stringify({ type: 'ping' }));
-        } catch {
-          // peer gone; close handler tears the session down
-        }
+        session.outbox.pushPing();
       }, PING_INTERVAL_MS);
+
+      const buffered = pendingMessages.get(peer.id);
+      if (!buffered) return;
+      pendingMessages.delete(peer.id);
+      for (const text of buffered) {
+        await handleCommand(peer, session, text);
+      }
     },
 
     async message(peer: Peer, message: { text: () => string }) {
       const session = sessions.get(peer.id);
-      if (!session) return;
-
-      const { parseCommandFrame, MAX_SESSION_TOPICS, TOPIC_LIMIT_ERROR_CODE } = await import('../../../src/lib/mux/protocol');
-      let raw: unknown;
-      try {
-        raw = JSON.parse(message.text());
-      } catch {
+      if (!session) {
+        const buffered = pendingMessages.get(peer.id) ?? [];
+        if (buffered.length < MAX_PENDING_FRAMES) {
+          buffered.push(message.text());
+          pendingMessages.set(peer.id, buffered);
+        }
         return;
       }
-      const command = parseCommandFrame(raw);
-      if (!command) {
-        peer.send(JSON.stringify({ type: 'ack', ref: 0, ok: false, error: 'Invalid command' }));
-        return;
-      }
-
-      if (command.type === 'sub') {
-        const missing = command.topics.filter((t) => !session.topics.has(t));
-        if (session.topics.size + missing.length > MAX_SESSION_TOPICS) {
-          peer.send(JSON.stringify({
-            type: 'ack',
-            ref: command.ref,
-            ok: false,
-            error: `Session topic limit (${MAX_SESSION_TOPICS}) reached. Unsubscribe unused topics`,
-            code: TOPIC_LIMIT_ERROR_CODE,
-          }));
-          return;
-        }
-        for (const topic of command.topics) {
-          startTopic(peer, session, topic, deps.topicAdapter);
-        }
-      } else {
-        for (const topic of command.topics) {
-          stopTopic(session, topic);
-        }
-      }
-      peer.send(JSON.stringify({ type: 'ack', ref: command.ref, ok: true }));
+      await handleCommand(peer, session, message.text());
     },
 
     close(peer: Peer) {
+      pendingMessages.delete(peer.id);
       teardownSession(peer);
     },
 
     error(peer: Peer, err?: WSError) {
       console.error('[mux-ws] peer error:', { peerId: peer.id, error: err?.message ?? '(no error)' });
+      pendingMessages.delete(peer.id);
       teardownSession(peer);
     },
   };
@@ -342,6 +389,9 @@ export const defaultTopicAdapter: TopicAdapter = (topic, emit, signal) => {
   }
   if (topic === STACK_STATUS_TOPIC) {
     return stackStatusAdapter(topic, emit, signal);
+  }
+  if (topic === AGENT_INVENTORY_TOPIC) {
+    return agentInventoryAdapter(topic, emit, signal);
   }
   if (topic.startsWith(LOGS_TOPIC_PREFIX)) {
     return logsAdapter(topic, emit, signal);
