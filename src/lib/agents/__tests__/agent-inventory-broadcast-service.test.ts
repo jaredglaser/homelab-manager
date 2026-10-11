@@ -146,4 +146,26 @@ describe('AgentInventoryBroadcastService', () => {
     unsub();
     await service.stop();
   });
+
+  it('retries listening when the initial connection fails', async () => {
+    let attempts = 0;
+    const service = new AgentInventoryBroadcastService({
+      getPoolClient: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('db down');
+        return fakePoolClient();
+      },
+      loadSnapshot: () => Promise.resolve(snapshot(1)),
+    });
+
+    const received: AgentInventorySnapshot[] = [];
+    const unsub = service.subscribe((s) => received.push(s));
+    await waitForCondition(() => attempts >= 2, { timeoutMs: 5000 });
+    await waitForCondition(() => received.length >= 1);
+
+    expect(received.length).toBe(1);
+
+    unsub();
+    await service.stop();
+  });
 });
