@@ -28,7 +28,7 @@ export interface AgentInventoryEntry {
   autoUpdate: boolean;
   /** Probe error detail when status is not online, else null. */
   lastError: string | null;
-  /** ISO timestamp of this inventory pass. */
+  /** ISO timestamp of the inventory pass that produced this entry. */
   checkedAt: string;
 }
 
@@ -121,14 +121,20 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
     agentImageTag: host.agentImageTag,
     autoUpdate: host.autoUpdate,
     lastError: null,
-    checkedAt: host.updatedAt.toISOString(),
+    // Not updatedAt: every writer to managed_hosts bumps that column (rename,
+    // URL edit, key rotation, a single-host health check), so it reports a
+    // fresher sweep than actually ran. A host created but not yet swept falls
+    // back to updatedAt, which is then its creation time.
+    checkedAt: (host.lastSweptAt ?? host.updatedAt).toISOString(),
   };
 }
 
-/** Read-only snapshot of every host from stored rows, plus the sweep time implied by the freshest updatedAt. */
+/** Read-only snapshot of every host from stored rows, plus the sweep time implied by the freshest lastSweptAt. */
 export function buildAgentInventorySnapshot(hosts: ManagedHost[]): AgentInventorySnapshot {
   const sweptAt = hosts.reduce<Date | null>((max, host) => {
-    return max === null || host.updatedAt > max ? host.updatedAt : max;
+    const at = host.lastSweptAt;
+    if (at === null) return max;
+    return max === null || at > max ? at : max;
   }, null);
 
   return {

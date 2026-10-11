@@ -89,6 +89,7 @@ const testHost: ManagedHost = {
   status: 'healthy',
   createdAt: new Date(),
   updatedAt: new Date(),
+  lastSweptAt: null,
 };
 
 const testRequest: DeployRequest = {

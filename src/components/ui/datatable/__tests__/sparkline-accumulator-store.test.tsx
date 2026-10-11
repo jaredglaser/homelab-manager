@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   getSparklinePoints,
   ingestSparklineData,
   resetSparklineStore,
   subscribeSparkline,
 } from '@/components/ui/datatable/sparkline-accumulator-store';
+import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
 const NOW = 1_700_000_000_000;
 
@@ -77,17 +78,14 @@ describe('ingestSparklineData', () => {
 });
 
 describe('subscribeSparkline eviction', () => {
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let timers: TimerMock;
 
   beforeEach(() => {
-    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => {
-      fn();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout);
+    timers = mockSetTimeout({ fireImmediately: true });
   });
 
   afterEach(() => {
-    setTimeoutSpy.mockRestore();
+    timers.restore();
   });
 
   it('evicts the series once the last subscriber leaves', () => {
@@ -115,9 +113,7 @@ describe('subscribeSparkline eviction', () => {
 describe('subscribeSparkline resume', () => {
   it('cancels a pending eviction when a subscriber returns before the grace window', () => {
     // setTimeout returns an id but never fires, modelling a still-pending eviction.
-    const clearSpy = spyOn(globalThis, 'clearTimeout').mockImplementation(() => {});
-    const setSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((_fn: () => void) =>
-      1 as unknown as ReturnType<typeof setTimeout>) as typeof setTimeout);
+    const timers = mockSetTimeout();
 
     try {
       ingestSparklineData('a', makePoints([0]), NOW);
@@ -127,11 +123,10 @@ describe('subscribeSparkline resume', () => {
       // Resubscribing before the grace window must cancel the scheduled eviction.
       subscribeSparkline('a', () => {});
 
-      expect(clearSpy).toHaveBeenCalled();
+      expect(timers.clearSpy).toHaveBeenCalled();
       expect(getSparklinePoints('a')).toHaveLength(1);
     } finally {
-      setSpy.mockRestore();
-      clearSpy.mockRestore();
+      timers.restore();
     }
   });
 });

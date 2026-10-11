@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { MockEventSource } from '@/lib/test/mock-event-source';
+import { mockModule } from '@/lib/test/mock-module';
 
 const mockShowToast = mock((_message: string, _severity: string) => {});
-mock.module('@/hooks/toastAtom', () => ({
+mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real, 
   useToast: () => ({ showToast: mockShowToast }),
 }));
 

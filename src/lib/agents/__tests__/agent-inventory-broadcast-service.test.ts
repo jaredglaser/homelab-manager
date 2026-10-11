@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { AgentInventoryBroadcastService } from '../agent-inventory-broadcast-service';
 import type { AgentInventorySnapshot } from '@/lib/hosts/agent-inventory';
+import { waitForCondition } from '@/lib/test/wait-for-condition';
 
 function snapshot(id: number): AgentInventorySnapshot {
   return {
@@ -47,7 +48,7 @@ describe('AgentInventoryBroadcastService', () => {
     const received: AgentInventorySnapshot[] = [];
     const unsub1 = service.subscribe((s) => received.push(s));
     const unsub2 = service.subscribe((s) => received.push(s));
-    await new Promise((r) => setTimeout(r, 10));
+    await waitForCondition(() => received.length === 2);
 
     expect(received).toHaveLength(2);
     expect(received[0]!.entries[0]!.id).toBe(1);
@@ -80,10 +81,10 @@ describe('AgentInventoryBroadcastService', () => {
 
     const received: AgentInventorySnapshot[] = [];
     const unsub = service.subscribe((s) => received.push(s));
-    await new Promise((r) => setTimeout(r, 10));
+    await waitForCondition(() => received.length >= 1);
 
     listeners.notify!({ channel: 'agent_inventory_change' });
-    await new Promise((r) => setTimeout(r, 10));
+    await waitForCondition(() => received.length >= 2);
 
     expect(received).toHaveLength(2);
     expect(received[1]!.entries[0]!.id).toBe(2);
@@ -99,13 +100,14 @@ describe('AgentInventoryBroadcastService', () => {
     });
 
     const received: AgentInventorySnapshot[] = [];
+    const receivedStill: AgentInventorySnapshot[] = [];
     const unsub = service.subscribe((s) => received.push(s));
-    await new Promise((r) => setTimeout(r, 10));
+    await waitForCondition(() => received.length >= 1);
     unsub();
 
     const receivedAfter = received.length;
-    const still = service.subscribe(() => {});
-    await new Promise((r) => setTimeout(r, 10));
+    const still = service.subscribe((s) => receivedStill.push(s));
+    await waitForCondition(() => receivedStill.length >= 1);
 
     expect(received.length).toBe(receivedAfter);
     still();

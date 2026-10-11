@@ -1,0 +1,77 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-pr:
+    name: Maintain the Release PR
+    runs-on: ubuntu-latest
+    steps:
+      # App token so the Release PR triggers workflows: a GITHUB_TOKEN-created
+      # PR reports no checks and the ruleset can never merge it.
+      - name: Generate an app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          # ci.yml's release job owns the announcement, gated on the images
+          # actually pushing. This workflow only maintains the Release PR.
+          skip-github-release: true
+
+  tag:
+    name: Tag the merged release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Tag the release and start the image build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          AFTER="$(git rev-parse HEAD)"
+          if [ -z "$BEFORE_SHA" ] || ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            BEFORE_SHA="$(git rev-parse "$AFTER^" 2>/dev/null || echo "$AFTER")"
+          fi
+          if ! git diff --name-only "$BEFORE_SHA" "$AFTER" -- version.txt | grep -q .; then
+            echo "version.txt unchanged. Nothing to release"
+            exit 0
+          fi
+          VERSION="$(tr -d '[:space:]' < version.txt)"
+          if [ -z "$VERSION" ]; then
+            echo "version.txt is empty. Skipping"
+            exit 0
+          fi
+          TAG="v$VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists on origin; skipping"
+            exit 0
+          fi
+          git tag "$TAG" "$AFTER"
+          git push origin "refs/tags/$TAG"
+          # A tag pushed with GITHUB_TOKEN triggers no workflows, so the
+          # release build is dispatched explicitly. ci.yml publishes the
+          # images and creates the GitHub Release only after they push.
+          gh workflow run ci.yml --ref "$TAG"
