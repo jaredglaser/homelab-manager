@@ -13,6 +13,9 @@ const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntr
   versionSource: 'live',
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentImageTag: 'latest',
+  agentUpdaterImageDigest: 'sha256:' + 'a'.repeat(64),
+  agentUpdaterImageTag: 'latest',
+  updaterOutOfDate: false,
   lastError: null,
   checkedAt: '2026-09-25T23:00:00.000Z',
   ...overrides,
@@ -154,6 +157,44 @@ describe('AgentsOverviewView', () => {
     expect(screen.getByLabelText('Update homeserver').hasAttribute('disabled')).toBe(true)
     expect(screen.getByLabelText('Update media-server').hasAttribute('disabled')).toBe(false)
     expect(screen.getByText('Update confirmed, agent now on v0.3.0')).toBeDefined()
+  })
+
+  it('renders the out-of-date updater warning with the regeneration fix on that row and in a callout', async () => {
+    const { AgentsOverviewView, UPDATER_OUT_OF_DATE_MESSAGE } = await import('@/components/agents/AgentsOverview')
+    render(
+      <AgentsOverviewView
+        {...makeProps({
+          agents: [makeAgent({ updaterOutOfDate: true }), makeAgent({ id: 2, name: 'media-server' })],
+        })}
+      />,
+    )
+    expect(screen.getByLabelText('agent-updater out of date')).toBeDefined()
+    expect(screen.getByTestId('updater-out-of-date-callout')).toBeDefined()
+    expect(screen.getByText('The agent-updater is out of date on 1 host')).toBeDefined()
+    expect(screen.getByText(UPDATER_OUT_OF_DATE_MESSAGE)).toBeDefined()
+    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('updater out of date')
+  })
+
+  it('renders no updater warning when every sidecar is current', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    render(
+      <AgentsOverviewView
+        {...makeProps({
+          agents: [makeAgent(), makeAgent({ id: 2, name: 'media-server', updaterOutOfDate: false })],
+        })}
+      />,
+    )
+    expect(screen.queryByLabelText('agent-updater out of date')).toBeNull()
+    expect(screen.queryByTestId('updater-out-of-date-callout')).toBeNull()
+  })
+
+  it('renders the pinned regeneration copy verbatim', async () => {
+    const { AgentsOverviewView, UPDATER_OUT_OF_DATE_MESSAGE } = await import('@/components/agents/AgentsOverview')
+    expect(UPDATER_OUT_OF_DATE_MESSAGE).toBe(
+      'The agent-updater on this host is out of date and can no longer be updated remotely. Regenerate the compose stack: Settings, Manage Hosts, then run docker compose up -d on the host.',
+    )
+    render(<AgentsOverviewView {...makeProps({ agents: [makeAgent({ updaterOutOfDate: true })] })} />)
+    expect(screen.getByText(UPDATER_OUT_OF_DATE_MESSAGE)).toBeDefined()
   })
 })
 
