@@ -6,6 +6,8 @@
  * existing subscriptions keep running.
  */
 export const INVENTORY_TOPIC = 'inventory';
+export const SETTINGS_TOPIC = 'settings';
+export const STACK_STATUS_TOPIC = 'stack-status';
 
 export const MAX_SESSION_TOPICS = 250;
 export const MAX_SUB_BATCH = 30;
@@ -105,7 +107,12 @@ export function lookupTopicSpec(topic: string): MuxTopicSpec | null {
 }
 
 export function isValidTopic(topic: unknown): topic is string {
-  return typeof topic === 'string' && lookupTopicSpec(topic) !== null;
+  if (typeof topic !== 'string') return false;
+  return (
+    topic === SETTINGS_TOPIC ||
+    topic === STACK_STATUS_TOPIC ||
+    lookupTopicSpec(topic) !== null
+  );
 }
 
 export function parseCommandFrame(raw: unknown): MuxCommandFrame | null {

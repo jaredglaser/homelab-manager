@@ -74,6 +74,16 @@ describe('isValidTopic', () => {
     expect(isValidTopic('stats:proxmox')).toBe(true);
   });
 
+  it('accepts the settings and stack-status control topics', () => {
+    expect(isValidTopic('settings')).toBe(true);
+    expect(isValidTopic('stack-status')).toBe(true);
+  });
+
+  it('accepts the settings and stack-status control topics', () => {
+    expect(isValidTopic('settings')).toBe(true);
+    expect(isValidTopic('stack-status')).toBe(true);
+  });
+
   it('rejects unknown channels and non-strings', () => {
     expect(isValidTopic('stats:bogus')).toBe(false);
     expect(isValidTopic('logs:')).toBe(false);
