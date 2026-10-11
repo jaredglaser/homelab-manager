@@ -110,7 +110,7 @@ async function ensureClient(): Promise<string> {
   } else {
     await req('POST', '/oidc/clients', { id: CLIENT_ID, ...payload });
   }
-  return (await req('POST', `/oidc/clients/${CLIENT_ID}/secret`, {})).secret;
+  return (await req('POST', `/oidc/clients/${CLIENT_ID}/secrets`, {})).secret;
 }
 
 await waitForHealth();
