@@ -199,7 +199,6 @@ export class HostRepository {
     );
   }
 
-  /** Per-agent auto-update opt-in. Only writes the row addressed by id. */
   async update(id: number, fields: UpdateHostInput): Promise<ManagedHost> {
     const setClauses: string[] = [];
     const params: unknown[] = [];
