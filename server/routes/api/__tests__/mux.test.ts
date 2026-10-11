@@ -83,6 +83,7 @@ interface FakePeer {
   id: string;
   request: Request;
   sent: { type: string; ref?: number; ok?: boolean; error?: string; code?: string; topic?: string; kind?: string; payload?: unknown }[];
+  sentRaw: string[];
   closeCalls: { code?: number; reason?: string }[];
   send: (data: string) => void;
   close: (code?: number, reason?: string) => void;
