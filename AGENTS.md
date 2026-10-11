@@ -66,7 +66,7 @@ bun run test:e2e:ui           # Playwright UI mode
 ```
 
 E2e runs against static production builds served over MSW (not a dev server), so
-loaders/auth/SSE are intercepted before first render. Specs live in `e2e/`;
+loaders/auth/streaming data are intercepted before first render. Specs live in `e2e/`;
 `*.demo.e2e.ts` run on the demo build, all other `*.e2e.ts` on the app build
 (the suffix keeps `bun test` from collecting Playwright specs). A flow earns a
 Playwright test only when it needs something Happy-DOM cannot do (real layout, the
@@ -79,8 +79,8 @@ everything else belongs in `bun test`. Selection rule and authoring conventions:
 1. **Styling**: TailwindCSS ONLY. Never create `.css` files (exception: `App.css`). Inline `style` only when Tailwind cannot express the value (virtualizer positioning, dynamic indent, computed transforms). Never use hardcoded hex colors - use the design tokens in `App.css` (`bg-card`, `text-muted-foreground`, `border-border`, `bg-level1`, `bg-chart-bg`, etc.). The tokens hold literal color values (no longer aliased to `--mui-palette-*`); the dark scheme lives in `:root` and the light overrides in `[data-color-scheme="light"]`, with `useLightPaletteEffect` rewriting the background-derived light tokens per selectable palette. Color mode (light/dark) is owned by `useColorMode` (sets `data-color-scheme`, persists to localStorage), seeded before first paint by an inline script in `__root.tsx`.
 2. **Imports**: Always use `@/` for src files. In test files: use `@/` for imports from outside `__tests__/`, relative paths for imports within the same `__tests__/` directory. Never mix `@/` and relative paths in non-test files.
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly in server functions.
-4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE route handlers (`src/routes/api/`); their handler closures live in route modules that ship to the client. In `createServerFn` modules, static imports are also safe: the Start compiler strips handler bodies from the client bundle and dead-code-eliminates handler-only imports, and every server-only entry point they reach statically carries a `@tanstack/react-start/server-only` marker (database client, database config, master key, encrypted value, git token repository) with `importProtection: { behavior: 'error' }` set in `vite.config.ts`, so any leak fails the build instead of breaking at runtime.
-5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → shared `DataTable` (CSS Grid + conditional `useVirtualizer`). Use div-based rows (not `<table>/<tr>/<td>`). Server handles client disconnect via `request.signal`. Never use TanStack Start streaming server functions for real-time data.
+4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside stream route handlers (`src/routes/api/`, `server/routes/api/`). Their handler closures live in route modules that ship to the client. In `createServerFn` modules, static imports are also safe: the Start compiler strips handler bodies from the client bundle and dead-code-eliminates handler-only imports, and every server-only entry point they reach statically carries a `@tanstack/react-start/server-only` marker (database client, database config, master key, encrypted value, git token repository) with `importProtection: { behavior: 'error' }` set in `vite.config.ts`, so any leak fails the build instead of breaking at runtime.
+5. **WS Pattern**: Live data rides the single `/api/mux` WebSocket, never TanStack Start streaming server functions. Server-side WS handlers live under `server/routes/api/`, and the client-side seam lives in `src/lib/mux`. DataTable rows stay div-based (never `<table>/<tr>/<td>`).
 6. **File Creation**: PREFER editing existing files over creating new ones.
 7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. Coverage is enforced against the thresholds in `scripts/check-coverage.js`, which all three packages pipe into; read the values there rather than restating them. Test scripts run with `bun test --isolate`, so each file gets a fresh global object and `mock.module()` calls do not leak across files. Within a single file, mocks still affect every sibling test, so prefer `renderHook`, dependency injection, or narrow-scope `spyOn` when only some tests need the override. For server functions that use dynamic `await import()` inside `createServerFn` handlers, prefer mocking the underlying service module (e.g. `@/lib/stacks/stack-service`) over the barrel (`@/data/stacks/functions`) - fewer mocked exports to keep in sync as the barrel grows. When tests need `setTimeout` to fire immediately (retry loops, health checks), spy on `globalThis.setTimeout` in `beforeEach`/`afterEach` at the appropriate `describe` scope. Never await a bare `setTimeout` to let async settle (`await new Promise(r => setTimeout(r, 0))`, `flushMicrotasks`/`flushMacrotask` helpers, or sleep-based waits): non-deterministic and hides real ordering. Await a deterministic signal instead (a promise the relevant mock/callback resolves when the awaited event happens), use `waitForCondition` (agent tests: `agent/src/lib/test/wait-for-condition.ts`; web tests: `src/lib/test/wait-for-condition.ts`), Testing Library `waitFor`/`findBy*` for component work, or fake timers. Spying on `globalThis.setTimeout`/`setInterval` so a real timer fires deterministically, as above, is the correct pattern and is fine. `bun test --isolate` does not enforce coverage; `bun run test` does, by piping into `scripts/check-coverage.js`, so a green `--isolate` run says nothing about the coverage gate. `coveragePathIgnorePatterns` in `bunfig.toml` needs a glob or an exact path: a bare directory with a trailing slash matches nothing and fails silently, so a dead entry reads as a working exclusion.
 8. **Logging**: Be purposeful with console methods. Use `console.error` for actual errors, `console.info` for operational messages (startup, shutdown), and `console.log` sparingly for temporary debugging only (do not commit). No drive-by `console.log` statements in committed code.
@@ -114,7 +114,7 @@ everything else belongs in `bun test`. Selection rule and authoring conventions:
 - **Language:** TypeScript (strict mode, `noUnusedLocals`, `noUnusedParameters`)
 - **UI:** shadcn-style components on Base UI (`@base-ui/react`, vendored in `src/components/ui/`) + TailwindCSS v4 (styling, via `@tailwindcss/vite` plugin - no config file) + sonner (toasts). MUI and emotion have been fully removed.
 - **State:** Jotai (settings atoms) + TanStack Query + react-hook-form (stack editor draft/dirty tracking)
-- **Streaming:** SSE via TanStack Router server routes
+- **Streaming:** one `/api/mux` WebSocket with topic adapters (handler in `server/routes/api/`, client seam in `src/lib/mux`)
 - **Charts:** Apache ECharts
 - **Clients:** Dockerode (Docker), pg (PostgreSQL), native fetch (Proxmox)
 - **Crypto:** jose (JWT for agent auth, JWE for at-rest secret encryption)
@@ -129,32 +129,72 @@ everything else belongs in `bun test`. Selection rule and authoring conventions:
 ```text
 Worker → Agent sidecars (Docker/ZFS SSE) + Proxmox REST API → INSERT wide rows → TimescaleDB
                                                                                        ↓
-Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast
+Browser → Server (/api/mux WS) ← StatsPollService (1s poll) → Query DB → Broadcast
 ```
 
 - Frontend reads from database, not direct API connections.
-- Docker and ZFS stats flow through agent sidecars (SSE streams). Proxmox uses direct REST API polling. All three share the same downstream path: worker → TimescaleDB → StatsPollService → SSE → `useTimeSeriesStream`.
-- Frontend preloads history via REST server function, then merges SSE updates.
+- Docker and ZFS stats flow through agent sidecars (SSE streams). Proxmox uses direct REST API polling. All three share the same downstream path: worker → TimescaleDB → StatsPollService → `/api/mux` → `useTimeSeriesStream`.
+- Frontend preloads history via REST server function, then merges mux updates.
 
-### SSE Endpoints (`src/routes/api/`)
+### Live Streaming (`/api/mux`, `server/routes/api/`)
 
-Two factories in `src/lib/sse/` own the shared boilerplate (`ReadableStream`, heartbeat, `closed` flag, abort/teardown):
+All browser live data rides one WebSocket at `/api/mux`, handled by `server/routes/api/mux.ts`
+(h3 `defineWebSocketHandler`, one session per peer). The session starts each topic's adapter
+under an `AbortController`, and `src/lib/mux/drop-policy.ts` gates what reaches the wire.
 
-- **`createStatsSseHandler(source)`**: source values are `'docker'`, `'zfs'`, `'proxmox'` (type `StatsSource`; the corresponding route files are `/api/docker-stats`, `/api/zfs-stats`, `/api/proxmox-stats`). Wraps the three-arg `statsPollService.subscribe(source, sendData, sendError)` and emits an `event: stats_error` frame when the subscribe path fails.
-- **`createBroadcastSseHandler({ loadSubscribe, serialize })`**: for single-arg subscribe-based services (`docker-inventory`, `stack-status`, `settings`). Caller owns the full SSE frame via `serialize`, so named events (`event: foo`) are possible when needed.
-
-Server-only imports must happen inside the factory callbacks:
-
-```typescript
-// ALWAYS dynamic import inside the factory callback; static imports break the client bundle:
-loadSubscribe: async () => {
-  await import('@/lib/server-init');
-  const { stackStatusBroadcastService } = await import('@/lib/stacks/stack-status-broadcast-service');
-  return (cb) => stackStatusBroadcastService.subscribe(cb);
-}
+```text
+  useDockerInventory / useSettingsSync / useStackStatus   (useMuxQuery, Query cache fold)
+  useTimeSeriesStream                                     (buffer + preloadFn)
+  useContainerLogs -> log-stream-registry                 (2,000-line buffer, replay)
+      |
+      v
+  muxConnection (src/lib/mux): ONE WebSocket, topics ref-counted
+      |  {"type":"sub" | "unsub", "ref":n, "topics":[...]}
+      v
+  /api/mux session (<=250 topics, {"type":"ping"} every 25s)
+      |  {"type":"ack","ref":n,"ok":true | false,"error"?,"code"?}
+      v
+  topic adapters in server/routes/api/mux.ts, one AbortController each:
+      inventory / settings / stack-status  -> broadcast services (init snapshot per subscribe)
+      stats:docker|zfs|proxmox             -> statsPollService (1s poll, new rows only)
+      logs:<host>/<cid>                    -> agent /logs SSE pipe (backlog_start .. backlog_done)
+      |  {"type":"event","topic":t,"kind":k,"payload":p}
+      v
+  useMuxChannel validates payloads against the topic schema and applies its `revive`
 ```
 
-Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (auth + DB lookup + pipe-through from agent), `git.$` (git HTTP smart protocol, not SSE), and `health` (unauthenticated DB-reachability probe for Docker healthchecks and uptime monitors, handler in `src/lib/health/`).
+**Topic names** come from `src/lib/mux/protocol.ts` (`logsTopic()`/`statsTopic()` builders plus a
+registry that classes each topic `control` or `bulk`). Adapters live in `server/routes/api/mux.ts`
+behind `defaultTopicAdapter`:
+
+- `inventory` (control): full container inventory from `dockerInventoryBroadcastService` (pg `NOTIFY docker_container_change`). Every subscribe gets an `init` snapshot.
+- `settings` (control): `settingsBroadcastService` (pg `NOTIFY settings_change`). `init` carries the full record and `change` merges one key.
+- `stack-status` (control): deploy status from `stackStatusBroadcastService`, wire-mapped by `toStackStatusWireMessage`.
+- `stats:docker` / `stats:zfs` / `stats:proxmox` (bulk): raw rows newer than the `statsPollService` poll cursor. History stays on the REST preload (gotcha 17).
+- `logs:<host>/<containerId>` (bulk): resolves the managed host and agent keypair, signs a JWT, and pipes the agent's `/logs/:containerId` SSE stream into frames. The pipe retries forever on the `src/lib/mux/keepalive.ts` backoff (1s to 16s) and emits one `error` frame (`gone: false`) per outage. `backlog_start` goes out only after a fetch succeeds.
+
+**Frames** (server to client), all shaped in `src/lib/mux/protocol.ts`:
+
+- `{"type":"ack","ref":n,"ok":true}` confirms a command and `{"type":"ack","ref":n,"ok":false,"error":...,"code":...}` rejects it, with `code: "topic_limit"` for budget rejections. Exactly one ack per well-formed command.
+- `{"type":"event","topic":t,"kind":"data","payload":p}` carries topic payloads. `backlog_start` and `backlog_done` bracket a log replay, `stream_end` marks a finished stream (container stopped cleanly), and `error` carries `{message, gone}` where `gone: false` means the source is retrying and `gone: true` means the subscription is dead (unknown host, missing keypair, unsupported topic).
+- `{"type":"event","topic":t,"kind":"dropped","count":n}` reports bulk rows the write queue shed under backpressure.
+- `{"type":"ping"}` is the server keepalive (`PING_INTERVAL_MS`, 25s).
+
+**Subscribe protocol and resync** (client to server `{"type":"sub" | "unsub","ref":n,"topics":[...]}`):
+
+- A frame carries at most `MAX_SUB_BATCH` (30) topics for `sub` and `MAX_UNSUB_BATCH` (50) for `unsub`. The client splits larger bursts. A frame that fails validation is answered `{"type":"ack","ref":0,"ok":false,"error":"Invalid command"}`, and unparseable text is dropped without a reply.
+- Each session holds at most `MAX_SESSION_TOPICS` (250) topics, a circuit breaker against runaway scripted clients and not a UI cap. A sub batch that would exceed the budget is rejected whole with `code: "topic_limit"` while existing subscriptions keep running, and unsubscribes free budget. Rejections toast once and land in per-view error state.
+- Subscribing starts the topic's adapter. Re-subscribing an already active topic restarts it, which re-delivers the topic's initial state. That restart is the resync primitive. Unsubscribing (or the last handler detaching) aborts the adapter and clears its queued frames, and the socket closes with the last topic.
+- On reconnect the client re-sends its whole active topic set (backoff 1s to 16s from `src/lib/mux/keepalive.ts`, with fast reconnect on visibility and online), so every topic resyncs. `useMuxChannel` fires `onReconnect` across the status flip so consumers refetch history missed while offline (`useTimeSeriesStream` re-runs `preloadFn` into `replaceBuffer`).
+- Under write pressure (unsent bytes at 1 MiB and above, clearing at 256 KiB and below) the per-session `MuxWriteQueue` sheds bulk `data` frames and reports each gap as a `dropped` frame. Control `data` frames coalesce to latest per topic. Markers, errors, drop reports, and pings always go out.
+
+**Client seam**: `src/lib/mux` owns the socket (`mux-connection.ts`, ref-counted `muxConnection`
+singleton) and the hooks (`use-mux-channel.ts`: `useMuxChannel` validates one topic's payloads and
+applies its optional `revive`, `useMuxQuery` folds them into one TanStack Query entry). Per-topic
+wire schemas and `revive` transforms live in `src/lib/sse/channels/` and are shared with the mock.
+Hand-written routes that remain under `src/routes/api/`: `git.$` (git HTTP smart protocol, not a
+stream) and `health` (unauthenticated DB-reachability probe for Docker healthchecks and uptime
+monitors, handler in `src/lib/health/`).
 
 ### Shared DataTable (`src/components/ui/datatable/`)
 
@@ -171,9 +211,9 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 ### Key Patterns
 
 - **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. shadcn design tokens (`--background`, `--card`, `--popover`, `--muted`, `--accent`, `--level1-3`, `--chart-bg`, `--success`, `--warning`, `--info`, `--tooltip`, etc.) defined in `App.css` as literal color values: dark scheme in `:root`, light overrides in `[data-color-scheme="light"]`. Dark mode keys off the `data-color-scheme` attribute (`@custom-variant dark`), owned by `useColorMode`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
-- **Settings**: Jotai atoms synced via SSE (`/api/settings`). Domain-scoped hooks (`useDockerSettings`, `useZfsSettings`, `useProxmoxSettings`, `useGeneralSettings`) provide optimistic setters and subscribe via `selectAtom` so each consumer only re-renders when its own slice changes. `useSettings()` remains as a composite wrapper for the settings page. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
+- **Settings**: Jotai atoms synced over the mux (`settings` topic). Domain-scoped hooks (`useDockerSettings`, `useZfsSettings`, `useProxmoxSettings`, `useGeneralSettings`) provide optimistic setters and subscribe via `selectAtom` so each consumer only re-renders when its own slice changes. `useSettings()` remains as a composite wrapper for the settings page. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
 - **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `ContainerInventoryCollector`); it never connects to Docker directly. Agent auth uses per-host Ed25519 keypair JWTs: the web app generates the keypair at enrollment, stores the private JWK encrypted (JWE, master key from `MASTER_KEY_FILE`/`MASTER_KEY`), and returns the public JWK for the operator to install in the agent as `AGENT_TRUSTED_PUBKEY` (or via `AGENT_TRUSTED_PUBKEY_FILE`).
-- **Demo mode / MSW mocks**: `VITE_DEMO_MODE=true` runs the app against an in-browser [MSW](https://mswjs.io) mock backend instead of a real server. A service worker intercepts the actual network calls: TanStack Start server-function RPCs (`/_serverFn/*`, answered with the real seroval `{result,error,context}` envelope + `x-tss-serialized` header so the client deserializes them - a bare value resolves to `undefined`) and SSE endpoints (`/api/*`, answered with streaming `text/event-stream`). No route/hook/component changes; mock data lives in `src/lib/mock/` (handlers in `handlers/` wire `functions/*` + `generators/*`; entities in `entities.ts`). MSW starts in the custom client entry (`src/client.tsx`) before `hydrateRoot`, which is the only point early enough to intercept route loaders. Gated by `IS_MOCK_ENABLED` (`src/lib/constants/mock.ts`): on for demo, or when `VITE_ENABLE_MSW=true` (the Playwright app target). The same handlers back both demo and e2e. `vite.config.ts` installs `serverFns.generateFunctionId` (from `src/lib/server-fn-id.ts`) for the demo and MSW builds only, so those targets keep ids the handler can decode; a production build keeps TanStack's opaque ids so RPC URLs never decode back to a source path.
+- **Demo mode / MSW mocks**: `VITE_DEMO_MODE=true` runs the app against an in-browser [MSW](https://mswjs.io) mock backend instead of a real server. MSW intercepts the actual network calls: TanStack Start server-function RPCs (`/_serverFn/*`, answered with the real seroval `{result,error,context}` envelope + `x-tss-serialized` header so the client deserializes them - a bare value resolves to `undefined`) and the `/api/mux` WebSocket (answered by the WS handler in `src/lib/mock/handlers/ws.ts`, which serves the topics with drop bursts). No route/hook/component changes. Mock data lives in `src/lib/mock/` (handlers in `handlers/` wire `functions/*` + `generators/*`; entities in `entities.ts`). MSW starts in the custom client entry (`src/client.tsx`) before `hydrateRoot`, which is the only point early enough to intercept route loaders. Gated by `IS_MOCK_ENABLED` (`src/lib/constants/mock.ts`): on for demo, or when `VITE_ENABLE_MSW=true` (the Playwright app target). The same handlers back both demo and e2e. `vite.config.ts` installs `serverFns.generateFunctionId` (from `src/lib/server-fn-id.ts`) for the demo and MSW builds only, so those targets keep ids the handler can decode. A production build keeps TanStack's opaque ids so RPC URLs never decode back to a source path.
 - **Worker**: Collectors extend `BaseCollector` (AsyncDisposable, exponential backoff). Entry point uses `AsyncDisposableStack` for cleanup.
 - **Entity IDs**: Docker=`host/container_id`, ZFS=`host/pool/vdev/disk` (hierarchy via indent: 0=pool, 2=vdev, 4+=disk), Proxmox=varies by type.
 
@@ -181,13 +221,13 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 
 Separate Bun package that runs as a sidecar container alongside Docker hosts. Provides a REST/SSE API for Docker management operations (deploy, logs, stats streaming). Uses raw `Bun.serve()` with manual route matching and timing-safe auth middleware (zero framework dependencies beyond Dockerode). The agent replaces direct Docker API calls from the worker; the main app communicates with agents rather than Docker hosts directly.
 
-Every agent SSE route (`stats`, `logs`, `containers-events`, `zfs`) builds its `Response` through `agent/src/lib/sse-stream.ts`, which owns the headers, initial flush, 5s comment heartbeat, frame grammar, and abort/enqueue-failure teardown. It is a deliberate copy of the web app's `src/lib/sse/create-sse-stream.ts`: the agent is not a workspace member and cannot import web code, so the seam exists once on each side of the split. Routes that own a subprocess or subscription return a cleanup from `onStart` (run exactly once at teardown) and must register it before any long-running loop, otherwise a teardown mid-loop never reaches it.
+Every agent SSE route (`stats`, `logs`, `containers-events`, `zfs`) builds its `Response` through `agent/src/lib/sse-stream.ts`, which owns the headers, initial flush, 5s comment heartbeat, frame grammar, and abort/enqueue-failure teardown. It is a deliberate copy of the web app's `src/lib/sse/create-sse-stream.ts`, deleted when web live data moved to the `/api/mux` WebSocket: the agent is not a workspace member and cannot import web code, so the agent copy stays. Routes that own a subprocess or subscription return a cleanup from `onStart` (run exactly once at teardown) and must register it before any long-running loop, otherwise a teardown mid-loop never reaches it.
 
 The agent is intentionally NOT a workspace member of the homelab-manager `package.json`: its `agent/bun.lock` is the only lockfile the docker build (`context: ./agent`) sees, and workspace membership would mask drift by routing local `bun install` to the homelab-manager lockfile. Web/worker import only types from the agent via the TS path alias `@homelab-manager/agent/*` (resolved at compile time, no runtime dependency). Run `bun run setup` for a full install.
 
 ### Authentication (`src/lib/auth/`)
 
-OIDC login, required by default; `AUTH_DISABLED=true` is the explicit opt-out, and `enforceAuthConfig()` (called from `initServer()`) fails startup on mistyped values and on the removed legacy `AUTH_ENABLED`. When auth is on, `/api/auth/login`, `/api/auth/callback`, and `/api/auth/logout` handle the OIDC handshake; the session cookie holds an opaque random token whose SHA-256 is the primary key of the server-side session row, and both cookie and row expire after `SESSION_TTL_HOURS` (default 8). OIDC group claims map to three roles (`admin`, `operator`, `viewer`) via `OIDC_ROLE_ADMIN`/`OPERATOR`/`VIEWER` env vars. `require-role.ts` guards server functions; `sse-auth.ts` authenticates SSE endpoints. UI routes: `src/routes/login.tsx`, `src/routes/denied.tsx`. Designed to pair with Pocket ID but works with any OIDC provider. When `AUTH_DISABLED=true`, `resolveUserFromCookie` returns a synthetic admin and all routes are open: keep the dashboard on a trusted network.
+OIDC login, required by default. `AUTH_DISABLED=true` is the explicit opt-out, and `enforceAuthConfig()` (called from `initServer()`) fails startup on mistyped values and on the removed legacy `AUTH_ENABLED`. When auth is on, `/api/auth/login`, `/api/auth/callback`, and `/api/auth/logout` handle the OIDC handshake; the session cookie holds an opaque random token whose SHA-256 is the primary key of the server-side session row, and both cookie and row expire after `SESSION_TTL_HOURS` (default 8). OIDC group claims map to three roles (`admin`, `operator`, `viewer`) via `OIDC_ROLE_ADMIN`/`OPERATOR`/`VIEWER` env vars. `require-role.ts` guards server functions. `sse-auth.ts` authenticates the `/api/mux` WebSocket handshake. UI routes: `src/routes/login.tsx`, `src/routes/denied.tsx`. Designed to pair with Pocket ID but works with any OIDC provider. When `AUTH_DISABLED=true`, `resolveUserFromCookie` returns a synthetic admin and all routes are open: keep the dashboard on a trusted network.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
@@ -234,9 +274,9 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 13. **Collapse + virtualizer can't sync**: collapse animations (CSS transitions, now Base UI Collapsible's `--collapsible-panel-height`) and virtualizer repositioning (JS `measureElement`) run on different systems. Don't virtualize the outer level (host rows); only virtualize inner levels (container rows).
 14. **Parallel agent worktrees start from main, not the feature branch**: `isolation: "worktree"` in the Agent tool creates worktrees from the repo's default branch (main), not the current feature branch. Subagents dispatched to fix issues on a feature branch will reconstruct the feature work from scratch and then apply their fix on top, wasting tokens and creating merge conflicts. When fixes are small and targeted (a few lines each), apply them directly rather than delegating to subagents. If subagents are needed for complex component rewrites, scope each agent to exactly the files it must change and provide full context about the current file contents so it makes the minimum edit.
 15. **MCP tool parameters are plain JSON strings**: Never use `$(cat <<'EOF'` or heredoc syntax in MCP tool call parameters (e.g., `mcp__github__create_pull_request` body). Heredoc is only for bash commands like `git commit -m` or `gh pr create` where the shell interprets the string. In MCP calls, it appears literally in the output.
-16. **SSE `Date` fields arrive as ISO strings on the client**: A payload typed `z.date()` is validated server-side, but SSE frames are plain JSON and `useEventSource` parses them with a bare `JSON.parse` cast `as T` (no Zod reviver), so on the client every `Date` is a string despite the type. Calling `.getTime()`/date methods on it throws at runtime with TypeScript none the wiser. Coerce to `Date` once at the boundary where events land (e.g. `reviveContainerDates` in `useDockerInventory`), not per-consumer.
-17. **SSE stats frames must only carry rows newer than the poll cursor**: the REST preload seeds the client buffer with bucketed rows (whole-second `time_bucket` timestamps, AVG values) while SSE carries raw rows (millisecond timestamps). The client dedup key is the exact timestamp, so any server-side history replay (e.g. a snapshot-on-subscribe frame) doubles every point in the overlap window and renders zigzag sparklines and charts. Historical backfill belongs on the `preloadFn`/`replaceBuffer` path, which swaps the buffer wholesale; never route history through `enqueue`.
-18. **Stats `time` is epoch-ms end to end, no client revive**: `DockerStatsRow`/`ZFSStatsRow`/`ProxmoxStatsRow.time` is `number`, normalized once in `stats-repository.ts`'s row converters (`new Date(row.time).getTime()`, since pg returns `Date` for timestamptz). The docker/zfs/proxmox-stats SSE channel schemas validate `time: z.number()` directly and define no `revive`, since the wire shape already matches. `revive` is optional on `SseChannelDescriptor`; `useSseChannel`/`useTimeSeriesStream` pass the parsed message through unchanged when it's omitted. Inserts still take `time: Date` (`NewDockerStat`/`NewZFSStat`/`NewProxmoxStat`) for the `timestamptz` bind; don't reuse the read-row type for insert paths.
+16. **Wire `Date` fields arrive as ISO strings on the client**: A payload typed `z.date()` is validated server-side, but mux frames are plain JSON and the connection parses them with a bare `JSON.parse` cast (no Zod reviver), so on the client every `Date` is a string despite the type. Calling `.getTime()`/date methods on it throws at runtime with TypeScript none the wiser. Coerce to `Date` once at the boundary where events land (e.g. `reviveContainerDates` in the `docker-inventory` channel's `revive`), not per-consumer.
+17. **Stats topic frames must only carry rows newer than the poll cursor**: the REST preload seeds the client buffer with bucketed rows (whole-second `time_bucket` timestamps, AVG values) while the topic carries raw rows (millisecond timestamps). The client dedup key is the exact timestamp, so any server-side history replay (e.g. a snapshot-on-subscribe frame) doubles every point in the overlap window and renders zigzag sparklines and charts. Historical backfill belongs on the `preloadFn`/`replaceBuffer` path, which swaps the buffer wholesale; never route history through `enqueue`.
+18. **Stats `time` is epoch-ms end to end, no client revive**: `DockerStatsRow`/`ZFSStatsRow`/`ProxmoxStatsRow.time` is `number`, normalized once in `stats-repository.ts`'s row converters (`new Date(row.time).getTime()`, since pg returns `Date` for timestamptz). The docker/zfs/proxmox-stats channel schemas validate `time: z.number()` directly and define no `revive`, since the wire shape already matches. `revive` is optional on the channel descriptors (`MuxChannel`), and `useMuxChannel`/`useTimeSeriesStream` pass the parsed message through unchanged when it's omitted. Inserts still take `time: Date` (`NewDockerStat`/`NewZFSStat`/`NewProxmoxStat`) for the `timestamptz` bind; don't reuse the read-row type for insert paths.
 19. **A coverage failure is not always about the diff**: an import graph change alone moves the denominator, since modules nothing previously loaded during tests enter the table at their real coverage with no source change. Diff the coverage table against the base before blaming new code.
 20. **`bun test` claims any `*.spec.ts`**: in a repo that also runs Playwright it collects the Playwright specs and dies with "did not expect test() to be called here" and no failing assertion. Name e2e specs `*.e2e.ts` and give each Playwright project an explicit `testMatch`, plus `testIgnore` where two projects share a directory.
 21. **Bun version drift**: compare `bun --version` against `.bun-version`. When they differ, local failures may have nothing to do with the change: module mocks can leak across files despite `--isolate`, contradicting rule 7.
