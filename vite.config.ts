@@ -50,7 +50,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       isDev && devtools(),
-      nitro({ serverDir: 'server', features: { websocket: true } }),
+      nitro({ serverDir: 'server', features: { websocket: true }, preset: 'bun' }),
       tailwindcss(),
       tanstackStart({
         spa: {
