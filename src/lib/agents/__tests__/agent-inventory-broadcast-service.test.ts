@@ -112,4 +112,57 @@ describe('AgentInventoryBroadcastService', () => {
     still();
     await service.stop();
   });
+
+  it('reconnects after a listener client error', async () => {
+    const errorCallbacks: Array<(err: Error) => void> = [];
+    let clients = 0;
+    const service = new AgentInventoryBroadcastService({
+      getPoolClient: async () => {
+        clients += 1;
+        return {
+          on: (event: string, cb: (err: Error) => void) => {
+            if (event === 'error') errorCallbacks.push(cb);
+          },
+          query: () => Promise.resolve({ rows: [] }),
+          release: () => {},
+          removeAllListeners: () => {},
+        } as unknown as import('pg').PoolClient;
+      },
+      loadSnapshot: () => Promise.resolve(snapshot(1)),
+    });
+
+    const received: AgentInventorySnapshot[] = [];
+    const unsub = service.subscribe((s) => received.push(s));
+    await waitForCondition(() => received.length >= 1);
+    expect(clients).toBe(1);
+
+    errorCallbacks[0]!(new Error('connection lost'));
+    await waitForCondition(() => clients >= 2, { timeoutMs: 5000 });
+    expect(received.length).toBeGreaterThanOrEqual(1);
+
+    unsub();
+    await service.stop();
+  });
+
+  it('retries listening when the initial connection fails', async () => {
+    let attempts = 0;
+    const service = new AgentInventoryBroadcastService({
+      getPoolClient: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('db down');
+        return fakePoolClient();
+      },
+      loadSnapshot: () => Promise.resolve(snapshot(1)),
+    });
+
+    const received: AgentInventorySnapshot[] = [];
+    const unsub = service.subscribe((s) => received.push(s));
+    await waitForCondition(() => attempts >= 2, { timeoutMs: 5000 });
+    await waitForCondition(() => received.length >= 1);
+
+    expect(received.length).toBe(1);
+
+    unsub();
+    await service.stop();
+  });
 });
