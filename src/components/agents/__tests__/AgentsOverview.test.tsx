@@ -34,17 +34,51 @@ function makeProps(overrides?: Partial<import('@/components/agents/AgentsOvervie
   }
 }
 
-const AgentsOverviewModule = import('@/components/agents/AgentsOverview')
+// Register module mocks before any component import: a mock.module call made
+// after the module graph has loaded leaves it wired to the real server fns.
+let authState: { user: { id: number; email: string; name: string | null; role: 'admin' | 'operator' | 'viewer' } | null; loading: boolean; authEnabled: boolean } = {
+  user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' },
+  loading: false,
+  authEnabled: true,
+}
+
+mock.module('@/hooks/useAuth', () => ({
+  useAuth: () => authState,
+}))
+
+let inventoryResponse: AgentInventoryEntry[] = []
+type OpResult = import('@/data/hosts/handlers').HostOperationResult
+let updateResult: Promise<OpResult> = Promise.resolve({ hostId: 1, healthy: true })
+let updateCalls: Array<{ data: { hostId: number } }> = []
+const listAgentsInventory = (): Promise<AgentInventoryEntry[]> => Promise.resolve(inventoryResponse)
+const updateAgent = (data: { data: { hostId: number } }) => {
+  updateCalls.push(data)
+  return updateResult
+}
+
+let sseHandler: ((snapshot: { entries: AgentInventoryEntry[] }) => void) | null = null
+
+mock.module('@/lib/mux/use-mux-channel', () => ({
+  useMuxChannel: (_channel: unknown, options: { onData: (data: { entries: AgentInventoryEntry[] }) => void }) => {
+    sseHandler = options.onData
+    return { isConnected: true, error: null }
+  },
+}))
+
+mock.module('@/data/hosts/functions', () => ({
+  listAgentsInventory: () => listAgentsInventory(),
+  updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
+}))
 
 describe('AgentsOverviewView', () => {
   it('shows a loading state', async () => {
-    const { AgentsOverviewView } = await AgentsOverviewModule
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     render(<AgentsOverviewView {...makeProps({ isLoading: true, agents: [] })} />)
     expect(screen.getByText('Loading agents…')).toBeDefined()
   })
 
   it('shows an error state with a retry button', async () => {
-    const { AgentsOverviewView } = await AgentsOverviewModule
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     const onRetry = mock(noop)
     render(<AgentsOverviewView {...makeProps({ isError: true, agents: [], onRetry })} />)
     expect(screen.getByText('Failed to load agents')).toBeDefined()
@@ -53,13 +87,13 @@ describe('AgentsOverviewView', () => {
   })
 
   it('shows an empty state when no agents are registered', async () => {
-    const { AgentsOverviewView } = await AgentsOverviewModule
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     render(<AgentsOverviewView {...makeProps({ agents: [] })} />)
     expect(screen.getByText('No agents registered')).toBeDefined()
   })
 
   it('renders name, status, version, and URL per agent', async () => {
-    const { AgentsOverviewView } = await AgentsOverviewModule
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     render(
       <AgentsOverviewView
         {...makeProps({
@@ -81,7 +115,7 @@ describe('AgentsOverviewView', () => {
   })
 
   it('lets an admin trigger the update for one row without touching the other', async () => {
-    const { AgentsOverviewView } = await AgentsOverviewModule
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     const onUpdate = mock(noop)
     render(
       <AgentsOverviewView
@@ -97,7 +131,7 @@ describe('AgentsOverviewView', () => {
   })
 
   it('disables update controls for non-admins', async () => {
-    const { AgentsOverviewView } = await AgentsOverviewModule
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     const onUpdate = mock(noop)
     render(<AgentsOverviewView {...makeProps({ isAdmin: false, onUpdate })} />)
     const updateButton = screen.getByLabelText('Update homeserver')
@@ -107,7 +141,7 @@ describe('AgentsOverviewView', () => {
   })
 
   it('shows per-row feedback and busy state without affecting other rows', async () => {
-    const { AgentsOverviewView } = await AgentsOverviewModule
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     render(
       <AgentsOverviewView
         {...makeProps({
@@ -124,38 +158,11 @@ describe('AgentsOverviewView', () => {
 })
 
 describe('AgentsOverview (connected)', () => {
-  const listAgentsInventory = mock(() => Promise.resolve([makeAgent(), makeAgent({ id: 2, name: 'media-server' })]))
-  const updateAgent = mock((_data: { data: { hostId: number } }) =>
-    Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' }),
-  )
-
-  let authState: { user: { id: number; email: string; name: string | null; role: 'admin' | 'operator' | 'viewer' } | null; loading: boolean; authEnabled: boolean } = {
-    user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' },
-    loading: false,
-    authEnabled: true,
-  }
-
-  mock.module('@/hooks/useAuth', () => ({
-    useAuth: () => authState,
-  }))
-
-  let sseHandler: ((snapshot: { entries: AgentInventoryEntry[] }) => void) | null = null
-
-  mock.module('@/lib/mux/use-mux-channel', () => ({
-    useMuxChannel: (_channel: unknown, options: { onData: (data: { entries: AgentInventoryEntry[] }) => void }) => {
-      sseHandler = options.onData
-      return { isConnected: true, error: null }
-    },
-  }))
-
-  mock.module('@/data/hosts/functions', () => ({
-    listAgentsInventory: () => listAgentsInventory(),
-    updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
-  }))
 
   beforeEach(() => {
-    listAgentsInventory.mockImplementation(() => Promise.resolve([makeAgent(), makeAgent({ id: 2, name: 'media-server' })]))
-    updateAgent.mockImplementation(() => Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' }))
+    inventoryResponse = [makeAgent(), makeAgent({ id: 2, name: 'media-server' })]
+    updateResult = Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' })
+    updateCalls = []
     authState = { user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' }, loading: false, authEnabled: true }
   })
 
@@ -184,13 +191,15 @@ describe('AgentsOverview (connected)', () => {
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update homeserver'))
     await waitFor(() => expect(screen.getByText('Update confirmed, agent now on v0.3.0')).toBeDefined())
-    expect(updateAgent).toHaveBeenCalledTimes(1)
-    expect(updateAgent).toHaveBeenCalledWith({ data: { hostId: 1 } })
+    expect(updateCalls).toHaveLength(1)
+    expect(updateCalls[0]).toEqual({ data: { hostId: 1 } })
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('Update confirmed')
   })
 
   it('shows a per-row failure when the update fails', async () => {
-    updateAgent.mockImplementation(() => Promise.reject(new Error('agent unreachable')))
+    const rejection = Promise.reject(new Error('agent unreachable'))
+    rejection.catch(() => {}) // handled by the component on click; pre-catch silences the floating-rejection check
+    updateResult = rejection
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update homeserver'))
