@@ -230,10 +230,10 @@ describe('MuxConnection', () => {
       sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, code: 'topic_limit', error: 'Session topic limit (250) reached. Unsubscribe unused topics.' });
 
       expect(handlers.rejections).toEqual([
-        { topic: 'inventory', code: 'topic_limit', message: 'Session topic limit (250) reached. Unsubscribe unused topics.' },
+        { topic: 'inventory', code: 'topic_limit', message: 'You have too many live streams open in this browser tab. Close some logs or panels, then try again.' },
       ]);
       expect(mockToastError).toHaveBeenCalledTimes(1);
-      expect(mockToastError).toHaveBeenCalledWith('Session topic limit (250) reached. Unsubscribe unused topics.');
+      expect(mockToastError).toHaveBeenCalledWith('You have too many live streams open in this browser tab. Close some logs or panels, then try again.');
     });
 
     it('surfaces a generic error ack without a code', () => {
@@ -254,8 +254,8 @@ describe('MuxConnection', () => {
 
       sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, code: 'weird_new_limit' });
 
-      expect(handlers.rejections).toEqual([{ topic: 'inventory', code: 'weird_new_limit', message: 'Subscription rejected (weird_new_limit)' }]);
-      expect(mockToastError).toHaveBeenCalledWith('Subscription rejected (weird_new_limit)');
+      expect(handlers.rejections).toEqual([{ topic: 'inventory', code: 'weird_new_limit', message: 'A live stream could not start. Reload the page if this keeps happening.' }]);
+      expect(mockToastError).toHaveBeenCalledWith('A live stream could not start. Reload the page if this keeps happening.');
     });
 
     it('falls back to the topic_limit text when the ack carries a code but no message', () => {
@@ -264,7 +264,7 @@ describe('MuxConnection', () => {
 
       sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, code: 'topic_limit' });
 
-      expect(mockToastError).toHaveBeenCalledWith('Session topic limit reached. Unsubscribe unused topics.');
+      expect(mockToastError).toHaveBeenCalledWith('You have too many live streams open in this browser tab. Close some logs or panels, then try again.');
     });
 
     it('notifies every topic in a rejected batch and toasts once', () => {

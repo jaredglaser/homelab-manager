@@ -10,7 +10,7 @@ export interface LogViewerTracker {
 }
 
 export function formatLogViewerWarning(threshold: number): string {
-  return `${threshold}+ log viewers open: each uses ~0.84 MB and render work. Close unused viewers.`;
+  return `You have ${threshold} or more container logs open. Each one uses memory and can slow the page down. Close the ones you are not using.`;
 }
 
 /**
