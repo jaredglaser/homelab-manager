@@ -51,12 +51,13 @@ import {
   defaultTopicAdapter,
   parseAgentSseBlock,
 } from '../mux';
+import { MAX_SESSION_TOPICS, MAX_SUB_BATCH } from '@/lib/mux/protocol';
 import type { Peer } from 'crossws';
 
 interface FakePeer {
   id: string;
   request: Request;
-  sent: { type: string; ref?: number; ok?: boolean; error?: string; topic?: string; kind?: string; payload?: unknown }[];
+  sent: { type: string; ref?: number; ok?: boolean; error?: string; code?: string; topic?: string; kind?: string; payload?: unknown }[];
   closeCalls: { code?: number; reason?: string }[];
   send: (data: string) => void;
   close: (code?: number, reason?: string) => void;
@@ -166,14 +167,71 @@ describe('mux ws route', () => {
     expect(peer.sent.at(-1)).toEqual({ type: 'ack', ref: 2, ok: true });
   });
 
-  it('rejects subscriptions beyond the topic limit', async () => {
-    const { adapter } = makeAdapter();
+  it('accepts subscribes up to the 250-topic session circuit breaker', async () => {
+    const { calls, adapter } = makeAdapter();
     const { peer, h } = await openWith({ adapter });
-    const topics = Array.from({ length: 21 }, (_, i) => `logs:server/c${i}`);
+    let ref = 0;
+    for (let i = 0; i < MAX_SESSION_TOPICS; i += MAX_SUB_BATCH) {
+      const batch = Array.from(
+        { length: Math.min(MAX_SUB_BATCH, MAX_SESSION_TOPICS - i) },
+        (_, j) => `logs:s/c${i + j}`,
+      );
+      await h.message(peer as unknown as Peer, command('sub', batch, ++ref));
+    }
 
-    await h.message(peer as unknown as Peer, command('sub', topics, 7));
+    expect(calls).toHaveLength(250);
+    expect(peer.sent).toHaveLength(9);
+    expect(peer.sent.every((f) => f.ok === true)).toBe(true);
+  });
 
-    expect(peer.sent).toEqual([{ type: 'ack', ref: 7, ok: false, error: 'Too many topics' }]);
+  it('rejects the 251st subscribe with a topic_limit error ack', async () => {
+    const { calls, adapter } = makeAdapter();
+    const { peer, h } = await openWith({ adapter });
+    let ref = 0;
+    for (let i = 0; i < MAX_SESSION_TOPICS; i += MAX_SUB_BATCH) {
+      const batch = Array.from(
+        { length: Math.min(MAX_SUB_BATCH, MAX_SESSION_TOPICS - i) },
+        (_, j) => `logs:s/c${i + j}`,
+      );
+      await h.message(peer as unknown as Peer, command('sub', batch, ++ref));
+    }
+    peer.sent.length = 0;
+
+    await h.message(peer as unknown as Peer, command('sub', ['logs:s/extra'], ++ref));
+
+    expect(peer.sent).toEqual([{
+      type: 'ack',
+      ref,
+      ok: false,
+      error: 'Session topic limit (250) reached. Unsubscribe unused topics',
+      code: 'topic_limit',
+    }]);
+    expect(calls).toHaveLength(250);
+  });
+
+  it('keeps the session alive after a limit rejection and frees slots on unsubscribe', async () => {
+    const { calls, adapter } = makeAdapter();
+    const { peer, h } = await openWith({ adapter });
+    let ref = 0;
+    for (let i = 0; i < MAX_SESSION_TOPICS; i += MAX_SUB_BATCH) {
+      const batch = Array.from(
+        { length: Math.min(MAX_SUB_BATCH, MAX_SESSION_TOPICS - i) },
+        (_, j) => `logs:s/c${i + j}`,
+      );
+      await h.message(peer as unknown as Peer, command('sub', batch, ++ref));
+    }
+    await h.message(peer as unknown as Peer, command('sub', ['logs:s/extra'], ++ref));
+    expect(peer.sent.at(-1)?.code).toBe('topic_limit');
+    expect(peer.closeCalls).toHaveLength(0);
+    expect(calls[1].signal.aborted).toBe(false);
+
+    await h.message(peer as unknown as Peer, command('unsub', ['logs:s/c0'], ++ref));
+    expect(peer.sent.at(-1)).toEqual({ type: 'ack', ref, ok: true });
+
+    await h.message(peer as unknown as Peer, command('sub', ['logs:s/c0'], ++ref));
+    expect(peer.sent.at(-1)).toEqual({ type: 'ack', ref, ok: true });
+    expect(calls.at(-1)?.topic).toBe('logs:s/c0');
+    expect(peer.closeCalls).toHaveLength(0);
   });
 
   it('rejects malformed commands', async () => {
