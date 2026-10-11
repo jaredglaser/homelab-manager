@@ -1,22 +1,4 @@
-/**
- * Relay a manual update request to the host's agent-updater sidecar.
- *
- * A container cannot replace itself (stopping its own container kills the
- * process mid-update), so the actual update is performed by the agent-updater
- * container, which has Docker access and watches this agent. The relay is
- * authenticated by the standard agent JWT middleware; the sidecar endpoint is
- * internal-only (reachable from the compose Docker network, not published).
- *
- * The agent-updater answers either 200 { updateAvailable: false } when the
- * agent image is already current, or 202 { started: true } after kicking off
- * the update asynchronously. The caller (manager) polls the agent's health
- * and version endpoints to observe the result.
- *
- * @param docker - Dockerode client, or null if Docker capability is not enabled
- * @param updaterUrl - Base URL of the agent-updater trigger endpoint
- * @returns 503 when Docker is disabled or the sidecar is unreachable,
- *          200 when no update is available, 202 when the update was started
- */
+// A container cannot replace itself: the relay hands the request to the agent-updater sidecar, which owns Docker.
 export async function handleAgentUpdate(
   docker: unknown,
   updaterUrl: string,

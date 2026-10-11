@@ -8,15 +8,7 @@ export function createTriggerState(): TriggerState {
   return { updating: false };
 }
 
-/**
- * HTTP handler for the internal manual-update trigger endpoint.
- *
- * Reachable only from the host's Docker network: the agent relays an
- * authenticated manager request to it. When an update is available the
- * handler responds 202 before performing the update so the caller never
- * waits on the pull, and so the agent container is still alive to deliver
- * the response (the update stops and replaces that container).
- */
+// Answers 202 before pulling: the update stops this container's sibling, so the caller must get its response first.
 export function createTriggerHandler(updater: AgentUpdater, state: TriggerState = createTriggerState()) {
   return async function handleTriggerRequest(request: Request): Promise<Response> {
     if (request.method !== 'POST') {

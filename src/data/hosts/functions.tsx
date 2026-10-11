@@ -173,10 +173,6 @@ export const rotateHostKeypair = createServerFn()
     return handleRotateHostKeypair({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
   });
 
-/**
- * Manual per-agent update. Admin-only; updates exactly the agent addressed by
- * hostId and never any other agent.
- */
 export const updateAgent = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(updateAgentSchema)

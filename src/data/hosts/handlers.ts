@@ -32,7 +32,6 @@ export type HostOperationResult =
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
 
-/** Poll cadence while waiting for a restarted agent to report a new version. */
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
 export interface HostRepo {
@@ -187,18 +186,7 @@ export async function handleVerifyHost(
   };
 }
 
-/**
- * Trigger a manual update for exactly ONE agent, addressed by its host id.
- * Never touches any other host: the update request is scoped to
- * host.agentUrl and the agent-updater sidecar on that host watches only that
- * host's agent container.
- *
- * Flow: record the current version, relay the trigger through the agent to
- * its agent-updater sidecar, then poll the agent's health/version until a
- * version change confirms the update. The sidecar answers "no update
- * available" without restarting the agent, which surfaces as a distinct
- * result rather than a failure.
- */
+// Scoped to this host's agentUrl and sidecar; never touches any other host.
 export async function handleUpdateAgent(
   deps: HostHandlerDeps & {
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
@@ -209,7 +197,6 @@ export async function handleUpdateAgent(
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  // 1. Record current version before update
   const preCheck = await deps.checkHealth(host.agentUrl, host.name);
   if (!preCheck.healthy) {
     return {
@@ -227,7 +214,6 @@ export async function handleUpdateAgent(
   // other cause would make a later version read look like a change that never happened.
   const preInfoUnsupported = preCheck.infoSupported === false;
 
-  // 2. Retrieve signer and mint a JWT for the request
   let signer: () => Promise<string>;
   try {
     signer = await deps.getSigner(host.name);
@@ -245,7 +231,6 @@ export async function handleUpdateAgent(
 
   const jwt = await signer();
 
-  // 3. Trigger the update on this agent only
   let triggerResponse: Response;
   try {
     const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
@@ -308,7 +293,6 @@ export async function handleUpdateAgent(
     };
   }
 
-  // 4. Poll for version change
   let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
   let newVersion: string | undefined;
 
@@ -358,7 +342,6 @@ export async function handleUpdateAgent(
     };
   }
 
-  // 5. Success
   await deps.repo.updateStatus(host.id, 'healthy');
   await deps.repo.updateAgentInfo(host.id, { version: newVersion });
   return { hostId: host.id, healthy: true, version: newVersion };
