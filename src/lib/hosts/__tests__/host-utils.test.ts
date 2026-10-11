@@ -22,6 +22,7 @@ describe('toHostListItem', () => {
     status: 'healthy',
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-02T00:00:00Z'),
+    lastSweptAt: null,
   };
 
   test('maps DB row to HostListItem', () => {

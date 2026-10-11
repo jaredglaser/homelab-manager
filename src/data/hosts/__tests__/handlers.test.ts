@@ -22,6 +22,7 @@ function mockRow(overrides?: Record<string, unknown>) {
     agentImageTag: null,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
+    lastSweptAt: null,
     ...overrides,
   };
 }

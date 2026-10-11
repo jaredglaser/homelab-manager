@@ -194,6 +194,37 @@ describe('detectZfsCapabilities', () => {
     });
   });
 
+  test('parses a single-token permission list without commas', async () => {
+    const allowOutput = [
+      '---- Permissions on tank ----',
+      'Local+Descendent permissions:',
+      '        user agent snapshot',
+    ].join('\n');
+
+    spawnMock.mockImplementation((cmd: SpawnArgs[0]) => {
+      const args = cmd as string[];
+      if (args[0] === 'which') {
+        return createMockProc('/usr/sbin/zpool', 0);
+      }
+      if (args[0] === 'zpool' && args[1] === 'version') {
+        return createMockProc('zfs-2.2.2-1', 0);
+      }
+      if (args[0] === 'zfs' && args[1] === 'allow') {
+        return createMockProc(allowOutput, 0);
+      }
+      return createMockProc('', 1);
+    });
+
+    const result = await detectZfsCapabilities();
+
+    expect(result).toEqual({
+      available: true,
+      version: '2.2.2',
+      tier: 1,
+      permissions: ['read', 'snapshot'],
+    });
+  });
+
   test('handles Bun.spawn throwing an error', async () => {
     spawnMock.mockImplementation(() => {
       throw new Error('spawn failed');

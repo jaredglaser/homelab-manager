@@ -1,0 +1,139 @@
+import type { HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { AgentHealthFailureReason } from '@/lib/services/agent-health-service';
+import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
+
+/**
+ * Live reachability status for an agent:
+ * - online: /health answered 200 with a valid agent body.
+ * - offline: nothing answered at the network level (timeout, connection refused, DNS).
+ * - unreachable: something answered HTTP but not a healthy agent (error status, redirect, non-JSON).
+ * - unknown: the host is still 'pending' (never verified) and the probe failed.
+ */
+export type AgentInventoryStatus = 'online' | 'offline' | 'unreachable' | 'unknown';
+
+export type AgentVersionSource = 'live' | 'stored' | 'unknown';
+
+export interface AgentInventoryEntry {
+  id: number;
+  name: string;
+  agentUrl: string;
+  capabilities: HostCapabilities;
+  status: AgentInventoryStatus;
+  /** Live version from /info when online, otherwise the last stored version, otherwise null. */
+  version: string | null;
+  versionSource: AgentVersionSource;
+  agentImage: string | null;
+  agentImageTag: string | null;
+  /** Probe error detail when status is not online, else null. */
+  lastError: string | null;
+  /** ISO timestamp of the inventory pass that produced this entry. */
+  checkedAt: string;
+}
+
+export type AgentInventoryFailureReason = AgentHealthFailureReason;
+
+/** pg NOTIFY channel the worker fires after each inventory sweep; the server's broadcast service LISTENs on it. */
+export const AGENT_INVENTORY_NOTIFY_CHANNEL = 'agent_inventory_change';
+
+export interface AgentInventorySnapshot {
+  entries: AgentInventoryEntry[];
+  /** ISO timestamp of the most recent sweep reflected in these entries, null when no host has ever been swept. */
+  sweptAt: string | null;
+}
+
+function failureStatus(
+  hostStatus: ManagedHost['status'],
+  reason: AgentInventoryFailureReason | undefined,
+): AgentInventoryStatus {
+  if (hostStatus === 'pending') return 'unknown';
+  return reason === 'unreachable' ? 'unreachable' : 'offline';
+}
+
+/**
+ * Derive one inventory entry from a stored host row and its live health probe.
+ * Version falls back to the stored value when the probe cannot report one, so a
+ * briefly offline agent still shows its last known version.
+ */
+export function buildAgentInventoryEntry(
+  host: ManagedHost,
+  outcome: HealthCheckOutcome,
+  checkedAt: Date = new Date(),
+): AgentInventoryEntry {
+  if (outcome.healthy) {
+    return {
+      id: host.id,
+      name: host.name,
+      agentUrl: host.agentUrl,
+      capabilities: host.capabilities ?? {},
+      status: 'online',
+      version: outcome.version ?? host.agentVersion ?? null,
+      versionSource: outcome.version ? 'live' : host.agentVersion ? 'stored' : 'unknown',
+      agentImage: host.agentImage,
+      agentImageTag: host.agentImageTag,
+      lastError: null,
+      checkedAt: checkedAt.toISOString(),
+    };
+  }
+
+  return {
+    id: host.id,
+    name: host.name,
+    agentUrl: host.agentUrl,
+    capabilities: host.capabilities ?? {},
+    status: failureStatus(host.status, outcome.reason),
+    version: host.agentVersion ?? null,
+    versionSource: host.agentVersion ? 'stored' : 'unknown',
+    agentImage: host.agentImage,
+    agentImageTag: host.agentImageTag,
+    lastError: outcome.error,
+    checkedAt: checkedAt.toISOString(),
+  };
+}
+
+/**
+ * Derive one inventory entry from a stored host row alone, no probe. The sweep
+ * persists status/agent info into managed_hosts, so the stored row already
+ * reflects the last sweep; updatedAt doubles as the per-host checkedAt.
+ */
+export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventoryEntry {
+  const status: AgentInventoryStatus =
+    host.status === 'healthy'
+      ? 'online'
+      : host.status === 'pending'
+        ? 'unknown'
+        : host.status === 'error'
+          ? 'unreachable'
+          : 'offline';
+
+  return {
+    id: host.id,
+    name: host.name,
+    agentUrl: host.agentUrl,
+    capabilities: host.capabilities ?? {},
+    status,
+    version: host.agentVersion ?? null,
+    versionSource: host.agentVersion ? 'stored' : 'unknown',
+    agentImage: host.agentImage,
+    agentImageTag: host.agentImageTag,
+    lastError: null,
+    // Not updatedAt: every writer to managed_hosts bumps that column (rename,
+    // URL edit, key rotation, a single-host health check), so it reports a
+    // fresher sweep than actually ran. A host created but not yet swept falls
+    // back to updatedAt, which is then its creation time.
+    checkedAt: (host.lastSweptAt ?? host.updatedAt).toISOString(),
+  };
+}
+
+/** Read-only snapshot of every host from stored rows, plus the sweep time implied by the freshest lastSweptAt. */
+export function buildAgentInventorySnapshot(hosts: ManagedHost[]): AgentInventorySnapshot {
+  const sweptAt = hosts.reduce<Date | null>((max, host) => {
+    const at = host.lastSweptAt;
+    if (at === null) return max;
+    return max === null || at > max ? at : max;
+  }, null);
+
+  return {
+    entries: hosts.map(buildStoredAgentInventoryEntry),
+    sweptAt: sweptAt ? sweptAt.toISOString() : null,
+  };
+}

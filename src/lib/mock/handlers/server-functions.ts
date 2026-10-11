@@ -92,6 +92,7 @@ const registry: Record<string, ServerFnMock> = {
 
   // Managed hosts (mocks take the raw data object)
   listHosts: fn(hostsFns.listHosts),
+  listAgentsInventory: fn(hostsFns.listAgentsInventory),
   verifyHost: withData(hostsFns.verifyHost),
   updateHost: withData(hostsFns.updateHost),
   removeHost: withData(hostsFns.removeHost),

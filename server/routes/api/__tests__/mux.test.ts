@@ -326,6 +326,26 @@ describe('mux ws route', () => {
     expect(peer.sent.at(-1)).toEqual({ type: 'ack', ref: 2, ok: true });
   });
 
+  it('reports a gone error frame when the topic adapter fails to start', async () => {
+    const { peer, h } = await openWith({ adapter: () => Promise.reject(new Error('adapter boom')) });
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+    const errorFrame = peer.sent.find((f) => f.type === 'event' && f.kind === 'error');
+    expect(errorFrame).toBeDefined();
+    expect((errorFrame?.payload as { message?: string }).message).toBe('Stream failed to start');
+  });
+
+  it('aborts the topic when the peer send fails mid-stream', async () => {
+    const { calls, adapter } = makeAdapter();
+    const { peer, h } = await openWith({ adapter });
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+    peer.send = () => { throw new Error('socket gone'); };
+    calls[0].emit({ topic: 'inventory', kind: 'data', payload: { type: 'init', containers: [] } });
+
+    expect(calls[0].signal.aborted).toBe(true);
+  });
+
   it('accepts subscribes up to the 250-topic session circuit breaker', async () => {
     const { calls, adapter } = makeAdapter();
     const { peer, h } = await openWith({ adapter });

@@ -93,6 +93,7 @@ function host(name: string, dockerEnabled: boolean): ManagedHost {
     status: 'healthy',
     createdAt: new Date('2026-05-01T00:00:00Z'),
     updatedAt: new Date('2026-05-01T00:00:00Z'),
+    lastSweptAt: null,
   };
 }
 
