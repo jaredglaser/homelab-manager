@@ -50,7 +50,9 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       isDev && devtools(),
-      nitro({ serverDir: 'server', features: { websocket: true } }),
+      // Bun preset for every build (local, CI, Docker): one artifact flavor so
+      // what CI tests is what prod ships (Bun.serve entry + crossws bunAdapter).
+      nitro({ serverDir: 'server', features: { websocket: true }, preset: 'bun' }),
       tailwindcss(),
       tanstackStart({
         spa: {
