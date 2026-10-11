@@ -35,10 +35,9 @@ function defaultCreateSocket(url: string): WebSocket {
 }
 
 function rejectionMessage({ code, error }: { code?: string; error?: string }): string {
+  if (code === 'topic_limit') return 'You have too many live streams open in this browser tab. Close some logs or panels, then try again.';
   if (error) return error;
-  if (code === 'topic_limit') return 'Session topic limit reached. Unsubscribe unused topics.';
-  if (code) return `Subscription rejected (${code})`;
-  return 'Subscription rejected';
+  return 'A live stream could not start. Reload the page if this keeps happening.';
 }
 
 type TopicEntry = {

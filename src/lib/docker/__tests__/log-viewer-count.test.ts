@@ -65,7 +65,7 @@ describe('createLogViewerTracker', () => {
 describe('formatLogViewerWarning', () => {
   it('renders the threshold and the memory cost', () => {
     expect(formatLogViewerWarning(LOG_VIEWER_WARN_THRESHOLD)).toBe(
-      '15+ log viewers open: each uses ~0.84 MB and render work. Close unused viewers.',
+      'You have 15 or more container logs open. Each one uses memory and can slow the page down. Close the ones you are not using.',
     );
   });
 });
