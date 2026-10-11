@@ -68,9 +68,7 @@ function RootLayout() {
   }
 
   return (
-    // Wraps AppShell itself so hooks it mounts (useSettingsSync via useMuxQuery)
-    // sit inside the query context; AppShell keeps its own provider for the tree
-    // below (same singleton client, so both share one cache).
+    // AppShell's own provider sits below it; without this, hooks it mounts above (useSettingsSync) throw No QueryClient during prerender.
     <QueryClientProvider client={queryClient}>
       <AppShell>
         <ErrorBoundary name="root">

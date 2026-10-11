@@ -142,8 +142,8 @@ interface FakePeer {
   id: string;
   request: Request;
   bufferedAmount: number;
-  sentRaw: string[];
   sent: { type: string; ref?: number; ok?: boolean; error?: string; code?: string; topic?: string; kind?: string; payload?: unknown; count?: number }[];
+  sentRaw: string[];
   closeCalls: { code?: number; reason?: string }[];
   send: (data: string) => void;
   close: (code?: number, reason?: string) => void;
@@ -670,7 +670,6 @@ describe('control topics (settings, stack-status)', () => {
     await until(() => dataFrames(peer, 'settings').length >= 2 && dataFrames(peer, 'stack-status').length >= 2);
     expect(dataFrames(peer, 'settings')[1].payload).toEqual({ type: 'init', settings: { theme: 'dark' } });
     expect(dataFrames(peer, 'stack-status')[1].payload).toEqual([expectedStackEntry]);
-    h.close(peer as unknown as Peer);
   });
 });
 
@@ -788,6 +787,7 @@ describe('frame wire format', () => {
     calls[0].emit({ topic: 'stats:docker', kind: 'dropped', count: 3 });
 
     expect(peer.sentRaw[1]).toBe('{"type":"event","topic":"stats:docker","kind":"dropped","count":3}');
+
     h.close(peer as unknown as Peer);
   });
 });
