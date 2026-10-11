@@ -181,4 +181,17 @@ describe('useContainerLogs', () => {
       expect(result.current.error?.message).toContain('multiple reconnect attempts');
     });
   });
+
+  it('surfaces a subscribe rejection as the hook error state', () => {
+    const { result } = mountLogs();
+
+    act(() => {
+      fakeMux.emitSubscribeRejected('logs:server/abc123', {
+        code: 'topic_limit',
+        message: 'Session topic limit (250) reached. Unsubscribe unused topics.',
+      });
+    });
+
+    expect(result.current.error?.message).toContain('Session topic limit');
+  });
 });
