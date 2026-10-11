@@ -1,5 +1,5 @@
 import { muxConnection, type MuxStatus, type MuxSubscribeError } from '@/lib/mux/mux-connection';
-import { logsTopic, type MuxEventFrame } from '@/lib/mux/protocol';
+import { logsTopic, type MuxTopicFrame } from '@/lib/mux/protocol';
 
 // Matches xterm scrollback: a late-joining subscriber sees what the terminal can display.
 const BUFFER_MAX_LINES = 2_000;

@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import { apiUrl } from '@/lib/utils/api-url';
-import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxEventFrame, type MuxServerFrame } from '@/lib/mux/protocol';
+import { MAX_SUB_BATCH, MAX_UNSUB_BATCH, type MuxAckFrame, type MuxServerFrame, type MuxTopicFrame } from '@/lib/mux/protocol';
 
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 16_000;

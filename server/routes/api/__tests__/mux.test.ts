@@ -76,7 +76,7 @@ import {
   defaultTopicAdapter,
   parseAgentSseBlock,
 } from '../mux';
-import { MAX_SESSION_TOPICS, MAX_SUB_BATCH } from '@/lib/mux/protocol';
+import { MAX_SESSION_TOPICS, MAX_SUB_BATCH, type MuxFrameBody } from '@/lib/mux/protocol';
 import type { Peer } from 'crossws';
 
 interface FakePeer {
