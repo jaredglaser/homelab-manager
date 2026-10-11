@@ -68,7 +68,7 @@ function RootLayout() {
   }
 
   return (
-    // Covers hooks AppShell mounts above its own provider (same singleton, one cache).
+    // AppShell's own provider sits below it; without this, hooks it mounts above (useSettingsSync) throw No QueryClient during prerender.
     <QueryClientProvider client={queryClient}>
       <AppShell>
         <ErrorBoundary name="root">
