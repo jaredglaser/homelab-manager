@@ -201,4 +201,27 @@ describe('log-stream-registry', () => {
 
     expect(sub2.lines).toEqual([{ text: 'fresh', stream: 'stdout' }]);
   });
+
+  it('reports a subscribe rejection as an onError on every subscriber', () => {
+    const sub1 = makeSubscriber();
+    const sub2 = makeSubscriber();
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub1 });
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub2 });
+
+    fakeMux.emitSubscribeRejected('logs:server/abc', { code: 'topic_limit', message: 'Session topic limit (250) reached. Unsubscribe unused topics.' });
+
+    expect(sub1.errors.map((e) => e.message)).toEqual(['Session topic limit (250) reached. Unsubscribe unused topics.']);
+    expect(sub2.errors).toHaveLength(1);
+  });
+
+  it('replays a subscribe rejection to a late-joining subscriber', () => {
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: makeSubscriber() });
+    fakeMux.emitSubscribeRejected('logs:server/abc', { code: 'topic_limit', message: 'Session topic limit (250) reached. Unsubscribe unused topics.' });
+
+    const late = makeSubscriber();
+    subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: late });
+
+    expect(late.errors).toHaveLength(1);
+    expect(late.errors[0].message).toContain('Session topic limit');
+  });
 });
