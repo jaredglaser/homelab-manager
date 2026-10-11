@@ -48,9 +48,10 @@ delete commonEnv.AUTH_DISABLED; // auth required
 const children: import('bun').Subprocess[] = [];
 function startNitro(port: number, redirectUri: string) {
   children.push(
-    // Bun, not node: production runs the Nitro output under bun (Dockerfile CMD),
-    // and this lane's subject is Set-Cookie emission, so exercise the same runtime.
-    Bun.spawn(['bun', serverEntry], {
+    // node, not bun: the node-server Nitro entry instantiates crossws's node
+    // adapter at startup (features.websocket is on) and that adapter hard-throws
+    // when it detects bun.
+    Bun.spawn(['node', serverEntry], {
       env: { ...commonEnv, PORT: String(port), OIDC_REDIRECT_URI: redirectUri },
       stdout: 'inherit',
       stderr: 'inherit',
