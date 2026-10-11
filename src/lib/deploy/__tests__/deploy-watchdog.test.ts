@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { DeployWatchdog, loadDeployWatchdogConfig, type WatchdogRepo } from '../deploy-watchdog';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
+import { mockSetInterval } from '@/lib/test/mock-timers';
 
 interface IntervalHandle {
   cb: () => void;
@@ -10,22 +11,25 @@ interface IntervalHandle {
 
 function createIntervalHarness() {
   const intervals: IntervalHandle[] = [];
-  const setSpy = spyOn(globalThis, 'setInterval').mockImplementation(((cb: () => void, ms: number) => {
-    const handle: IntervalHandle = { cb, ms, cleared: false };
-    intervals.push(handle);
-    return handle as unknown as ReturnType<typeof setInterval>;
-  }) as typeof setInterval);
-  const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(((h: unknown) => {
-    const handle = h as IntervalHandle;
-    if (handle) handle.cleared = true;
-  }) as typeof clearInterval);
+  const timers = mockSetInterval({
+    onSchedule: (timer) => {
+      intervals.push({
+        cb: () => {
+          timers.fire(timer);
+        },
+        ms: timer.delayMs,
+        get cleared() {
+          return timer.cleared;
+        },
+      });
+    },
+  });
   return {
     intervals,
-    setSpy,
-    clearSpy,
-    restore() {
-      setSpy.mockRestore();
-      clearSpy.mockRestore();
+    setSpy: timers.setSpy,
+    clearSpy: timers.clearSpy,
+    restore: () => {
+      timers.restore();
     },
   };
 }

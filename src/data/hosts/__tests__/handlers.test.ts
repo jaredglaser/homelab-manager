@@ -25,6 +25,7 @@ function mockRow(overrides?: Record<string, unknown>) {
     autoUpdate: false,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
+    lastSweptAt: null,
     ...overrides,
   };
 }

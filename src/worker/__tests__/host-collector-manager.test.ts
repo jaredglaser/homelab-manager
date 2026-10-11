@@ -36,6 +36,7 @@ function makeHost(name: string, overrides?: Partial<ManagedHost>): ManagedHost {
     status: 'healthy',
     createdAt: new Date(),
     updatedAt: new Date(),
+    lastSweptAt: null,
     ...overrides,
   };
 }

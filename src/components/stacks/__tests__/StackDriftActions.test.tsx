@@ -4,18 +4,19 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDriftItem, StackDriftResolutionResult } from '@/types/stacks';
 
 const mockShowToast = mock();
-mock.module('@/hooks/toastAtom', () => ({ useToast: () => ({ showToast: mockShowToast }) }));
+mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real,  useToast: () => ({ showToast: mockShowToast }) }));
 
 let resolveResult: StackDriftResolutionResult;
 const mockResolveDrift = mock((_args: unknown): Promise<StackDriftResolutionResult> => Promise.resolve(resolveResult));
 const realFns = await import('@/data/stacks/functions');
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   ...realFns,
   resolveDrift: mockResolveDrift,
 }));
 
 import { deployToastGate } from '@/lib/stacks/deploy-outcome-toast';
 import StackDriftActions from '../StackDriftActions';
+import { mockModule } from '@/lib/test/mock-module';
 
 const ghostItem: StackDriftItem = {
   kind: 'ghost',

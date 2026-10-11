@@ -1,24 +1,25 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 import { renderHook, act } from '@testing-library/react'
+import { mockModule } from '@/lib/test/mock-module';
 
 let mockPathname = '/docker'
 
-mock.module('@tanstack/react-router', () => ({
+mockModule<typeof import('@tanstack/react-router')>('@tanstack/react-router', (real) => ({ ...real, 
   useLocation: ({ select }: { select: (l: { pathname: string }) => string }) =>
     select({ pathname: mockPathname }),
 }))
 
-mock.module('@/lib/query-client', () => ({
+mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real, 
   queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
 }))
 
-mock.module('@/data/stacks/functions', () => ({
+mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   listStacks: mock(() => Promise.resolve([])),
   listManagedHostNames: mock(() => Promise.resolve([])),
   createStack: mock(() => Promise.resolve({})),
 }))
 
-mock.module('@/lib/constants/preload-queries', () => ({
+mockModule<typeof import('@/lib/constants/preload-queries')>('@/lib/constants/preload-queries', (real) => ({ ...real, 
   DOCKER_PRELOAD_KEY: ['preload', 'docker-stats'],
   ZFS_PRELOAD_KEY: ['preload', 'zfs-stats'],
   PROXMOX_PRELOAD_KEY: ['preload', 'proxmox-stats'],
