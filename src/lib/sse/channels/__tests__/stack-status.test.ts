@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { stackStatusChannel, serializeStackStatusEvent } from '../stack-status';
+import { stackStatusChannel, serializeStackStatusEvent, toStackStatusWireMessage } from '../stack-status';
 import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 describe('stackStatusChannel', () => {
@@ -118,6 +118,37 @@ describe('stackStatusChannel', () => {
   it('revive is the identity (no Date fields on the wire)', () => {
     const message = [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }];
     expect(stackStatusChannel.revive!(message)).toBe(message);
+  });
+});
+
+describe('toStackStatusWireMessage', () => {
+  it('maps a status event to the bare entries array (the SSE and mux payload shape)', () => {
+    const event: StackBroadcastEvent = {
+      type: 'status',
+      entries: [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }],
+    };
+    expect(toStackStatusWireMessage(event)).toBe(event.entries);
+  });
+
+  it('maps a deploy_changed event to the wire object, omitting outcome when absent', () => {
+    const event: StackBroadcastEvent = { type: 'deploy_changed', stack: 'plex', host: 'server1' };
+    expect(toStackStatusWireMessage(event)).toEqual({ type: 'deploy_changed', stack: 'plex', host: 'server1' });
+    expect('outcome' in toStackStatusWireMessage(event)).toBe(false);
+  });
+
+  it('keeps a present outcome nested as one object', () => {
+    const event: StackBroadcastEvent = {
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: { deployId: 42, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+    };
+    expect(toStackStatusWireMessage(event)).toEqual({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: { deployId: 42, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+    });
   });
 });
 
