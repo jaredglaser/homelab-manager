@@ -6,7 +6,6 @@ import type { MuxDropPolicyConfig, MuxWriteQueue } from '../../../src/lib/mux/dr
 const LOGS_TOPIC_PREFIX = 'logs:';
 const STATS_TOPIC_PREFIX = 'stats:';
 const INVENTORY_TOPIC = 'inventory';
-const MAX_SESSION_TOPICS = 20;
 const PING_INTERVAL_MS = 25_000;
 const AGENT_BASE_BACKOFF_MS = 1_000;
 const AGENT_MAX_BACKOFF_MS = 16_000;
@@ -274,7 +273,7 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
       const session = sessions.get(peer.id);
       if (!session) return;
 
-      const { parseCommandFrame } = await import('../../../src/lib/mux/protocol');
+      const { parseCommandFrame, MAX_SESSION_TOPICS, TOPIC_LIMIT_ERROR_CODE } = await import('../../../src/lib/mux/protocol');
       let raw: unknown;
       try {
         raw = JSON.parse(message.text());
@@ -290,7 +289,13 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
       if (command.type === 'sub') {
         const missing = command.topics.filter((t) => !session.topics.has(t));
         if (session.topics.size + missing.length > MAX_SESSION_TOPICS) {
-          peer.send(JSON.stringify({ type: 'ack', ref: command.ref, ok: false, error: 'Too many topics' }));
+          peer.send(JSON.stringify({
+            type: 'ack',
+            ref: command.ref,
+            ok: false,
+            error: `Session topic limit (${MAX_SESSION_TOPICS}) reached. Unsubscribe unused topics`,
+            code: TOPIC_LIMIT_ERROR_CODE,
+          }));
           return;
         }
         for (const topic of command.topics) {
