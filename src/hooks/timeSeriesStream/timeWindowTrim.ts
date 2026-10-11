@@ -19,11 +19,6 @@ export function lowerBound<T>(arr: T[], cutoff: number, getTime: (item: T) => nu
   return lo;
 }
 
-/**
- * Stable merge of two ascending runs into one ascending array (rows from `a` win ties).
- * O(k log k + log n) when the batch appends at the tail, O(n + k) when it predates the
- * buffer tail, so out-of-order batches stay time-sorted instead of being appended.
- */
 function mergeSorted<T>(a: T[], b: T[], getTime: (item: T) => number): T[] {
   const out: T[] = [];
   let i = 0;
@@ -44,12 +39,10 @@ function mergeSorted<T>(a: T[], b: T[], getTime: (item: T) => number): T[] {
  *  - `sorted` is already sorted ascending by time.
  *  - `newRows` is sorted ascending by time and is disjoint from `sorted` (callers deduplicate first).
  *
- * When every entry in `newRows` is at or after the newest surviving entry (the usual live arrival
- * pattern) the batch is appended after O(log n) eviction, keeping the documented O(k log k + log n)
- * flush shape. When a batch predates the buffer tail (an in-flight frame flushed after a preload
- * seed, say) the two runs merge in O(n + k) so the output stays time-sorted and no row is dropped.
- * Returns the same `sorted` reference when there is neither eviction nor new rows to add,
- * preserving referential equality.
+ * A batch whose first row predates the buffer tail (a late frame flushed after a preload seed)
+ * merges in O(n + k) instead of appending, because appending would leave the buffer unsorted.
+ * The append path keeps the O(k log k + log n) flush cost. Returns the same `sorted` reference
+ * when there is neither eviction nor new rows to add, preserving referential equality.
  *
  * @returns The new buffer and the index at which eviction began (for dedup-set cleanup).
  */
