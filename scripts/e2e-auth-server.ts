@@ -21,6 +21,20 @@ if (mode !== 'http' && mode !== 'https') {
 
 const serverEntry = path.resolve('e2e-build/realapp/server/index.mjs');
 
+// The node runner below cannot execute a bun-preset artifact; a vite-config
+// preset change flips the kind silently (nitro.json records the actual preset).
+const buildInfo: { preset: string } = JSON.parse(
+  readFileSync(path.resolve('e2e-build/realapp/nitro.json'), 'utf8'),
+);
+const buildPreset = buildInfo.preset;
+if (buildPreset !== 'node-server') {
+  console.error(
+    `[e2e-auth-server] realapp built with preset '${buildPreset}', but this lane runs it under node; ` +
+      'rebuild with NITRO_PRESET=node-server or flip the lane to a bun runner.',
+  );
+  process.exit(1);
+}
+
 // Client id/secret produced by e2e-auth-seed.ts.
 const oidcEnv = Object.fromEntries(
   readFileSync(path.resolve('e2e-build/auth/oidc.env'), 'utf8')
