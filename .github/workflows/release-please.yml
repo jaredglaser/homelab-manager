@@ -12,12 +12,11 @@ jobs:
   release-pr:
     name: Maintain the Release PR
     runs-on: ubuntu-latest
-    # Serialize grooming runs so rapid pushes to main never race to open
-    # duplicate release PRs. Grooming is idempotent, so a dropped duplicate
-    # is harmless. The tag job deliberately has no concurrency group, since
-    # a canceled run there would lose a release.
+    # Serialize release-PR maintenance so rapid pushes never race to open
+    # duplicate release PRs. The tag job keeps no group: a canceled run there
+    # would lose a release.
     concurrency:
-      group: release-please-groom
+      group: release-pr-maintenance
       cancel-in-progress: false
     steps:
       # App token so the Release PR triggers workflows: a GITHUB_TOKEN-created
