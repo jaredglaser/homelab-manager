@@ -4,7 +4,6 @@ import type { HealthReporter } from './health-reporter';
 export interface AgentUpdaterConfig {
   containerName: string;
   imageName: string;
-  checkIntervalMs: number;
   healthCheckMaxAttempts?: number;
   healthCheckIntervalMs?: number;
 }
@@ -13,6 +12,8 @@ export interface UpdateCheckResult {
   updateAvailable: boolean;
   currentDigest?: string;
   remoteDigest?: string;
+  // Set when the check itself failed (registry or Docker unreachable): the caller must not treat this as "already current".
+  checkFailed?: boolean;
 }
 
 export interface UpdateResult {
@@ -60,7 +61,7 @@ export class AgentUpdater {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Failed to check for update: ${message}`);
-      return { updateAvailable: false };
+      return { updateAvailable: false, checkFailed: true };
     }
   }
 

@@ -180,6 +180,7 @@ describe('HostRepository', () => {
     });
   });
 
+
   describe('updateAgentInfo', () => {
     it('updates the agent_version field', async () => {
       mock.pushResult([]);

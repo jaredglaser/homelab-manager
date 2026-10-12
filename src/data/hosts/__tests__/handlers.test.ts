@@ -1,4 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
+import { getAgentImage, getAgentUpdaterImage } from '@/lib/hosts/host-utils';
 import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
 import {
   handleListHosts,
@@ -8,6 +10,7 @@ import {
   handleUpdateHost,
   handleGetHostPublicJwk,
   handleRotateHostKeypair,
+  handleUpdateAgent,
 } from '../handlers';
 
 const NOW = new Date('2026-03-01T00:00:00Z');
@@ -364,3 +367,343 @@ describe('handleRotateHostKeypair', () => {
     await expect(handleRotateHostKeypair(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 });
+
+describe('handleUpdateAgent', () => {
+  const getSigner = mock(async (_name: string) => mock(async () => 'jwt-token'));
+
+  const TEST_DIGEST = 'sha256:' + 'b'.repeat(64);
+  const TEST_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent@${TEST_DIGEST}`;
+  const TEST_UPDATER_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent-updater@${TEST_DIGEST}`;
+
+  function updateDeps(
+    repo?: Partial<HostRepo>,
+    checkHealth?: (url: string, hostName: string) => Promise<import('@/lib/hosts/host-utils').HealthCheckOutcome>,
+    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>,
+  ) {
+    return {
+      ...baseDeps(repo),
+      getSigner,
+      checkHealth: checkHealth ?? mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })),
+      resolveAgentImageDigest: resolveAgentImageDigest ?? mock(async (_imageRef: string) => TEST_DIGEST),
+    };
+  }
+
+  function withFetch(impl: () => Promise<Response>): { restore: () => void; fetchMock: ReturnType<typeof mock> } {
+    const fetchMock = mock(impl);
+    const original = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    return { restore: () => { globalThis.fetch = original; }, fetchMock };
+  }
+
+  it('throws when host not found', async () => {
+    const deps = updateDeps({ findById: mock(() => Promise.resolve(null)) });
+    await expect(handleUpdateAgent(deps, { hostId: 99 })).rejects.toThrow('not found');
+  });
+
+  it('resolves the build-time image to a digest and sends it as the trigger target', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      const resolveAgentImageDigest = mock(async (_imageRef: string) => TEST_DIGEST);
+      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentImage());
+      expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentUpdaterImage());
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://192.168.1.10:9090/agent/update',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: TEST_UPDATER_TARGET }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('still triggers the agent update with updaterTargetImage null when only the updater digest is unresolvable', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      let calls = 0;
+      const resolveAgentImageDigest = mock(async (_imageRef: string) => {
+        calls++;
+        return calls === 1 ? TEST_DIGEST : null;
+      });
+      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://192.168.1.10:9090/agent/update',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: null }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('still triggers the agent update when the updater digest resolver throws', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      let calls = 0;
+      const resolveAgentImageDigest = mock(async (_imageRef: string) => {
+        calls++;
+        if (calls === 1) return TEST_DIGEST;
+        throw new Error('registry exploded');
+      });
+      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://192.168.1.10:9090/agent/update',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: null }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('fails without triggering when the registry cannot resolve the digest', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, undefined, mock(async (_imageRef: string) => null));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.error).toBe('Could not resolve the agent image digest from the registry');
+        expect(result.suggestions).toContain('Verify ghcr.io/jaredglaser/homelab-manager-agent is reachable and public');
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('fails before update when the agent is unreachable', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: false as const, error: 'connection refused' })));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toContain('unreachable');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports success without polling when no update is available', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith('http://192.168.1.10:9090/agent/update', expect.objectContaining({ method: 'POST' }));
+    } finally {
+      restore();
+    }
+  });
+
+  it('polls until the version changes and records the new version', async () => {
+    let polls = 0;
+    const repo = mockRepo();
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(repo, mock(() => {
+        polls++;
+        return Promise.resolve({ healthy: true as const, version: polls === 1 ? '1.0.0' : '2.0.0' });
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      if (result.healthy) expect(result.version).toBe('2.0.0');
+      expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0' });
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports a keypair failure with suggestions when the signer throws', async () => {
+    const deps = {
+      ...updateDeps(),
+      getSigner: mock(async () => {
+        throw new Error('keyring locked');
+      }),
+    };
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.error).toBe('Could not retrieve agent keypair');
+      expect(result.suggestions).toContain('Verify the agent has been enrolled with a generated public JWK');
+    }
+  });
+
+  it('reports a signing failure with suggestions when the signer call throws', async () => {
+    const signingSigner = mock(async () => {
+      throw new Error('key encoding failed');
+    });
+    const deps = {
+      ...updateDeps(),
+      getSigner: mock(async () => signingSigner),
+    };
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.error).toBe('Could not sign the agent request token');
+        expect(result.suggestions).toContain('Verify the agent has been enrolled with a generated public JWK');
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports a network failure when the trigger request throws', async () => {
+    const { restore } = withFetch(() => Promise.reject(new Error('ECONNREFUSED')));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('ECONNREFUSED');
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports an unexpected redirect from the agent URL', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(null, { status: 302 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('Agent URL returned an unexpected redirect');
+    } finally {
+      restore();
+    }
+  });
+
+  it('requires an observed restart before accepting a version when /info is unsupported', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: undefined, infoSupported: false })));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('The agent stayed reachable throughout the update window, so its restart could not be confirmed');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('accepts the version after an observed restart when /info is unsupported', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        // Pre-check succeeds without a version. Poll two observes the restart, then the agent is back.
+        return Promise.resolve(calls === 1
+          ? { healthy: true as const, version: undefined, infoSupported: false }
+          : calls === 2
+            ? ({ healthy: false as const, error: 'restarting' })
+            : { healthy: true as const, version: '9.9.9', infoSupported: false }
+        );
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      if (result.healthy) expect(result.version).toBe('9.9.9');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('reports success when the version is unchanged after the trigger', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('reports an unreadable version when the agent is healthy but reports none after the trigger', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        // Pre-check succeeds without a version. Every poll stays healthy but versionless.
+        return Promise.resolve(calls === 1
+          ? { healthy: true as const, version: undefined }
+          : { healthy: true as const, version: undefined });
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('Agent is reachable but its version could not be read, so the update could not be confirmed');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('reports the agent did not restart when health goes down after the trigger', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        return calls === 1
+          ? Promise.resolve({ healthy: true as const, version: '1.0.0' })
+          : Promise.resolve({ healthy: false as const, error: 'connection refused during health check' });
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('Agent did not restart after update');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('surfaces a non-202 trigger response as a failure', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'agent-updater sidecar is not reachable' }), { status: 503 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toContain('agent-updater');
+    } finally {
+      restore();
+    }
+  });
+
+  it('surfaces a plain-text check-failure body from the trigger endpoint', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response('Update check failed. Verify the agent host can reach the image registry, then retry the update.', { status: 503 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('Update check failed. Verify the agent host can reach the image registry, then retry the update.');
+    } finally {
+      restore();
+    }
+  });
+});
+

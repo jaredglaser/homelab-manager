@@ -2,6 +2,7 @@ import type {
   HostListItem,
   AddHostResult,
   HealthCheckResult,
+  UpdateAgentResult,
   AgentInventoryEntry,
 } from '@/data/hosts/functions';
 
@@ -139,3 +140,17 @@ export async function checkHostHealth(_data: {
     agentImageTag: 'latest',
   };
 }
+
+export async function updateAgent(data: {
+  hostId: number;
+}): Promise<UpdateAgentResult> {
+  return {
+    hostId: data.hostId,
+    healthy: true,
+    version: '0.1.0',
+    dockerVersion: '24.0.7',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
+  };
+}
+

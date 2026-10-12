@@ -5,6 +5,8 @@ export interface AgentStackConfig {
   agentTrustedPubkey: string;
   agentImage: string;
   agentUpdaterImage: string;
+  // Shared secret between the agent relay and the agent-updater trigger endpoint; the wizard generates it per host.
+  triggerToken: string;
   capabilities: {
     docker: boolean;
     zfs: boolean;
@@ -67,6 +69,7 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
     `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,
     `HLM_STACKS_DIR=/opt/homelab-manager/stacks`,
+    `HLM_TRIGGER_TOKEN=${config.triggerToken}`,
   ];
 
   if (zfs) {
@@ -117,6 +120,9 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_HOST_NAME: config.hostName,
     // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.
     AGENT_IMAGE: '${AGENT_IMAGE}',
+    // Manual update relay target: the agent-updater's internal trigger endpoint.
+    HLM_UPDATER_URL: 'http://hlm-agent-updater:9091/trigger',
+    HLM_TRIGGER_TOKEN: '${HLM_TRIGGER_TOKEN}',
   };
 
   if (docker) {
@@ -172,8 +178,9 @@ function buildAgentUpdater(config: AgentStackConfig): Record<string, unknown> {
     environment: {
       HLM_WATCH_CONTAINER: 'hlm-agent',
       HLM_WATCH_IMAGE: '${AGENT_IMAGE}',
-      HLM_CHECK_INTERVAL: '${HLM_CHECK_INTERVAL:-6h}',
       HLM_AGENT_URL: 'http://hlm-agent:9090',
+      HLM_TRIGGER_PORT: '9091',
+      HLM_TRIGGER_TOKEN: '${HLM_TRIGGER_TOKEN}',
     },
     labels: ['hlm.managed=true', 'hlm.role=agent-updater'],
   };

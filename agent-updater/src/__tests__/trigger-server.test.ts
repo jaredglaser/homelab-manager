@@ -1,0 +1,197 @@
+import { describe, expect, test, mock, beforeAll, afterAll } from 'bun:test';
+import { createTriggerHandler, createTriggerState } from '../trigger-server';
+import type { AgentUpdater, UpdateCheckResult, UpdateResult } from '../agent-updater';
+
+const originalConsoleInfo = console.info;
+const originalConsoleError = console.error;
+
+beforeAll(() => {
+  console.info = mock(() => {});
+  console.error = mock(() => {});
+});
+
+afterAll(() => {
+  console.info = originalConsoleInfo;
+  console.error = originalConsoleError;
+});
+
+const TOKEN = 'test-trigger-token';
+
+function createMockUpdater(overrides: {
+  check?: () => Promise<UpdateCheckResult>;
+  perform?: () => Promise<UpdateResult>;
+} = {}): AgentUpdater {
+  return {
+    checkForUpdate: overrides.check ?? mock(() => Promise.resolve({ updateAvailable: false })),
+    performUpdate: overrides.perform ?? mock(() => Promise.resolve({ success: true })),
+  } as unknown as AgentUpdater;
+}
+
+function postRequest(auth = `Bearer ${TOKEN}`): Request {
+  const headers = auth === '' ? undefined : { authorization: auth };
+  return new Request('http://localhost/trigger', { method: 'POST', headers });
+}
+
+function waitFor(cond: () => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const tick = () => (cond() ? resolve() : setTimeout(tick, 5));
+    tick();
+  });
+}
+
+describe('createTriggerHandler', () => {
+  test('rejects non-POST requests', async () => {
+    const handler = createTriggerHandler(createMockUpdater(), createTriggerState(), { token: TOKEN });
+    const response = await handler(new Request('http://localhost/trigger', { method: 'GET' }));
+    expect(response.status).toBe(405);
+  });
+
+  test('rejects a request without the trigger token with 401', async () => {
+    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const handler = createTriggerHandler(createMockUpdater({ check }), createTriggerState(), { token: TOKEN });
+
+    const response = await handler(postRequest(''));
+    expect(response.status).toBe(401);
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  test('rejects a request with a wrong trigger token with 401', async () => {
+    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const handler = createTriggerHandler(createMockUpdater({ check }), createTriggerState(), { token: TOKEN });
+
+    const response = await handler(postRequest('Bearer wrong-token'));
+    expect(response.status).toBe(401);
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  test('rejects every request when no token is configured', async () => {
+    const check = mock(() => Promise.resolve({ updateAvailable: false }));
+    const handler = createTriggerHandler(createMockUpdater({ check }), createTriggerState(), {});
+
+    const response = await handler(postRequest());
+    expect(response.status).toBe(503);
+    expect(check).not.toHaveBeenCalled();
+
+    const unauthenticated = await handler(postRequest(''));
+    expect(unauthenticated.status).toBe(503);
+  });
+
+  test('returns 200 updateAvailable false when the agent is current', async () => {
+    const check = mock(() => Promise.resolve({ updateAvailable: false, currentDigest: 'sha256:a' }));
+    const perform = mock(() => Promise.resolve({ success: true }));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }), createTriggerState(), { token: TOKEN });
+
+    const response = await handler(postRequest());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.updateAvailable).toBe(false);
+    expect(perform).not.toHaveBeenCalled();
+  });
+
+  test('returns 503 instead of a false "already current" when the check failed', async () => {
+    const perform = mock(() => Promise.resolve({ success: true }));
+    const check = mock(() => Promise.resolve({ updateAvailable: false, checkFailed: true } as UpdateCheckResult));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }), createTriggerState(), { token: TOKEN });
+
+    const response = await handler(postRequest());
+    expect(response.status).toBe(503);
+    expect(await response.text()).toContain('Update check failed');
+    expect(perform).not.toHaveBeenCalled();
+  });
+
+  test('returns 503 and clears the busy flag when the check throws', async () => {
+    const state = createTriggerState();
+    let checkCalls = 0;
+    const check = mock(() => {
+      checkCalls++;
+      return checkCalls === 1
+        ? Promise.reject(new Error('registry unreachable'))
+        : Promise.resolve({ updateAvailable: false } as UpdateCheckResult);
+    });
+    const handler = createTriggerHandler(createMockUpdater({ check }), state, { token: TOKEN });
+
+    const response = await handler(postRequest());
+    expect(response.status).toBe(503);
+    expect(await response.text()).toContain('Update check failed');
+    expect(state.updating).toBe(false);
+
+    const again = await handler(postRequest());
+    expect(again.status).toBe(200);
+  });
+
+  test('returns 202 and performs the update asynchronously', async () => {
+    const state = createTriggerState();
+    let release!: () => void;
+    const perform = mock(() => new Promise<UpdateResult>((resolve) => { release = () => resolve({ success: true }); }));
+    const check = mock(() => Promise.resolve({ updateAvailable: true, currentDigest: 'sha256:a', remoteDigest: 'sha256:b' }));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }), state, { token: TOKEN });
+
+    const response = await handler(postRequest());
+    expect(response.status).toBe(202);
+    const body = await response.json();
+    expect(body.started).toBe(true);
+    expect(perform).toHaveBeenCalledTimes(1);
+    expect(state.updating).toBe(true);
+
+    release();
+    await waitFor(() => !state.updating);
+    expect(state.updating).toBe(false);
+  });
+
+  test('rejects a second trigger while an update is running with 409', async () => {
+    const state = createTriggerState();
+    let release!: () => void;
+    const perform = mock(() => new Promise<UpdateResult>((resolve) => { release = () => resolve({ success: true }); }));
+    const check = mock(() => Promise.resolve({ updateAvailable: true }));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }), state, { token: TOKEN });
+
+    const first = await handler(postRequest());
+    expect(first.status).toBe(202);
+
+    const second = await handler(postRequest());
+    expect(second.status).toBe(409);
+
+    release();
+    await waitFor(() => !state.updating);
+    expect(state.updating).toBe(false);
+  });
+
+  test('logs the triggered update outcome on success and failure', async () => {
+    const state = createTriggerState();
+    let release!: () => void;
+    const perform = mock(() => new Promise<UpdateResult>((resolve) => {
+      release = () => resolve({ success: true, previousImage: 'img:1', newImage: 'img:2' });
+    }));
+    const check = mock(() => Promise.resolve({ updateAvailable: true }));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }), state, { token: TOKEN });
+
+    await handler(postRequest());
+    release();
+    await waitFor(() => !state.updating);
+
+    const state2 = createTriggerState();
+    let fail!: () => void;
+    const performFail = mock(() => new Promise<UpdateResult>((resolve) => {
+      fail = () => resolve({ success: false, error: 'pull failed', rolledBack: true });
+    }));
+    const handler2 = createTriggerHandler(createMockUpdater({ check, perform: performFail }), state2, { token: TOKEN });
+    await handler2(postRequest());
+    fail();
+    await waitFor(() => !state2.updating);
+  });
+
+  test('logs a crash and clears the busy flag when performUpdate rejects', async () => {
+    const state = createTriggerState();
+    let release!: () => void;
+    const perform = mock(() => new Promise<UpdateResult>((_resolve, reject) => {
+      release = () => reject(new Error('docker daemon gone'));
+    }));
+    const check = mock(() => Promise.resolve({ updateAvailable: true }));
+    const handler = createTriggerHandler(createMockUpdater({ check, perform }), state, { token: TOKEN });
+
+    await handler(postRequest());
+    release();
+    await waitFor(() => !state.updating);
+    expect(state.updating).toBe(false);
+  });
+});

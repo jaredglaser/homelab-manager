@@ -17,6 +17,7 @@ const dockerOnlyConfig: AgentStackConfig = {
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
+  triggerToken: 'test-trigger-token',
   capabilities: { docker: true, zfs: false },
 };
 
@@ -25,6 +26,7 @@ const zfsOnlyConfig: AgentStackConfig = {
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:v1.0.0',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:v1.0.0',
+  triggerToken: 'test-trigger-token',
   capabilities: { docker: false, zfs: true },
   hlmZfsUid: 1100,
   hlmZfsGid: 1100,
@@ -35,6 +37,7 @@ const dockerZfsConfig: AgentStackConfig = {
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
+  triggerToken: 'test-trigger-token',
   capabilities: { docker: true, zfs: true },
   hlmZfsUid: 1100,
   hlmZfsGid: 1100,
@@ -229,6 +232,7 @@ describe('generateAgentStackCompose', () => {
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
       agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
+      triggerToken: 'test-trigger-token',
       capabilities: { docker: false, zfs: false },
     };
     const result = generateAgentStackCompose(noneConfig);
@@ -301,6 +305,7 @@ describe('generateAgentStackEnv', () => {
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',
+      triggerToken: 'test-trigger-token',
       capabilities: { docker: false, zfs: true },
       hlmZfsGid: 1100,
     };
@@ -315,6 +320,7 @@ describe('generateAgentStackEnv', () => {
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',
+      triggerToken: 'test-trigger-token',
       capabilities: { docker: false, zfs: true },
       hlmZfsUid: 1100,
     };
@@ -329,6 +335,7 @@ describe('generateAgentStackEnv', () => {
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',
+      triggerToken: 'test-trigger-token',
       capabilities: { docker: true, zfs: true },
       hlmZfsUid: 1100,
       hlmZfsGid: 1100,
@@ -336,6 +343,12 @@ describe('generateAgentStackEnv', () => {
     expect(() => generateAgentStackEnv(bad)).toThrow(
       'dockerGid is required when both docker and zfs capabilities are enabled'
     );
+  });
+
+  it('wires the manual update trigger between agent and updater', () => {
+    const parsed = parseYaml(generateAgentStackCompose(dockerOnlyConfig));
+    expect(parsed.services['agent'].environment.HLM_UPDATER_URL).toBe('http://hlm-agent-updater:9091/trigger');
+    expect(parsed.services['agent-updater'].environment.HLM_TRIGGER_PORT).toBe('9091');
   });
 
 });

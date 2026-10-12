@@ -1,16 +1,16 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema } from '@/data/hosts/schemas';
+import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, updateAgentSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleVerifyHost, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair,
+  handleUpdateHost, handleVerifyHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
-export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult } from '@/data/hosts/handlers';
+export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
@@ -172,3 +172,23 @@ export const rotateHostKeypair = createServerFn()
     const keypairs = await loadKeypairsRepo();
     return handleRotateHostKeypair({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
   });
+
+export const updateAgent = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(updateAgentSchema)
+  .handler(async ({ data, context }): Promise<HostOperationResult> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+    return handleUpdateAgent({
+      ...baseDeps,
+      getSigner: async (hostname) => {
+        const privateKey = await keypairs.getPrivateKeyForHost(hostname);
+        if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
+        return () => signAgentJwt(privateKey, hostname);
+      },
+      checkHealth: await buildCheckHealth(keypairs),
+    }, data);
+  });
+

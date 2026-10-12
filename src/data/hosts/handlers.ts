@@ -1,6 +1,7 @@
 import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
-import { toHostListItem } from '@/lib/hosts/host-utils';
+import { toHostListItem, getAgentImage, getAgentUpdaterImage } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
@@ -30,6 +31,13 @@ export type HostOperationResult =
   | { hostId: number; healthy: false; error: string; suggestions?: string[] };
 
 export type HealthCheckResult = HostOperationResult;
+export type UpdateAgentResult = HostOperationResult;
+
+const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
+
+function digestPinnedImageRef(imageRef: string, digest: string): string {
+  return `${imageRef.slice(0, imageRef.lastIndexOf(':'))}@${digest}`;
+}
 
 export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
@@ -181,6 +189,212 @@ export async function handleVerifyHost(
     host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
     publicJwk,
   };
+}
+
+// Scoped to this host's agentUrl and sidecar. Never touches any other host.
+export async function handleUpdateAgent(
+  deps: HostHandlerDeps & {
+    getSigner: (hostname: string) => Promise<() => Promise<string>>;
+    checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+  },
+  data: { hostId: number },
+): Promise<HostOperationResult> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const preCheck = await deps.checkHealth(host.agentUrl, host.name);
+  if (!preCheck.healthy) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent is unreachable before update',
+      suggestions: [
+        'Check that the agent container is running',
+        'Run `docker logs hlm-agent` to inspect agent startup errors',
+      ],
+    };
+  }
+  const currentVersion = preCheck.version;
+  // A missing pre-update version only implies an upgrade when /info 404s. Any
+  // other cause would make a later version read look like a change that never happened.
+  const preInfoUnsupported = preCheck.infoSupported === false;
+
+  const resolveDigest = deps.resolveAgentImageDigest ?? resolveAgentImageDigest;
+  const imageRef = getAgentImage();
+  const digest = await resolveDigest(imageRef);
+  if (!digest) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Could not resolve the agent image digest from the registry',
+      suggestions: [
+        'Verify ghcr.io/jaredglaser/homelab-manager-agent is reachable and public',
+        'Check the VITE_AGENT_IMAGE_TAG the dashboard was built with',
+      ],
+    };
+  }
+  const targetImage = digestPinnedImageRef(imageRef, digest);
+  // The updater digest fails open: null makes the sidecar skip its self-recreate rather than fail the agent update.
+  const updaterImageRef = getAgentUpdaterImage();
+  const updaterDigest = await resolveDigest(updaterImageRef).catch(() => null);
+  const updaterTargetImage = updaterDigest ? digestPinnedImageRef(updaterImageRef, updaterDigest) : null;
+
+  let signer: () => Promise<string>;
+  try {
+    signer = await deps.getSigner(host.name);
+  } catch {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Could not retrieve agent keypair',
+      suggestions: [
+        'Check that the master key is configured (MASTER_KEY env var)',
+        'Verify the agent has been enrolled with a generated public JWK',
+      ],
+    };
+  }
+
+  let jwt: string;
+  try {
+    jwt = await signer();
+  } catch {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Could not sign the agent request token',
+      suggestions: [
+        'Check that the master key is configured (MASTER_KEY env var)',
+        'Verify the agent has been enrolled with a generated public JWK',
+      ],
+    };
+  }
+
+  let triggerResponse: Response;
+  try {
+    const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
+    triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetImage, updaterTargetImage }),
+      redirect: 'manual',
+    });
+  } catch (err) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: err instanceof Error ? err.message : String(err),
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Run `docker logs hlm-agent` to inspect agent errors',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  if (triggerResponse.type === 'opaqueredirect' || (triggerResponse.status >= 300 && triggerResponse.status < 400)) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent URL returned an unexpected redirect',
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Run `docker logs hlm-agent` to inspect agent errors',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  if (triggerResponse.status === 200) {
+    // The agent-updater checked the registry and found nothing newer.
+    return { hostId: host.id, healthy: true };
+  }
+
+  if (triggerResponse.status !== 202) {
+    const body = await triggerResponse.text().catch(() => '');
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: body || `Unexpected status ${triggerResponse.status} from agent update endpoint`,
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Verify the agent stack includes the agent-updater container',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
+  let newVersion: string | undefined;
+  // The sidecar pulls the new image before stopping the old agent, so on an /info-less host a
+  // healthy poll alone proves nothing. A restart is only evidenced by an observed failed poll.
+  let sawRestart = false;
+
+  for (const delay of HEALTH_CHECK_DELAYS_MS) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    lastResult = await deps.checkHealth(host.agentUrl, host.name);
+    if (!lastResult.healthy) {
+      sawRestart = true;
+      continue;
+    }
+    if (lastResult.version === undefined) continue;
+    if (preInfoUnsupported) {
+      if (sawRestart) {
+        newVersion = lastResult.version;
+        break;
+      }
+      continue;
+    }
+    if (currentVersion !== undefined && lastResult.version !== currentVersion) {
+      newVersion = lastResult.version;
+      break;
+    }
+  }
+
+  if (!newVersion) {
+    if (lastResult.healthy && currentVersion !== undefined && lastResult.version === currentVersion) {
+      // The trigger returned 202, so the sidecar started an update whose digest differed: the container was
+      // replaced even though the version string is unchanged, which happens when an image is rebuilt without a bump.
+      return { hostId: host.id, healthy: true };
+    }
+    if (lastResult.healthy && preInfoUnsupported && !sawRestart) {
+      return {
+        hostId: host.id,
+        healthy: false,
+        error: 'The agent stayed reachable throughout the update window, so its restart could not be confirmed',
+        suggestions: [
+          'Re-run the update after the current attempt settles',
+          'Run `docker ps -a | grep hlm-agent` to check container state',
+        ],
+      };
+    }
+    if (lastResult.healthy) {
+      return {
+        hostId: host.id,
+        healthy: false,
+        error: 'Agent is reachable but its version could not be read, so the update could not be confirmed',
+        suggestions: [
+          'Run `docker logs hlm-agent` to check which image the agent is running',
+          'Verify the agent has been enrolled with a generated public JWK',
+          'Re-run the health check once the agent settles to refresh its reported version',
+        ],
+      };
+    }
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent did not restart after update',
+      suggestions: [
+        'Run `docker ps -a | grep hlm-agent` to check container state',
+        'Run `docker logs hlm-agent-updater` for pull or start errors',
+        'Check available disk space for the image pull',
+      ],
+    };
+  }
+
+  await deps.repo.updateStatus(host.id, 'healthy');
+  await deps.repo.updateAgentInfo(host.id, { version: newVersion });
+  return { hostId: host.id, healthy: true, version: newVersion };
 }
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {
