@@ -191,7 +191,7 @@ export async function handleVerifyHost(
   };
 }
 
-// Scoped to this host's agentUrl and sidecar; never touches any other host.
+// Scoped to this host's agentUrl and sidecar. Never touches any other host.
 export async function handleUpdateAgent(
   deps: HostHandlerDeps & {
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
@@ -216,7 +216,7 @@ export async function handleUpdateAgent(
     };
   }
   const currentVersion = preCheck.version;
-  // A missing pre-update version only implies an upgrade when /info 404s; any
+  // A missing pre-update version only implies an upgrade when /info 404s. Any
   // other cause would make a later version read look like a change that never happened.
   const preInfoUnsupported = preCheck.infoSupported === false;
 
@@ -255,7 +255,20 @@ export async function handleUpdateAgent(
     };
   }
 
-  const jwt = await signer();
+  let jwt: string;
+  try {
+    jwt = await signer();
+  } catch {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Could not sign the agent request token',
+      suggestions: [
+        'Check that the master key is configured (MASTER_KEY env var)',
+        'Verify the agent has been enrolled with a generated public JWK',
+      ],
+    };
+  }
 
   let triggerResponse: Response;
   try {
@@ -313,12 +326,26 @@ export async function handleUpdateAgent(
 
   let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
   let newVersion: string | undefined;
+  // The sidecar pulls the new image before stopping the old agent, so on an /info-less host a
+  // healthy poll alone proves nothing. A restart is only evidenced by an observed failed poll.
+  let sawRestart = false;
 
   for (const delay of HEALTH_CHECK_DELAYS_MS) {
     await new Promise((resolve) => setTimeout(resolve, delay));
     lastResult = await deps.checkHealth(host.agentUrl, host.name);
-    if (!lastResult.healthy || lastResult.version === undefined) continue;
-    if (preInfoUnsupported || (currentVersion !== undefined && lastResult.version !== currentVersion)) {
+    if (!lastResult.healthy) {
+      sawRestart = true;
+      continue;
+    }
+    if (lastResult.version === undefined) continue;
+    if (preInfoUnsupported) {
+      if (sawRestart) {
+        newVersion = lastResult.version;
+        break;
+      }
+      continue;
+    }
+    if (currentVersion !== undefined && lastResult.version !== currentVersion) {
       newVersion = lastResult.version;
       break;
     }
@@ -326,13 +353,18 @@ export async function handleUpdateAgent(
 
   if (!newVersion) {
     if (lastResult.healthy && currentVersion !== undefined && lastResult.version === currentVersion) {
+      // The trigger returned 202, so the sidecar started an update whose digest differed: the container was
+      // replaced even though the version string is unchanged, which happens when an image is rebuilt without a bump.
+      return { hostId: host.id, healthy: true };
+    }
+    if (lastResult.healthy && preInfoUnsupported && !sawRestart) {
       return {
         hostId: host.id,
         healthy: false,
-        error: 'Agent appears to be on the latest version already',
+        error: 'The agent stayed reachable throughout the update window, so its restart could not be confirmed',
         suggestions: [
-          'Verify the image registry has a newer build',
-          'Check that the current version matches your expectations',
+          'Re-run the update after the current attempt settles',
+          'Run `docker ps -a | grep hlm-agent` to check container state',
         ],
       };
     }

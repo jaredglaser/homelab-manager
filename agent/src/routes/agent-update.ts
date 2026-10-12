@@ -5,10 +5,18 @@ const DIGEST_REF_PATTERN = /@sha256:[0-9a-f]{64}$/;
 export async function handleAgentUpdate(
   docker: unknown,
   updaterUrl: string,
+  triggerToken: string | undefined,
   request: Request,
 ): Promise<Response> {
   if (!docker) {
     return Response.json({ error: 'Docker capability not enabled' }, { status: 503 });
+  }
+
+  if (!triggerToken) {
+    return Response.json(
+      { error: 'Update trigger token is not configured on the agent. Regenerate the compose stack to set it.' },
+      { status: 503 },
+    );
   }
 
   let body: { targetImage?: unknown; updaterTargetImage?: unknown };
@@ -42,14 +50,14 @@ export async function handleAgentUpdate(
   try {
     response = await fetch(updaterUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + triggerToken },
       body: JSON.stringify(updaterTargetImage ? { targetImage: body.targetImage, updaterTargetImage } : { targetImage: body.targetImage }),
       signal: AbortSignal.timeout(30_000),
       redirect: 'manual',
     });
   } catch {
     return Response.json(
-      { error: 'agent-updater sidecar is not reachable; the agent stack has no agent-updater container or it is not listening' },
+      { error: 'agent-updater sidecar is not reachable. The agent stack has no agent-updater container, or it is not listening.' },
       { status: 503 },
     );
   }
@@ -61,7 +69,15 @@ export async function handleAgentUpdate(
     );
   }
 
-  const sidecarBody = await response.json().catch(() => ({}));
+  const rawBody = await response.text().catch(() => '');
+  let sidecarBody: { updateAvailable?: unknown; error?: unknown } = {};
+  let sidecarTextError: string | undefined;
+  try {
+    sidecarBody = JSON.parse(rawBody) as { updateAvailable?: unknown; error?: unknown };
+  } catch {
+    // Plain-text bodies (auth and check-failure responses) carry the operator-facing message directly.
+    if (rawBody) sidecarTextError = rawBody;
+  }
 
   if (response.status === 202) {
     return Response.json({ started: true }, { status: 202 });
@@ -73,7 +89,7 @@ export async function handleAgentUpdate(
     return Response.json({ error: 'An update is already in progress' }, { status: 409 });
   }
   return Response.json(
-    { error: sidecarBody.error ?? `agent-updater trigger endpoint returned ${response.status}` },
+    { error: sidecarBody.error ?? sidecarTextError ?? `agent-updater trigger endpoint returned ${response.status}` },
     { status: response.status === 200 ? 500 : response.status },
   );
 }

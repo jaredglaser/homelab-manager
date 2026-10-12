@@ -44,16 +44,20 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
 
   const currentStepName = visibleSteps[activeStep]
 
+  // One token per wizard session: the compose and .env previews must show the value the operator will actually deploy.
+  const [triggerToken] = useState(() => crypto.randomUUID())
+
   const agentStackConfig = useMemo(() => ({
     hostName: name.trim(),
     agentTrustedPubkey: PUBKEY_PLACEHOLDER,
     agentImage: getAgentImage(),
     agentUpdaterImage: getAgentUpdaterImage(),
+    triggerToken,
     capabilities: { docker, zfs },
     hlmZfsUid: parseGatedId(zfs, hlmZfsUid),
     hlmZfsGid: parseGatedId(zfs, hlmZfsGid),
     dockerGid: parseGatedId(docker && zfs, dockerGid),
-  }), [name, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+  }), [name, triggerToken, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
 
   const composeYaml = useMemo(() => {
     try {
