@@ -137,8 +137,6 @@ describe('AgentInventoryBroadcastService', () => {
     const unsub = service.subscribe((s) => received.push(s));
     await waitForCondition(() => received.length >= 1);
 
-    // Client error drops the listener and schedules a reconnect; after the new
-    // client registers, a NOTIFY on it reloads and delivers a fresh snapshot.
     errorHandlers[0]!(new Error('connection terminated'));
     await waitForCondition(() => notifyHandlers.length >= 2);
     clientGeneration = 1;

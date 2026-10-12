@@ -47,15 +47,21 @@ function parseBearerChallenge(header: string | null): { realm: string; service?:
 async function fetchManifest(parts: ImageRefParts, token?: string): Promise<Response | null> {
   const headers: Record<string, string> = { Accept: MANIFEST_ACCEPT };
   if (token) headers.Authorization = 'Bearer ' + token;
-  const response = await fetch(`https://${parts.registry}/v2/${parts.repository}/manifests/${parts.tag}`, { headers });
+  // redirect: 'manual' keeps a hostile registry from bouncing an authenticated request elsewhere.
+  const response = await fetch(`https://${parts.registry}/v2/${parts.repository}/manifests/${parts.tag}`, {
+    headers,
+    redirect: 'manual',
+  });
   if (response.status !== 401) return response;
   // Public GHCR images still gate the manifest endpoint behind a Bearer challenge, so retry once with an anonymous pull token.
   const challenge = parseBearerChallenge(response.headers.get('www-authenticate'));
   if (!challenge || token) return null;
   const tokenUrl = new URL(challenge.realm);
+  // Only follow the challenge to the registry that issued it: anything else is a redirect to attacker-controlled territory.
+  if (tokenUrl.protocol !== 'https:' || tokenUrl.host !== parts.registry) return null;
   if (challenge.service) tokenUrl.searchParams.set('service', challenge.service);
   if (challenge.scope) tokenUrl.searchParams.set('scope', challenge.scope);
-  const tokenResponse = await fetch(tokenUrl);
+  const tokenResponse = await fetch(tokenUrl, { redirect: 'manual' });
   if (!tokenResponse.ok) return null;
   const payload = (await tokenResponse.json().catch(() => null)) as { token?: unknown } | null;
   if (typeof payload?.token !== 'string') return null;

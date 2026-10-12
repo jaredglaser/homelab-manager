@@ -10,12 +10,15 @@ function parseTriggerPort(raw: string | undefined): number | null {
   return port;
 }
 
-function startTriggerServer(updater: AgentUpdater, port: number): void {
+function startTriggerServer(updater: AgentUpdater, port: number, token: string | undefined): void {
   Bun.serve({
     port,
-    fetch: createTriggerHandler(updater, createTriggerState()),
+    fetch: createTriggerHandler(updater, createTriggerState(), { token }),
   });
   console.info(`Manual update trigger server listening on port ${port}`);
+  if (!token) {
+    console.error('HLM_TRIGGER_TOKEN is not set: the trigger endpoint rejects every request until the stack is regenerated with a token.');
+  }
 }
 
 async function main(): Promise<void> {
@@ -45,7 +48,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   if (triggerPort > 0) {
-    startTriggerServer(updater, triggerPort);
+    startTriggerServer(updater, triggerPort, process.env.HLM_TRIGGER_TOKEN);
   } else {
     console.info('Trigger server disabled (HLM_TRIGGER_PORT=0); exiting.');
     return;
