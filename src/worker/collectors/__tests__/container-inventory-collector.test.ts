@@ -160,6 +160,88 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
   });
 });
 
+describe('ContainerInventoryCollector: entity_metadata registration', () => {
+  let abortController: AbortController;
+  let timers: TimerMock;
+
+  beforeEach(() => {
+    abortController = new AbortController();
+    timers = mockSetTimeout({ fireImmediately: true });
+  });
+
+  afterEach(() => {
+    timers.restore();
+    abortController.abort();
+  });
+
+  function createMockMetadataRepo() {
+    const batches: { entity: string; key: string; value: string }[][] = [];
+    let failNext = false;
+    const failNextBatch = () => { failNext = true; };
+    const repo = {
+      upsertEntityMetadataBatch: mock(async (entries: { entity: string; key: string; value: string }[]) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('metadata write failed');
+        }
+        batches.push(entries);
+      }),
+      failNextBatch,
+    };
+    return { repo, batches, failNextBatch };
+  }
+
+  it('first upsert registers name, image, and name-based service_key once', async () => {
+    const { repo } = createMockRepo();
+    const { repo: metaRepo, batches } = createMockMetadataRepo();
+    const streamConnector = fixedStream([
+      { op: 'upsert', container: makeContainer() },
+      { op: 'upsert', container: makeContainer({ state: 'exited' as const }) },
+    ]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    await (collector as any).collect();
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toEqual([
+      { entity: 'homeserver/abc123', key: 'name', value: 'plex' },
+      { entity: 'homeserver/abc123', key: 'image', value: 'plexinc/pms-docker:latest' },
+      { entity: 'homeserver/abc123', key: 'service_key', value: 'plex' },
+    ]);
+  });
+
+  it('a failed registration retries on the next upsert for the same container', async () => {
+    const { repo } = createMockRepo();
+    const { repo: metaRepo, batches, failNextBatch } = createMockMetadataRepo();
+    const streamConnector = fixedStream([
+      { op: 'upsert', container: makeContainer() },
+      { op: 'upsert', container: makeContainer({ state: 'exited' as const }) },
+    ]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    failNextBatch();
+    await (collector as any).collect();
+
+    expect(batches).toHaveLength(1);
+    expect(insertedEventCount(repo)).toBe(2);
+  });
+
+  it('absent metadata repository leaves the event path untouched', async () => {
+    const { repo, inserted } = createMockRepo();
+    const streamConnector = fixedStream([{ op: 'upsert', container: makeContainer() }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
+    await (collector as any).collect();
+
+    expect(inserted).toHaveLength(1);
+  });
+});
+
+/** Total event rows the mock repo accepted, whatever their type. */
+function insertedEventCount(repo: unknown): number {
+  return (repo as { insert: ReturnType<typeof mock> }).insert.mock.calls.length;
+}
+
 describe('ContainerInventoryCollector: ports/mounts fingerprinting', () => {
   let abortController: AbortController;
   let timers: TimerMock;
