@@ -114,16 +114,25 @@ export async function resolveUpdaterImageInfo(
   containerName: string,
 ): Promise<UpdaterImageInfo> {
   if (!docker) return UNRESOLVED_UPDATER;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const info = await inspectWithTimeout(docker, containerName);
     const image = info.Config?.Image?.trim() ?? null;
     let digest: string | null = null;
     try {
-      const imageInfo = await docker.getImage(info.Image).inspect();
+      // Dockerode sets no request timeout, so the image inspect gets the same bounded race as the container inspect above.
+      const imageInfo = await Promise.race([
+        docker.getImage(info.Image).inspect(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`image inspect timed out after ${INSPECT_TIMEOUT_MS}ms`)), INSPECT_TIMEOUT_MS);
+        }),
+      ]);
       const repoDigest = imageInfo.RepoDigests?.[0];
       if (repoDigest) digest = repoDigest.includes('@') ? repoDigest.split('@')[1] : repoDigest;
     } catch {
       // Digest stays null: the manager treats an unknown digest as current.
+    } finally {
+      if (timer) clearTimeout(timer);
     }
     if (!image && !digest) return UNRESOLVED_UPDATER;
     return { image, imageTag: image ? parseImageTag(image) : null, imageDigest: digest };

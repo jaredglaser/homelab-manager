@@ -426,22 +426,26 @@ export async function handleSweepAgentInventory(
 ): Promise<AgentInventoryEntry[]> {
   const hosts = await deps.repo.findAll();
   // Absent resolver means no comparison this sweep: every host stays unflagged instead of guessing.
-  const expectedUpdaterDigest = deps.resolveAgentImageDigest
-    ? await deps.resolveAgentImageDigest(getAgentUpdaterImage()).catch(() => null)
-    : null;
-  const outcomes = await Promise.all(
-    hosts.map(async (host): Promise<HealthCheckOutcome> => {
-      try {
-        return await deps.checkHealth(host.agentUrl, host.name);
-      } catch (err) {
-        return {
-          healthy: false,
-          reason: 'offline' as const,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
-    }),
-  );
+  // Resolved concurrently with the probes so a slow registry call cannot delay host health updates.
+  const [expectedUpdaterDigest, probeOutcomes] = await Promise.all([
+    deps.resolveAgentImageDigest
+      ? deps.resolveAgentImageDigest(getAgentUpdaterImage()).catch(() => null)
+      : Promise.resolve(null),
+    Promise.all(
+      hosts.map(async (host): Promise<HealthCheckOutcome> => {
+        try {
+          return await deps.checkHealth(host.agentUrl, host.name);
+        } catch (err) {
+          return {
+            healthy: false,
+            reason: 'offline' as const,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }),
+    ),
+  ]);
+  const outcomes = probeOutcomes;
 
   await Promise.all(
     hosts.map(async (host, i) => {

@@ -76,8 +76,10 @@ export function buildAgentInventoryEntry(
       versionSource: outcome.version ? 'live' : host.agentVersion ? 'stored' : 'unknown',
       agentImage: host.agentImage,
       agentImageTag: host.agentImageTag,
-      agentUpdaterImageDigest: outcome.agentUpdaterImageDigest ?? host.agentUpdaterImageDigest,
-      agentUpdaterImageTag: outcome.agentUpdaterImageTag ?? host.agentUpdaterImageTag,
+      // Same-sweep consistency: the verdict is computed from the fresh outcome, so the digest it is
+      // paired with must come from the same probe, not from the previous sweep's stored row.
+      agentUpdaterImageDigest: outcome.agentUpdaterImageDigest ?? null,
+      agentUpdaterImageTag: outcome.agentUpdaterImageTag ?? null,
       updaterOutOfDate,
       lastError: null,
       checkedAt: checkedAt.toISOString(),

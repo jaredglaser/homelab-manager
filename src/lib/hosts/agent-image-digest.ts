@@ -51,6 +51,8 @@ async function fetchManifest(parts: ImageRefParts, token?: string): Promise<Resp
   const response = await fetch(`https://${parts.registry}/v2/${parts.repository}/manifests/${parts.tag}`, {
     headers,
     redirect: 'manual',
+    // A hung registry connection must not stall the worker sweep past its next interval.
+    signal: AbortSignal.timeout(5000),
   });
   if (response.status !== 401) return response;
   // Public GHCR images still gate the manifest endpoint behind a Bearer challenge, so retry once with an anonymous pull token.
@@ -61,7 +63,7 @@ async function fetchManifest(parts: ImageRefParts, token?: string): Promise<Resp
   if (tokenUrl.protocol !== 'https:' || tokenUrl.host !== parts.registry) return null;
   if (challenge.service) tokenUrl.searchParams.set('service', challenge.service);
   if (challenge.scope) tokenUrl.searchParams.set('scope', challenge.scope);
-  const tokenResponse = await fetch(tokenUrl, { redirect: 'manual' });
+  const tokenResponse = await fetch(tokenUrl, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
   if (!tokenResponse.ok) return null;
   const payload = (await tokenResponse.json().catch(() => null)) as { token?: unknown } | null;
   if (typeof payload?.token !== 'string') return null;

@@ -186,6 +186,23 @@ describe('handleSweepAgentInventory', () => {
     expect(updateAgentInfo.mock.calls[1]?.[1]).toMatchObject({ updaterOutOfDate: false });
   });
 
+  it('reports no digest instead of the stored one when the live probe could not read it', async () => {
+    const storedDigest = 'sha256:' + 'c'.repeat(64);
+    const hosts = [mockRow({ id: 1, name: 'a', agentUpdaterImageDigest: storedDigest, agentUpdaterImageTag: 'latest' })];
+    const d = deps(
+      hosts,
+      [{ healthy: true, infoSupported: true }],
+      undefined,
+      mock(async (_imageRef: string) => 'sha256:' + 'd'.repeat(64)),
+    );
+
+    const [entry] = await handleSweepAgentInventory(d, NOW);
+
+    expect(entry.agentUpdaterImageDigest).toBeNull();
+    expect(entry.agentUpdaterImageTag).toBeNull();
+    expect(entry.updaterOutOfDate).toBe(false);
+  });
+
   it('leaves every host unflagged when the manager updater digest is unresolvable', async () => {
     const hosts = [mockRow({ id: 1, name: 'a' })];
     const d = deps(

@@ -239,13 +239,31 @@ describe('AgentsOverview (connected)', () => {
 
   it('shows a per-row failure when the update fails', async () => {
     const rejection = Promise.reject(new Error('agent unreachable'))
-    rejection.catch(() => {}) // handled by the component on click; pre-catch silences the floating-rejection check
+    rejection.catch(() => {}) // handled by the component on click. The pre-catch silences the floating-rejection check.
     updateResult = rejection
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update homeserver'))
     await waitFor(() => expect(screen.getByText('agent unreachable')).toBeDefined())
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('agent unreachable')
+  })
+
+  it('pins the fallback failure copy when the update mutation rejects with a non-Error', async () => {
+    const rejection = Promise.reject('agent unreachable as raw string')
+    rejection.catch(() => {}) // handled by the component on click. The pre-catch silences the floating-rejection check.
+    updateResult = rejection
+    renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    await waitFor(() => expect(screen.getByText('Update failed')).toBeDefined())
+  })
+
+  it('pins the success copy when the update reports health without a version', async () => {
+    updateResult = Promise.resolve({ hostId: 1, healthy: true })
+    renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    await waitFor(() => expect(screen.getByText('Update succeeded, agent is healthy')).toBeDefined())
   })
 
   it('blocks updates for non-admins', async () => {
