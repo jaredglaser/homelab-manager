@@ -75,7 +75,7 @@ export class ContainerInventoryCollector extends BaseCollector {
 
   /** In-memory cache of last-written (state, eventType) per containerId on this host. */
   private readonly stateCache = new Map<string, CachedContainerState>();
-  /** Container IDs whose entity_metadata rows were written this worker lifetime. */
+  /** Not hydrated from the DB like stateCache: re-registering on restart is an idempotent upsert. */
   private readonly registeredContainers = new Set<string>();
   /** Pending write timers keyed by containerId, holding the latest snapshot per container. */
   private readonly pendingWrites = new Map<string, { container: InventorySnapshotContainer | InventoryUpdateContainer | null; eventType: 'upsert' | 'destroy'; timer: ReturnType<typeof setTimeout> }>();
@@ -296,12 +296,9 @@ export class ContainerInventoryCollector extends BaseCollector {
   }
 
   /**
-   * Writes entity_metadata (name, image, service_key) the first time a container is
-   * seen so the history fan-out can link its stats to past incarnations without
-   * waiting for the stats collector, which may be mid-outage right after an update.
-   * service_key uses the container name, matching AgentStatsCollector's convention.
-   * A metadata failure is logged, not thrown: the event write already succeeded and
-   * the next upsert retries the registration.
+   * service_key must match AgentStatsCollector's name-based value or the fan-out
+   * splits a container's history into two groups. A failure here must not throw:
+   * the event row is already written and the next upsert retries the registration.
    */
   private async registerContainerMetadata(
     container: InventorySnapshotContainer | InventoryUpdateContainer,

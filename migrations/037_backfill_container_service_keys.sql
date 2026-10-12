@@ -1,19 +1,14 @@
--- Backfill entity_metadata registration for container IDs that recorded stats
--- but were never registered: the service_key row that the history fan-out
--- joins on is written only when a stats frame arrives, so an incarnation born
--- during a worker/agent outage has history in docker_stats that the dashboard
--- cannot reach. Grouping the aggregate tiers by (host, container_name) links
--- every past ID that shares the name, with no manual backfill.
+-- Backfills entity_metadata for container IDs that have stats but no service_key
+-- row: without it the history fan-out cannot reach those rows.
 --
--- Sources are the _1m and _1h_avg tiers, not raw docker_stats: raw retention is
--- 24 hours, the minute tier holds 30 days and the hourly tier indefinitely.
--- service_key follows AgentStatsCollector's convention (container name, not
--- compose labels) so backfilled rows join with the rows the live collector
--- writes. Containers whose name changed across a recreate stay unlinked; that
--- matches the live convention and cannot be recovered from name grouping.
---
--- ON CONFLICT DO NOTHING: rows the collectors already wrote are never clobbered,
--- which also makes reruns and restarts harmless.
+-- Invariants:
+--   1. Sources are the _1m and _1h_avg tiers, never raw: raw retention is 24 hours,
+--      the minute tier holds 30 days and the hourly tier indefinitely.
+--   2. service_key is the container name, matching AgentStatsCollector's convention;
+--      a compose-label key here would split the fan-out's join into two groups.
+--      Containers whose name changed across a recreate stay unlinked.
+--   3. ON CONFLICT DO NOTHING: rows the collectors already wrote are never clobbered,
+--      which also makes reruns and restarts harmless.
 
 INSERT INTO entity_metadata (source, entity, key, value, updated_at)
 SELECT

@@ -223,7 +223,8 @@ describe('ContainerInventoryCollector: entity_metadata registration', () => {
     await (collector as any).collect();
 
     expect(batches).toHaveLength(1);
-    expect(insertedEventCount(repo)).toBe(2);
+    expect(repo.insert as unknown as { mock: { calls: unknown[] } }).toHaveProperty('mock.calls');
+    expect((repo.insert as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
   });
 
   it('absent metadata repository leaves the event path untouched', async () => {
@@ -236,11 +237,6 @@ describe('ContainerInventoryCollector: entity_metadata registration', () => {
     expect(inserted).toHaveLength(1);
   });
 });
-
-/** Total event rows the mock repo accepted, whatever their type. */
-function insertedEventCount(repo: unknown): number {
-  return (repo as { insert: ReturnType<typeof mock> }).insert.mock.calls.length;
-}
 
 describe('ContainerInventoryCollector: ports/mounts fingerprinting', () => {
   let abortController: AbortController;
