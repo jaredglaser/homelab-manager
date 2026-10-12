@@ -122,6 +122,8 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_IMAGE: '${AGENT_IMAGE}',
     // Manual update relay target: the agent-updater's internal trigger endpoint.
     HLM_UPDATER_URL: 'http://hlm-agent-updater:9091/trigger',
+    // Lets /info report the sidecar's image digest the manager compares against its own.
+    HLM_UPDATER_CONTAINER: 'hlm-agent-updater',
     HLM_TRIGGER_TOKEN: '${HLM_TRIGGER_TOKEN}',
   };
 

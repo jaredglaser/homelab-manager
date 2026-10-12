@@ -16,6 +16,9 @@ function mockRow(overrides?: Partial<ManagedHost>): ManagedHost {
     agentVersion: '0.1.0',
     agentImage: null,
     agentImageTag: null,
+    agentUpdaterImageDigest: null,
+    agentUpdaterImageTag: null,
+    agentUpdaterOutOfDate: false,
     status: 'healthy',
     createdAt: NOW,
     updatedAt: NOW,
@@ -50,6 +53,7 @@ function deps(
   hosts: ManagedHost[],
   outcomes: HealthCheckOutcome[],
   repoOverrides?: Partial<HostRepo>,
+  resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>,
 ): AgentsInventoryDeps & { repo: HostRepo } {
   let call = 0;
   return {
@@ -59,6 +63,7 @@ function deps(
       call += 1;
       return Promise.resolve(outcome);
     }),
+    ...(resolveAgentImageDigest ? { resolveAgentImageDigest } : {}),
   };
 }
 
@@ -148,6 +153,79 @@ describe('handleSweepAgentInventory', () => {
 
     expect(entries).toEqual([]);
     expect(d.checkHealth).not.toHaveBeenCalled();
+  });
+
+  it('flags a host whose sidecar digest differs from the manager updater digest and persists the verdict', async () => {
+    const updateAgentInfo = mock((_id: number, _fields: UpdateAgentInfoInput) => Promise.resolve());
+    const staleDigest = 'sha256:' + 'c'.repeat(64);
+    const expectedDigest = 'sha256:' + 'd'.repeat(64);
+    const hosts = [
+      mockRow({ id: 1, name: 'stale' }),
+      mockRow({ id: 2, name: 'current' }),
+    ];
+    const d = deps(
+      hosts,
+      [
+        { healthy: true, infoSupported: true, agentUpdaterImageDigest: staleDigest, agentUpdaterImageTag: 'latest' },
+        { healthy: true, infoSupported: true, agentUpdaterImageDigest: expectedDigest, agentUpdaterImageTag: 'latest' },
+      ],
+      { updateAgentInfo },
+      mock(async (_imageRef: string) => expectedDigest),
+    );
+
+    const entries = await handleSweepAgentInventory(d, NOW);
+
+    expect(entries[0].updaterOutOfDate).toBe(true);
+    expect(entries[0].agentUpdaterImageDigest).toBe(staleDigest);
+    expect(entries[1].updaterOutOfDate).toBe(false);
+    expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({
+      updaterImageDigest: staleDigest,
+      updaterImageTag: 'latest',
+      updaterOutOfDate: true,
+    });
+    expect(updateAgentInfo.mock.calls[1]?.[1]).toMatchObject({ updaterOutOfDate: false });
+  });
+
+  it('reports no digest instead of the stored one when the live probe could not read it', async () => {
+    const storedDigest = 'sha256:' + 'c'.repeat(64);
+    const hosts = [mockRow({ id: 1, name: 'a', agentUpdaterImageDigest: storedDigest, agentUpdaterImageTag: 'latest' })];
+    const d = deps(
+      hosts,
+      [{ healthy: true, infoSupported: true }],
+      undefined,
+      mock(async (_imageRef: string) => 'sha256:' + 'd'.repeat(64)),
+    );
+
+    const [entry] = await handleSweepAgentInventory(d, NOW);
+
+    expect(entry.agentUpdaterImageDigest).toBeNull();
+    expect(entry.agentUpdaterImageTag).toBeNull();
+    expect(entry.updaterOutOfDate).toBe(false);
+  });
+
+  it('leaves every host unflagged when the manager updater digest is unresolvable', async () => {
+    const hosts = [mockRow({ id: 1, name: 'a' })];
+    const d = deps(
+      hosts,
+      [{ healthy: true, infoSupported: true, agentUpdaterImageDigest: 'sha256:' + 'c'.repeat(64), agentUpdaterImageTag: 'latest' }],
+      undefined,
+      mock(async (_imageRef: string) => null),
+    );
+
+    const [entry] = await handleSweepAgentInventory(d, NOW);
+
+    expect(entry.updaterOutOfDate).toBe(false);
+  });
+
+  it('carries the stored out-of-date verdict for a host whose probe fails', async () => {
+    const hosts = [mockRow({ id: 1, name: 'down', agentUpdaterImageDigest: 'sha256:' + 'c'.repeat(64), agentUpdaterOutOfDate: true })];
+    const d = deps(hosts, [offline()], undefined, mock(async (_imageRef: string) => 'sha256:' + 'd'.repeat(64)));
+
+    const [entry] = await handleSweepAgentInventory(d, NOW);
+
+    expect(entry.status).toBe('offline');
+    expect(entry.updaterOutOfDate).toBe(true);
+    expect(entry.agentUpdaterImageDigest).toBe('sha256:' + 'c'.repeat(64));
   });
 });
 

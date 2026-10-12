@@ -399,6 +399,16 @@ export async function handleUpdateAgent(
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {
   checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+  resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+}
+
+function updaterOutOfDateFor(outcome: HealthCheckOutcome | undefined, expected: string | null): boolean {
+  return !!(
+    outcome?.healthy &&
+    outcome.agentUpdaterImageDigest &&
+    expected &&
+    outcome.agentUpdaterImageDigest !== expected
+  );
 }
 
 /**
@@ -415,19 +425,27 @@ export async function handleSweepAgentInventory(
   now: Date = new Date(),
 ): Promise<AgentInventoryEntry[]> {
   const hosts = await deps.repo.findAll();
-  const outcomes = await Promise.all(
-    hosts.map(async (host): Promise<HealthCheckOutcome> => {
-      try {
-        return await deps.checkHealth(host.agentUrl, host.name);
-      } catch (err) {
-        return {
-          healthy: false,
-          reason: 'offline' as const,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
-    }),
-  );
+  // Absent resolver means no comparison this sweep: every host stays unflagged instead of guessing.
+  // Resolved concurrently with the probes so a slow registry call cannot delay host health updates.
+  const [expectedUpdaterDigest, probeOutcomes] = await Promise.all([
+    deps.resolveAgentImageDigest
+      ? deps.resolveAgentImageDigest(getAgentUpdaterImage()).catch(() => null)
+      : Promise.resolve(null),
+    Promise.all(
+      hosts.map(async (host): Promise<HealthCheckOutcome> => {
+        try {
+          return await deps.checkHealth(host.agentUrl, host.name);
+        } catch (err) {
+          return {
+            healthy: false,
+            reason: 'offline' as const,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }),
+    ),
+  ]);
+  const outcomes = probeOutcomes;
 
   await Promise.all(
     hosts.map(async (host, i) => {
@@ -440,11 +458,18 @@ export async function handleSweepAgentInventory(
         await deps.repo.updateLastSweptAt(host.id, now);
         if (host.status === 'pending' && !outcome.healthy) return;
         await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
+        const updaterOutOfDate = updaterOutOfDateFor(outcome, expectedUpdaterDigest);
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
           await deps.repo.updateAgentInfo(host.id, {
             version: outcome.version,
             ...(outcome.infoSupported
-              ? { image: outcome.agentImage ?? null, imageTag: outcome.agentImageTag ?? null }
+              ? {
+                  image: outcome.agentImage ?? null,
+                  imageTag: outcome.agentImageTag ?? null,
+                  updaterImageDigest: outcome.agentUpdaterImageDigest ?? null,
+                  updaterImageTag: outcome.agentUpdaterImageTag ?? null,
+                  updaterOutOfDate,
+                }
               : {}),
           });
         }
@@ -457,7 +482,7 @@ export async function handleSweepAgentInventory(
     }),
   );
 
-  return hosts.map((host, i) => buildAgentInventoryEntry(host, outcomes[i], now));
+  return hosts.map((host, i) => buildAgentInventoryEntry(host, outcomes[i], now, updaterOutOfDateFor(outcomes[i], expectedUpdaterDigest)));
 }
 
 /**

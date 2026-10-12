@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
-import type { AgentInventoryEntry, AgentInventorySnapshot } from '@/lib/hosts/agent-inventory';
+import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
 const zHostCapabilitiesWire = z.object({
   docker: z.boolean().optional(),
@@ -17,6 +17,9 @@ const zAgentInventoryEntryWire = z.object({
   versionSource: z.enum(['live', 'stored', 'unknown']),
   agentImage: z.string().nullable(),
   agentImageTag: z.string().nullable(),
+  agentUpdaterImageDigest: z.string().nullable(),
+  agentUpdaterImageTag: z.string().nullable(),
+  updaterOutOfDate: z.boolean(),
   lastError: z.string().nullable(),
   checkedAt: z.string(),
 });
@@ -26,7 +29,10 @@ export const zAgentInventorySnapshotWire = z.object({
   sweptAt: z.string().nullable(),
 });
 
-export type AgentInventorySseMessage = AgentInventorySnapshot;
+export type AgentInventorySseMessage = {
+  entries: AgentInventoryEntry[];
+  sweptAt: string | null;
+};
 
 export const agentInventoryChannel = defineSseChannel({
   url: '/api/agent-inventory',
