@@ -66,6 +66,10 @@ describe('repoPrefix', () => {
   test('keeps a registry port intact', () => {
     expect(repoPrefix('localhost:5000/org/agent:latest')).toBe('localhost:5000/org/agent');
   });
+
+  test('returns the ref unchanged when it carries no tag or digest', () => {
+    expect(repoPrefix('ghcr.io/org/agent')).toBe('ghcr.io/org/agent');
+  });
 });
 
 describe('createTriggerHandler', () => {

@@ -1080,6 +1080,31 @@ describe('AgentUpdater', () => {
       }
     });
 
+    test('logs loudly when the rename-back itself fails after a replacement error', async () => {
+      const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
+      const { mockDocker, renames, restoreFetch } = createSelfDocker({
+        createError: new Error('name conflict'),
+      });
+      // Second rename (the rename-back) fails: the canonical name is still held.
+      (mockDocker.getContainer('hlm-agent-updater') as { rename: ReturnType<typeof mock> }).rename
+        .mockImplementationOnce((opts: { name: string }) => {
+          renames.push(opts.name);
+          return Promise.resolve();
+        })
+        .mockImplementationOnce(() => Promise.reject(new Error('name still held')));
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      try {
+        const result = await updater.recreateSelf(target);
+
+        expect(result.recreated).toBe(false);
+        expect(result.error).toBe('name conflict');
+        expect(renames).toEqual(['hlm-agent-updater-old']);
+      } finally {
+        restoreFetch();
+      }
+    });
+
     test('never renames when the pull fails, leaving the running sidecar untouched', async () => {
       const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
       const { mockDocker, renames, created, restoreFetch } = createSelfDocker({

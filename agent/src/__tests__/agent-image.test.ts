@@ -263,6 +263,32 @@ describe('resolveUpdaterImageInfo', () => {
     });
   });
 
+  test('gives up on a hung image inspect instead of leaving /info awaiting it forever', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => realSetTimeout(fn, 0)) as typeof globalThis.setTimeout;
+    try {
+      const docker = {
+        getContainer: () => ({
+          inspect: () => Promise.resolve({
+            Image: 'sha256:sidecar-image-id',
+            Config: { Image: 'ghcr.io/x/updater:latest' },
+          }),
+        }),
+        getImage: () => ({
+          inspect: () => new Promise(() => {}),
+        }),
+      };
+
+      expect(await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater')).toEqual({
+        image: 'ghcr.io/x/updater:latest',
+        imageTag: 'latest',
+        imageDigest: null,
+      });
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
   test('reports nothing on a ZFS-only host with no Docker', async () => {
     expect(await resolveUpdaterImageInfo(null, 'hlm-agent-updater')).toEqual({
       image: null,
