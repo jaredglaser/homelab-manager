@@ -5,6 +5,10 @@ export interface AgentUpdaterConfig {
   containerName: string;
   selfContainerName: string;
   imageName: string;
+  // Port the sidecar's own trigger server listens on, used to verify a replacement before handing over.
+  selfTriggerPort?: number;
+  // Bounds for the replacement-serving poll; the defaults suit a real deployment, tests shrink them.
+  selfVerify?: { maxAttempts: number; intervalMs: number };
   healthCheckMaxAttempts?: number;
   healthCheckIntervalMs?: number;
 }
@@ -13,6 +17,8 @@ export interface UpdateCheckResult {
   upToDate: boolean;
   currentDigest?: string;
   targetDigest?: string;
+  // Set when the check itself failed (registry or Docker unreachable): the caller must not treat this as "update available".
+  checkFailed?: boolean;
 }
 
 export interface UpdateResult {
@@ -88,7 +94,7 @@ export class AgentUpdater {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Failed to check for update: ${message}`);
-      return { upToDate: false };
+      return { upToDate: false, checkFailed: true };
     }
   }
 
@@ -177,12 +183,8 @@ export class AgentUpdater {
   }
 
   /**
-   * Replace this sidecar's own container with the same config on a new image.
-   * A container cannot stop and remove itself: docker's stop waits for this
-   * process to exit, so the handover renames the live container out of the
-   * canonical name, creates and starts the replacement under it, and the
-   * caller exits. No rollback: a failed recreate leaves the old sidecar
-   * running, which the container's restart policy keeps alive.
+   * Hand the sidecar's own container to a new image: docker's stop waits for this process to exit, so the handover renames the live container out of the canonical name and starts a replacement under it.
+   * No rollback: a failed recreate leaves the old sidecar running under its restart policy.
    */
   async recreateSelf(newImage?: string): Promise<SelfRecreateResult> {
     const image = newImage ?? this.config.imageName;
@@ -198,18 +200,37 @@ export class AgentUpdater {
 
       console.info(`Pulling new sidecar image: ${image}`);
       await this.pullImage(image);
+      // The retired container must not be resurrected by its restart policy once this process exits.
+      await container.update({ RestartPolicy: { Name: 'no' } }).catch((error) => {
+        console.error('Disabling the retired sidecar restart policy failed:', error instanceof Error ? error.message : error);
+      });
       const retiredName = `${this.config.selfContainerName}-old`;
       console.info(`Renaming current sidecar container to ${retiredName}`);
       await container.rename({ name: retiredName });
+      let newContainer: Dockerode.Container;
       try {
         console.info(`Creating replacement sidecar container: ${this.config.selfContainerName}`);
-        const newContainer = await this.docker.createContainer(
+        newContainer = await this.docker.createContainer(
           this.buildContainerOptions(image, containerInfo, this.config.selfContainerName),
         );
+      } catch (error) {
+        await this.renameRetiredBack(container);
+        throw error;
+      }
+      try {
         await newContainer.start();
       } catch (error) {
-        await container.rename({ name: this.config.selfContainerName }).catch(() => {});
+        // The stopped replacement holds the canonical name: remove it or the rename-back collides.
+        await newContainer.remove({ force: true }).catch(() => {});
+        await this.renameRetiredBack(container);
         throw error;
+      }
+      if (!(await this.waitForReplacementServing(newContainer))) {
+        console.error('Replacement sidecar did not start serving, rolling the handover back');
+        await newContainer.stop().catch(() => {});
+        await newContainer.remove({ force: true }).catch(() => {});
+        await this.renameRetiredBack(container);
+        return { recreated: false, error: 'Replacement sidecar did not start serving the trigger endpoint' };
       }
       console.info(`Sidecar recreated from ${image}: the new container takes over`);
       return { recreated: true };
@@ -218,6 +239,35 @@ export class AgentUpdater {
       console.error(`Sidecar self-recreate failed: ${message}`);
       return { recreated: false, error: message };
     }
+  }
+
+  private async renameRetiredBack(retired: Dockerode.Container): Promise<void> {
+    try {
+      await retired.rename({ name: this.config.selfContainerName });
+    } catch (error) {
+      console.error('Renaming the retired sidecar back to its canonical name failed:', error instanceof Error ? error.message : error);
+    }
+  }
+
+  private async waitForReplacementServing(replacement: Dockerode.Container): Promise<boolean> {
+    const triggerPort = this.config.selfTriggerPort ?? 9091;
+    const maxAttempts = this.config.selfVerify?.maxAttempts ?? 20;
+    const intervalMs = this.config.selfVerify?.intervalMs ?? 500;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const info = await replacement.inspect();
+        const ipAddress = Object.values(info.NetworkSettings.Networks)[0]?.IPAddress;
+        if (ipAddress) {
+          const response = await fetch(`http://${ipAddress}:${triggerPort}/trigger`, { signal: AbortSignal.timeout(2000) });
+          // 405 Method Not Allowed proves the replacement's trigger server is up: GET is rejected before auth.
+          if (response.status === 405) return true;
+        }
+      } catch {
+        // Not up yet: keep polling until the window closes.
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    return false;
   }
 
   /**
@@ -245,7 +295,6 @@ export class AgentUpdater {
         return this.extractDigest(digestRef);
       }
     } catch {
-      // Fall through to the image ID below.
     }
     return this.extractDigest(containerInfo.Image);
   }
@@ -265,7 +314,6 @@ export class AgentUpdater {
         return digestRef;
       }
     } catch {
-      // Fall through to the image ID below.
     }
     return containerInfo.Image;
   }
@@ -310,7 +358,7 @@ export class AgentUpdater {
     return {
       name: containerName,
       Image: image,
-      // CI stamps AGENT_VERSION into the image; carrying the old one would
+      // CI stamps AGENT_VERSION into the image. Carrying the old one would
       // freeze the version the agent reports after an update.
       Env: info.Config.Env?.filter((entry) => !entry.startsWith('AGENT_VERSION=')),
       Cmd: info.Config.Cmd,

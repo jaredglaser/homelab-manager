@@ -27,6 +27,8 @@ const defaultConfig: AgentUpdaterConfig = {
   containerName: 'hlm-agent',
   selfContainerName: 'hlm-agent-updater',
   imageName: 'ghcr.io/org/agent:latest',
+  selfTriggerPort: 9091,
+  selfVerify: { maxAttempts: 2, intervalMs: 1 },
   healthCheckMaxAttempts: 1,
   healthCheckIntervalMs: 0,
 };
@@ -202,7 +204,7 @@ describe('AgentUpdater', () => {
       expect(result.targetDigest).toBe('sha256:same-digest');
     });
 
-    test('returns upToDate false when the check throws', async () => {
+    test('returns upToDate false with checkFailed when the check throws', async () => {
       const mockContainer = {
         inspect: mock(() => Promise.reject(new Error('container not found'))),
       };
@@ -215,9 +217,10 @@ describe('AgentUpdater', () => {
       const result = await updater.isUpToDate();
 
       expect(result.upToDate).toBe(false);
+      expect(result.checkFailed).toBe(true);
     });
 
-    test('returns upToDate false when the remote digest is missing', async () => {
+    test('returns upToDate true when the remote digest is missing', async () => {
       const containerInfo = createMockContainerInfo();
       const mockContainer = {
         inspect: mock(() => Promise.resolve(containerInfo)),
@@ -908,8 +911,7 @@ describe('AgentUpdater', () => {
         }),
       });
 
-      // No explicit healthCheckMaxAttempts/intervalMs: the window must come
-      // from the image healthcheck config, not the old 10x3s default.
+      // No explicit healthCheckMaxAttempts/intervalMs: the window must come from the image healthcheck config.
       const config: AgentUpdaterConfig = {
         containerName: 'hlm-agent',
         selfContainerName: defaultConfig.selfContainerName,
@@ -929,18 +931,32 @@ describe('AgentUpdater', () => {
       repoDigests?: string[];
       createError?: Error;
       pullError?: Error;
+      startError?: Error;
+      fetchImpl?: (url: string) => Promise<Response>;
     } = {}) {
       const renames: string[] = [];
       const pulled: string[] = [];
       const created: Array<Record<string, unknown>> = [];
+      const policyUpdates: unknown[] = [];
       const mockSelfContainer = {
         inspect: mock(() => Promise.resolve(overrides.containerInfo ?? createMockContainerInfo())),
         rename: mock((opts: { name: string }) => {
           renames.push(opts.name);
           return Promise.resolve();
         }),
+        update: mock((opts: unknown) => {
+          policyUpdates.push(opts);
+          return Promise.resolve();
+        }),
       };
-      const mockNewContainer = { start: mock(() => Promise.resolve()) };
+      const mockNewContainer = {
+        start: mock(() => (overrides.startError ? Promise.reject(overrides.startError) : Promise.resolve())),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+        inspect: mock(() => Promise.resolve({
+          NetworkSettings: { Networks: { 'agent-public': { IPAddress: '172.20.0.9' } } },
+        })),
+      };
       const mockDocker = {
         getContainer: mock((_name: string) => mockSelfContainer),
         getImage: mock(() => createMockImageInspect(overrides.repoDigests ?? ['ghcr.io/org/updater@sha256:olddigest'])),
@@ -955,71 +971,132 @@ describe('AgentUpdater', () => {
           return Promise.resolve(mockNewContainer);
         }),
       };
-      return { mockDocker, mockNewContainer, renames, pulled, created };
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mock(overrides.fetchImpl ?? (() => Promise.resolve(new Response(null, { status: 405 })))) as unknown as typeof fetch;
+      const restoreFetch = () => {
+        globalThis.fetch = originalFetch;
+      };
+      return { mockDocker, mockNewContainer, renames, pulled, created, policyUpdates, restoreFetch };
     }
 
     test('pulls the new image, renames itself out of the canonical name, and recreates with the same config', async () => {
       const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
-      const { mockDocker, mockNewContainer, renames, pulled, created } = createSelfDocker();
+      const { mockDocker, mockNewContainer, renames, pulled, created, policyUpdates, restoreFetch } = createSelfDocker();
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
 
-      const result = await updater.recreateSelf(target);
+      try {
+        const result = await updater.recreateSelf(target);
 
-      expect(result.recreated).toBe(true);
-      expect(pulled).toEqual([target]);
-      expect(renames).toEqual(['hlm-agent-updater-old']);
-      expect(created).toHaveLength(1);
-      expect(created[0].Image).toBe(target);
-      expect(created[0].name).toBe('hlm-agent-updater');
-      expect(created[0].HostConfig).toEqual({ Binds: ['/var/run/docker.sock:/var/run/docker.sock'] });
-      expect(mockNewContainer.start).toHaveBeenCalledTimes(1);
+        expect(result.recreated).toBe(true);
+        expect(pulled).toEqual([target]);
+        expect(renames).toEqual(['hlm-agent-updater-old']);
+        expect(policyUpdates).toEqual([{ RestartPolicy: { Name: 'no' } }]);
+        expect(created).toHaveLength(1);
+        expect(created[0].Image).toBe(target);
+        expect(created[0].name).toBe('hlm-agent-updater');
+        expect(created[0].HostConfig).toEqual({ Binds: ['/var/run/docker.sock:/var/run/docker.sock'] });
+        expect(mockNewContainer.start).toHaveBeenCalledTimes(1);
+      } finally {
+        restoreFetch();
+      }
     });
 
     test('skips the recreate when the sidecar already runs the target digest', async () => {
       const target = 'ghcr.io/org/updater@sha256:olddigest';
-      const { mockDocker, renames, pulled, created } = createSelfDocker({
+      const { mockDocker, renames, pulled, created, restoreFetch } = createSelfDocker({
         repoDigests: [target],
       });
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
 
-      const result = await updater.recreateSelf(target);
+      try {
+        const result = await updater.recreateSelf(target);
 
-      expect(result.recreated).toBe(false);
-      expect(result.reason).toContain('already runs the target digest');
-      expect(pulled).toEqual([]);
-      expect(renames).toEqual([]);
-      expect(created).toEqual([]);
+        expect(result.recreated).toBe(false);
+        expect(result.reason).toContain('already runs the target digest');
+        expect(pulled).toEqual([]);
+        expect(renames).toEqual([]);
+        expect(created).toEqual([]);
+      } finally {
+        restoreFetch();
+      }
     });
 
     test('renames back and reports failure when the replacement container cannot be created', async () => {
       const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
-      const { mockDocker, mockNewContainer, renames, created } = createSelfDocker({
+      const { mockDocker, mockNewContainer, renames, created, restoreFetch } = createSelfDocker({
         createError: new Error('name conflict'),
       });
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
 
-      const result = await updater.recreateSelf(target);
+      try {
+        const result = await updater.recreateSelf(target);
 
-      expect(result.recreated).toBe(false);
-      expect(result.error).toBe('name conflict');
-      expect(renames).toEqual(['hlm-agent-updater-old', 'hlm-agent-updater']);
-      expect(created).toEqual([]);
-      expect(mockNewContainer.start).not.toHaveBeenCalled();
+        expect(result.recreated).toBe(false);
+        expect(result.error).toBe('name conflict');
+        expect(renames).toEqual(['hlm-agent-updater-old', 'hlm-agent-updater']);
+        expect(created).toEqual([]);
+        expect(mockNewContainer.start).not.toHaveBeenCalled();
+      } finally {
+        restoreFetch();
+      }
+    });
+
+    test('removes the replacement and renames back when the replacement fails to start', async () => {
+      const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
+      const { mockDocker, mockNewContainer, renames, created, restoreFetch } = createSelfDocker({
+        startError: new Error('port already bound'),
+      });
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      try {
+        const result = await updater.recreateSelf(target);
+
+        expect(result.recreated).toBe(false);
+        expect(result.error).toBe('port already bound');
+        expect(mockNewContainer.remove).toHaveBeenCalledTimes(1);
+        expect(renames).toEqual(['hlm-agent-updater-old', 'hlm-agent-updater']);
+        expect(created).toHaveLength(1);
+      } finally {
+        restoreFetch();
+      }
+    });
+
+    test('rolls the handover back when the replacement never serves the trigger endpoint', async () => {
+      const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
+      const { mockDocker, mockNewContainer, renames, restoreFetch } = createSelfDocker({
+        fetchImpl: () => Promise.reject(new Error('connection refused')),
+      });
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
+
+      try {
+        const result = await updater.recreateSelf(target);
+
+        expect(result.recreated).toBe(false);
+        expect(result.error).toBe('Replacement sidecar did not start serving the trigger endpoint');
+        expect(mockNewContainer.remove).toHaveBeenCalledTimes(1);
+        expect(renames).toEqual(['hlm-agent-updater-old', 'hlm-agent-updater']);
+      } finally {
+        restoreFetch();
+      }
     });
 
     test('never renames when the pull fails, leaving the running sidecar untouched', async () => {
       const target = 'ghcr.io/org/updater@sha256:' + 'f'.repeat(64);
-      const { mockDocker, renames, created } = createSelfDocker({
+      const { mockDocker, renames, created, restoreFetch } = createSelfDocker({
         pullError: new Error('registry unreachable'),
       });
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
 
-      const result = await updater.recreateSelf(target);
+      try {
+        const result = await updater.recreateSelf(target);
 
-      expect(result.recreated).toBe(false);
-      expect(result.error).toBe('registry unreachable');
-      expect(renames).toEqual([]);
-      expect(created).toEqual([]);
+        expect(result.recreated).toBe(false);
+        expect(result.error).toBe('registry unreachable');
+        expect(renames).toEqual([]);
+        expect(created).toEqual([]);
+      } finally {
+        restoreFetch();
+      }
     });
   });
 
