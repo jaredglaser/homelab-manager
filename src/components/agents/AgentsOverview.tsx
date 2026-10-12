@@ -78,7 +78,7 @@ function VersionCell({ agent }: { agent: AgentInventoryEntry }) {
               </Badge>
             }
           />
-          <TooltipContent>Last version the agent reported; it is offline right now.</TooltipContent>
+          <TooltipContent>Last version the agent reported. It is offline right now.</TooltipContent>
         </Tooltip>
       )}
     </span>
@@ -233,15 +233,10 @@ function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): 
   if (result.healthy) {
     return { severity: 'success', message: 'Update succeeded, agent is healthy' }
   }
-  if (result.error?.includes('latest version already')) {
-    return { severity: 'info', message: 'Agent is already on the latest version' }
-  }
-  if (result.error?.includes('already in progress')) {
-    return { severity: 'info', message: 'An update is already in progress for this agent' }
-  }
   return {
     severity: 'error',
-    message: result.error ?? 'Update failed',
+    // The unhealthy result variant always carries an error string.
+    message: result.error,
   }
 }
 
@@ -258,8 +253,7 @@ export default function AgentsOverview() {
     queryFn: () => listAgentsInventory(),
   })
 
-  // Subscribes on mount, unsubscribes on unmount/route change: the worker sweep
-  // publishes a fresh snapshot over the mux, so the table updates without polling.
+  // The worker sweep publishes a fresh snapshot over the mux, so the table updates without polling.
   useMuxChannel({ ...agentInventoryChannel, topic: AGENT_INVENTORY_TOPIC }, {
     onData: useCallback(
       (snapshot: { entries: AgentInventoryEntry[] }) => {

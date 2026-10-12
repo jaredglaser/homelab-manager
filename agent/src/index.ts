@@ -161,7 +161,9 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);
   if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
 
-  if (url.pathname === '/agent/update' && request.method === 'POST') return handleAgentUpdate(docker, UPDATER_TRIGGER_URL, request);
+  if (url.pathname === '/agent/update' && request.method === 'POST') {
+    return handleAgentUpdate(docker, UPDATER_TRIGGER_URL, process.env.HLM_TRIGGER_TOKEN, request);
+  }
 
   return null;
 }

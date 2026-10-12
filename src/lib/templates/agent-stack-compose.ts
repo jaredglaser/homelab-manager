@@ -5,6 +5,8 @@ export interface AgentStackConfig {
   agentTrustedPubkey: string;
   agentImage: string;
   agentUpdaterImage: string;
+  // Shared secret between the agent relay and the agent-updater trigger endpoint; the wizard generates it per host.
+  triggerToken: string;
   capabilities: {
     docker: boolean;
     zfs: boolean;
@@ -67,6 +69,7 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
     `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,
     `HLM_STACKS_DIR=/opt/homelab-manager/stacks`,
+    `HLM_TRIGGER_TOKEN=${config.triggerToken}`,
   ];
 
   if (zfs) {
@@ -121,6 +124,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     HLM_UPDATER_URL: 'http://hlm-agent-updater:9091/trigger',
     // Lets /info report the sidecar's image digest the manager compares against its own.
     HLM_UPDATER_CONTAINER: 'hlm-agent-updater',
+    HLM_TRIGGER_TOKEN: '${HLM_TRIGGER_TOKEN}',
   };
 
   if (docker) {
@@ -181,6 +185,7 @@ function buildAgentUpdater(config: AgentStackConfig): Record<string, unknown> {
       HLM_TRIGGER_PORT: '9091',
       // Lets the trigger endpoint verify that a pinned updater target belongs to its own image repository.
       HLM_SELF_IMAGE: '${AGENT_UPDATER_IMAGE}',
+      HLM_TRIGGER_TOKEN: '${HLM_TRIGGER_TOKEN}',
     },
     labels: ['hlm.managed=true', 'hlm.role=agent-updater'],
   };

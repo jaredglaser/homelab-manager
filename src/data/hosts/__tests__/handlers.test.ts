@@ -547,6 +547,28 @@ describe('handleUpdateAgent', () => {
     }
   });
 
+  it('reports a signing failure with suggestions when the signer call throws', async () => {
+    const signingSigner = mock(async () => {
+      throw new Error('key encoding failed');
+    });
+    const deps = {
+      ...updateDeps(),
+      getSigner: mock(async () => signingSigner),
+    };
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.error).toBe('Could not sign the agent request token');
+        expect(result.suggestions).toContain('Verify the agent has been enrolled with a generated public JWK');
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
   it('reports a network failure when the trigger request throws', async () => {
     const { restore } = withFetch(() => Promise.reject(new Error('ECONNREFUSED')));
     try {
@@ -571,11 +593,35 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('accepts the reported version without comparison when /info is unsupported', async () => {
+  it('requires an observed restart before accepting a version when /info is unsupported', async () => {
     const timers = mockSetTimeout({ fireImmediately: true });
     const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
     try {
-      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: '9.9.9', infoSupported: false })));
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: undefined, infoSupported: false })));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toBe('The agent stayed reachable throughout the update window, so its restart could not be confirmed');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('accepts the version after an observed restart when /info is unsupported', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        // Pre-check succeeds without a version. Poll two observes the restart, then the agent is back.
+        return Promise.resolve(calls === 1
+          ? { healthy: true as const, version: undefined, infoSupported: false }
+          : calls === 2
+            ? ({ healthy: false as const, error: 'restarting' })
+            : { healthy: true as const, version: '9.9.9', infoSupported: false }
+        );
+      }));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(true);
       if (result.healthy) expect(result.version).toBe('9.9.9');
@@ -585,14 +631,13 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('reports already-latest when the version is unchanged after the trigger', async () => {
+  it('reports success when the version is unchanged after the trigger', async () => {
     const timers = mockSetTimeout({ fireImmediately: true });
     const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
     try {
       const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Agent appears to be on the latest version already');
+      expect(result.healthy).toBe(true);
     } finally {
       timers.restore();
       restore();
@@ -606,7 +651,7 @@ describe('handleUpdateAgent', () => {
       let calls = 0;
       const deps = updateDeps(undefined, mock(() => {
         calls += 1;
-        // Pre-check succeeds without a version; every poll stays healthy but versionless.
+        // Pre-check succeeds without a version. Every poll stays healthy but versionless.
         return Promise.resolve(calls === 1
           ? { healthy: true as const, version: undefined }
           : { healthy: true as const, version: undefined });
@@ -652,27 +697,13 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('unwraps a JSON error body instead of rendering the raw JSON', async () => {
-    const { restore } = withFetch(() =>
-      Promise.resolve(new Response(JSON.stringify({ error: 'An update is already in progress' }), { status: 409 }))
-    );
+  it('surfaces a plain-text check-failure body from the trigger endpoint', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response('Update check failed. Verify the agent host can reach the image registry, then retry the update.', { status: 503 })));
     try {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('An update is already in progress');
-    } finally {
-      restore();
-    }
-  });
-
-  it('keeps a plain-text error body as-is', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response('upstream exploded', { status: 500 })));
-    try {
-      const deps = updateDeps();
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('upstream exploded');
+      if (!result.healthy) expect(result.error).toBe('Update check failed. Verify the agent host can reach the image registry, then retry the update.');
     } finally {
       restore();
     }

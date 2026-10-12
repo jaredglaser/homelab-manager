@@ -133,7 +133,7 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 | Component | Location | Description |
 |-----------|----------|-------------|
 | Agent container | `agent/` | Sidecar for Docker/ZFS operations on managed hosts |
-| Agent-updater | `agent-updater/` | Sidecar that updates the agent container; automatic updates are per-host opt-in, manual by default |
+| Agent-updater | `agent-updater/` | Sidecar that applies manual agent updates triggered by the manager. Never updates on its own. |
 | Deploy pipeline | `src/lib/deploy/` | Trigger-agnostic deploy orchestration |
 | Git management | `src/lib/git/` | In-app bare git repo with HTTP smart protocol |
 | Crypto helpers | `src/lib/crypto/` | Master key resolution, JWE encrypted-value, Ed25519 agent JWT signing |
@@ -197,9 +197,9 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 
 Separate Bun service that monitors and updates agent containers without manual Docker commands. Connects directly to the Docker socket proxy (bypasses the agent, which cannot replace its own container).
 
-**Update policy:** manual only. The updater never checks for or applies updates on its own; the manager's per-host manual update action drives updates through the agent relay.
+**Update policy:** manual only. The updater never checks for or applies updates on its own. The manager's per-host manual update action drives updates through the agent relay.
 
-**Manual trigger:** the updater serves an internal-only HTTP endpoint (`HLM_TRIGGER_PORT`, default 9091, reachable only from the host's Docker network). `POST /trigger` checks the registry and, when a newer digest exists, answers 202 and performs the update asynchronously. The agent relays the manager's update requests to it.
+**Manual trigger:** the updater serves an internal-only HTTP endpoint (`HLM_TRIGGER_PORT`, default 9091, reachable only from the host's Docker network). `POST /trigger` requires the stack's shared `HLM_TRIGGER_TOKEN` bearer secret, checks the registry and, when a newer digest exists, answers 202 and performs the update asynchronously. The agent relays the manager's update requests to it.
 
 **Update sequence:**
 1. Inspect existing container to capture environment and host config
