@@ -179,9 +179,12 @@ function buildAgentUpdater(config: AgentStackConfig): Record<string, unknown> {
     volumes: ['/var/run/docker.sock:/var/run/docker.sock'],
     environment: {
       HLM_WATCH_CONTAINER: 'hlm-agent',
+      HLM_SELF_CONTAINER: 'hlm-agent-updater',
       HLM_WATCH_IMAGE: '${AGENT_IMAGE}',
       HLM_AGENT_URL: 'http://hlm-agent:9090',
       HLM_TRIGGER_PORT: '9091',
+      // Lets the trigger endpoint verify that a pinned updater target belongs to its own image repository.
+      HLM_SELF_IMAGE: '${AGENT_UPDATER_IMAGE}',
       HLM_TRIGGER_TOKEN: '${HLM_TRIGGER_TOKEN}',
     },
     labels: ['hlm.managed=true', 'hlm.role=agent-updater'],
