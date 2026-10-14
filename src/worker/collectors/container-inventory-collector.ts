@@ -202,6 +202,12 @@ export class ContainerInventoryCollector extends BaseCollector {
 
     const incomingIds = new Set(containers.map((c) => c.id));
 
+    // Before the diff: cache-hit containers get no writeEvent, so this loop is the
+    // only retry path for a registration whose first attempt failed.
+    for (const container of containers) {
+      await this.registerContainerMetadata(container);
+    }
+
     for (const container of containers) {
       const cached = this.stateCache.get(container.id);
       const fingerprint = computeDetailsFingerprint(container.ports, container.mounts);
@@ -298,7 +304,8 @@ export class ContainerInventoryCollector extends BaseCollector {
   /**
    * service_key must match AgentStatsCollector's name-based value or the fan-out
    * splits a container's history into two groups. A failure here must not throw:
-   * the event row is already written and the next upsert retries the registration.
+   * the event row is already written and the next reconcileInit or streaming
+   * upsert retries the registration.
    */
   private async registerContainerMetadata(
     container: InventorySnapshotContainer | InventoryUpdateContainer,

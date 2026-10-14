@@ -236,6 +236,44 @@ describe('ContainerInventoryCollector: entity_metadata registration', () => {
 
     expect(inserted).toHaveLength(1);
   });
+
+  it('a failed registration retries on the next init reconcile even when the event already landed', async () => {
+    const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
+    const { repo, inserted } = createMockRepo(snapshot);
+    const { repo: metaRepo, batches, failNextBatch } = createMockMetadataRepo();
+    const streamConnector = fixedStream([{ op: 'init', containers: [makeContainer()] }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    await (collector as any).hydrateCache();
+    failNextBatch();
+    await (collector as any).collect();
+    expect(batches).toHaveLength(0);
+    expect(inserted).toHaveLength(0);
+
+    await (collector as any).collect();
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toEqual([
+      { entity: 'homeserver/abc123', key: 'name', value: 'plex' },
+      { entity: 'homeserver/abc123', key: 'image', value: 'plexinc/pms-docker:latest' },
+      { entity: 'homeserver/abc123', key: 'service_key', value: 'plex' },
+    ]);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('init registers cache-hit containers that have no metadata yet', async () => {
+    const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
+    const { repo, inserted } = createMockRepo(snapshot);
+    const { repo: metaRepo, batches } = createMockMetadataRepo();
+    const streamConnector = fixedStream([{ op: 'init', containers: [makeContainer()] }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    await (collector as any).hydrateCache();
+    await (collector as any).collect();
+
+    expect(inserted).toHaveLength(0);
+    expect(batches).toHaveLength(1);
+  });
 });
 
 describe('ContainerInventoryCollector: ports/mounts fingerprinting', () => {
