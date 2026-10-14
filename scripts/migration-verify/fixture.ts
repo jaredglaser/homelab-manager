@@ -57,6 +57,19 @@ export const NULL_METRIC_HOUR = {
   cpuPercent: 40,
 };
 
+/**
+ * entity_metadata rows seeded as if the live collectors had already registered
+ * the sparse-hour container, with values that differ from the container name.
+ * Migration 037's backfill is ON CONFLICT DO NOTHING against exactly these
+ * (entity, key) pairs, so a rerun that rewrites them is clobbering live
+ * collector state; the backfill assertion reads them back after rerunning it.
+ */
+export const BACKFILL_SENTINEL = {
+  entity: `${DOCKER_HOST}/${SPARSE_HOUR.containerId}`,
+  serviceKey: 'sentinel-live-service-key',
+  name: 'sentinel-live-name',
+};
+
 export const ZFS_ENTITIES = [
   { entity: 'ci-tank', entityType: 'pool', indent: 0 },
   { entity: 'mirror-0', entityType: 'vdev', indent: 2 },
