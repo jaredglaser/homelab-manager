@@ -10,6 +10,8 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
+import { fetchWithRetry } from './fetch-retry';
+
 const REQUEST_TIMEOUT_MS = 10_000;
 const OUTPUT_DIR = './src/lib/schemas';
 const OUTPUT_PATH = `${OUTPUT_DIR}/compose-spec.json`;
@@ -36,7 +38,9 @@ async function downloadComposeSchema() {
   const schemaUrl = `https://raw.githubusercontent.com/compose-spec/compose-spec/${ref}/schema/compose-spec.json`;
   console.info(`Fetching Compose schema (${ref}) from ${schemaUrl}...`);
 
-  const response = await fetchWithTimeout(schemaUrl, { headers: makeHeaders() });
+  // Retries a transient GitHub 5xx/429; the timeout wrapper runs per attempt,
+  // so each retry gets its own fresh abort deadline.
+  const response = await fetchWithRetry(fetchWithTimeout, schemaUrl, { headers: makeHeaders() });
   if (!response.ok) {
     throw new Error(`Failed to fetch schema: ${response.status} ${response.statusText}`);
   }
