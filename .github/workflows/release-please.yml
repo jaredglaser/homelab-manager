@@ -47,6 +47,8 @@ jobs:
     permissions:
       contents: write
       actions: write
+      issues: write
+      pull-requests: write
 
     steps:
       - name: Checkout code
@@ -61,6 +63,22 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # Transient GitHub API failures (5xx, rate limits) must not skip a
+          # release step; back off exponentially before giving up. Identical
+          # copies live in the other gh_retry sites (tag step above / relabel
+          # step below / ci.yml release job); a copy edited alone drifts.
+          gh_retry() {
+            local attempt out
+            for attempt in 1 2 3 4 5; do
+              if out="$("$@" 2>&1)"; then
+                printf '%s' "$out"
+                return 0
+              fi
+              [ "$attempt" -eq 5 ] || sleep $((2 ** attempt))
+            done
+            printf '%s' "$out" >&2
+            return 1
+          }
           AFTER="$(git rev-parse HEAD)"
           if [ -z "$BEFORE_SHA" ] || ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
             BEFORE_SHA="$(git describe --tags --abbrev=0 "$AFTER" 2>/dev/null || git rev-parse "$AFTER^" 2>/dev/null || echo "$AFTER")"
@@ -75,7 +93,7 @@ jobs:
             exit 1
           fi
           TAG="v$VERSION"
-          if ! gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/$TAG" -f sha="$AFTER" >/dev/null 2>&1; then
+          if ! gh_retry gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="refs/tags/$TAG" -f sha="$AFTER" >/dev/null 2>&1; then
             TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$TAG" --jq .object.sha)"
             if [ "$TAG_SHA" != "$AFTER" ]; then
               echo "tag $TAG points at $TAG_SHA, not the release commit $AFTER"
@@ -83,12 +101,58 @@ jobs:
             fi
             echo "$TAG already exists on origin at $AFTER"
           fi
-          DISPATCH_COUNT="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?event=workflow_dispatch&head_branch=$TAG" --jq '.total_count')" || { echo "failed to query dispatch runs for $TAG" >&2; exit 1; }
+          # The runs-list endpoint silently ignores a head_branch filter for
+          # tag refs, so filter client-side or the guard counts unrelated
+          # dispatch runs and skips the release build. TAG is x.y.z-validated
+          # above, so interpolation into the jq program is safe.
+          DISPATCH_COUNT="$(gh_retry gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?event=workflow_dispatch&per_page=100" --jq "[.workflow_runs[] | select(.head_branch == \"$TAG\")] | length")" || { echo "failed to query dispatch runs for $TAG after retries" >&2; exit 1; }
           if [ "$DISPATCH_COUNT" != "0" ]; then
             echo "ci.yml already dispatched for $TAG"
             exit 0
           fi
-          # A tag pushed with GITHUB_TOKEN triggers no workflows, so the
-          # release build is dispatched explicitly. ci.yml publishes the
-          # images and creates the GitHub Release only after they push.
+          # A GITHUB_TOKEN tag push triggers no workflows, so dispatch the
+          # build explicitly; ci.yml creates the Release after images push.
           gh workflow run ci.yml --ref "$TAG"
+
+      - name: Relabel the merged Release PR
+        # Runs only when the tagging step succeeded, which includes its
+        # "already dispatched" early exit on reruns: the label may only assert
+        # a tag that actually exists. A tagging failure leaves the pending
+        # label in place, so release-please keeps blocking loudly until the
+        # job is fixed and rerun.
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Transient GitHub API failures (5xx, rate limits) must not skip a
+          # release step; back off exponentially before giving up. Identical
+          # copies live in the other gh_retry sites (tag step above / relabel
+          # step below / ci.yml release job); a copy edited alone drifts.
+          gh_retry() {
+            local attempt out
+            for attempt in 1 2 3 4 5; do
+              if out="$("$@" 2>&1)"; then
+                printf '%s' "$out"
+                return 0
+              fi
+              [ "$attempt" -eq 5 ] || sleep $((2 ** attempt))
+            done
+            printf '%s' "$out" >&2
+            return 1
+          }
+          # skip-github-release never flips this label, and a still-pending
+          # merged Release PR blocks the next one from being opened. An API
+          # error after retries fails the job so the stuck label is visible;
+          # a no-match is a normal state (non-release pushes, already
+          # relabeled PRs) and only logs.
+          if ! PR_NUMBER="$(gh_retry gh api "repos/${GITHUB_REPOSITORY}/commits/$AFTER_SHA/pulls" --jq 'first(.[] | select(.merged_at != null and ([.labels[].name] | index("autorelease: pending"))) | .number)')"; then
+            echo "GitHub API error looking up the merged Release PR after retries" >&2
+            exit 1
+          fi
+          if [ -n "$PR_NUMBER" ]; then
+            gh_retry gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "autorelease: tagged" --remove-label "autorelease: pending" || { echo "GitHub API error relabeling the Release PR after retries" >&2; exit 1; }
+          else
+            echo "no merged Release PR with the pending label for $AFTER_SHA" >&2
+          fi
