@@ -58,6 +58,19 @@ export const NULL_METRIC_HOUR = {
 };
 
 /**
+ * entity_metadata rows seeded as if the live collectors had already registered
+ * the sparse-hour container, with values that differ from the container name.
+ * Migration 037's backfill is ON CONFLICT DO NOTHING against exactly these
+ * (entity, key) pairs, so a rerun that rewrites them is clobbering live
+ * collector state; the backfill assertion reads them back after rerunning it.
+ */
+export const BACKFILL_SENTINEL = {
+  entity: `${DOCKER_HOST}/${SPARSE_HOUR.containerId}`,
+  serviceKey: 'sentinel-live-service-key',
+  name: 'sentinel-live-name',
+};
+
+/**
  * Fixtures for migration 038's service_key rewrite. docker_container_events
  * carries the label-derived key. Entity_metadata rows are seeded with the
  * name-based values the pre-038 collectors wrote. One fixture per rewrite

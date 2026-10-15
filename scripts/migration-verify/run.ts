@@ -37,6 +37,7 @@ import {
   assertRollupBackfill,
   assertRowCountsPreserved,
   assertSchema,
+  assertServiceKeyBackfill,
   assertServiceKeyUnification,
   assertTierColumnCoverage,
   assertWeightedRollup,
@@ -158,6 +159,12 @@ async function runUpgrade(): Promise<void> {
     await assertNullMetricDilution(pool, checks);
     await assertAggregateTierValues(pool, checks);
     await assertHourlyAverageViews(pool, checks);
+
+    const backfillSql = readFileSync(
+      join(REPO_ROOT, 'migrations', '037_backfill_container_service_keys.sql'),
+      'utf-8'
+    );
+    await assertServiceKeyBackfill(pool, checks, backfillSql);
 
     const unifySql = readFileSync(
       join(REPO_ROOT, 'migrations', '038_unify_container_service_keys.sql'),

@@ -638,11 +638,33 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          # Transient GitHub API failures (5xx, rate limits) must not lose the
+          # release announcement; back off exponentially before giving up. Keep
+          # this copy in sync with the gh_retry sites in release-please.yml.
+          gh_retry() {
+            local attempt out
+            for attempt in 1 2 3 4 5; do
+              if out="$("$@" 2>&1)"; then
+                printf '%s' "$out"
+                return 0
+              fi
+              [ "$attempt" -eq 5 ] || sleep $((2 ** attempt))
+            done
+            printf '%s' "$out" >&2
+            return 1
+          }
+          # The view probe 404s on the normal first-release path, so it is
+          # never retried; a false negative is absorbed by the final check.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "release $GITHUB_REF_NAME already exists"
             exit 0
           fi
           case "$GITHUB_REF_NAME" in
-            *-*) gh release create "$GITHUB_REF_NAME" --generate-notes --prerelease ;;
-            *)   gh release create "$GITHUB_REF_NAME" --generate-notes ;;
+            *-*) gh_retry gh release create "$GITHUB_REF_NAME" --generate-notes --prerelease || true ;;
+            *)   gh_retry gh release create "$GITHUB_REF_NAME" --generate-notes || true ;;
           esac
+          # The release was just created here, so a transient probe failure
+          # must not fail the job; a true 404 exhausts the ladder, then fails.
+          gh_retry gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || { echo "release $GITHUB_REF_NAME was not created after retries" >&2; exit 1; }
+          echo "release $GITHUB_REF_NAME published"

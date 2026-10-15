@@ -12,17 +12,18 @@ import {
   PROXMOX_SUPPORTING_GAP_MINUTES,
   PROXMOX_SUPPORTING_SAMPLES,
   SPARSE_HOUR,
-  UNIFY_COMPOSE,
-  UNIFY_DESTROYED,
-  UNIFY_ORPHAN,
-  UNIFY_PLAIN,
-  UNIFY_REPLICA,
   ZFS_DECIMATED_GAP_MINUTES,
   ZFS_DECIMATED_SAMPLES,
   ZFS_ENTITIES,
   ZFS_HOST,
   ZFS_POOL,
   ZFS_RECENT_SAMPLES,
+  BACKFILL_SENTINEL,
+  UNIFY_COMPOSE,
+  UNIFY_DESTROYED,
+  UNIFY_ORPHAN,
+  UNIFY_PLAIN,
+  UNIFY_REPLICA,
 } from './fixture';
 
 const DOCKER_COLUMNS = `(
@@ -49,6 +50,7 @@ export async function seed(pool: Pool): Promise<void> {
   await seedZfs(pool);
   await seedProxmoxCounters(pool);
   await seedProxmoxSupporting(pool);
+  await seedEntityMetadata(pool);
   await seedServiceKeyUnification(pool);
 }
 
@@ -349,6 +351,14 @@ async function seedProxmoxSupporting(pool: Pool): Promise<void> {
       ]
     );
   }
+}
+
+async function seedEntityMetadata(pool: Pool): Promise<void> {
+  await pool.query(
+    `INSERT INTO entity_metadata (source, entity, key, value, updated_at)
+     VALUES ('docker', $1, 'service_key', $2, NOW()), ('docker', $1, 'name', $3, NOW())`,
+    [BACKFILL_SENTINEL.entity, BACKFILL_SENTINEL.serviceKey, BACKFILL_SENTINEL.name]
+  );
 }
 
 const EVENT_COLUMNS = `(
