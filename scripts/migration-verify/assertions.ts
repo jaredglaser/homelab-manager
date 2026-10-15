@@ -22,6 +22,7 @@ import {
   nullMetricRawAverage,
   sparseHourNaiveAverage,
   sparseHourRawAverage,
+  BACKFILL_SENTINEL,
 } from './fixture';
 
 const RELATIVE_EPSILON = 1e-9;
@@ -1006,4 +1007,107 @@ async function selectRow<T>(pool: Pool, sql: string, params: unknown[] = []): Pr
 async function count(pool: Pool, sql: string, params: unknown[] = []): Promise<number> {
   const result = await pool.query(sql, params);
   return Number(Object.values(result.rows[0] ?? {})[0] ?? 0);
+}
+
+interface BackfillPopulationRow {
+  host: string;
+  container_id: string;
+  container_name: string;
+  image: string;
+}
+
+/**
+ * The migration's own source query: every latest-name container identity in the
+ * two aggregate tiers. Asserting against this population rather than a hardcoded
+ * container list keeps the check valid as fixtures gain containers.
+ */
+const BACKFILL_POPULATION_SQL = `
+  SELECT DISTINCT ON (host, container_id)
+    host, container_id, container_name, image
+  FROM (
+    SELECT host, container_id, container_name, image, time FROM docker_stats_1m
+    UNION ALL
+    SELECT host, container_id, container_name, image, time FROM docker_stats_1h_avg
+  ) u
+  WHERE container_name IS NOT NULL
+  ORDER BY host, container_id, time DESC`;
+
+/**
+ * Migration 037 applies before seed() in any upgrade whose merge base already
+ * contains it, so the explicit rerun here is the only path that exercises the
+ * backfill against seeded data. The rerun is safe to repeat because the
+ * statement is ON CONFLICT DO NOTHING.
+ */
+export async function assertServiceKeyBackfill(
+  pool: Pool,
+  checks: Checks,
+  backfillSql: string
+): Promise<void> {
+  const entities = (
+    (await pool.query(BACKFILL_POPULATION_SQL)).rows as BackfillPopulationRow[]
+  ).map(r => `${r.host}/${r.container_id}`);
+  checks.equal('backfill population is non-empty', entities.length > 0, true);
+
+  const preExisting = new Map<string, string>();
+  for (const row of (await pool.query(
+    `SELECT entity, key, value FROM entity_metadata
+     WHERE source = 'docker' AND key IN ('name', 'image', 'service_key')
+       AND entity = ANY($1)`,
+    [entities]
+  )).rows as { entity: string; key: string; value: string }[]) {
+    preExisting.set(`${row.entity}|${row.key}`, row.value);
+  }
+  checks.equal(
+    'the live-written sentinel rows pre-exist, so the clobber path is exercised',
+    ['service_key', 'name'].every(
+      key => preExisting.get(`${BACKFILL_SENTINEL.entity}|${key}`) !== undefined
+    ),
+    true
+  );
+
+  await pool.query(backfillSql);
+
+  const registered = await pool.query(
+    `SELECT entity, key, value FROM entity_metadata
+     WHERE source = 'docker' AND key IN ('name', 'image', 'service_key')
+       AND entity = ANY($1)`,
+    [entities]
+  );
+  checks.equal(
+    'backfill registered name, image and service_key for every stats container',
+    registered.rows.length,
+    entities.length * 3
+  );
+
+  const population = new Map(
+    ((await pool.query(BACKFILL_POPULATION_SQL)).rows as BackfillPopulationRow[])
+      .map(r => [`${r.host}/${r.container_id}`, r])
+  );
+  for (const [entity, r] of population) {
+    const expected: Record<string, string> = {
+      name: preExisting.get(`${entity}|name`) ?? r.container_name,
+      image: preExisting.get(`${entity}|image`) ?? r.image,
+      service_key: preExisting.get(`${entity}|service_key`) ?? r.container_name,
+    };
+    const actual = new Map(
+      (registered.rows as { entity: string; key: string; value: string }[])
+        .filter(row => row.entity === entity)
+        .map(row => [row.key, row.value])
+    );
+    for (const [key, value] of Object.entries(expected)) {
+      checks.equal(
+        `backfill resolves ${key} for ${entity}`,
+        actual.get(key) ?? null,
+        value
+      );
+    }
+  }
+
+  const beforeRerun = await count(pool, 'SELECT count(*) FROM entity_metadata');
+  await pool.query(backfillSql);
+  checks.equal(
+    'backfill rerun inserts nothing',
+    await count(pool, 'SELECT count(*) FROM entity_metadata'),
+    beforeRerun
+  );
 }
