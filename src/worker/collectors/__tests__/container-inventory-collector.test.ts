@@ -160,6 +160,122 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
   });
 });
 
+describe('ContainerInventoryCollector: entity_metadata registration', () => {
+  let abortController: AbortController;
+  let timers: TimerMock;
+
+  beforeEach(() => {
+    abortController = new AbortController();
+    timers = mockSetTimeout({ fireImmediately: true });
+  });
+
+  afterEach(() => {
+    timers.restore();
+    abortController.abort();
+  });
+
+  function createMockMetadataRepo() {
+    const batches: { entity: string; key: string; value: string }[][] = [];
+    let failNext = false;
+    const failNextBatch = () => { failNext = true; };
+    const repo = {
+      upsertEntityMetadataBatch: mock(async (entries: { entity: string; key: string; value: string }[]) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error('metadata write failed');
+        }
+        batches.push(entries);
+      }),
+      failNextBatch,
+    };
+    return { repo, batches, failNextBatch };
+  }
+
+  it('first upsert registers name, image, and name-based service_key once', async () => {
+    const { repo } = createMockRepo();
+    const { repo: metaRepo, batches } = createMockMetadataRepo();
+    const streamConnector = fixedStream([
+      { op: 'upsert', container: makeContainer() },
+      { op: 'upsert', container: makeContainer({ state: 'exited' as const }) },
+    ]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    await (collector as any).collect();
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toEqual([
+      { entity: 'homeserver/abc123', key: 'name', value: 'plex' },
+      { entity: 'homeserver/abc123', key: 'image', value: 'plexinc/pms-docker:latest' },
+      { entity: 'homeserver/abc123', key: 'service_key', value: 'plex' },
+    ]);
+  });
+
+  it('a failed registration retries on the next upsert for the same container', async () => {
+    const { repo } = createMockRepo();
+    const { repo: metaRepo, batches, failNextBatch } = createMockMetadataRepo();
+    const streamConnector = fixedStream([
+      { op: 'upsert', container: makeContainer() },
+      { op: 'upsert', container: makeContainer({ state: 'exited' as const }) },
+    ]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    failNextBatch();
+    await (collector as any).collect();
+
+    expect(batches).toHaveLength(1);
+    expect(repo.insert as unknown as { mock: { calls: unknown[] } }).toHaveProperty('mock.calls');
+    expect((repo.insert as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
+  });
+
+  it('absent metadata repository leaves the event path untouched', async () => {
+    const { repo, inserted } = createMockRepo();
+    const streamConnector = fixedStream([{ op: 'upsert', container: makeContainer() }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
+    await (collector as any).collect();
+
+    expect(inserted).toHaveLength(1);
+  });
+
+  it('a failed registration retries on the next init reconcile even when the event already landed', async () => {
+    const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
+    const { repo, inserted } = createMockRepo(snapshot);
+    const { repo: metaRepo, batches, failNextBatch } = createMockMetadataRepo();
+    const streamConnector = fixedStream([{ op: 'init', containers: [makeContainer()] }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    await (collector as any).hydrateCache();
+    failNextBatch();
+    await (collector as any).collect();
+    expect(batches).toHaveLength(0);
+    expect(inserted).toHaveLength(0);
+
+    await (collector as any).collect();
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toEqual([
+      { entity: 'homeserver/abc123', key: 'name', value: 'plex' },
+      { entity: 'homeserver/abc123', key: 'image', value: 'plexinc/pms-docker:latest' },
+      { entity: 'homeserver/abc123', key: 'service_key', value: 'plex' },
+    ]);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('init registers cache-hit containers that have no metadata yet', async () => {
+    const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
+    const { repo, inserted } = createMockRepo(snapshot);
+    const { repo: metaRepo, batches } = createMockMetadataRepo();
+    const streamConnector = fixedStream([{ op: 'init', containers: [makeContainer()] }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    await (collector as any).hydrateCache();
+    await (collector as any).collect();
+
+    expect(inserted).toHaveLength(0);
+    expect(batches).toHaveLength(1);
+  });
+});
+
 describe('ContainerInventoryCollector: ports/mounts fingerprinting', () => {
   let abortController: AbortController;
   let timers: TimerMock;
