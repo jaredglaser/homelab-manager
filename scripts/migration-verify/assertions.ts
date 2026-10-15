@@ -15,6 +15,11 @@ import {
   PROXMOX_STORAGE_ENTITY,
   REMOVED_COLUMNS,
   SPARSE_HOUR,
+  UNIFY_COMPOSE,
+  UNIFY_DESTROYED,
+  UNIFY_ORPHAN,
+  UNIFY_PLAIN,
+  UNIFY_REPLICA,
   ZFS_ENTITIES,
   ZFS_HOST,
   ZFS_POOL,
@@ -1006,4 +1011,119 @@ async function selectRow<T>(pool: Pool, sql: string, params: unknown[] = []): Pr
 async function count(pool: Pool, sql: string, params: unknown[] = []): Promise<number> {
   const result = await pool.query(sql, params);
   return Number(Object.values(result.rows[0] ?? {})[0] ?? 0);
+}
+
+/**
+ * Migration 038 rewrites name-based service_key rows to the label-derived key
+ * the event table stores. It applies after seed() while it is the head's own
+ * new migration, but applies before seed() once it joins the merge base, so the
+ * explicit rerun here is the only path that works in both orders. The rerun is
+ * safe to repeat because the rewrite skips rows already matching the latest
+ * event's key.
+ */
+export async function assertServiceKeyUnification(
+  pool: Pool,
+  checks: Checks,
+  unifySql: string
+): Promise<void> {
+  await pool.query(unifySql);
+
+  const serviceKeyFor = async (containerId: string): Promise<string | null> => {
+    const row = await selectRow<{ value: string }>(
+      pool,
+      `SELECT value FROM entity_metadata
+       WHERE source = 'docker' AND key = 'service_key' AND entity = $1`,
+      [`${DOCKER_HOST}/${containerId}`]
+    );
+    return row?.value ?? null;
+  };
+  const iconFor = async (entity: string): Promise<string | null> => {
+    const row = await selectRow<{ value: string }>(
+      pool,
+      `SELECT value FROM entity_metadata
+       WHERE source = 'docker' AND key = 'icon' AND entity = $1`,
+      [entity]
+    );
+    return row?.value ?? null;
+  };
+
+  checks.equal(
+    'the compose container rewrites to its latest event key, not the stale one',
+    await serviceKeyFor(UNIFY_COMPOSE.containerId),
+    UNIFY_COMPOSE.latestEventKey
+  );
+  checks.equal(
+    'the destroy-latest container rewrites to its last upsert key',
+    await serviceKeyFor(UNIFY_DESTROYED.containerId),
+    UNIFY_DESTROYED.latestUpsertKey
+  );
+  checks.equal(
+    'replica a rewrites to the shared compose key',
+    await serviceKeyFor(UNIFY_REPLICA.containerIds[0]),
+    UNIFY_REPLICA.eventKey
+  );
+  checks.equal(
+    'replica b rewrites to the shared compose key',
+    await serviceKeyFor(UNIFY_REPLICA.containerIds[1]),
+    UNIFY_REPLICA.eventKey
+  );
+  checks.equal(
+    'the unlabeled container keeps its already-correct name key',
+    await serviceKeyFor(UNIFY_PLAIN.containerId),
+    UNIFY_PLAIN.eventKey
+  );
+  checks.equal(
+    'the container with no event row keeps its name key',
+    await serviceKeyFor(UNIFY_ORPHAN.containerId),
+    UNIFY_ORPHAN.seededNameKey
+  );
+
+  const linked = (
+    (await pool.query(
+      `SELECT SPLIT_PART(sibling.entity, '/', 2) AS container_id
+       FROM entity_metadata me
+       JOIN entity_metadata sibling
+         ON  sibling.source = me.source
+         AND sibling.key    = 'service_key'
+         AND sibling.value  = me.value
+         AND SPLIT_PART(sibling.entity, '/', 1) = $2
+       WHERE me.source = 'docker' AND me.entity = $1 AND me.key = 'service_key'`,
+      [`${DOCKER_HOST}/${UNIFY_REPLICA.containerIds[0]}`, DOCKER_HOST]
+    )).rows as { container_id: string }[]
+  ).map(r => r.container_id);
+  checks.sameSet(
+    'the history fan-out links both replicas through the rewritten key',
+    linked,
+    UNIFY_REPLICA.containerIds
+  );
+
+  checks.equal(
+    'an icon pre-existing on the target entity survives the move',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_COMPOSE.latestEventKey}`),
+    UNIFY_COMPOSE.targetIcon
+  );
+  checks.equal(
+    'the replica icon moves from the old key entity to the new one',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_REPLICA.eventKey}`),
+    UNIFY_REPLICA.seededIcon
+  );
+  checks.equal(
+    'the unlabeled container keeps its icon',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_PLAIN.eventKey}`),
+    UNIFY_PLAIN.seededIcon
+  );
+  checks.equal(
+    'the container with no event row keeps its icon',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_ORPHAN.seededNameKey}`),
+    UNIFY_ORPHAN.seededIcon
+  );
+
+  const beforeRerun = await count(pool, 'SELECT count(*) FROM entity_metadata');
+  await pool.query(unifySql);
+  checks.equal('the migration rerun inserts nothing', await count(pool, 'SELECT count(*) FROM entity_metadata'), beforeRerun);
+  checks.equal(
+    'the rerun leaves the rewritten key in place',
+    await serviceKeyFor(UNIFY_COMPOSE.containerId),
+    UNIFY_COMPOSE.latestEventKey
+  );
 }

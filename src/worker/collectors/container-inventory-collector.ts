@@ -185,7 +185,6 @@ export class ContainerInventoryCollector extends BaseCollector {
       // Narrowed to InventorySnapshotContainer[]; labels are authoritative here.
       await this.reconcileInit(event.containers);
     } else if (event.op === 'upsert') {
-      // Labels intentionally absent here; reconcileInit() re-supplies them on reconnect.
       this.scheduleWrite(event.container, 'upsert');
     } else if (event.op === 'destroy') {
       this.scheduleDestroyWrite(event.containerId);
@@ -272,7 +271,8 @@ export class ContainerInventoryCollector extends BaseCollector {
     container: InventorySnapshotContainer | InventoryUpdateContainer,
     eventType: 'upsert',
   ): Promise<void> {
-    // Streaming upserts carry no labels; serviceKey falls back to name until the next reconcileInit.
+    // Upsert frames carry labels per the protocol; the guard keeps the name
+    // fallback if a frame ever ships without them.
     const labels = 'labels' in container ? container.labels : {};
     const serviceKey = computeServiceKey(labels, container.name);
     const detailsFingerprint = computeDetailsFingerprint(container.ports, container.mounts);
@@ -302,8 +302,9 @@ export class ContainerInventoryCollector extends BaseCollector {
   }
 
   /**
-   * service_key must match AgentStatsCollector's name-based value or the fan-out
-   * splits a container's history into two groups. A failure here must not throw:
+   * Sole writer of service_key: only the inventory stream carries the labels
+   * the label-derived key needs, and a second name-based writer would split
+   * the fan-out's join into two namespaces. A failure here must not throw:
    * the event row is already written and the next reconcileInit or streaming
    * upsert retries the registration.
    */
@@ -311,11 +312,13 @@ export class ContainerInventoryCollector extends BaseCollector {
     container: InventorySnapshotContainer | InventoryUpdateContainer,
   ): Promise<void> {
     if (!this.metadataRepository || this.registeredContainers.has(container.id)) return;
+    const labels = 'labels' in container ? container.labels : {};
+    const serviceKey = computeServiceKey(labels, container.name);
     try {
       await this.metadataRepository.upsertEntityMetadataBatch([
         { entity: `${this.host.name}/${container.id}`, key: 'name', value: container.name },
         { entity: `${this.host.name}/${container.id}`, key: 'image', value: container.image },
-        { entity: `${this.host.name}/${container.id}`, key: 'service_key', value: container.name },
+        { entity: `${this.host.name}/${container.id}`, key: 'service_key', value: serviceKey },
       ]);
       this.registeredContainers.add(container.id);
     } catch (err) {

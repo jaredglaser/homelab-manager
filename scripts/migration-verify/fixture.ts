@@ -57,6 +57,55 @@ export const NULL_METRIC_HOUR = {
   cpuPercent: 40,
 };
 
+/**
+ * Fixtures for migration 038's service_key rewrite. docker_container_events
+ * carries the label-derived key; entity_metadata rows are seeded with the
+ * name-based values the pre-038 collectors wrote. One fixture per rewrite
+ * branch: latest-of-two events, destroy-after-upsert, a replica pair, an
+ * unlabeled container, and a container with no event row at all.
+ */
+export const UNIFY_COMPOSE = {
+  containerId: 'sk-compose',
+  name: 'plex',
+  image: 'ghcr.io/example/plex:1.0.0',
+  staleEventKey: 'media/stale',
+  latestEventKey: 'media/plex',
+  seededNameKey: 'plex',
+  seededOldIcon: 'compose-old-icon',
+  targetIcon: 'compose-target-icon',
+};
+
+export const UNIFY_DESTROYED = {
+  containerId: 'sk-destroyed',
+  name: 'gone',
+  image: 'ghcr.io/example/gone:1.0.0',
+  latestUpsertKey: 'gone/svc',
+  seededNameKey: 'destroyed-name',
+};
+
+export const UNIFY_REPLICA = {
+  containerIds: ['sk-replica-a', 'sk-replica-b'],
+  names: ['web-1', 'web-2'],
+  image: 'ghcr.io/example/web:2.0.0',
+  eventKey: 'app/web',
+  iconSourceId: 'sk-replica-a',
+  seededIcon: 'web-icon',
+};
+
+export const UNIFY_PLAIN = {
+  containerId: 'sk-plain',
+  name: 'plain',
+  image: 'ghcr.io/example/plain:1.0.0',
+  eventKey: 'plain',
+  seededIcon: 'plain-icon',
+};
+
+export const UNIFY_ORPHAN = {
+  containerId: 'sk-orphan',
+  seededNameKey: 'stale-name',
+  seededIcon: 'orphan-icon',
+};
+
 export const ZFS_ENTITIES = [
   { entity: 'ci-tank', entityType: 'pool', indent: 0 },
   { entity: 'mirror-0', entityType: 'vdev', indent: 2 },

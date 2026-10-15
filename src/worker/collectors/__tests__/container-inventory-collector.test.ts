@@ -210,6 +210,47 @@ describe('ContainerInventoryCollector: entity_metadata registration', () => {
     ]);
   });
 
+  it('compose labels register the project/service key on upsert, for both the event and the metadata', async () => {
+    const { repo, inserted } = createMockRepo();
+    const { repo: metaRepo, batches } = createMockMetadataRepo();
+    const container = makeContainer({
+      labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
+    });
+    const streamConnector = fixedStream([{ op: 'upsert', container }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    await (collector as any).collect();
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toEqual([
+      { entity: 'homeserver/abc123', key: 'name', value: 'plex' },
+      { entity: 'homeserver/abc123', key: 'image', value: 'plexinc/pms-docker:latest' },
+      { entity: 'homeserver/abc123', key: 'service_key', value: 'media/plex' },
+    ]);
+    expect(inserted[0].eventType === 'upsert' && inserted[0].serviceKey).toBe('media/plex');
+  });
+
+  it('compose labels register the project/service key on the init reconcile', async () => {
+    const { repo } = createMockRepo();
+    const { repo: metaRepo, batches } = createMockMetadataRepo();
+    const streamConnector = fixedStream([{
+      op: 'init',
+      containers: [makeContainer({
+        labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
+      })],
+    }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector, metaRepo as any);
+    await (collector as any).collect();
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]).toEqual([
+      { entity: 'homeserver/abc123', key: 'name', value: 'plex' },
+      { entity: 'homeserver/abc123', key: 'image', value: 'plexinc/pms-docker:latest' },
+      { entity: 'homeserver/abc123', key: 'service_key', value: 'media/plex' },
+    ]);
+  });
+
   it('a failed registration retries on the next upsert for the same container', async () => {
     const { repo } = createMockRepo();
     const { repo: metaRepo, batches, failNextBatch } = createMockMetadataRepo();

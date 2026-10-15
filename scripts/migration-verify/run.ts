@@ -20,7 +20,7 @@
  * migrations directory relative to itself, so the pre-upgrade state is produced
  * by the runner as it existed at the base commit rather than by a reimplementation.
  */
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Pool } from 'pg';
@@ -37,6 +37,7 @@ import {
   assertRollupBackfill,
   assertRowCountsPreserved,
   assertSchema,
+  assertServiceKeyUnification,
   assertTierColumnCoverage,
   assertWeightedRollup,
   captureRowCounts,
@@ -157,6 +158,12 @@ async function runUpgrade(): Promise<void> {
     await assertNullMetricDilution(pool, checks);
     await assertAggregateTierValues(pool, checks);
     await assertHourlyAverageViews(pool, checks);
+
+    const unifySql = readFileSync(
+      join(REPO_ROOT, 'migrations', '038_unify_container_service_keys.sql'),
+      'utf-8'
+    );
+    await assertServiceKeyUnification(pool, checks, unifySql);
     checks.report();
   } finally {
     await pool.end();
