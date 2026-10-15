@@ -7,13 +7,16 @@
 --      host/container_id that carries a service_key (the latest 'upsert'):
 --      the event table is the only store that already holds the label-derived
 --      key. Destroy rows carry a null service_key and are never a source.
---   2. Containers with no event row keep their name-based key; nothing in the
+--   2. Containers with no event row keep their name-based key: nothing in the
 --      database can derive their labels.
 --   3. Rows whose value already matches the latest event's key are untouched,
 --      so a rerun updates nothing and inserts nothing.
 --   4. Icons live under the host/service_key entity, so each rewritten key
 --      moves its icon row from host/old_key to host/new_key, and only when the
 --      target entity has no icon yet: an icon already set on the target wins.
+--   5. Icon rows are copied, not moved: the row at host/old_key stays. A
+--      container with no event row may still legitimately own that key, and
+--      deleting the old row would orphan its icon.
 
 WITH latest_events AS (
   SELECT DISTINCT ON (host, container_id)
@@ -57,4 +60,4 @@ rekeyed AS (
     AND sk.key = 'service_key'
   RETURNING 1
 )
-SELECT (SELECT count(*) FROM moved_icons) + (SELECT count(*) FROM rekeyed);
+SELECT (SELECT count(*) FROM moved_icons) + (SELECT count(*) FROM rekeyed) AS rewrite_count;

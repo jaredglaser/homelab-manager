@@ -378,7 +378,6 @@ async function seedServiceKeyUnification(pool: Pool): Promise<void> {
       [ageHours, DOCKER_HOST, containerId, name, image, JSON.stringify(labels), serviceKey]
     );
 
-  // Two upserts with different keys: the rewrite must take the latest one.
   await seedUpsert(
     3, UNIFY_COMPOSE.containerId, UNIFY_COMPOSE.name, UNIFY_COMPOSE.image,
     { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'stale' },
@@ -390,7 +389,6 @@ async function seedServiceKeyUnification(pool: Pool): Promise<void> {
     UNIFY_COMPOSE.latestEventKey
   );
 
-  // A destroy is the newest event: the last upsert key stays the rewrite source.
   await seedUpsert(
     3, UNIFY_DESTROYED.containerId, UNIFY_DESTROYED.name, UNIFY_DESTROYED.image,
     { 'com.docker.compose.project': 'gone', 'com.docker.compose.service': 'svc' },

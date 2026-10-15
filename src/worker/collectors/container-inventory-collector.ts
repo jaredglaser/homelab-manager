@@ -271,7 +271,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     container: InventorySnapshotContainer | InventoryUpdateContainer,
     eventType: 'upsert',
   ): Promise<void> {
-    // Upsert frames carry labels per the protocol; the guard keeps the name
+    // Upsert frames carry labels per the protocol. The guard keeps the name
     // fallback if a frame ever ships without them.
     const labels = 'labels' in container ? container.labels : {};
     const serviceKey = computeServiceKey(labels, container.name);

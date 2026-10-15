@@ -9,6 +9,9 @@
 --      Containers whose name changed across a recreate stay unlinked.
 --   3. ON CONFLICT DO NOTHING: rows the collectors already wrote are never clobbered,
 --      which also makes reruns and restarts harmless.
+--
+--   038 later rewrites the name-based keys this inserts to the label-derived form.
+--      The name convention here is no longer the fan-out's identity contract.
 
 INSERT INTO entity_metadata (source, entity, key, value, updated_at)
 SELECT

@@ -59,7 +59,7 @@ export const NULL_METRIC_HOUR = {
 
 /**
  * Fixtures for migration 038's service_key rewrite. docker_container_events
- * carries the label-derived key; entity_metadata rows are seeded with the
+ * carries the label-derived key. Entity_metadata rows are seeded with the
  * name-based values the pre-038 collectors wrote. One fixture per rewrite
  * branch: latest-of-two events, destroy-after-upsert, a replica pair, an
  * unlabeled container, and a container with no event row at all.
@@ -88,7 +88,6 @@ export const UNIFY_REPLICA = {
   names: ['web-1', 'web-2'],
   image: 'ghcr.io/example/web:2.0.0',
   eventKey: 'app/web',
-  iconSourceId: 'sk-replica-a',
   seededIcon: 'web-icon',
 };
 

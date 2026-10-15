@@ -46,8 +46,8 @@ export class EntityMetadataRepository {
 
   /**
    * Upsert several entity/key/value rows in one statement via unnest.
-   * Used by the collectors to register a new container (name, image) with one
-   * round trip instead of two. Entries must not
+   * Used by the collectors to register a container's identity rows in one
+   * round trip instead of one query per key. Entries must not
    * contain duplicate (entity, key) pairs: ON CONFLICT DO UPDATE rejects
    * affecting the same row twice within one statement.
    */

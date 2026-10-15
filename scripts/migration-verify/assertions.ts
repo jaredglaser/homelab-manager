@@ -1017,9 +1017,7 @@ async function count(pool: Pool, sql: string, params: unknown[] = []): Promise<n
  * Migration 038 rewrites name-based service_key rows to the label-derived key
  * the event table stores. It applies after seed() while it is the head's own
  * new migration, but applies before seed() once it joins the merge base, so the
- * explicit rerun here is the only path that works in both orders. The rerun is
- * safe to repeat because the rewrite skips rows already matching the latest
- * event's key.
+ * explicit rerun here is the only path that works in both orders.
  */
 export async function assertServiceKeyUnification(
   pool: Pool,
@@ -1117,9 +1115,24 @@ export async function assertServiceKeyUnification(
     await iconFor(`${DOCKER_HOST}/${UNIFY_ORPHAN.seededNameKey}`),
     UNIFY_ORPHAN.seededIcon
   );
+  checks.equal(
+    'the compose icon copy stays on the old key entity',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_COMPOSE.seededNameKey}`),
+    UNIFY_COMPOSE.seededOldIcon
+  );
+  checks.equal(
+    'the replica icon copy stays on the old key entity',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_REPLICA.names[0]}`),
+    UNIFY_REPLICA.seededIcon
+  );
 
   const beforeRerun = await count(pool, 'SELECT count(*) FROM entity_metadata');
-  await pool.query(unifySql);
+  const rerun = await pool.query(unifySql);
+  checks.equal(
+    'the migration rerun rewrites nothing',
+    Number((rerun.rows[0] as { rewrite_count: number }).rewrite_count),
+    0
+  );
   checks.equal('the migration rerun inserts nothing', await count(pool, 'SELECT count(*) FROM entity_metadata'), beforeRerun);
   checks.equal(
     'the rerun leaves the rewritten key in place',
