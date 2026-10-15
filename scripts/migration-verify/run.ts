@@ -38,6 +38,7 @@ import {
   assertRowCountsPreserved,
   assertSchema,
   assertServiceKeyBackfill,
+  assertServiceKeyUnification,
   assertTierColumnCoverage,
   assertWeightedRollup,
   captureRowCounts,
@@ -164,6 +165,12 @@ async function runUpgrade(): Promise<void> {
       'utf-8'
     );
     await assertServiceKeyBackfill(pool, checks, backfillSql);
+
+    const unifySql = readFileSync(
+      join(REPO_ROOT, 'migrations', '038_unify_container_service_keys.sql'),
+      'utf-8'
+    );
+    await assertServiceKeyUnification(pool, checks, unifySql);
     checks.report();
   } finally {
     await pool.end();

@@ -81,7 +81,11 @@ export class AgentStatsCollector extends BaseCollector {
     this.entityMetadataRepository = new EntityMetadataRepository(db.getPool());
   }
 
-  /** Upsert entity metadata for a newly seen container */
+  /**
+   * Writes name and image only: the stats stream carries no labels, so it must
+   * not write service_key. The inventory collector is the sole writer of the
+   * label-derived key the history fan-out joins on.
+   */
   private async registerContainer(event: AgentStatsEvent): Promise<void> {
     if (this.knownContainers.has(event.containerId)) return;
 
@@ -90,7 +94,6 @@ export class AgentStatsCollector extends BaseCollector {
       await this.entityMetadataRepository.upsertEntityMetadataBatch([
         { entity: entityPath, key: 'name', value: event.containerName },
         { entity: entityPath, key: 'image', value: event.image },
-        { entity: entityPath, key: 'service_key', value: event.containerName },
       ]);
       this.knownContainers.add(event.containerId);
     } catch (err) {
