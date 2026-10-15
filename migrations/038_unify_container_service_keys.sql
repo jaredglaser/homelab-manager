@@ -1,22 +1,10 @@
--- Rewrites name-based service_key rows in entity_metadata to the label-derived
--- key the inventory collector now writes, so deployments upgraded in place keep
--- their container histories linked across recreations.
---
--- Invariants:
---   1. The derivation source is the newest docker_container_events row per
---      host/container_id that carries a service_key (the latest 'upsert'):
---      the event table is the only store that already holds the label-derived
---      key. Destroy rows carry a null service_key and are never a source.
---   2. Containers with no event row keep their name-based key: nothing in the
---      database can derive their labels.
---   3. Rows whose value already matches the latest event's key are untouched,
---      so a rerun updates nothing and inserts nothing.
---   4. Icons live under the host/service_key entity, so each rewritten key
---      moves its icon row from host/old_key to host/new_key, and only when the
---      target entity has no icon yet: an icon already set on the target wins.
---   5. Icon rows are copied, not moved: the row at host/old_key stays. A
---      container with no event row may still legitimately own that key, and
---      deleting the old row would orphan its icon.
+-- Rewrites name-based entity_metadata service_key rows to the label-derived key
+-- each container's newest docker_container_events upsert row carries. Destroy
+-- rows carry a null key and are never a source. A container with no event rows
+-- keeps its name-based key because nothing can derive its labels. Rows already
+-- matching are untouched, so reruns write nothing. Icons are copied from the
+-- old host/<key> entity to the new one. The target icon wins, and the old icon
+-- row stays because a container that lost its events may still own that key.
 
 WITH latest_events AS (
   SELECT DISTINCT ON (host, container_id)
