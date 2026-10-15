@@ -5,6 +5,7 @@ import {
   type ManagedHost,
 } from '@/lib/database/repositories/host-repository';
 import { DockerContainerEventRepository } from '@/lib/database/repositories/docker-container-event-repository';
+import { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
 import { ContainerInventoryCollector } from './collectors/container-inventory-collector';
@@ -68,6 +69,7 @@ export function defaultHostCollectorFactory(
   workerConfig: WorkerConfig,
 ): HostCollectorFactory {
   const inventoryRepo = new DockerContainerEventRepository(db.getPool());
+  const metadataRepo = new EntityMetadataRepository(db.getPool());
   return (host, signer, controller, stack) => {
     const collectors: BaseCollector[] = [];
     const runners: Promise<void>[] = [];
@@ -86,6 +88,8 @@ export function defaultHostCollectorFactory(
           signer,
           inventoryRepo,
           controller,
+          undefined,
+          metadataRepo,
         ),
       );
       collectors.push(inventory);

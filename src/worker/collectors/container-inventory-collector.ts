@@ -8,6 +8,7 @@ import type {
 } from '@/types/docker-inventory';
 import { zAgentContainerEvent } from '@homelab-manager/agent/types/protocol';
 import type { DockerContainerEventRepository } from '@/lib/database/repositories/docker-container-event-repository';
+import type { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
 import { computeServiceKey } from '@/lib/utils/docker-hierarchy-builder';
 import { BaseCollector } from './base-collector';
 import { connectAgentSseStream } from './agent-sse-stream';
@@ -69,10 +70,13 @@ export class ContainerInventoryCollector extends BaseCollector {
   private readonly host: ManagedHostInfo;
   private readonly signer: () => Promise<string>;
   private readonly eventRepository: DockerContainerEventRepository;
+  private readonly metadataRepository: EntityMetadataRepository | null;
   private readonly streamConnector: StreamConnector;
 
   /** In-memory cache of last-written (state, eventType) per containerId on this host. */
   private readonly stateCache = new Map<string, CachedContainerState>();
+  /** Not hydrated from the DB like stateCache: re-registering on restart is an idempotent upsert. */
+  private readonly registeredContainers = new Set<string>();
   /** Pending write timers keyed by containerId, holding the latest snapshot per container. */
   private readonly pendingWrites = new Map<string, { container: InventorySnapshotContainer | InventoryUpdateContainer | null; eventType: 'upsert' | 'destroy'; timer: ReturnType<typeof setTimeout> }>();
 
@@ -82,12 +86,14 @@ export class ContainerInventoryCollector extends BaseCollector {
     repository: DockerContainerEventRepository,
     parentAbortController?: AbortController,
     streamConnector?: StreamConnector,
+    metadataRepository?: EntityMetadataRepository,
   ) {
     super(undefined, undefined, parentAbortController);
     this.signal = this.abortController.signal;
     this.host = host;
     this.signer = signer;
     this.eventRepository = repository;
+    this.metadataRepository = metadataRepository ?? null;
     this.name = `ContainerInventoryCollector[${host.name}]`;
     this.streamConnector = streamConnector ?? connectAgentSseStream;
   }
@@ -196,6 +202,12 @@ export class ContainerInventoryCollector extends BaseCollector {
 
     const incomingIds = new Set(containers.map((c) => c.id));
 
+    // Before the diff: cache-hit containers get no writeEvent, so this loop is the
+    // only retry path for a registration whose first attempt failed.
+    for (const container of containers) {
+      await this.registerContainerMetadata(container);
+    }
+
     for (const container of containers) {
       const cached = this.stateCache.get(container.id);
       const fingerprint = computeDetailsFingerprint(container.ports, container.mounts);
@@ -282,9 +294,32 @@ export class ContainerInventoryCollector extends BaseCollector {
         exitCode: container.exitCode,
       });
       this.stateCache.set(container.id, { state: container.state, eventType, detailsFingerprint });
+      await this.registerContainerMetadata(container);
     } catch (err) {
       console.error(`[ContainerInventoryCollector] DB error for ${this.host.name}/${container.id}:`, err);
       throw err;
+    }
+  }
+
+  /**
+   * service_key must match AgentStatsCollector's name-based value or the fan-out
+   * splits a container's history into two groups. A failure here must not throw:
+   * the event row is already written and the next reconcileInit or streaming
+   * upsert retries the registration.
+   */
+  private async registerContainerMetadata(
+    container: InventorySnapshotContainer | InventoryUpdateContainer,
+  ): Promise<void> {
+    if (!this.metadataRepository || this.registeredContainers.has(container.id)) return;
+    try {
+      await this.metadataRepository.upsertEntityMetadataBatch([
+        { entity: `${this.host.name}/${container.id}`, key: 'name', value: container.name },
+        { entity: `${this.host.name}/${container.id}`, key: 'image', value: container.image },
+        { entity: `${this.host.name}/${container.id}`, key: 'service_key', value: container.name },
+      ]);
+      this.registeredContainers.add(container.id);
+    } catch (err) {
+      console.error(`[ContainerInventoryCollector] Metadata registration failed for ${this.host.name}/${container.id}:`, err);
     }
   }
 
