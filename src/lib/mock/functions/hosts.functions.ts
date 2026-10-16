@@ -2,6 +2,8 @@ import type {
   HostListItem,
   AddHostResult,
   HealthCheckResult,
+  UpdateAgentResult,
+  AgentInventoryEntry,
 } from '@/data/hosts/functions';
 
 /**
@@ -104,6 +106,34 @@ export async function rotateHostKeypair(_data: {
   return { hostId: _data.hostId, publicJwk: { ...MOCK_PUBLIC_JWK, x: 'rotated-key-x' } };
 }
 
+/** Demo inventory: a mixed-status set so the overview shows online, offline, and unknown rows. */
+export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
+  return [
+    {
+      ...mockHosts[0],
+      status: 'online',
+      version: mockHosts[0].agentVersion,
+      versionSource: 'live',
+      agentUpdaterImageDigest: 'sha256:' + 'a'.repeat(64),
+      agentUpdaterImageTag: 'latest',
+      updaterOutOfDate: false,
+      lastError: null,
+      checkedAt: new Date().toISOString(),
+    },
+    {
+      ...mockHosts[1],
+      status: 'offline',
+      version: mockHosts[1].agentVersion,
+      versionSource: 'stored',
+      agentUpdaterImageDigest: 'sha256:' + 'a'.repeat(64),
+      agentUpdaterImageTag: 'latest',
+      updaterOutOfDate: false,
+      lastError: 'Health check timed out after 5000ms',
+      checkedAt: new Date().toISOString(),
+    },
+  ];
+}
+
 export async function checkHostHealth(_data: {
   hostId: number;
 }): Promise<HealthCheckResult> {
@@ -116,3 +146,17 @@ export async function checkHostHealth(_data: {
     agentImageTag: 'latest',
   };
 }
+
+export async function updateAgent(data: {
+  hostId: number;
+}): Promise<UpdateAgentResult> {
+  return {
+    hostId: data.hostId,
+    healthy: true,
+    version: '0.1.0',
+    dockerVersion: '24.0.7',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
+  };
+}
+

@@ -117,7 +117,7 @@ if [ -z "$existing_id" ]; then
     > /dev/null
   log "  rotating OIDC client secret..."
   secret_resp=$(curl -sf -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
-    -X POST "${API}/oidc/clients/${CLIENT_ID}/secret" \
+    -X POST "${API}/oidc/clients/${CLIENT_ID}/secrets" \
     -d '{}')
   CLIENT_SECRET=$(get_field "$secret_resp" "secret")
   if [ -z "$CLIENT_SECRET" ]; then

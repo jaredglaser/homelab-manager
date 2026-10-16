@@ -1,6 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
-import { MuxConnection, type MuxStatus, type MuxTopicHandlers } from '@/lib/mux/mux-connection';
-import type { MuxEventFrame } from '@/lib/mux/protocol';
+import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
+import { mockModule } from '@/lib/test/mock-module';
+import { MuxConnection, type MuxStatus, type MuxTopicHandlers, type MuxSubscribeError } from '@/lib/mux/mux-connection';
+import { MAX_SUB_BATCH, type MuxTopicFrame } from '@/lib/mux/protocol';
+
+const mockToastError = mock((_message: string) => {});
+mockModule<typeof import('sonner')>('sonner', (real) => ({ ...real, toast: { ...real.toast, error: mockToastError } }));
 
 class FakeSocket {
   readyState = 0;
@@ -38,14 +42,17 @@ class FakeSocket {
 let sockets: FakeSocket[];
 let connection: MuxConnection;
 
-function makeHandlers(): MuxTopicHandlers & { events: MuxEventFrame[]; statuses: MuxStatus[] } {
-  const events: MuxEventFrame[] = [];
+function makeHandlers(): MuxTopicHandlers & { events: MuxTopicFrame[]; statuses: MuxStatus[]; rejections: MuxSubscribeError[] } {
+  const events: MuxTopicFrame[] = [];
   const statuses: MuxStatus[] = [];
+  const rejections: MuxSubscribeError[] = [];
   return {
     events,
     statuses,
+    rejections,
     onEvent: (frame) => { events.push(frame); },
     onStatus: (status) => { statuses.push(status); },
+    onSubscribeRejected: (error) => { rejections.push(error); },
   };
 }
 
@@ -121,6 +128,26 @@ describe('MuxConnection', () => {
     expect(logs.events).toHaveLength(0);
   });
 
+  it('delivers stats deltas and dropped frames to each subscribed stats topic', () => {
+    const topics = ['stats:docker', 'stats:zfs', 'stats:proxmox'] as const;
+    const perTopic = new Map<string, ReturnType<typeof makeHandlers>>();
+    for (const topic of topics) perTopic.set(topic, makeHandlers());
+    for (const [topic, handlers] of perTopic) connection.subscribe(topic, handlers);
+    sockets[0].fireOpen();
+
+    for (const topic of topics) {
+      sockets[0].fireMessage({ type: 'event', topic, kind: 'data', payload: [{ time: 1 }] });
+      sockets[0].fireMessage({ type: 'event', topic, kind: 'dropped', count: 2 });
+    }
+
+    for (const topic of topics) {
+      expect(perTopic.get(topic)?.events).toEqual([
+        { type: 'event', topic, kind: 'data', payload: [{ time: 1 }] },
+        { type: 'event', topic, kind: 'dropped', count: 2 },
+      ]);
+    }
+  });
+
   it('delivers the current status to new subscribers immediately', () => {
     connection.subscribe('inventory', makeHandlers());
     sockets[0].fireOpen();
@@ -129,6 +156,17 @@ describe('MuxConnection', () => {
     connection.subscribe('inventory', late);
 
     expect(late.statuses).toEqual([{ connected: true, error: null }]);
+  });
+
+  it('stops notifying a status listener after it unsubscribes', () => {
+    const handler = makeHandlers();
+    const unsubscribe = connection.subscribeStatus(handler.onStatus!);
+    unsubscribe();
+
+    connection.subscribe('inventory', makeHandlers());
+    sockets[0].fireOpen();
+
+    expect(handler.statuses).toEqual([{ connected: false, error: null }]);
   });
 
   describe('reconnect with recorded timers', () => {
@@ -202,6 +240,139 @@ describe('MuxConnection', () => {
       sockets[1].fireOpen();
 
       expect(handler.statuses[handler.statuses.length - 1]).toEqual({ connected: true, error: null });
+    });
+
+    it('reconnects immediately when the tab becomes visible during a backoff wait', () => {
+      const handler = makeHandlers();
+      connection.subscribe('inventory', handler);
+      sockets[0].fireOpen();
+      sockets[0].fireClose();
+
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(sockets).toHaveLength(2);
+      expect(scheduledDelays).toEqual([1000]);
+    });
+
+    it('reconnects immediately when the browser comes back online during a backoff wait', () => {
+      const handler = makeHandlers();
+      connection.subscribe('inventory', handler);
+      sockets[0].fireOpen();
+      sockets[0].fireClose();
+
+      window.dispatchEvent(new Event('online'));
+
+      expect(sockets).toHaveLength(2);
+      expect(scheduledDelays).toEqual([1000]);
+    });
+  });
+
+  describe('subscribe rejections', () => {
+    let consoleError: ReturnType<typeof spyOn>;
+    beforeEach(() => {
+      mockToastError.mockReset();
+      consoleError = spyOn(console, 'error').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      consoleError.mockRestore();
+    });
+
+    it('toasts the server message and notifies the topic with its machine-readable code', () => {
+      const handlers = makeHandlers();
+      connection.subscribe('inventory', handlers);
+      sockets[0].fireOpen();
+
+      sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, code: 'topic_limit', error: 'Session topic limit (250) reached. Unsubscribe unused topics.' });
+
+      expect(handlers.rejections).toEqual([
+        { topic: 'inventory', code: 'topic_limit', message: 'You have too many live streams open in this browser tab. Close some logs or panels, then try again.' },
+      ]);
+      expect(mockToastError).toHaveBeenCalledTimes(1);
+      expect(mockToastError).toHaveBeenCalledWith('You have too many live streams open in this browser tab. Close some logs or panels, then try again.');
+    });
+
+    it('surfaces a generic error ack without a code', () => {
+      const handlers = makeHandlers();
+      connection.subscribe('inventory', handlers);
+      sockets[0].fireOpen();
+
+      sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, error: 'Invalid topic' });
+
+      expect(handlers.rejections).toEqual([{ topic: 'inventory', code: undefined, message: 'Invalid topic' }]);
+      expect(mockToastError).toHaveBeenCalledWith('Invalid topic');
+    });
+
+    it('surfaces unknown codes with a readable message when the ack carries no text', () => {
+      const handlers = makeHandlers();
+      connection.subscribe('inventory', handlers);
+      sockets[0].fireOpen();
+
+      sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, code: 'weird_new_limit' });
+
+      expect(handlers.rejections).toEqual([{ topic: 'inventory', code: 'weird_new_limit', message: 'A live stream could not start. Reload the page if this keeps happening.' }]);
+      expect(mockToastError).toHaveBeenCalledWith('A live stream could not start. Reload the page if this keeps happening.');
+    });
+
+    it('falls back to the topic_limit text when the ack carries a code but no message', () => {
+      connection.subscribe('inventory', makeHandlers());
+      sockets[0].fireOpen();
+
+      sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, code: 'topic_limit' });
+
+      expect(mockToastError).toHaveBeenCalledWith('You have too many live streams open in this browser tab. Close some logs or panels, then try again.');
+    });
+
+    it('notifies every topic in a rejected batch and toasts once', () => {
+      const inventory = makeHandlers();
+      const logs = makeHandlers();
+      connection.subscribe('inventory', inventory);
+      connection.subscribe('logs:s/abc', logs);
+      sockets[0].fireOpen();
+
+      sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, code: 'topic_limit', error: 'Session topic limit (250) reached. Unsubscribe unused topics.' });
+
+      expect(inventory.rejections.map((r) => r.topic)).toEqual(['inventory']);
+      expect(logs.rejections.map((r) => r.topic)).toEqual(['logs:s/abc']);
+      expect(mockToastError).toHaveBeenCalledTimes(1);
+    });
+
+    it('toasts an uncorrelated rejection without touching topic handlers and keeps the console error', () => {
+      const handlers = makeHandlers();
+      connection.subscribe('inventory', handlers);
+      sockets[0].fireOpen();
+
+      sockets[0].fireMessage({ type: 'ack', ref: 99, ok: false, error: 'Invalid command' });
+
+      expect(handlers.rejections).toEqual([]);
+      expect(mockToastError).toHaveBeenCalledWith('Invalid command');
+      expect(consoleError).toHaveBeenCalled();
+    });
+
+    it('does not notify a handler that unsubscribed before the rejection arrived', () => {
+      const stale = makeHandlers();
+      const live = makeHandlers();
+      const unsubStale = connection.subscribe('inventory', stale);
+      connection.subscribe('logs:s/abc', live);
+      sockets[0].fireOpen();
+      unsubStale();
+
+      sockets[0].fireMessage({ type: 'ack', ref: 0, ok: false, code: 'topic_limit', error: 'Session topic limit (250) reached. Unsubscribe unused topics.' });
+
+      expect(stale.rejections).toEqual([]);
+      expect(live.rejections.map((r) => r.topic)).toEqual(['logs:s/abc']);
+      expect(mockToastError).toHaveBeenCalledTimes(1);
+    });
+
+    it('splits a resubscribe burst into server-sized frames', () => {
+      const topics = Array.from({ length: 2 * MAX_SUB_BATCH + 5 }, (_, i) => `logs:s/c${i}`);
+      for (const topic of topics) connection.subscribe(topic, makeHandlers());
+      sockets[0].fireOpen();
+
+      const sent = sockets[0].sent as { topics: string[] }[];
+      expect(sent).toHaveLength(Math.ceil(topics.length / MAX_SUB_BATCH));
+      expect(sent.every((frame) => frame.topics.length <= MAX_SUB_BATCH)).toBe(true);
+      expect(sent.flatMap((frame) => frame.topics)).toEqual(topics);
     });
   });
 });

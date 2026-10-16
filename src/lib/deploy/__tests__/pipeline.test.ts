@@ -85,9 +85,13 @@ const testHost: ManagedHost = {
   agentVersion: '0.1.0',
   agentImage: null,
   agentImageTag: null,
+  agentUpdaterImageDigest: null,
+  agentUpdaterImageTag: null,
+  agentUpdaterOutOfDate: false,
   status: 'healthy',
   createdAt: new Date(),
   updatedAt: new Date(),
+  lastSweptAt: null,
 };
 
 const testRequest: DeployRequest = {

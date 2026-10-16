@@ -5,12 +5,17 @@ export interface AgentInfoDetail {
   dockerVersion?: string;
   agentImage?: string | null;
   agentImageTag?: string | null;
+  agentUpdaterImageDigest?: string | null;
+  agentUpdaterImageTag?: string | null;
   infoSupported?: boolean;
 }
 
+/** Why a health check failed. offline = nothing answered at the network level; unreachable = something answered but not a healthy agent. */
+export type AgentHealthFailureReason = 'offline' | 'unreachable';
+
 export type AgentHealthResult =
   | ({ healthy: true } & AgentInfoDetail)
-  | { healthy: false; error: string };
+  | { healthy: false; reason?: AgentHealthFailureReason; error: string };
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
@@ -72,6 +77,8 @@ async function fetchAgentInfo(
       dockerVersion: boundedAgentField(data.capabilities?.docker?.version) ?? undefined,
       agentImage: boundedAgentField(data.agentImage),
       agentImageTag: boundedAgentField(data.agentImageTag),
+      agentUpdaterImageDigest: boundedAgentField(data.agentUpdaterImageDigest),
+      agentUpdaterImageTag: boundedAgentField(data.agentUpdaterImageTag),
       infoSupported: true,
     };
   } catch (err) {
@@ -106,12 +113,13 @@ export async function checkAgentHealth(
     });
 
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-      return { healthy: false, error: 'Agent URL returned an unexpected redirect' };
+      return { healthy: false, reason: 'unreachable', error: 'Agent URL returned an unexpected redirect' };
     }
 
     if (!response.ok) {
       return {
         healthy: false,
+        reason: 'unreachable',
         error: `Agent returned status ${response.status}`,
       };
     }
@@ -122,10 +130,10 @@ export async function checkAgentHealth(
     try {
       body = (await response.json()) as AgentHealthCheckResponse;
     } catch {
-      return { healthy: false, error: `Agent returned non-JSON response (status ${response.status})` };
+      return { healthy: false, reason: 'unreachable', error: `Agent returned non-JSON response (status ${response.status})` };
     }
     if (body?.status !== 'healthy') {
-      return { healthy: false, error: 'Agent /health response missing expected status field' };
+      return { healthy: false, reason: 'unreachable', error: 'Agent /health response missing expected status field' };
     }
 
     const info = getToken
@@ -137,12 +145,14 @@ export async function checkAgentHealth(
     if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       return {
         healthy: false,
+        reason: 'offline',
         error: `Health check timed out after ${timeoutMs}ms`,
       };
     }
 
     return {
       healthy: false,
+      reason: 'offline',
       error: err instanceof Error ? err.message : String(err),
     };
   }

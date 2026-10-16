@@ -19,9 +19,13 @@ describe('toHostListItem', () => {
     agentVersion: '1.0.0',
     agentImage: null,
     agentImageTag: null,
+    agentUpdaterImageDigest: null,
+    agentUpdaterImageTag: null,
+    agentUpdaterOutOfDate: false,
     status: 'healthy',
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-02T00:00:00Z'),
+    lastSweptAt: null,
   };
 
   test('maps DB row to HostListItem', () => {
@@ -192,6 +196,7 @@ describe('generated enrollment files carry the build tag', () => {
       agentTrustedPubkey: 'pubkey',
       agentImage: getAgentImage(),
       agentUpdaterImage: getAgentUpdaterImage(),
+      triggerToken: 'test-trigger-token',
       capabilities: { docker: true, zfs: false },
     });
     expect(env).toContain('AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:dev\n');

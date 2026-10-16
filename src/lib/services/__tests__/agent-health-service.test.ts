@@ -41,7 +41,10 @@ describe('agent-health-service', () => {
       const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toContain('500');
+      if (!result.healthy) {
+        expect(result.error).toContain('500');
+        expect(result.reason).toBe('unreachable');
+      }
     });
 
     it('returns unhealthy result when fetch throws (network error)', async () => {
@@ -52,7 +55,10 @@ describe('agent-health-service', () => {
       const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toContain('ECONNREFUSED');
+      if (!result.healthy) {
+        expect(result.error).toContain('ECONNREFUSED');
+        expect(result.reason).toBe('offline');
+      }
     });
 
     it('calls the correct URL with /health path', async () => {

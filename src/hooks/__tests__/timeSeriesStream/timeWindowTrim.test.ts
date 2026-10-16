@@ -64,4 +64,49 @@ describe('mergeWithEviction', () => {
     expect(result.cutoffIdx).toBe(2);
     expect(result.next).toEqual([{ time: 10 }, { time: 25 }]);
   });
+
+  it('merges a batch that predates the buffer tail instead of appending', () => {
+    const sorted: Row[] = [{ time: 10 }, { time: 20 }, { time: 30 }];
+    const newRows: Row[] = [{ time: 15 }];
+    const result = mergeWithEviction(sorted, newRows, 5, getTime);
+    expect(result.cutoffIdx).toBe(0);
+    expect(result.next).toEqual([{ time: 10 }, { time: 15 }, { time: 20 }, { time: 30 }]);
+    expect(result.next).not.toBe(sorted);
+  });
+
+  it('merges an interleaving batch keeping every row', () => {
+    const sorted: Row[] = [{ time: 10 }, { time: 40 }];
+    const newRows: Row[] = [{ time: 15 }, { time: 25 }, { time: 45 }];
+    const result = mergeWithEviction(sorted, newRows, 5, getTime);
+    expect(result.next).toEqual([
+      { time: 10 },
+      { time: 15 },
+      { time: 25 },
+      { time: 40 },
+      { time: 45 },
+    ]);
+  });
+
+  it('merges a batch older than every surviving row at the front', () => {
+    const sorted: Row[] = [{ time: 10 }, { time: 20 }];
+    const newRows: Row[] = [{ time: 2 }, { time: 5 }];
+    const result = mergeWithEviction(sorted, newRows, 1, getTime);
+    expect(result.cutoffIdx).toBe(0);
+    expect(result.next).toEqual([{ time: 2 }, { time: 5 }, { time: 10 }, { time: 20 }]);
+  });
+
+  it('merges and evicts together on overlap', () => {
+    const sorted: Row[] = [{ time: 1 }, { time: 5 }, { time: 10 }, { time: 30 }];
+    const newRows: Row[] = [{ time: 4 }, { time: 20 }];
+    const result = mergeWithEviction(sorted, newRows, 8, getTime);
+    expect(result.cutoffIdx).toBe(2);
+    expect(result.next).toEqual([{ time: 4 }, { time: 10 }, { time: 20 }, { time: 30 }]);
+  });
+
+  it('appends when a batch starts exactly at the buffer tail time', () => {
+    const sorted: Row[] = [{ time: 10 }, { time: 20 }];
+    const newRows: Row[] = [{ time: 20 }, { time: 25 }];
+    const result = mergeWithEviction(sorted, newRows, 5, getTime);
+    expect(result.next).toEqual([{ time: 10 }, { time: 20 }, { time: 20 }, { time: 25 }]);
+  });
 });

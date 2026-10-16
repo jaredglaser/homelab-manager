@@ -22,6 +22,12 @@ import {
   nullMetricRawAverage,
   sparseHourNaiveAverage,
   sparseHourRawAverage,
+  BACKFILL_SENTINEL,
+  UNIFY_COMPOSE,
+  UNIFY_DESTROYED,
+  UNIFY_ORPHAN,
+  UNIFY_PLAIN,
+  UNIFY_REPLICA,
 } from './fixture';
 
 const RELATIVE_EPSILON = 1e-9;
@@ -1006,4 +1012,235 @@ async function selectRow<T>(pool: Pool, sql: string, params: unknown[] = []): Pr
 async function count(pool: Pool, sql: string, params: unknown[] = []): Promise<number> {
   const result = await pool.query(sql, params);
   return Number(Object.values(result.rows[0] ?? {})[0] ?? 0);
+}
+
+interface BackfillPopulationRow {
+  host: string;
+  container_id: string;
+  container_name: string;
+  image: string;
+}
+
+/**
+ * The migration's own source query: every latest-name container identity in the
+ * two aggregate tiers. Asserting against this population rather than a hardcoded
+ * container list keeps the check valid as fixtures gain containers.
+ */
+const BACKFILL_POPULATION_SQL = `
+  SELECT DISTINCT ON (host, container_id)
+    host, container_id, container_name, image
+  FROM (
+    SELECT host, container_id, container_name, image, time FROM docker_stats_1m
+    UNION ALL
+    SELECT host, container_id, container_name, image, time FROM docker_stats_1h_avg
+  ) u
+  WHERE container_name IS NOT NULL
+  ORDER BY host, container_id, time DESC`;
+
+/**
+ * Migration 037 applies before seed() in any upgrade whose merge base already
+ * contains it, so the explicit rerun here is the only path that exercises the
+ * backfill against seeded data. The rerun is safe to repeat because the
+ * statement is ON CONFLICT DO NOTHING.
+ */
+export async function assertServiceKeyBackfill(
+  pool: Pool,
+  checks: Checks,
+  backfillSql: string
+): Promise<void> {
+  const entities = (
+    (await pool.query(BACKFILL_POPULATION_SQL)).rows as BackfillPopulationRow[]
+  ).map(r => `${r.host}/${r.container_id}`);
+  checks.equal('backfill population is non-empty', entities.length > 0, true);
+
+  const preExisting = new Map<string, string>();
+  for (const row of (await pool.query(
+    `SELECT entity, key, value FROM entity_metadata
+     WHERE source = 'docker' AND key IN ('name', 'image', 'service_key')
+       AND entity = ANY($1)`,
+    [entities]
+  )).rows as { entity: string; key: string; value: string }[]) {
+    preExisting.set(`${row.entity}|${row.key}`, row.value);
+  }
+  checks.equal(
+    'the live-written sentinel rows pre-exist, so the clobber path is exercised',
+    ['service_key', 'name'].every(
+      key => preExisting.get(`${BACKFILL_SENTINEL.entity}|${key}`) !== undefined
+    ),
+    true
+  );
+
+  await pool.query(backfillSql);
+
+  const registered = await pool.query(
+    `SELECT entity, key, value FROM entity_metadata
+     WHERE source = 'docker' AND key IN ('name', 'image', 'service_key')
+       AND entity = ANY($1)`,
+    [entities]
+  );
+  checks.equal(
+    'backfill registered name, image and service_key for every stats container',
+    registered.rows.length,
+    entities.length * 3
+  );
+
+  const population = new Map(
+    ((await pool.query(BACKFILL_POPULATION_SQL)).rows as BackfillPopulationRow[])
+      .map(r => [`${r.host}/${r.container_id}`, r])
+  );
+  for (const [entity, r] of population) {
+    const expected: Record<string, string> = {
+      name: preExisting.get(`${entity}|name`) ?? r.container_name,
+      image: preExisting.get(`${entity}|image`) ?? r.image,
+      service_key: preExisting.get(`${entity}|service_key`) ?? r.container_name,
+    };
+    const actual = new Map(
+      (registered.rows as { entity: string; key: string; value: string }[])
+        .filter(row => row.entity === entity)
+        .map(row => [row.key, row.value])
+    );
+    for (const [key, value] of Object.entries(expected)) {
+      checks.equal(
+        `backfill resolves ${key} for ${entity}`,
+        actual.get(key) ?? null,
+        value
+      );
+    }
+  }
+
+  const beforeRerun = await count(pool, 'SELECT count(*) FROM entity_metadata');
+  await pool.query(backfillSql);
+  checks.equal(
+    'backfill rerun inserts nothing',
+    await count(pool, 'SELECT count(*) FROM entity_metadata'),
+    beforeRerun
+  );
+}
+
+/**
+ * Migration 038 rewrites name-based service_key rows to the label-derived key
+ * the event table stores. It applies after seed() while it is the head's own
+ * new migration, but applies before seed() once it joins the merge base, so the
+ * explicit rerun here is the only path that works in both orders.
+ */
+export async function assertServiceKeyUnification(
+  pool: Pool,
+  checks: Checks,
+  unifySql: string
+): Promise<void> {
+  await pool.query(unifySql);
+
+  const serviceKeyFor = async (containerId: string): Promise<string | null> => {
+    const row = await selectRow<{ value: string }>(
+      pool,
+      `SELECT value FROM entity_metadata
+       WHERE source = 'docker' AND key = 'service_key' AND entity = $1`,
+      [`${DOCKER_HOST}/${containerId}`]
+    );
+    return row?.value ?? null;
+  };
+  const iconFor = async (entity: string): Promise<string | null> => {
+    const row = await selectRow<{ value: string }>(
+      pool,
+      `SELECT value FROM entity_metadata
+       WHERE source = 'docker' AND key = 'icon' AND entity = $1`,
+      [entity]
+    );
+    return row?.value ?? null;
+  };
+
+  checks.equal(
+    'the compose container rewrites to its latest event key, not the stale one',
+    await serviceKeyFor(UNIFY_COMPOSE.containerId),
+    UNIFY_COMPOSE.latestEventKey
+  );
+  checks.equal(
+    'the destroy-latest container rewrites to its last upsert key',
+    await serviceKeyFor(UNIFY_DESTROYED.containerId),
+    UNIFY_DESTROYED.latestUpsertKey
+  );
+  checks.equal(
+    'replica a rewrites to the shared compose key',
+    await serviceKeyFor(UNIFY_REPLICA.containerIds[0]),
+    UNIFY_REPLICA.eventKey
+  );
+  checks.equal(
+    'replica b rewrites to the shared compose key',
+    await serviceKeyFor(UNIFY_REPLICA.containerIds[1]),
+    UNIFY_REPLICA.eventKey
+  );
+  checks.equal(
+    'the unlabeled container keeps its already-correct name key',
+    await serviceKeyFor(UNIFY_PLAIN.containerId),
+    UNIFY_PLAIN.eventKey
+  );
+  checks.equal(
+    'the container with no event row keeps its name key',
+    await serviceKeyFor(UNIFY_ORPHAN.containerId),
+    UNIFY_ORPHAN.seededNameKey
+  );
+
+  const linked = (
+    (await pool.query(
+      `SELECT SPLIT_PART(sibling.entity, '/', 2) AS container_id
+       FROM entity_metadata me
+       JOIN entity_metadata sibling
+         ON  sibling.source = me.source
+         AND sibling.key    = 'service_key'
+         AND sibling.value  = me.value
+         AND SPLIT_PART(sibling.entity, '/', 1) = $2
+       WHERE me.source = 'docker' AND me.entity = $1 AND me.key = 'service_key'`,
+      [`${DOCKER_HOST}/${UNIFY_REPLICA.containerIds[0]}`, DOCKER_HOST]
+    )).rows as { container_id: string }[]
+  ).map(r => r.container_id);
+  checks.sameSet(
+    'the history fan-out links both replicas through the rewritten key',
+    linked,
+    UNIFY_REPLICA.containerIds
+  );
+
+  checks.equal(
+    'an icon pre-existing on the target entity survives the move',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_COMPOSE.latestEventKey}`),
+    UNIFY_COMPOSE.targetIcon
+  );
+  checks.equal(
+    'the replica icon moves from the old key entity to the new one',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_REPLICA.eventKey}`),
+    UNIFY_REPLICA.seededIcon
+  );
+  checks.equal(
+    'the unlabeled container keeps its icon',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_PLAIN.eventKey}`),
+    UNIFY_PLAIN.seededIcon
+  );
+  checks.equal(
+    'the container with no event row keeps its icon',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_ORPHAN.seededNameKey}`),
+    UNIFY_ORPHAN.seededIcon
+  );
+  checks.equal(
+    'the compose icon copy stays on the old key entity',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_COMPOSE.seededNameKey}`),
+    UNIFY_COMPOSE.seededOldIcon
+  );
+  checks.equal(
+    'the replica icon copy stays on the old key entity',
+    await iconFor(`${DOCKER_HOST}/${UNIFY_REPLICA.names[0]}`),
+    UNIFY_REPLICA.seededIcon
+  );
+
+  const beforeRerun = await count(pool, 'SELECT count(*) FROM entity_metadata');
+  const rerun = await pool.query(unifySql);
+  checks.equal(
+    'the migration rerun rewrites nothing',
+    Number((rerun.rows[0] as { rewrite_count: number }).rewrite_count),
+    0
+  );
+  checks.equal('the migration rerun inserts nothing', await count(pool, 'SELECT count(*) FROM entity_metadata'), beforeRerun);
+  checks.equal(
+    'the rerun leaves the rewritten key in place',
+    await serviceKeyFor(UNIFY_COMPOSE.containerId),
+    UNIFY_COMPOSE.latestEventKey
+  );
 }

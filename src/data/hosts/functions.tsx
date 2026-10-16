@@ -1,15 +1,17 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
-import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema } from '@/data/hosts/schemas';
+import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, updateAgentSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleVerifyHost, handleGetHostPublicJwk, handleRotateHostKeypair,
+  handleUpdateHost, handleVerifyHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
-export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult } from '@/data/hosts/handlers';
+export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
+export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
@@ -119,6 +121,21 @@ export const listHosts = createServerFn()
     return handleListHosts(deps);
   });
 
+/**
+ * Agents inventory: every registered agent (id, name, status, version, detail)
+ * from the stored snapshot the worker's sweep persists. Zero network I/O: this
+ * never probes agents, so request latency is flat and client count cannot
+ * fan out probes. Live data arrives over the /api/agent-inventory SSE channel,
+ * which pushes a fresh snapshot after each worker sweep. This server function
+ * is the initial data source for the admin agents overview.
+ */
+export const listAgentsInventory = createServerFn()
+  .middleware([authMiddleware])
+  .handler(async (): Promise<AgentInventoryEntry[]> => {
+    const deps = await loadDeps();
+    return handleListAgentsInventorySnapshot(deps);
+  });
+
 export const checkHostHealth = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(checkHostHealthSchema)
@@ -155,3 +172,23 @@ export const rotateHostKeypair = createServerFn()
     const keypairs = await loadKeypairsRepo();
     return handleRotateHostKeypair({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
   });
+
+export const updateAgent = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(updateAgentSchema)
+  .handler(async ({ data, context }): Promise<HostOperationResult> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+    return handleUpdateAgent({
+      ...baseDeps,
+      getSigner: async (hostname) => {
+        const privateKey = await keypairs.getPrivateKeyForHost(hostname);
+        if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
+        return () => signAgentJwt(privateKey, hostname);
+      },
+      checkHealth: await buildCheckHealth(keypairs),
+    }, data);
+  });
+

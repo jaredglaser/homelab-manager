@@ -97,3 +97,50 @@ export async function resolveAgentImage(
     return UNRESOLVED;
   }
 }
+
+export interface UpdaterImageInfo {
+  image: string | null;
+  imageTag: string | null;
+  imageDigest: string | null;
+}
+
+const UNRESOLVED_UPDATER: UpdaterImageInfo = { image: null, imageTag: null, imageDigest: null };
+
+// Resolved fresh on every /info, never cached: the manager compares this digest
+// against its own updater image to flag a stale sidecar, and a cached value
+// would freeze the skew report at whatever the first probe saw.
+export async function resolveUpdaterImageInfo(
+  docker: Dockerode | null,
+  containerName: string,
+): Promise<UpdaterImageInfo> {
+  if (!docker) return UNRESOLVED_UPDATER;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const info = await inspectWithTimeout(docker, containerName);
+    const image = info.Config?.Image?.trim() ?? null;
+    let digest: string | null = null;
+    try {
+      // Dockerode sets no request timeout, so the image inspect gets the same bounded race as the container inspect above.
+      const imageInfo = await Promise.race([
+        docker.getImage(info.Image).inspect(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`image inspect timed out after ${INSPECT_TIMEOUT_MS}ms`)), INSPECT_TIMEOUT_MS);
+        }),
+      ]);
+      const repoDigest = imageInfo.RepoDigests?.[0];
+      if (repoDigest) digest = repoDigest.includes('@') ? repoDigest.split('@')[1] : repoDigest;
+    } catch {
+      // Digest stays null: the manager treats an unknown digest as current.
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (!image && !digest) return UNRESOLVED_UPDATER;
+    return { image, imageTag: image ? parseImageTag(image) : null, imageDigest: digest };
+  } catch (error) {
+    console.error(
+      `Could not determine agent-updater image from container '${containerName}':`,
+      error instanceof Error ? error.message : error,
+    );
+    return UNRESOLVED_UPDATER;
+  }
+}

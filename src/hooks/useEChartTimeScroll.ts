@@ -24,10 +24,12 @@ export function useEChartTimeScroll(
   const onChartReady = useCallback((instance: unknown) => setReadyInstance(instance), []);
 
   const tick = () => {
+    // Only a real setOption holds full rate, so an unready chart cannot pin the ticker at 60fps.
     const instance = chartRef.current?.getEchartsInstance();
     if (!instance || instance.isDisposed() || instance !== readyInstance) return;
     const now = Date.now();
     instance.setOption({ xAxis: { min: now - windowMs, max: now } });
+    return true;
   };
 
   useVisibleRAF(targetRef, tick);

@@ -18,6 +18,12 @@ import {
   ZFS_HOST,
   ZFS_POOL,
   ZFS_RECENT_SAMPLES,
+  BACKFILL_SENTINEL,
+  UNIFY_COMPOSE,
+  UNIFY_DESTROYED,
+  UNIFY_ORPHAN,
+  UNIFY_PLAIN,
+  UNIFY_REPLICA,
 } from './fixture';
 
 const DOCKER_COLUMNS = `(
@@ -44,6 +50,8 @@ export async function seed(pool: Pool): Promise<void> {
   await seedZfs(pool);
   await seedProxmoxCounters(pool);
   await seedProxmoxSupporting(pool);
+  await seedEntityMetadata(pool);
+  await seedServiceKeyUnification(pool);
 }
 
 async function seedDockerActive(pool: Pool): Promise<void> {
@@ -343,4 +351,96 @@ async function seedProxmoxSupporting(pool: Pool): Promise<void> {
       ]
     );
   }
+}
+
+async function seedEntityMetadata(pool: Pool): Promise<void> {
+  await pool.query(
+    `INSERT INTO entity_metadata (source, entity, key, value, updated_at)
+     VALUES ('docker', $1, 'service_key', $2, NOW()), ('docker', $1, 'name', $3, NOW())`,
+    [BACKFILL_SENTINEL.entity, BACKFILL_SENTINEL.serviceKey, BACKFILL_SENTINEL.name]
+  );
+}
+
+const EVENT_COLUMNS = `(
+  at, host, container_id, event_type, state, name, image, labels, service_key
+)`;
+
+// docker_container_events.host references managed_hosts, which nothing else in
+// the fixture seeds.
+async function seedServiceKeyUnification(pool: Pool): Promise<void> {
+  await pool.query(
+    `INSERT INTO managed_hosts (name, agent_url) VALUES ($1, 'http://localhost:9090')
+     ON CONFLICT (name) DO NOTHING`,
+    [DOCKER_HOST]
+  );
+
+  const seedUpsert = (
+    ageHours: number,
+    containerId: string,
+    name: string,
+    image: string,
+    labels: object,
+    serviceKey: string,
+  ): Promise<unknown> =>
+    pool.query(
+      `INSERT INTO docker_container_events ${EVENT_COLUMNS}
+       VALUES (now() - make_interval(hours => $1::int), $2, $3, 'upsert', 'running', $4, $5, $6::jsonb, $7)`,
+      [ageHours, DOCKER_HOST, containerId, name, image, JSON.stringify(labels), serviceKey]
+    );
+
+  await seedUpsert(
+    3, UNIFY_COMPOSE.containerId, UNIFY_COMPOSE.name, UNIFY_COMPOSE.image,
+    { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'stale' },
+    UNIFY_COMPOSE.staleEventKey
+  );
+  await seedUpsert(
+    2, UNIFY_COMPOSE.containerId, UNIFY_COMPOSE.name, UNIFY_COMPOSE.image,
+    { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
+    UNIFY_COMPOSE.latestEventKey
+  );
+
+  await seedUpsert(
+    3, UNIFY_DESTROYED.containerId, UNIFY_DESTROYED.name, UNIFY_DESTROYED.image,
+    { 'com.docker.compose.project': 'gone', 'com.docker.compose.service': 'svc' },
+    UNIFY_DESTROYED.latestUpsertKey
+  );
+  await pool.query(
+    `INSERT INTO docker_container_events (at, host, container_id, event_type)
+     VALUES (now() - make_interval(hours => 2), $1, $2, 'destroy')`,
+    [DOCKER_HOST, UNIFY_DESTROYED.containerId]
+  );
+
+  await seedUpsert(
+    2, UNIFY_PLAIN.containerId, UNIFY_PLAIN.name, UNIFY_PLAIN.image, {}, UNIFY_PLAIN.eventKey
+  );
+  await seedUpsert(
+    2, UNIFY_REPLICA.containerIds[0], UNIFY_REPLICA.names[0], UNIFY_REPLICA.image,
+    { 'com.docker.compose.project': 'app', 'com.docker.compose.service': 'web' },
+    UNIFY_REPLICA.eventKey
+  );
+  await seedUpsert(
+    2, UNIFY_REPLICA.containerIds[1], UNIFY_REPLICA.names[1], UNIFY_REPLICA.image,
+    { 'com.docker.compose.project': 'app', 'com.docker.compose.service': 'web' },
+    UNIFY_REPLICA.eventKey
+  );
+
+  const metadataRows: Array<[string, string, string]> = [
+    [`${DOCKER_HOST}/${UNIFY_COMPOSE.containerId}`, 'service_key', UNIFY_COMPOSE.seededNameKey],
+    [`${DOCKER_HOST}/${UNIFY_DESTROYED.containerId}`, 'service_key', UNIFY_DESTROYED.seededNameKey],
+    [`${DOCKER_HOST}/${UNIFY_REPLICA.containerIds[0]}`, 'service_key', UNIFY_REPLICA.names[0]],
+    [`${DOCKER_HOST}/${UNIFY_REPLICA.containerIds[1]}`, 'service_key', UNIFY_REPLICA.names[1]],
+    [`${DOCKER_HOST}/${UNIFY_PLAIN.containerId}`, 'service_key', UNIFY_PLAIN.eventKey],
+    [`${DOCKER_HOST}/${UNIFY_ORPHAN.containerId}`, 'service_key', UNIFY_ORPHAN.seededNameKey],
+    [`${DOCKER_HOST}/${UNIFY_COMPOSE.seededNameKey}`, 'icon', UNIFY_COMPOSE.seededOldIcon],
+    [`${DOCKER_HOST}/${UNIFY_COMPOSE.latestEventKey}`, 'icon', UNIFY_COMPOSE.targetIcon],
+    [`${DOCKER_HOST}/${UNIFY_REPLICA.names[0]}`, 'icon', UNIFY_REPLICA.seededIcon],
+    [`${DOCKER_HOST}/${UNIFY_PLAIN.eventKey}`, 'icon', UNIFY_PLAIN.seededIcon],
+    [`${DOCKER_HOST}/${UNIFY_ORPHAN.seededNameKey}`, 'icon', UNIFY_ORPHAN.seededIcon],
+  ];
+  await pool.query(
+    `INSERT INTO entity_metadata (source, entity, key, value, updated_at)
+     SELECT 'docker', t.entity, t.key, t.value, NOW()
+     FROM unnest($1::text[], $2::text[], $3::text[]) AS t(entity, key, value)`,
+    [metadataRows.map(r => r[0]), metadataRows.map(r => r[1]), metadataRows.map(r => r[2])]
+  );
 }

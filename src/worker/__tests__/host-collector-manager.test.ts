@@ -32,9 +32,13 @@ function makeHost(name: string, overrides?: Partial<ManagedHost>): ManagedHost {
     agentVersion: null,
     agentImage: null,
     agentImageTag: null,
+    agentUpdaterImageDigest: null,
+    agentUpdaterImageTag: null,
+    agentUpdaterOutOfDate: false,
     status: 'healthy',
     createdAt: new Date(),
     updatedAt: new Date(),
+    lastSweptAt: null,
     ...overrides,
   };
 }
