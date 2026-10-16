@@ -68,7 +68,7 @@ export default tseslint.config(
   ...tseslint.configs.recommendedTypeChecked,
 
   {
-    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', 'server/**/*.ts', 'e2e/**/*.ts', 'vite.config.ts', 'playwright.config.ts'],
+    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', 'server/**/*.ts', 'e2e/**/*.ts', 'vite.config.ts', 'playwright.config.ts', 'playwright.auth.config.ts'],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
       globals: { ...globals.browser, ...globals.node },

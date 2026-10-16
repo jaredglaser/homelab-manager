@@ -276,6 +276,23 @@ The flow inventory, including what is covered and what is still open, lives in
 Playwright's browser must be available; in a fresh checkout run
 `bunx playwright install chromium` first.
 
+### End-to-End Auth (real server + Pocket ID)
+
+The MSW lane cannot emit a real HttpOnly Set-Cookie, so the session cookie
+contract (cookie name, Secure, Max-Age, the single-name read on https) is
+verified by a separate lane that builds the real Nitro app and runs it against
+a real Pocket ID and Postgres. Specs live in `e2e/auth.*.e2e.ts` and run only
+via `playwright.auth.config.ts`:
+
+```bash
+bun run test:e2e:auth        # Build realapp, seed Pocket ID, run the lane
+bun run test:e2e:auth:run    # Specs only, against an already-built + seeded setup
+```
+
+Pocket ID and Postgres must already be reachable; the `e2e-auth` job in
+`.github/workflows/ci.yml` shows the service containers and the env a local
+run needs (`POCKET_ID_URL`, `POCKET_ID_API_KEY`, `POSTGRES_*`, `MASTER_KEY`).
+
 ## Type Checking
 
 ```bash
