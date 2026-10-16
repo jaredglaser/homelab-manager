@@ -23,6 +23,8 @@ const PADDING = 2;
 export const SPARKLINE_TIME_WINDOW_MS = 30000;
 const MAX_DECAY = 0.97;
 const MAX_POINTS = 128; // Pre-allocated buffer ceiling (well above the ~35 points we expect)
+const PULSE_BASE_OPACITY = 0.45;
+const PULSE_FLASH_MS = 600;
 
 export default memo(function SparklineCanvas({
   data,
@@ -67,6 +69,19 @@ export default memo(function SparklineCanvas({
     slideAnimRef.current = stage.animate(
       [{ transform: 'translateX(0)' }, { transform: `translateX(-${drawWidth}px)` }],
       { duration: SPARKLINE_TIME_WINDOW_MS, easing: 'linear', fill: 'forwards' },
+    );
+  };
+
+  // The dot persists across updates (no remount), so the per-sample freshness
+  // cue is a WAAPI flash restarted from drawNow. It eases back to the CSS base
+  // opacity, so a late sample re-flashes instead of popping from fully dim.
+  const startPulse = (dot: HTMLDivElement) => {
+    if (typeof dot.animate !== 'function') return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    for (const anim of dot.getAnimations?.() ?? []) anim.cancel();
+    dot.animate(
+      [{ opacity: 0.9 }, { opacity: PULSE_BASE_OPACITY }],
+      { duration: PULSE_FLASH_MS, easing: 'ease-out' },
     );
   };
 
@@ -133,6 +148,7 @@ export default memo(function SparklineCanvas({
     if (dot) {
       dot.style.left = `${pxBuf[count - 1]}px`;
       dot.style.top = `${pyBuf[count - 1]}px`;
+      startPulse(dot);
     }
 
     startSlide();
@@ -192,8 +208,8 @@ export default memo(function SparklineCanvas({
     };
   }, [width, height]);
 
-  // Redraw on data change only. The pulse animation lives in CSS
-  // (.sparkline-dot), so keep per-frame canvas work out of here.
+  // Redraw on data change only. The dot flash and stage slide are WAAPI
+  // animations restarted here, so per-frame motion stays on the compositor.
   useEffect(() => {
     dataRef.current = data;
 
@@ -235,8 +251,6 @@ export default memo(function SparklineCanvas({
         {data.length > 0 && (
           <div
             ref={dotRef}
-            // New key per latest point remounts the node, restarting the pulse animation.
-            key={data[data.length - 1].timestamp}
             className="sparkline-dot"
             style={{ backgroundColor: lineColorRef.current }}
           />

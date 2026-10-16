@@ -284,8 +284,9 @@ body {
   animation: sparkline-shimmer 1.5s ease-in-out infinite;
 }
 
-/* Pulse dot for SparklineCanvas, animated by the compositor. left/top are set
-   imperatively by its draw. -9999px hides the dot before the first draw. */
+/* Pulse dot for SparklineCanvas. Position is set imperatively by its draw. The
+   per-sample flash is a WAAPI animation restarted from drawNow, easing back to
+   the base opacity below. -9999px hides the dot before the first draw. */
 .sparkline-dot {
   position: absolute;
   top: 0;
@@ -295,12 +296,7 @@ body {
   border-radius: 9999px;
   pointer-events: none;
   transform: translate(-50%, -50%);
-  opacity: 0.3;
-  animation: sparkline-pulse 1.2s linear forwards;
-}
-@keyframes sparkline-pulse {
-  from { opacity: 0.8; }
-  to { opacity: 0.3; }
+  opacity: 0.45;
 }
 
 /* Respect reduced motion preference */
@@ -308,9 +304,6 @@ body {
   .sparkline-shimmer {
     animation: none;
     opacity: 0.3;
-  }
-  .sparkline-dot {
-    animation: none;
   }
   ::view-transition-old(page-content),
   ::view-transition-new(page-content) {

@@ -61,8 +61,9 @@ describe('SparklineCanvas', () => {
   let mockCtx: ReturnType<typeof makeMockContext>;
   let mockGradient: ReturnType<typeof makeMockGradient>;
   let animateSpy: Mock<(...args: unknown[]) => { cancel: Mock<() => void> }>;
-  let createdAnimations: Array<{ cancel: Mock<() => void> }>;
+  let animateCalls: Array<{ el: Element; args: unknown[]; cancel: Mock<() => void> }>;
   let originalAnimate: typeof Element.prototype.animate;
+  let originalGetAnimations: typeof Element.prototype.getAnimations;
 
   beforeEach(() => {
     setCssColorVars('--chart-cpu', CPU_LINE, CPU_AREA_START, CPU_AREA_END);
@@ -81,14 +82,19 @@ describe('SparklineCanvas', () => {
       return null;
     }) as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
-    createdAnimations = [];
-    animateSpy = mock(() => {
+    animateCalls = [];
+    animateSpy = mock(function (this: Element, ...args: unknown[]) {
       const animation = { cancel: mock(() => {}) };
-      createdAnimations.push(animation);
+      animateCalls.push({ el: this, args, cancel: animation.cancel });
       return animation;
     }) as unknown as Mock<(...args: unknown[]) => { cancel: Mock<() => void> }>;
     originalAnimate = Element.prototype.animate;
     Element.prototype.animate = animateSpy as unknown as typeof Element.prototype.animate;
+    originalGetAnimations = Element.prototype.getAnimations;
+    // Return this element's mocked animations so the cancel-before-restart path is observable
+    Element.prototype.getAnimations = mock(function (this: Element) {
+      return animateCalls.filter((c) => c.el === this) as unknown as Animation[];
+    }) as unknown as typeof Element.prototype.getAnimations;
   });
 
   afterEach(() => {
@@ -96,12 +102,19 @@ describe('SparklineCanvas', () => {
     HTMLCanvasElement.prototype.getContext = originalGetContext;
     if (originalAnimate) Element.prototype.animate = originalAnimate;
     else delete (Element.prototype as { animate?: unknown }).animate;
+    if (originalGetAnimations) Element.prototype.getAnimations = originalGetAnimations;
+    else delete (Element.prototype as { getAnimations?: unknown }).getAnimations;
     Object.defineProperty(window, 'devicePixelRatio', { value: originalDPR, configurable: true });
     clearCssColorVars('--chart-cpu');
   });
 
   function clearRectCalls() {
     return (mockCtx.clearRect as Mock<typeof mockCtx.clearRect>).mock.calls.length;
+  }
+
+  function animateCallsFor(container: HTMLElement, selector: string) {
+    const el = container.querySelector(selector);
+    return animateCalls.filter((c) => c.el === el);
   }
 
   it('renders a canvas element with correct width/height styles', () => {
@@ -229,36 +242,40 @@ describe('SparklineCanvas', () => {
     const now = Date.now();
     const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
 
-    const { rerender } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+    const { container, rerender } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
 
-    expect(animateSpy).toHaveBeenCalledTimes(1);
+    const stage = container.querySelector('.inset-0') as Element;
+    const slides = animateCallsFor(container, '.inset-0');
+    expect(slides.length).toBe(1);
     // Default width 60, PADDING 2: the stage traverses the drawable width over the window
-    expect(animateSpy.mock.calls[0][0]).toEqual([
+    expect(slides[0].args[0]).toEqual([
       { transform: 'translateX(0)' },
       { transform: 'translateX(-56px)' },
     ]);
-    expect(animateSpy.mock.calls[0][1]).toEqual({
+    expect(slides[0].args[1]).toEqual({
       duration: 30000,
       easing: 'linear',
       fill: 'forwards',
     });
+    expect(stage).not.toBeNull();
 
     const next: TimeSeriesPoint[] = [{ timestamp: now + 1000, value: 60 }];
     rerender(<SparklineCanvas data={next} color="--chart-cpu" />);
 
-    expect(animateSpy).toHaveBeenCalledTimes(2);
-    expect(createdAnimations[0].cancel).toHaveBeenCalled();
+    expect(animateCallsFor(container, '.inset-0').length).toBe(2);
+    expect(slides[0].cancel).toHaveBeenCalled();
   });
 
   it('cancels the slide animation on unmount', () => {
     const now = Date.now();
     const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
 
-    const { unmount } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
-    expect(createdAnimations.length).toBe(1);
+    const { container, unmount } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+    const slides = animateCallsFor(container, '.inset-0');
+    expect(slides.length).toBe(1);
 
     unmount();
-    expect(createdAnimations[0].cancel).toHaveBeenCalled();
+    expect(slides[0].cancel).toHaveBeenCalled();
   });
 
   it('does not start the slide when prefers-reduced-motion is set', () => {
@@ -338,27 +355,32 @@ describe('SparklineCanvas', () => {
       expect(clearRectCalls()).toBe(hiddenCalls);
       expect(animateSpy.mock.calls.length).toBe(hiddenSlides);
 
-      // Becoming visible refreshes the stale snapshot and restarts the slide.
+      // Becoming visible refreshes the stale snapshot and restarts slide + flash.
       emit(true);
       expect(clearRectCalls()).toBe(hiddenCalls + 1);
-      expect(animateSpy.mock.calls.length).toBe(hiddenSlides + 1);
+      expect(animateSpy.mock.calls.length).toBe(hiddenSlides + 2);
     } finally {
       globalThis.IntersectionObserver = originalIO;
     }
   });
 
-  it('remounts the pulse dot when a new point arrives', () => {
+  it('keeps the dot mounted across updates and re-flashes it per sample', () => {
     const now = Date.now();
     const { container, rerender } = render(
       <SparklineCanvas data={[{ timestamp: now, value: 50 }]} color="--chart-cpu" />,
     );
-    const first = container.querySelector('.sparkline-dot') as HTMLElement;
-    expect(first).not.toBeNull();
+    const dot = container.querySelector('.sparkline-dot') as HTMLElement;
+    expect(dot).not.toBeNull();
+    expect(animateCallsFor(container, '.sparkline-dot').length).toBe(1);
 
     rerender(<SparklineCanvas data={[{ timestamp: now + 1000, value: 60 }]} color="--chart-cpu" />);
-    const second = container.querySelector('.sparkline-dot') as HTMLElement;
-    // A fresh node is what restarts the CSS pulse animation.
-    expect(second).not.toBe(first);
-    expect(second.style.left).not.toBe('-9999px');
+
+    // Same node: no remount, so the dot never vanishes between commit and draw.
+    expect(container.querySelector('.sparkline-dot')).toBe(dot);
+    const flashes = animateCallsFor(container, '.sparkline-dot');
+    expect(flashes.length).toBe(2);
+    expect(flashes[1].args[0]).toEqual([{ opacity: 0.9 }, { opacity: 0.45 }]);
+    expect(flashes[1].args[1]).toEqual({ duration: 600, easing: 'ease-out' });
+    expect(flashes[0].cancel).toHaveBeenCalled();
   });
 });
