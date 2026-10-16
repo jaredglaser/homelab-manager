@@ -16,7 +16,7 @@ thing. For work with no runtime path (CI, tooling, docs) describe what triggers 
 ## What else this touches
 
 <!-- Other callers of anything whose signature or behavior changed. Migrations, and whether the number
-collides. Anything reading the same table, SSE channel, or settings key. Anything gated on an env var or
+collides. Anything reading the same table, mux topic, or settings key. Anything gated on an env var or
 event type. "Nothing outside <x>" is a good answer when it is true; say it rather than leaving this empty. -->
 
 ## Verification

@@ -22,7 +22,7 @@ Start with `AGENTS.md`, then inspect the requested files or the relevant recent 
 
 - Only `VITE_*` env vars should be client-visible.
 - `createServerFn()` paths should use the expected middleware and validation.
-- SSE endpoints should respect `request.signal` and avoid leaking server-only imports into the client bundle.
+- The `/api/mux` WebSocket route should avoid leaking server-only imports into the client bundle (dynamic imports inside its handler callbacks).
 - Dynamic imports are required for server-only modules such as `pg`, `dockerode`, `ssh2`, subscription services, and database clients in the sensitive paths called out by `AGENTS.md`.
 - Docker or entity operations should use validated host-prefixed IDs, not display names.
 

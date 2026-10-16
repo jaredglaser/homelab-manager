@@ -18,7 +18,7 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 ├── data/                   # Server functions + Zod schemas per domain (docker, hosts, proxmox, settings, stacks, zfs)
 ├── middleware/             # createServerFn middleware (database client injection)
 ├── lib/
-│   ├── auth/               # OIDC client, sessions, role mapping, WS auth (sse-auth)
+│   ├── auth/               # OIDC client, sessions, role mapping, WS auth (ws-auth)
 │   ├── charts/             # ECharts helpers (CSS var colors, y-axis scaling)
 │   ├── clients/            # Agent, database (pg pool), and Proxmox clients
 │   ├── config/             # Env-based config loaders
@@ -35,7 +35,7 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 │   ├── schemas/            # Shared Zod schemas
 │   ├── services/           # Agent health, secret resolution, token generation
 │   ├── settings/           # Settings broadcast service
-│   ├── sse/                # Channel descriptors; channels/ holds per-topic schemas + wire messages consumed by the mux
+│   ├── channels/           # Per-topic wire schemas + wire messages shared by the mux server adapters and client hooks
 │   ├── stacks/             # Stack CRUD, mappers, status broadcast
 │   ├── streaming/          # Core streaming interfaces
 │   ├── templates/          # Agent compose stack generator
