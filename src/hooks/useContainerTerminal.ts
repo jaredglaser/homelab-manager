@@ -9,6 +9,12 @@ interface UseContainerTerminalOptions {
   terminal: Terminal | null;
   /** Default true. Set false to defer connection (e.g. before the xterm element is mounted). */
   enabled?: boolean;
+  /**
+   * Default false. While true, incoming output frames are dropped but the
+   * session stays connected: the modal exit animation must not pay for
+   * terminal DOM writes on a tab the user is leaving.
+   */
+  paused?: boolean;
 }
 
 interface UseContainerTerminalResult {
@@ -41,6 +47,7 @@ export function useContainerTerminal({
   shell,
   terminal,
   enabled = true,
+  paused = false,
 }: UseContainerTerminalOptions): UseContainerTerminalResult {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -48,6 +55,8 @@ export function useContainerTerminal({
   const [sessionEnded, setSessionEnded] = useState(false);
   const [reconnectKey, setReconnectKey] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
 
   const reconnect = useCallback(() => setReconnectKey((k) => k + 1), []);
 
@@ -71,6 +80,7 @@ export function useContainerTerminal({
     };
 
     ws.onmessage = (event) => {
+      if (pausedRef.current) return;
       if (event.data instanceof ArrayBuffer) {
         terminal.write(new Uint8Array(event.data));
         return;

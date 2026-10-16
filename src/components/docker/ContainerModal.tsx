@@ -181,6 +181,7 @@ export default memo(function ContainerModal({
   const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
   const [iconError, setIconError] = useState(false);
   const [wordWrap, setWordWrap] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   const { getContainerShell, setContainerShell } = useDockerSettings();
   const shellKey = `${host}/${inventory.name}`;
@@ -196,8 +197,16 @@ export default memo(function ContainerModal({
     if (open) {
       setActiveTab(initialTab);
       if (initialTab === 'terminal') setTerminalMounted(true);
+      setClosing(false);
     }
   }, [open, initialTab]);
+
+  // setClosing must land in the same commit as the exit transition starting,
+  // or the heavy content keeps rendering inside the 150ms ending-style window.
+  const requestClose = useCallback(() => {
+    setClosing(true);
+    onClose();
+  }, [onClose]);
 
   const handleTabChange = useCallback(
     (tab: ModalTab) => {
@@ -226,7 +235,7 @@ export default memo(function ContainerModal({
   }, [iconUrl]);
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) requestClose(); }}>
       <DialogContent className="flex flex-col min-h-0 overflow-hidden rounded-lg bg-popover w-[calc(100%-64px)] max-w-[1200px] h-[calc(100vh-80px)] p-0">
       <ModalHeader
         inventory={inventory}
@@ -242,12 +251,12 @@ export default memo(function ContainerModal({
         onShellChange={handleShellChange}
         wordWrap={wordWrap}
         onWrapToggle={() => setWordWrap((w) => !w)}
-        onClose={onClose}
+        onClose={requestClose}
       />
 
       <div className="flex-1 min-h-0 flex flex-col min-h-[480px]">
         <div className={activeTab === 'logs' ? 'flex-1 min-h-0' : 'hidden'}>
-          <ContainerLogViewer containerId={containerId} host={host} wordWrap={wordWrap} />
+          <ContainerLogViewer containerId={containerId} host={host} wordWrap={wordWrap} paused={closing} />
         </div>
 
         {/* stay mounted after first open: unmounting xterm clears the scrollback buffer */}
@@ -260,6 +269,7 @@ export default memo(function ContainerModal({
               frozen={!isRunning}
               wordWrap={wordWrap}
               onShellResolved={handleShellResolved}
+              paused={closing}
             />
           </div>
         )}
@@ -267,7 +277,7 @@ export default memo(function ContainerModal({
           <div className="flex-1 min-h-0 bg-chart-bg" />
         )}
 
-        {activeTab === 'history' && (
+        {activeTab === 'history' && !closing && (
           <div className="flex-1 min-h-0">
             <ContainerHistoryPage
               key={`${host}/${containerId}`}
