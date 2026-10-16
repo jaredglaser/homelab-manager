@@ -1,7 +1,7 @@
 /**
  * Start the MSW service worker. Resolves once the worker is active and
  * controlling the page, so callers can gate the React tree on this promise and
- * guarantee the first request (auth session, preloads, SSE) is intercepted.
+ * guarantee the first request (auth session, preloads, WebSocket) is intercepted.
  *
  * The worker module is imported lazily so MSW and the mock handlers stay out of
  * the production bundle, which never calls this.
@@ -12,7 +12,7 @@ export async function startMockServiceWorker(): Promise<void> {
 
   // The worker tees every mocked response and ships one branch to the page for
   // the life-cycle events; nothing reads it, and leaving it undrained
-  // backpressures an SSE stream's source for the life of the tab.
+  // backpressures a mocked stream's source for the life of the tab.
   worker.events.on('response:mocked', ({ response }) => {
     void response.body?.cancel().catch(() => {});
   });

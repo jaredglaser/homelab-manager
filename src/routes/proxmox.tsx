@@ -12,7 +12,7 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { testProxmoxConnection } from '@/data/proxmox/functions'
 import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/lib/constants/preload-queries'
 import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
-import { proxmoxStatsMuxChannel } from '@/lib/sse/channels/proxmox-stats'
+import { proxmoxStatsChannel } from '@/lib/channels/proxmox-stats'
 import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
 import { useProxmoxSettings } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
@@ -60,7 +60,7 @@ interface ProxmoxContentProps {
 /**
  * Render the Proxmox dashboard content, handling live time-series streaming, configuration checks, and overview-driven UI.
  *
- * Uses a time-series SSE stream (with a 120s window and 1s updates), preloads recent history, updates the global
+ * Uses a time-series stream (with a 120s window and 1s updates), preloads recent history, updates the global
  * last-update timestamp when new rows arrive, and runs a delayed configuration check if connected but no data is received.
  *
  * @returns The JSX content for the Proxmox dashboard: an error message on stream failure, a configuration guidance panel
@@ -80,7 +80,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   })
 
   const stream = useTimeSeriesStream({
-    channel: proxmoxStatsMuxChannel,
+    channel: proxmoxStatsChannel,
     preloadFn,
     getKey: (r) => `${r.entity_type}/${r.entity_id}/${r.time}`,
     getTime: (r) => r.time,
@@ -138,7 +138,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   if (stream.error) {
     return (
       <p className="text-base text-destructive py-8">
-        Failed to connect to Proxmox SSE stream: {stream.error.message}
+        Failed to connect to the Proxmox live stream: {stream.error.message}
       </p>
     )
   }

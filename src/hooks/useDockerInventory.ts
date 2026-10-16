@@ -1,6 +1,5 @@
 import { useMuxQuery } from '@/lib/mux/use-mux-channel';
-import { INVENTORY_TOPIC } from '@/lib/mux/protocol';
-import { dockerInventoryChannel } from '@/lib/sse/channels/docker-inventory';
+import { dockerInventoryChannel } from '@/lib/channels/docker-inventory';
 import type {
   DockerInventorySnapshotContainer,
   DockerInventoryBroadcastEvent,
@@ -60,7 +59,7 @@ const EMPTY_INVENTORY = new Map<string, DockerInventorySnapshotContainer>();
 
 export function useDockerInventory(): UseDockerInventoryResult {
   const { state, isConnected, error } = useMuxQuery(
-    { ...dockerInventoryChannel, topic: INVENTORY_TOPIC },
+    dockerInventoryChannel,
     {
       queryKey: ['docker-inventory'],
       initial: EMPTY_INVENTORY,

@@ -1,6 +1,4 @@
 import { z } from 'zod';
-import { defineSseChannel } from '@/lib/sse/define-sse-channel';
-import { STATS_ERROR_EVENT } from '@/lib/sse/channels/stats-error-event';
 import { statsTopic } from '@/lib/mux/protocol';
 import type { MuxChannel } from '@/lib/mux/use-mux-channel';
 
@@ -33,14 +31,7 @@ const zProxmoxStatsWireRow = z.object({
 
 const zProxmoxStatsWireRows = z.array(zProxmoxStatsWireRow);
 
-export const proxmoxStatsChannel = defineSseChannel({
-  url: '/api/proxmox-stats',
-  errorEvent: STATS_ERROR_EVENT,
-  schema: zProxmoxStatsWireRows,
-});
-
-// Live stats ride the WS mux, sharing the wire schema with the SSE channel above.
-export const proxmoxStatsMuxChannel: MuxChannel<typeof zProxmoxStatsWireRows> = {
+export const proxmoxStatsChannel: MuxChannel<typeof zProxmoxStatsWireRows> = {
   topic: statsTopic('proxmox'),
   schema: zProxmoxStatsWireRows,
 };

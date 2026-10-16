@@ -9,7 +9,7 @@ import type {
 import { notifyPayloadToInventory, rowToInventory } from '@/lib/docker/docker-inventory-broadcast-service';
 import { backoffDelayMs } from '@/lib/utils/backoff';
 
-/** Discriminated union for events sent to SSE subscribers. */
+/** Discriminated union for events sent to mux subscribers. */
 export type StackBroadcastEvent =
   | { type: 'status'; entries: StackStatusEntry[] }
   | { type: 'deploy_changed'; stack: string; host: string; outcome?: DeployChangeOutcome };

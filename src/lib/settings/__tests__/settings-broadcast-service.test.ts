@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import { SettingsBroadcastService } from '../settings-broadcast-service';
-import type { SettingsSSEMessage } from '@/types/settings';
+import type { SettingsWireMessage } from '@/types/settings';
 import type { PoolClient } from 'pg';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
@@ -66,7 +66,7 @@ describe('SettingsBroadcastService', () => {
   });
 
   it('sends init payload with settings on subscribe', async () => {
-    const received: SettingsSSEMessage[] = [];
+    const received: SettingsWireMessage[] = [];
     service.subscribe((m) => received.push(m));
 
     await waitForCondition(() => received.length > 0);
@@ -85,7 +85,7 @@ describe('SettingsBroadcastService', () => {
   });
 
   it('broadcasts change event from NOTIFY payload', async () => {
-    const received: SettingsSSEMessage[] = [];
+    const received: SettingsWireMessage[] = [];
     service.subscribe((m) => received.push(m));
     await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
@@ -101,7 +101,7 @@ describe('SettingsBroadcastService', () => {
   });
 
   it('ignores NOTIFY on unrelated channels', async () => {
-    const received: SettingsSSEMessage[] = [];
+    const received: SettingsWireMessage[] = [];
     service.subscribe((m) => received.push(m));
     await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 

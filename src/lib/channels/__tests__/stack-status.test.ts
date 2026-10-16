@@ -1,13 +1,8 @@
 import { describe, it, expect } from 'bun:test';
-import { stackStatusChannel, serializeStackStatusEvent, toStackStatusWireMessage } from '../stack-status';
+import { stackStatusChannel, toStackStatusWireMessage } from '../stack-status';
 import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 describe('stackStatusChannel', () => {
-  it('exposes the url and errorEvent used by the route and the client', () => {
-    expect(stackStatusChannel.url).toBe('/api/stack-status');
-    expect(stackStatusChannel.errorEvent).toBe('stack_status_error');
-  });
-
   it('validates a status-entries array frame without ports/mounts (skew-safe defaults)', () => {
     const result = stackStatusChannel.schema.safeParse([
       {
@@ -114,15 +109,10 @@ describe('stackStatusChannel', () => {
     ]);
     expect(result.success).toBe(false);
   });
-
-  it('revive is the identity (no Date fields on the wire)', () => {
-    const message = [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }];
-    expect(stackStatusChannel.revive!(message)).toBe(message);
-  });
 });
 
 describe('toStackStatusWireMessage', () => {
-  it('maps a status event to the bare entries array (the SSE and mux payload shape)', () => {
+  it('maps a status event to the bare entries array (the mux payload shape)', () => {
     const event: StackBroadcastEvent = {
       type: 'status',
       entries: [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }],
@@ -152,48 +142,3 @@ describe('toStackStatusWireMessage', () => {
   });
 });
 
-describe('serializeStackStatusEvent', () => {
-  it('serializes a status event as the bare entries array', () => {
-    const event: StackBroadcastEvent = {
-      type: 'status',
-      entries: [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }],
-    };
-    expect(serializeStackStatusEvent(event)).toBe(`data: ${JSON.stringify(event.entries)}\n\n`);
-  });
-
-  it('serializes a legacy deploy_changed event without an outcome', () => {
-    const event: StackBroadcastEvent = { type: 'deploy_changed', stack: 'plex', host: 'server1' };
-    const frame = serializeStackStatusEvent(event);
-    const payload = JSON.parse(frame.slice('data: '.length).trim());
-    expect(payload).toEqual({ type: 'deploy_changed', stack: 'plex', host: 'server1' });
-  });
-
-  it('serializes an enriched deploy_changed event with the outcome nested as one object', () => {
-    const event: StackBroadcastEvent = {
-      type: 'deploy_changed',
-      stack: 'plex',
-      host: 'server1',
-      outcome: {
-        deployId: 42,
-        status: 'failed',
-        action: 'deploy',
-        trigger: 'git_push',
-        message: 'agent unreachable',
-      },
-    };
-    const frame = serializeStackStatusEvent(event);
-    const payload = JSON.parse(frame.slice('data: '.length).trim());
-    expect(payload).toEqual({
-      type: 'deploy_changed',
-      stack: 'plex',
-      host: 'server1',
-      outcome: {
-        deployId: 42,
-        status: 'failed',
-        action: 'deploy',
-        trigger: 'git_push',
-        message: 'agent unreachable',
-      },
-    });
-  });
-});

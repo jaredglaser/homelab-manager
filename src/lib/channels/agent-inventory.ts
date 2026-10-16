@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import { AGENT_INVENTORY_TOPIC } from '@/lib/mux/protocol';
+import type { MuxChannel } from '@/lib/mux/use-mux-channel';
 
 const zHostCapabilitiesWire = z.object({
   docker: z.boolean().optional(),
@@ -29,16 +30,14 @@ export const zAgentInventorySnapshotWire = z.object({
   sweptAt: z.string().nullable(),
 });
 
-export type AgentInventorySseMessage = {
+export type AgentInventoryMessage = {
   entries: AgentInventoryEntry[];
   sweptAt: string | null;
 };
 
-export const agentInventoryChannel = defineSseChannel({
-  url: '/api/agent-inventory',
-  errorEvent: 'agent_inventory_error',
+export const agentInventoryChannel: MuxChannel<typeof zAgentInventorySnapshotWire> = {
+  topic: AGENT_INVENTORY_TOPIC,
   schema: zAgentInventorySnapshotWire,
-  revive: (message): AgentInventorySseMessage => message,
-});
+};
 
 export type { AgentInventoryEntry };

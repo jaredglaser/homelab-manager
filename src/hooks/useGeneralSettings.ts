@@ -22,7 +22,7 @@ export interface GeneralSettingsValue {
   setRetention: (key: keyof Settings['retention'], value: number) => void;
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
-  setSseDebugLogging: (value: boolean) => void;
+  setStreamDebugLogging: (value: boolean) => void;
 }
 
 /**
@@ -69,8 +69,8 @@ export function useGeneralSettings(): GeneralSettingsValue {
     optimisticSet(SETTINGS_KEYS.developer.dbFlushDebugLogging, () => String(value));
   }, [optimisticSet]);
 
-  const setSseDebugLogging = useCallback((value: boolean) => {
-    optimisticSet(SETTINGS_KEYS.developer.sseDebugLogging, () => String(value));
+  const setStreamDebugLogging = useCallback((value: boolean) => {
+    optimisticSet(SETTINGS_KEYS.developer.streamDebugLogging, () => String(value));
   }, [optimisticSet]);
 
   return useMemo<GeneralSettingsValue>(() => ({
@@ -85,7 +85,7 @@ export function useGeneralSettings(): GeneralSettingsValue {
     setRetention,
     setDockerDebugLogging,
     setDbFlushDebugLogging,
-    setSseDebugLogging,
+    setStreamDebugLogging,
   }), [
     general,
     retention,
@@ -98,6 +98,6 @@ export function useGeneralSettings(): GeneralSettingsValue {
     setRetention,
     setDockerDebugLogging,
     setDbFlushDebugLogging,
-    setSseDebugLogging,
+    setStreamDebugLogging,
   ]);
 }

@@ -6,7 +6,7 @@ type BufferAccessors<TRow> = {
   time: (row: TRow) => number;
 };
 
-interface UseSSEBufferOptions<TRow, A extends BufferAccessors<TRow>> {
+interface UseTimeSeriesBufferOptions<TRow, A extends BufferAccessors<TRow>> {
   accessorsRef: React.RefObject<A>;
   windowSeconds: number;
   updateIntervalMs: number;
@@ -14,7 +14,7 @@ interface UseSSEBufferOptions<TRow, A extends BufferAccessors<TRow>> {
 
 /**
  * Seed = initial preload (flips `hasData`, no live-tail stitching).
- * Refresh = periodic / post-mount (preserves in-flight SSE rows beyond the snapshot, leaves `hasData` alone).
+ * Refresh = periodic / post-mount (preserves in-flight live rows beyond the snapshot, leaves `hasData` alone).
  */
 export type ReplaceBufferOptions =
   | { mode: 'seed' }
@@ -26,7 +26,7 @@ export interface ReplaceBufferStats {
   total: number;
 }
 
-interface UseSSEBufferResult<TRow> {
+interface UseTimeSeriesBufferResult<TRow> {
   sortedRows: TRow[];
   hasData: boolean;
   enqueue: (incoming: TRow[]) => void;
@@ -36,17 +36,17 @@ interface UseSSEBufferResult<TRow> {
 }
 
 /**
- * Time-windowed buffer of rows fed by SSE and seeded by preload.
+ * Time-windowed buffer of rows fed by the mux and seeded by preload.
  *
  * Owns the sorted buffer (single source of truth for `rows`), a dedup set against
- * preload/SSE overlap, and a pending queue flushed on a fixed interval so eviction
+ * preload/live overlap, and a pending queue flushed on a fixed interval so eviction
  * piggybacks on append. `replaceBuffer` performs atomic swaps for preload/refresh.
  */
-export function useSSEBuffer<TRow, A extends BufferAccessors<TRow>>({
+export function useTimeSeriesBuffer<TRow, A extends BufferAccessors<TRow>>({
   accessorsRef,
   windowSeconds,
   updateIntervalMs,
-}: UseSSEBufferOptions<TRow, A>): UseSSEBufferResult<TRow> {
+}: UseTimeSeriesBufferOptions<TRow, A>): UseTimeSeriesBufferResult<TRow> {
   const [sortedRows, setSortedRows] = useState<TRow[]>([]);
   const sortedRef = useRef<TRow[]>([]);
   const dedupRef = useRef<Set<PropertyKey>>(new Set());

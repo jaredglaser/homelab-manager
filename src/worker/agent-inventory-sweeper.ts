@@ -13,7 +13,7 @@ export interface AgentInventorySweeperDeps {
 /**
  * Worker-owned periodic agent health sweep. There is exactly one instance in
  * the worker process, so N hosts are probed once per tick no matter how many
- * clients are subscribed to the inventory SSE channel. After each sweep it
+ * clients are subscribed to the inventory mux topic. After each sweep it
  * fires one pg NOTIFY so the server's broadcast service can push the fresh
  * snapshot to subscribers.
  */

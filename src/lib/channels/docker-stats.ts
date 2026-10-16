@@ -1,6 +1,4 @@
 import { z } from 'zod';
-import { defineSseChannel } from '@/lib/sse/define-sse-channel';
-import { STATS_ERROR_EVENT } from '@/lib/sse/channels/stats-error-event';
 import { statsTopic } from '@/lib/mux/protocol';
 import type { MuxChannel } from '@/lib/mux/use-mux-channel';
 
@@ -24,14 +22,7 @@ const zDockerStatsWireRow = z.object({
 
 const zDockerStatsWireRows = z.array(zDockerStatsWireRow);
 
-export const dockerStatsChannel = defineSseChannel({
-  url: '/api/docker-stats',
-  errorEvent: STATS_ERROR_EVENT,
-  schema: zDockerStatsWireRows,
-});
-
-// Live stats ride the WS mux, sharing the wire schema with the SSE channel above.
-export const dockerStatsMuxChannel: MuxChannel<typeof zDockerStatsWireRows> = {
+export const dockerStatsChannel: MuxChannel<typeof zDockerStatsWireRows> = {
   topic: statsTopic('docker'),
   schema: zDockerStatsWireRows,
 };

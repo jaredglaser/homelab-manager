@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 
 import { createConnectionHandler, type MuxMockClient } from '@/lib/mock/handlers/ws';
-import { zAgentInventorySnapshotWire } from '@/lib/sse/channels/agent-inventory';
+import { zAgentInventorySnapshotWire } from '@/lib/channels/agent-inventory';
 
 interface MuxFrame {
   type: string;
