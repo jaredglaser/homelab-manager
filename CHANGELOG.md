@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/jaredglaser/homelab-manager/compare/v0.2.3...v0.2.4) (2026-10-16)
+
+
+### Performance Improvements
+
+* **ui:** shared rAF ticker for sparklines with a CSS pulse dot ([#553](https://github.com/jaredglaser/homelab-manager/issues/553)) ([1608eb3](https://github.com/jaredglaser/homelab-manager/commit/1608eb3646c3246210558b54a2412b127509a060))
+
 ## [0.2.3](https://github.com/jaredglaser/homelab-manager/compare/v0.2.2...v0.2.3) (2026-10-15)
 
 
