@@ -44,6 +44,8 @@ function getActionLabel(record: StackDeployRecord): string {
 
 const ROLLBACK_ELIGIBLE: Set<DeployStatus> = new Set(['succeeded', 'no_change']);
 
+const ROW_ACTION_CLASS = 'text-xs h-11 px-4 lg:h-6 lg:px-2';
+
 interface DeployHistoryRowProps {
   record: StackDeployRecord;
   stackName?: string;
@@ -86,7 +88,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
           tabIndex={record.logs ? 0 : undefined}
           onClick={() => record.logs && setExpanded(!expanded)}
           onKeyDown={record.logs ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } } : undefined}
-          className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-accent' : ''}`}
+          className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-accent' : ''}`}
         >
           {record.logs && (
             <ChevronRight
@@ -119,49 +121,53 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
             {timestamp.toLocaleDateString()} {timestamp.toLocaleTimeString()}
           </span>
 
-          {showApprovalActions && onApprove !== undefined && (
-            <Button
-              size="sm"
-              className="text-xs h-6 px-2 ml-1"
-              onClick={(e) => {
-                e.stopPropagation();
-                onApprove(record.id);
-              }}
-              onKeyDown={(e) => e.stopPropagation()}
-              disabled={isApproving || isRejecting}
-            >
-              Approve
-            </Button>
-          )}
-          {showApprovalActions && onReject !== undefined && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-xs h-6 px-2 ml-1 text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5"
-              onClick={(e) => {
-                e.stopPropagation();
-                onReject(record.id);
-              }}
-              onKeyDown={(e) => e.stopPropagation()}
-              disabled={isApproving || isRejecting}
-            >
-              Reject
-            </Button>
-          )}
+          {(showApprovalActions || canRollback) && (
+            <div className="ml-auto flex items-center gap-2 lg:gap-1">
+              {showApprovalActions && onApprove !== undefined && (
+                <Button
+                  size="sm"
+                  className={ROW_ACTION_CLASS}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onApprove(record.id);
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  disabled={isApproving || isRejecting}
+                >
+                  Approve
+                </Button>
+              )}
+              {showApprovalActions && onReject !== undefined && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={`${ROW_ACTION_CLASS} text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReject(record.id);
+                  }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  disabled={isApproving || isRejecting}
+                >
+                  Reject
+                </Button>
+              )}
 
-          {canRollback && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-xs h-6 px-2 ml-1 border-destructive text-destructive hover:bg-destructive/10"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRollbackOpen(true);
-              }}
-              disabled={rollbackMutation.isPending}
-            >
-              Rollback
-            </Button>
+              {canRollback && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={`${ROW_ACTION_CLASS} border-destructive text-destructive hover:bg-destructive/10`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRollbackOpen(true);
+                  }}
+                  disabled={rollbackMutation.isPending}
+                >
+                  Rollback
+                </Button>
+              )}
+            </div>
           )}
         </div>
 

@@ -11,7 +11,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Trash2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { deleteVariable } from '@/data/stacks/functions';
@@ -51,39 +50,39 @@ export default function VariableRow({ stackName, varName, isReferenced, revealed
 
   return (
     <>
-      <div className="flex items-center gap-2">
-        <code className="text-xs font-mono min-w-[100px] opacity-80 truncate">
-          {varName}
-        </code>
-        <div className="relative flex-1 min-w-0">
-          <Input
-            type={revealed ? 'text' : 'password'}
-            autoComplete="off"
-            placeholder="No value set"
-            className="h-9 pr-10 text-xs"
-            aria-label={`${varName} value`}
-            {...register(secretFieldName(varName))}
-          />
-          <div className="absolute inset-y-0 right-1 flex items-center">
-            <Tooltip disabled={!isReferenced}>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-foreground"
-                    onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
-                    aria-label="Delete variable"
-                    disabled={isReferenced || deleteMutation.isPending}
-                  />
-                }
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <code className="text-xs font-mono min-w-[100px] opacity-80 truncate">
+            {varName}
+          </code>
+          <div className="relative flex-1 min-w-0">
+            <Input
+              type={revealed ? 'text' : 'password'}
+              autoComplete="off"
+              placeholder="No value set"
+              className="h-11 pr-12 text-xs lg:h-9 lg:pr-10"
+              aria-label={`${varName} value`}
+              {...register(secretFieldName(varName))}
+            />
+            <div className="absolute inset-y-0 right-1 flex items-center">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-foreground size-9 lg:size-8"
+                onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
+                aria-label="Delete variable"
+                disabled={isReferenced || deleteMutation.isPending}
               >
                 <Trash2 size={14} />
-              </TooltipTrigger>
-              <TooltipContent>Variable still referenced in compose file</TooltipContent>
-            </Tooltip>
+              </Button>
+            </div>
           </div>
         </div>
+        {isReferenced && (
+          <p className="text-[11px] text-muted-foreground">
+            Still referenced in the compose file, so it cannot be deleted.
+          </p>
+        )}
       </div>
 
       <Dialog open={deleteOpen} onOpenChange={(isOpen) => { if (!isOpen) setDeleteOpen(false); }}>

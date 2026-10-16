@@ -20,6 +20,7 @@ import {
   rejectDeploy,
   scanDrift,
 } from '@/data/stacks/functions'
+import HorizontalScrollRow from '@/components/shared/HorizontalScrollRow'
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
 import DeployHistoryList from '@/components/stacks/DeployHistoryList'
@@ -34,6 +35,8 @@ import type { StackDetail, StackDeployRecord } from '@/types/stacks'
 import type { StackFormValues } from '@/components/stacks/stack-form'
 
 type Panel = 'compose' | 'secrets' | 'containers' | 'deploys'
+
+const TAB_TRIGGER_CLASS = 'py-3 lg:py-2'
 
 // The server rejects every deploy while such a row exists, so the buttons follow it.
 function findActiveDeploy(records: StackDeployRecord[] | undefined, host: string): ActiveDeployInfo | null {
@@ -330,9 +333,9 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     <FormProvider {...form}>
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3">
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl">{stackName}</h2>
+        <div className="flex items-start justify-between gap-2 pb-3">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 min-w-0">
+            <h2 className="text-xl truncate max-w-full">{stackName}</h2>
             <span className="text-xs opacity-50">{detail.host}</span>
             <span className="text-xs opacity-50">&middot;</span>
             <span className="text-xs opacity-50">
@@ -345,7 +348,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="text-foreground"
+                  className="text-foreground shrink-0 size-11 lg:size-8"
                   onClick={() => setSettingsDialogOpen(true)}
                   aria-label="stack settings"
                 />
@@ -364,19 +367,25 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         )}
 
         {/* Tab bar */}
-        <div className="flex items-center gap-3 border-b border-border">
-          <Tabs value={panel} onValueChange={(value) => setPanel(value as Panel)}>
-            <TabsList>
-              <TabsTrigger value="compose" className="py-2">
-                Compose{composeDirty && <TabDirtyDot />}
-              </TabsTrigger>
-              <TabsTrigger value="secrets" className="py-2">
-                Secrets{secretsDirty && <TabDirtyDot />}
-              </TabsTrigger>
-              <TabsTrigger value="containers" className="py-2">Containers</TabsTrigger>
-              <TabsTrigger value="deploys" className="py-2">Deploys</TabsTrigger>
-            </TabsList>
-          </Tabs>
+        <div className="border-b border-border">
+          <HorizontalScrollRow
+            bgVar="--background"
+            innerClassName="flex flex-nowrap min-w-max"
+            scrollClassName="flex flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            <Tabs value={panel} onValueChange={(value) => setPanel(value as Panel)}>
+              <TabsList>
+                <TabsTrigger value="compose" className={TAB_TRIGGER_CLASS}>
+                  Compose{composeDirty && <TabDirtyDot />}
+                </TabsTrigger>
+                <TabsTrigger value="secrets" className={TAB_TRIGGER_CLASS}>
+                  Secrets{secretsDirty && <TabDirtyDot />}
+                </TabsTrigger>
+                <TabsTrigger value="containers" className={TAB_TRIGGER_CLASS}>Containers</TabsTrigger>
+                <TabsTrigger value="deploys" className={TAB_TRIGGER_CLASS}>Deploys</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </HorizontalScrollRow>
         </div>
 
         {/* Tab content, scrollable */}
