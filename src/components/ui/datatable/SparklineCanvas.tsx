@@ -33,18 +33,16 @@ export default memo(function SparklineCanvas({
 }: SparklineCanvasProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dotRef = useRef<HTMLDivElement>(null);
   const smoothMaxRef = useRef(0);
   const dataRef = useRef(data);
-  const lastEndTimestampRef = useRef(0);
-  const pulseProgressRef = useRef(1);
   const lineColorRef = useRef('');
   const areaStartColorRef = useRef('');
   const areaEndColorRef = useRef('');
   const rightEdgeTimeRef = useRef(0);
-  const lastFrameTimeRef = useRef(0);
   const lastDrawTimeRef = useRef(0);
 
-  // Pre-allocated buffers - written into every frame, never replaced
+  // Pre-allocated buffers, written into every draw, never replaced
   const pointsXRef = useRef(new Float64Array(MAX_POINTS));
   const pointsYRef = useRef(new Float64Array(MAX_POINTS));
 
@@ -55,129 +53,27 @@ export default memo(function SparklineCanvas({
   const drawWidth = width - PADDING * 2;
   const drawHeight = height - PADDING * 2;
 
-  // Resolve colors and rebuild gradient when color or height changes
-  useEffect(() => {
-    const colors = resolveChartColors(color);
-    lineColorRef.current = colors.line;
-    areaStartColorRef.current = colors.areaStart;
-    areaEndColorRef.current = colors.areaEnd;
-
-    // Rebuild cached gradient, skip if CSS vars unresolved
+  const drawNow = () => {
     const ctx = gradientCtxRef.current;
-    if (ctx && areaStartColorRef.current && areaEndColorRef.current) {
-      const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
-      gradient.addColorStop(0, areaStartColorRef.current);
-      gradient.addColorStop(1, areaEndColorRef.current);
-      gradientRef.current = gradient;
-    }
-  }, [color, height]);
-
-  // Update data refs when data changes
-  useEffect(() => {
-    dataRef.current = data;
-
-    if (data.length > 0) {
-      const latestTimestamp = data[data.length - 1].timestamp;
-      rightEdgeTimeRef.current = latestTimestamp;
-
-      // Only reset animation when a new point appears at the end,
-      // not when old points are trimmed from the beginning
-      if (latestTimestamp !== lastEndTimestampRef.current && lastEndTimestampRef.current !== 0) {
-        pulseProgressRef.current = 0;
-      }
-      lastEndTimestampRef.current = latestTimestamp;
-    }
-
-    // Stable max with decay - use same y-axis scaling as ECharts for consistent visual representation
-    if (data.length > 0) {
-      let rawMax = 0;
-      for (let i = 0; i < data.length; i++) {
-        if (data[i].value > rawMax) rawMax = data[i].value;
-      }
-      const { max: niceMax } = calculateCleanYAxis(rawMax, 'linear');
-      smoothMaxRef.current =
-        smoothMaxRef.current === 0
-          ? niceMax
-          : Math.max(niceMax, smoothMaxRef.current * MAX_DECAY);
-    }
-  }, [data]);
-
-  // Canvas setup (DPR scaling, gradient initialization). Runs once per width/height change.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d', { alpha: true });
+    const dot = dotRef.current;
     if (!ctx) return;
-
-    // Store ctx ref so the data-change effect (and render loop) can use it
-    gradientCtxRef.current = ctx;
-
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    ctx.scale(dpr, dpr);
-
-    // Build initial gradient, guarding against empty color refs (CSS vars may not yet be resolved)
-    if (areaStartColorRef.current && areaEndColorRef.current) {
-      const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
-      gradient.addColorStop(0, areaStartColorRef.current);
-      gradient.addColorStop(1, areaEndColorRef.current);
-      gradientRef.current = gradient;
-    }
-
-    lastFrameTimeRef.current = performance.now();
-    lastDrawTimeRef.current = 0;
-
-    return () => {
-      gradientCtxRef.current = null;
-      gradientRef.current = null;
-    };
-  }, [width, height]);
-
-  // Throttle interval when idle (pulse done): ~4fps keeps the time-axis
-  // sliding smoothly without burning GPU on 60fps draws per sparkline.
-  const IDLE_INTERVAL_MS = 250;
-
-  // After useVisibleRAF re-enters visibility, lastFrameTimeRef can be seconds
-  // stale. Treat any delta over this as a resume, not a real frame gap, so an
-  // in-flight pulse doesn't saturate (0 → 1) in a single post-resume tick.
-  const PULSE_RESUME_THRESHOLD_MS = 100;
-
-  // Per-frame render, gated by useVisibleRAF: only runs while wrapper is in viewport.
-  useVisibleRAF(wrapperRef, (now: number) => {
-    const ctx = gradientCtxRef.current;
-    if (!ctx) return;
-
-    const pxBuf = pointsXRef.current;
-    const pyBuf = pointsYRef.current;
-
-    const rawDelta = now - lastFrameTimeRef.current;
-    lastFrameTimeRef.current = now;
-    const delta = rawDelta > PULSE_RESUME_THRESHOLD_MS ? 0 : rawDelta;
-
-    // Animate pulse
-    pulseProgressRef.current = Math.min(1, pulseProgressRef.current + delta / 1200);
-
-    const pulseProgress = pulseProgressRef.current;
-
-    // Throttle: full framerate during pulse, ~4fps when idle
-    if (pulseProgress >= 1 && now - lastDrawTimeRef.current < IDLE_INTERVAL_MS) return;
-    lastDrawTimeRef.current = now;
-
-    const currentData = dataRef.current;
-    const max = smoothMaxRef.current;
-    const currentRightEdge = rightEdgeTimeRef.current;
 
     ctx.clearRect(0, 0, width, height);
 
+    const currentData = dataRef.current;
+    const max = smoothMaxRef.current;
     const len = currentData.length;
-    if (len === 0 || currentRightEdge === 0) return;
+    const pxBuf = pointsXRef.current;
+    const pyBuf = pointsYRef.current;
 
-    // Time window calculation (inlined - no closure allocation)
+    if (len === 0 || rightEdgeTimeRef.current === 0) {
+      if (dot) dot.style.left = '-9999px';
+      return;
+    }
+
+    // Time window calculation, inlined to avoid closure allocation
     const timeNow = Date.now();
-    const visualRightEdge = timeNow; // currentRightEdge + (timeNow - currentRightEdge)
-    const leftEdgeTime = visualRightEdge - SPARKLINE_TIME_WINDOW_MS;
+    const leftEdgeTime = timeNow - SPARKLINE_TIME_WINDOW_MS;
     const timeScale = drawWidth / SPARKLINE_TIME_WINDOW_MS;
 
     // Write x/y coordinates into pre-allocated buffers (zero allocation)
@@ -215,30 +111,114 @@ export default memo(function SparklineCanvas({
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Draw persistent dot with fade animation (no per-frame string allocation)
-    const lastX = pxBuf[count - 1];
-    const lastY = pyBuf[count - 1];
-    const baseOpacity = 0.3;
-    const radius = 2;
+    if (dot) {
+      dot.style.left = `${pxBuf[count - 1]}px`;
+      dot.style.top = `${pyBuf[count - 1]}px`;
+    }
+  };
+  const drawRef = useRef(drawNow);
+  drawRef.current = drawNow;
 
-    // Pulse brightens from peak to baseline (never fades out, so the dot stays visible)
-    const peakOpacity = 0.8;
-    const opacity = pulseProgress < 1
-      ? peakOpacity - (peakOpacity - baseOpacity) * pulseProgress
-      : baseOpacity;
+  // Resolve colors and rebuild gradient when color or height changes
+  useEffect(() => {
+    const colors = resolveChartColors(color);
+    lineColorRef.current = colors.line;
+    areaStartColorRef.current = colors.areaStart;
+    areaEndColorRef.current = colors.areaEnd;
+    if (dotRef.current) dotRef.current.style.backgroundColor = colors.line;
 
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, opacity);
-    ctx.beginPath();
-    ctx.arc(lastX, lastY, radius, 0, Math.PI * 2);
-    ctx.fillStyle = lineColorRef.current;
-    ctx.fill();
-    ctx.restore();
+    // Rebuild cached gradient, skip if CSS vars unresolved
+    const ctx = gradientCtxRef.current;
+    if (ctx && areaStartColorRef.current && areaEndColorRef.current) {
+      const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
+      gradient.addColorStop(0, areaStartColorRef.current);
+      gradient.addColorStop(1, areaEndColorRef.current);
+      gradientRef.current = gradient;
+    }
+  }, [color, height]);
+
+  // Canvas setup (DPR scaling, gradient initialization). Runs once per width/height change.
+  // Declared before the data effect so a mount that already has data draws on
+  // the first commit instead of waiting for a ticker tick.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+
+    // Store ctx ref so the color-change and data-change effects can use it
+    gradientCtxRef.current = ctx;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+
+    // Build initial gradient, guarding against empty color refs (CSS vars may not yet be resolved)
+    if (areaStartColorRef.current && areaEndColorRef.current) {
+      const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
+      gradient.addColorStop(0, areaStartColorRef.current);
+      gradient.addColorStop(1, areaEndColorRef.current);
+      gradientRef.current = gradient;
+    }
+
+    lastDrawTimeRef.current = 0;
+
+    return () => {
+      gradientCtxRef.current = null;
+      gradientRef.current = null;
+    };
+  }, [width, height]);
+
+  // Update data refs and redraw when data changes. The line/area only change
+  // here; the pulse dot is a CSS-animated DOM element, so no per-frame canvas
+  // redraw is needed while the pulse fades.
+  useEffect(() => {
+    dataRef.current = data;
+
+    if (data.length > 0) {
+      rightEdgeTimeRef.current = data[data.length - 1].timestamp;
+
+      // Stable max with decay - use same y-axis scaling as ECharts for consistent visual representation
+      let rawMax = 0;
+      for (let i = 0; i < data.length; i++) {
+        if (data[i].value > rawMax) rawMax = data[i].value;
+      }
+      const { max: niceMax } = calculateCleanYAxis(rawMax, 'linear');
+      smoothMaxRef.current =
+        smoothMaxRef.current === 0
+          ? niceMax
+          : Math.max(niceMax, smoothMaxRef.current * MAX_DECAY);
+    }
+
+    drawRef.current();
+  }, [data]);
+
+  // Throttle interval when idle: ~4fps keeps the time-axis sliding smoothly
+  // without burning GPU on full-rate draws per sparkline.
+  const IDLE_INTERVAL_MS = 250;
+
+  // Ticker-driven redraws only slide the time window between data arrivals;
+  // the first tick after (re)subscribe always draws (lastDrawTimeRef is 0).
+  useVisibleRAF(wrapperRef, (now: number) => {
+    if (lastDrawTimeRef.current !== 0 && now - lastDrawTimeRef.current < IDLE_INTERVAL_MS) return;
+    lastDrawTimeRef.current = now;
+    drawRef.current();
   });
 
   return (
-    <div ref={wrapperRef} className={`shrink-0 ${className ?? ''}`} style={{ contain: 'strict', height, width }}>
+    <div ref={wrapperRef} className={`relative shrink-0 ${className ?? ''}`} style={{ contain: 'strict', height, width }}>
       <canvas ref={canvasRef} style={{ width, height, display: 'block' }} />
+      {data.length > 0 && (
+        <div
+          ref={dotRef}
+          // New key per latest point remounts the node, restarting the pulse animation.
+          key={data[data.length - 1].timestamp}
+          className="sparkline-dot"
+          style={{ backgroundColor: lineColorRef.current }}
+        />
+      )}
     </div>
   );
 });

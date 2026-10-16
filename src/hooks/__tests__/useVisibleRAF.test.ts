@@ -142,10 +142,13 @@ describe('useVisibleRAF', () => {
 
     ioInstances[0].emit(targetRef.current, true);
 
-    // Drive 3 frames
+    // Drive 3 frames. Timestamps advance past the shared ticker's idle gate
+    // (an idle subscriber only gets ticks ~100ms apart).
+    let ts = performance.now();
     for (let i = 0; i < 3; i++) {
       const frame = rafCallbacks.shift();
-      if (frame) frame(performance.now());
+      ts += 200;
+      if (frame) frame(ts);
     }
 
     expect(cb).toHaveBeenCalledTimes(3);

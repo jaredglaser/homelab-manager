@@ -284,11 +284,34 @@ body {
   animation: sparkline-shimmer 1.5s ease-in-out infinite;
 }
 
+/* Sparkline pulse dot: DOM element animated by the compositor so the canvas
+   only redraws when data changes. left/top are set imperatively by
+   SparklineCanvas's draw; -9999px keeps it invisible before the first draw. */
+.sparkline-dot {
+  position: absolute;
+  top: 0;
+  left: -9999px;
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: 0.3;
+  animation: sparkline-pulse 1.2s linear forwards;
+}
+@keyframes sparkline-pulse {
+  from { opacity: 0.8; }
+  to { opacity: 0.3; }
+}
+
 /* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   .sparkline-shimmer {
     animation: none;
     opacity: 0.3;
+  }
+  .sparkline-dot {
+    animation: none;
   }
   ::view-transition-old(page-content),
   ::view-transition-new(page-content) {

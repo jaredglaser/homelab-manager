@@ -24,10 +24,12 @@ export function useEChartTimeScroll(
   const onChartReady = useCallback((instance: unknown) => setReadyInstance(instance), []);
 
   const tick = () => {
+    // Always true: returning undefined would drop the axis slide to the ticker's idle cadence.
     const instance = chartRef.current?.getEchartsInstance();
-    if (!instance || instance.isDisposed() || instance !== readyInstance) return;
+    if (!instance || instance.isDisposed() || instance !== readyInstance) return true;
     const now = Date.now();
     instance.setOption({ xAxis: { min: now - windowMs, max: now } });
+    return true;
   };
 
   useVisibleRAF(targetRef, tick);

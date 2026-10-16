@@ -214,7 +214,7 @@ describe('SparklineCanvas', () => {
     Object.defineProperty(window, 'devicePixelRatio', { value: 1, configurable: true });
   });
 
-  it('draws gradient area, line, and dot when data is provided', () => {
+  it('draws gradient area and line when data is provided', () => {
     const now = Date.now();
     const data: TimeSeriesPoint[] = [
       { timestamp: now - 2000, value: 30 },
@@ -222,7 +222,7 @@ describe('SparklineCanvas', () => {
       { timestamp: now, value: 45 },
     ];
 
-    render(<SparklineCanvas data={data} color="--chart-cpu" />);
+    const { container } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
 
     // Flush one animation frame to trigger the render callback
     flushOneFrame();
@@ -232,9 +232,58 @@ describe('SparklineCanvas', () => {
     expect(mockCtx.lineTo).toHaveBeenCalled();
     expect(mockCtx.fill).toHaveBeenCalled();
     expect(mockCtx.stroke).toHaveBeenCalled();
-    expect(mockCtx.arc).toHaveBeenCalled();
-    expect(mockCtx.save).toHaveBeenCalled();
-    expect(mockCtx.restore).toHaveBeenCalled();
+    // The pulse dot is a DOM element, not canvas-drawn
+    expect(mockCtx.arc).not.toHaveBeenCalled();
+
+    const dot = container.querySelector('.sparkline-dot') as HTMLElement | null;
+    expect(dot).not.toBeNull();
+    expect(dot!.style.backgroundColor).toContain('255');
+  });
+
+  it('omits the pulse dot when data is empty', () => {
+    const { container } = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
+    expect(container.querySelector('.sparkline-dot')).toBeNull();
+  });
+
+  it('positions the pulse dot at the last data point after a draw', () => {
+    const now = Date.now();
+    const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+
+    const { container } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+
+    flushOneFrame();
+
+    const dot = container.querySelector('.sparkline-dot') as HTMLElement;
+    expect(dot.style.left).not.toBe('-9999px');
+    expect(dot.style.left).toMatch(/px$/);
+    expect(dot.style.top).toMatch(/px$/);
+  });
+
+  it('does not redraw on rapid ticker frames while idle', () => {
+    const now = Date.now();
+    const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+
+    render(<SparklineCanvas data={data} color="--chart-cpu" />);
+
+    // Mount draw via the data effect
+    const afterMount = (mockCtx.clearRect as Mock<typeof mockCtx.clearRect>).mock.calls.length;
+    expect(afterMount).toBeGreaterThan(0);
+
+    // First ticker tick always draws
+    act(() => rafCallbacks[0](1000));
+    const afterFirstTick = (mockCtx.clearRect as Mock<typeof mockCtx.clearRect>).mock.calls.length;
+    expect(afterFirstTick).toBe(afterMount + 1);
+
+    // Rapid frames inside the idle window are gated by the shared ticker
+    act(() => rafCallbacks[1](1005));
+    act(() => rafCallbacks[2](1010));
+    const afterRapid = (mockCtx.clearRect as Mock<typeof mockCtx.clearRect>).mock.calls.length;
+    expect(afterRapid).toBe(afterFirstTick);
+
+    // A frame past the idle interval redraws (time-axis slide)
+    act(() => rafCallbacks[3](1300));
+    const afterIdleInterval = (mockCtx.clearRect as Mock<typeof mockCtx.clearRect>).mock.calls.length;
+    expect(afterIdleInterval).toBe(afterFirstTick + 1);
   });
 
   it('creates a linear gradient with area colors', () => {
