@@ -171,9 +171,8 @@ export default memo(function SparklineCanvas({
     };
   }, [width, height]);
 
-  // Update data refs and redraw when data changes. The line/area only change
-  // here; the pulse dot is a CSS-animated DOM element, so no per-frame canvas
-  // redraw is needed while the pulse fades.
+  // Redraw on data change only. The pulse animation lives in CSS
+  // (.sparkline-dot), so keep per-frame canvas work out of here.
   useEffect(() => {
     dataRef.current = data;
 
@@ -199,8 +198,8 @@ export default memo(function SparklineCanvas({
   // without burning GPU on full-rate draws per sparkline.
   const IDLE_INTERVAL_MS = 250;
 
-  // Ticker-driven redraws only slide the time window between data arrivals;
-  // the first tick after (re)subscribe always draws (lastDrawTimeRef is 0).
+  // Ticker-driven redraws only slide the time window between data arrivals.
+  // The first tick after (re)subscribe always draws (lastDrawTimeRef is 0).
   useVisibleRAF(wrapperRef, (now: number) => {
     if (lastDrawTimeRef.current !== 0 && now - lastDrawTimeRef.current < IDLE_INTERVAL_MS) return;
     lastDrawTimeRef.current = now;

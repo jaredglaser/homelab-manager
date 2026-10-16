@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import { subscribeRafTicker } from '@/lib/charts/raf-ticker';
+import { subscribeRafTicker } from '@/lib/utils/raf-ticker';
 
 /**
  * Small rootMargin so charts start animating just before scrolling into view.
@@ -11,10 +11,8 @@ const ROOT_MARGIN = '100px';
  * Runs a requestAnimationFrame callback only while `targetRef` intersects the
  * viewport, pausing when off-screen to avoid perpetual 60fps work.
  *
- * Callbacks run on a process-wide shared ticker (one rAF loop for all
- * subscribers) rather than a per-mount loop. Returning true from the callback
- * holds the ticker at full vsync rate; returning nothing lets it drop to its
- * idle cadence while ticks keep arriving.
+ * Callbacks run on a process-wide shared ticker rather than a per-mount loop.
+ * Return true to hold full vsync rate. Returning nothing drops to its idle cadence.
  *
  * - `callback` is always called with the latest closure — callers can pass a
  *   freshly-created function each render without re-subscribing the observer.

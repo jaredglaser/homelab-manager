@@ -24,9 +24,9 @@ export function useEChartTimeScroll(
   const onChartReady = useCallback((instance: unknown) => setReadyInstance(instance), []);
 
   const tick = () => {
-    // Always true: returning undefined would drop the axis slide to the ticker's idle cadence.
+    // Only a real setOption holds full rate, so an unready chart cannot pin the ticker at 60fps.
     const instance = chartRef.current?.getEchartsInstance();
-    if (!instance || instance.isDisposed() || instance !== readyInstance) return true;
+    if (!instance || instance.isDisposed() || instance !== readyInstance) return;
     const now = Date.now();
     instance.setOption({ xAxis: { min: now - windowMs, max: now } });
     return true;

@@ -284,9 +284,8 @@ body {
   animation: sparkline-shimmer 1.5s ease-in-out infinite;
 }
 
-/* Sparkline pulse dot: DOM element animated by the compositor so the canvas
-   only redraws when data changes. left/top are set imperatively by
-   SparklineCanvas's draw; -9999px keeps it invisible before the first draw. */
+/* Pulse dot for SparklineCanvas, animated by the compositor. left/top are set
+   imperatively by its draw. -9999px hides the dot before the first draw. */
 .sparkline-dot {
   position: absolute;
   top: 0;

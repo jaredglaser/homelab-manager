@@ -118,4 +118,83 @@ describe('raf-ticker', () => {
     expect(cafSpy).toHaveBeenCalled();
     expect(rafCallbacks.length).toBe(1);
   });
+
+  it('keeps the loop alive when one of two subscribers unsubscribes mid-loop', () => {
+    const cafSpy = globalThis.cancelAnimationFrame as unknown as ReturnType<typeof mock>;
+    const a = mock((_t: number) => {});
+    const b = mock((_t: number) => {});
+    const unsubA = track(subscribeRafTicker(a));
+    track(subscribeRafTicker(b));
+
+    rafCallbacks[0](1000);
+    unsubA();
+
+    // Drive the requeued frames: b keeps ticking, the loop is not cancelled.
+    rafCallbacks[1](1200);
+    rafCallbacks[2](1400);
+    expect(b).toHaveBeenCalledTimes(3);
+    expect(a).toHaveBeenCalledTimes(1);
+    expect(cafSpy).not.toHaveBeenCalled();
+  });
+
+  it('a throwing subscriber stops the loop for everyone and a fresh subscribe restarts it', () => {
+    const errSpy = mock(() => {});
+    const originalErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+    try {
+      const innocent = mock((_t: number) => {});
+      const thrower = mock((_t: number) => {
+        throw new Error('boom');
+      });
+      track(subscribeRafTicker(innocent));
+      const unsubThrower = track(subscribeRafTicker(thrower));
+
+      rafCallbacks[0](1000);
+
+      // The innocent subscriber got its tick, then the thrower killed the loop.
+      expect(innocent).toHaveBeenCalledTimes(1);
+      expect(errSpy).toHaveBeenCalled();
+      // Death leaves nothing pending (no orphaned requeue) and the loop dead.
+      expect(rafCallbacks.length).toBe(1);
+      expect(globalThis.cancelAnimationFrame as unknown as ReturnType<typeof mock>).not.toHaveBeenCalled();
+
+      // The thrower stays subscribed, so the owner removes it, then a fresh
+      // subscription restarts with exactly one rAF callback.
+      unsubThrower();
+      const revived = mock((_t: number) => {});
+      track(subscribeRafTicker(revived));
+      expect(rafCallbacks.length).toBe(2);
+      rafCallbacks[1](5000);
+      expect(revived).toHaveBeenCalledTimes(1);
+    } finally {
+      console.error = originalErr;
+    }
+  });
+
+  it('does not double-schedule when a subscriber unsubscribes and a new one joins in the same tick', () => {
+    let unsubA: () => void = () => {};
+    let unsubReplacement: (() => void) | null = null;
+    let replacementCalls = 0;
+    const replacement = mock((_t: number) => {
+      replacementCalls += 1;
+    });
+    const a = mock((_t: number) => {
+      unsubA();
+      unsubReplacement = subscribeRafTicker(replacement);
+    });
+    unsubA = track(subscribeRafTicker(a));
+
+    rafCallbacks[0](1000);
+
+    // Exactly one new chain pending (the replacement), not a second re-queue.
+    expect(rafCallbacks.length).toBe(2);
+    // Set iteration visits a subscriber added mid-tick in the same frame.
+    expect(replacementCalls).toBe(1);
+
+    rafCallbacks[1](1200);
+    expect(replacementCalls).toBe(2);
+    // The surviving single chain requeued exactly one more frame.
+    expect(rafCallbacks.length).toBe(3);
+    if (unsubReplacement) track(unsubReplacement);
+  });
 });
