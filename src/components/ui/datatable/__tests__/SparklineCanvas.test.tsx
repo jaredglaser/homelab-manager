@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach, type Mock } from 'bun:test';
-import { render, cleanup, act, type RenderResult } from '@testing-library/react';
+import { render, cleanup } from '@testing-library/react';
 import SparklineCanvas from '../SparklineCanvas';
 
 interface TimeSeriesPoint {
@@ -56,60 +56,18 @@ const MEMORY_AREA_START = 'rgba(0,255,0,0.3)';
 const MEMORY_AREA_END = 'rgba(0,255,0,0)';
 
 describe('SparklineCanvas', () => {
-  let rafSpy: Mock<typeof window.requestAnimationFrame>;
-  let cafSpy: Mock<typeof window.cancelAnimationFrame>;
   let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
-  let originalRaf: typeof window.requestAnimationFrame;
-  let originalCaf: typeof window.cancelAnimationFrame;
-  let originalIO: typeof IntersectionObserver | undefined;
   let originalDPR: number;
   let mockCtx: ReturnType<typeof makeMockContext>;
   let mockGradient: ReturnType<typeof makeMockGradient>;
-  let rafCallbacks: FrameRequestCallback[];
-
-  /** Execute the first queued RAF callback (the render loop re-enqueues itself, which we capture but do not recurse into) */
-  function flushOneFrame() {
-    const cb = rafCallbacks.shift();
-    if (cb) act(() => cb(performance.now()));
-  }
+  let animateSpy: Mock<(...args: unknown[]) => { cancel: Mock<() => void> }>;
+  let animateCalls: Array<{ el: Element; args: unknown[]; cancel: Mock<() => void> }>;
+  let originalAnimate: typeof Element.prototype.animate;
+  let originalGetAnimations: typeof Element.prototype.getAnimations;
 
   beforeEach(() => {
     setCssColorVars('--chart-cpu', CPU_LINE, CPU_AREA_START, CPU_AREA_END);
-
-    originalRaf = window.requestAnimationFrame;
-    originalCaf = window.cancelAnimationFrame;
     originalDPR = window.devicePixelRatio;
-
-    rafCallbacks = [];
-    let nextId = 1;
-    rafSpy = mock((cb: FrameRequestCallback) => {
-      rafCallbacks.push(cb);
-      return nextId++;
-    }) as Mock<typeof window.requestAnimationFrame>;
-    cafSpy = mock(() => {}) as Mock<typeof window.cancelAnimationFrame>;
-    window.requestAnimationFrame = rafSpy;
-    window.cancelAnimationFrame = cafSpy;
-
-    // Mock IntersectionObserver to immediately report "visible" on observe()
-    originalIO = globalThis.IntersectionObserver;
-    globalThis.IntersectionObserver = class MockIO {
-      cb: IntersectionObserverCallback;
-      constructor(cb: IntersectionObserverCallback) {
-        this.cb = cb;
-      }
-      observe(el: Element) {
-        this.cb(
-          [{ isIntersecting: true, target: el } as unknown as IntersectionObserverEntry],
-          this as unknown as IntersectionObserver,
-        );
-      }
-      unobserve() {}
-      disconnect() {}
-      takeRecords() { return []; }
-      root = null;
-      rootMargin = '';
-      thresholds: readonly number[] = [];
-    } as unknown as typeof IntersectionObserver;
 
     mockGradient = makeMockGradient();
     mockCtx = makeMockContext(mockGradient);
@@ -123,17 +81,41 @@ describe('SparklineCanvas', () => {
       if (contextId === '2d') return mockCtx as unknown as CanvasRenderingContext2D;
       return null;
     }) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+
+    animateCalls = [];
+    animateSpy = mock(function (this: Element, ...args: unknown[]) {
+      const animation = { cancel: mock(() => {}) };
+      animateCalls.push({ el: this, args, cancel: animation.cancel });
+      return animation;
+    }) as unknown as Mock<(...args: unknown[]) => { cancel: Mock<() => void> }>;
+    originalAnimate = Element.prototype.animate;
+    Element.prototype.animate = animateSpy as unknown as typeof Element.prototype.animate;
+    originalGetAnimations = Element.prototype.getAnimations;
+    // Return this element's mocked animations so the cancel-before-restart path is observable
+    Element.prototype.getAnimations = mock(function (this: Element) {
+      return animateCalls.filter((c) => c.el === this) as unknown as Animation[];
+    }) as unknown as typeof Element.prototype.getAnimations;
   });
 
   afterEach(() => {
     cleanup();
     HTMLCanvasElement.prototype.getContext = originalGetContext;
-    window.requestAnimationFrame = originalRaf;
-    window.cancelAnimationFrame = originalCaf;
-    if (originalIO) globalThis.IntersectionObserver = originalIO;
+    if (originalAnimate) Element.prototype.animate = originalAnimate;
+    else delete (Element.prototype as { animate?: unknown }).animate;
+    if (originalGetAnimations) Element.prototype.getAnimations = originalGetAnimations;
+    else delete (Element.prototype as { getAnimations?: unknown }).getAnimations;
     Object.defineProperty(window, 'devicePixelRatio', { value: originalDPR, configurable: true });
     clearCssColorVars('--chart-cpu');
   });
+
+  function clearRectCalls() {
+    return (mockCtx.clearRect as Mock<typeof mockCtx.clearRect>).mock.calls.length;
+  }
+
+  function animateCallsFor(container: HTMLElement, selector: string) {
+    const el = container.querySelector(selector);
+    return animateCalls.filter((c) => c.el === el);
+  }
 
   it('renders a canvas element with correct width/height styles', () => {
     const { container } = render(
@@ -174,31 +156,17 @@ describe('SparklineCanvas', () => {
     expect(wrapper.style.height).toBe('48px');
   });
 
-  it('cancels animation frame on unmount', () => {
-    const { unmount } = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
-    unmount();
-    expect(cafSpy).toHaveBeenCalled();
-  });
-
-  it('calls requestAnimationFrame on mount', () => {
-    render(<SparklineCanvas data={[]} color="--chart-cpu" />);
-    expect(rafSpy).toHaveBeenCalled();
-  });
-
   it('calls canvas getContext with 2d and alpha', () => {
     render(<SparklineCanvas data={[]} color="--chart-cpu" />);
     expect(HTMLCanvasElement.prototype.getContext).toHaveBeenCalledWith('2d', { alpha: true });
   });
 
-  it('handles empty data array without drawing paths', () => {
+  it('handles empty data array without drawing paths or starting the slide', () => {
     render(<SparklineCanvas data={[]} color="--chart-cpu" />);
 
-    // Flush one animation frame so the render callback runs
-    flushOneFrame();
-
-    // clearRect is called (canvas is cleared), but no paths are drawn because data is empty
     expect(mockCtx.clearRect).toHaveBeenCalled();
     expect(mockCtx.moveTo).not.toHaveBeenCalled();
+    expect(animateSpy).not.toHaveBeenCalled();
   });
 
   it('scales canvas dimensions by device pixel ratio', () => {
@@ -214,7 +182,7 @@ describe('SparklineCanvas', () => {
     Object.defineProperty(window, 'devicePixelRatio', { value: 1, configurable: true });
   });
 
-  it('draws gradient area, line, and dot when data is provided', () => {
+  it('draws gradient area and line when data is provided', () => {
     const now = Date.now();
     const data: TimeSeriesPoint[] = [
       { timestamp: now - 2000, value: 30 },
@@ -222,19 +190,141 @@ describe('SparklineCanvas', () => {
       { timestamp: now, value: 45 },
     ];
 
-    render(<SparklineCanvas data={data} color="--chart-cpu" />);
-
-    // Flush one animation frame to trigger the render callback
-    flushOneFrame();
+    const { container } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
 
     expect(mockCtx.beginPath).toHaveBeenCalled();
     expect(mockCtx.moveTo).toHaveBeenCalled();
     expect(mockCtx.lineTo).toHaveBeenCalled();
     expect(mockCtx.fill).toHaveBeenCalled();
     expect(mockCtx.stroke).toHaveBeenCalled();
-    expect(mockCtx.arc).toHaveBeenCalled();
-    expect(mockCtx.save).toHaveBeenCalled();
-    expect(mockCtx.restore).toHaveBeenCalled();
+    // The pulse dot is a DOM element, not canvas-drawn
+    expect(mockCtx.arc).not.toHaveBeenCalled();
+
+    const dot = container.querySelector('.sparkline-dot') as HTMLElement | null;
+    expect(dot).not.toBeNull();
+    expect(dot!.style.backgroundColor).toContain('255');
+  });
+
+  it('omits the pulse dot when data is empty', () => {
+    const { container } = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
+    expect(container.querySelector('.sparkline-dot')).toBeNull();
+  });
+
+  it('positions the pulse dot at the last data point after a draw', () => {
+    const now = Date.now();
+    const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+
+    const { container } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+
+    const dot = container.querySelector('.sparkline-dot') as HTMLElement;
+    expect(dot.style.left).not.toBe('-9999px');
+    expect(dot.style.left).toMatch(/px$/);
+    expect(dot.style.top).toMatch(/px$/);
+  });
+
+  it('redraws only when the data array changes', () => {
+    const now = Date.now();
+    const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+
+    const { rerender } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+    const afterMount = clearRectCalls();
+    expect(afterMount).toBeGreaterThan(0);
+
+    rerender(<SparklineCanvas data={data} color="--chart-cpu" />);
+    expect(clearRectCalls()).toBe(afterMount);
+
+    const next: TimeSeriesPoint[] = [{ timestamp: now + 1000, value: 60 }];
+    rerender(<SparklineCanvas data={next} color="--chart-cpu" />);
+    expect(clearRectCalls()).toBe(afterMount + 1);
+  });
+
+  it('restarts the compositor slide on each data draw', () => {
+    const now = Date.now();
+    const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+
+    const { container, rerender } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+
+    const stage = container.querySelector('.inset-0') as Element;
+    const slides = animateCallsFor(container, '.inset-0');
+    expect(slides.length).toBe(1);
+    // Default width 60, PADDING 2: the stage traverses the drawable width over the window
+    expect(slides[0].args[0]).toEqual([
+      { transform: 'translateX(0)' },
+      { transform: 'translateX(-56px)' },
+    ]);
+    expect(slides[0].args[1]).toEqual({
+      duration: 30000,
+      easing: 'linear',
+      fill: 'forwards',
+    });
+    expect(stage).not.toBeNull();
+
+    const next: TimeSeriesPoint[] = [{ timestamp: now + 1000, value: 60 }];
+    rerender(<SparklineCanvas data={next} color="--chart-cpu" />);
+
+    expect(animateCallsFor(container, '.inset-0').length).toBe(2);
+    expect(slides[0].cancel).toHaveBeenCalled();
+  });
+
+  it('redraws and restarts the slide after a width change', () => {
+    const now = Date.now();
+    const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+
+    const { container, rerender } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+    const mountDraws = clearRectCalls();
+    expect(animateCallsFor(container, '.inset-0').length).toBe(1);
+
+    // Same data reference: only the setup effect re-runs, which must redraw
+    // and re-anchor the slide at the new drawable width.
+    rerender(<SparklineCanvas data={data} color="--chart-cpu" width={120} />);
+
+    expect(clearRectCalls()).toBeGreaterThan(mountDraws);
+    const slides = animateCallsFor(container, '.inset-0');
+    expect(slides.length).toBe(2);
+    expect(slides[1].args[0]).toEqual([
+      { transform: 'translateX(0)' },
+      { transform: 'translateX(-116px)' },
+    ]);
+    expect(slides[0].cancel).toHaveBeenCalled();
+  });
+
+  it('cancels the slide when data becomes empty', () => {
+    const now = Date.now();
+    const { container, rerender } = render(
+      <SparklineCanvas data={[{ timestamp: now, value: 50 }]} color="--chart-cpu" />,
+    );
+    const slides = animateCallsFor(container, '.inset-0');
+    expect(slides.length).toBe(1);
+
+    rerender(<SparklineCanvas data={[]} color="--chart-cpu" />);
+
+    expect(slides[0].cancel).toHaveBeenCalled();
+    expect(animateCallsFor(container, '.inset-0').length).toBe(1);
+  });
+
+  it('cancels the slide animation on unmount', () => {
+    const now = Date.now();
+    const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+
+    const { container, unmount } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+    const slides = animateCallsFor(container, '.inset-0');
+    expect(slides.length).toBe(1);
+
+    unmount();
+    expect(slides[0].cancel).toHaveBeenCalled();
+  });
+
+  it('does not start the slide when prefers-reduced-motion is set', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = mock(() => ({ matches: true })) as unknown as typeof window.matchMedia;
+    try {
+      const now = Date.now();
+      const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+      render(<SparklineCanvas data={data} color="--chart-cpu" />);
+      expect(animateSpy).not.toHaveBeenCalled();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 
   it('creates a linear gradient with area colors', () => {
@@ -242,8 +332,6 @@ describe('SparklineCanvas', () => {
     const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
 
     render(<SparklineCanvas data={data} color="--chart-cpu" />);
-
-    flushOneFrame();
 
     expect(mockCtx.createLinearGradient).toHaveBeenCalled();
     expect(mockGradient.addColorStop).toHaveBeenCalledWith(0, CPU_AREA_START);
@@ -254,28 +342,81 @@ describe('SparklineCanvas', () => {
     // Register a second color CSS variable set
     setCssColorVars('--chart-memory', MEMORY_LINE, MEMORY_AREA_START, MEMORY_AREA_END);
 
-    let result: RenderResult;
-
     // Mount with initial color: canvas setup effect stores gradientCtxRef.current
-    act(() => {
-      result = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
-    });
-
-    // Flush the queued RAF so the canvas setup effect has run and set gradientCtxRef.current
-    flushOneFrame();
+    const result = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
 
     const callsAfterMount = (mockCtx.createLinearGradient as Mock<typeof mockCtx.createLinearGradient>).mock.calls.length;
     expect(callsAfterMount).toBeGreaterThan(0);
 
     // Re-render with a different color: the color/height effect runs again and
     // now gradientCtxRef.current is set, so lines 62-65 execute
-    act(() => {
-      result!.rerender(<SparklineCanvas data={[]} color="--chart-memory" />);
-    });
+    result.rerender(<SparklineCanvas data={[]} color="--chart-memory" />);
 
     const callsAfterRerender = (mockCtx.createLinearGradient as Mock<typeof mockCtx.createLinearGradient>).mock.calls.length;
     expect(callsAfterRerender).toBeGreaterThan(callsAfterMount);
 
     clearCssColorVars('--chart-memory');
+  });
+
+  it('skips canvas draws for hidden sparklines until IO reports them visible', () => {
+    const originalIO = globalThis.IntersectionObserver;
+    let emit: (visible: boolean) => void = () => {};
+    const ControllableIO = class {
+      constructor(cb: IntersectionObserverCallback) {
+        emit = (visible: boolean) =>
+          cb(
+            [{ isIntersecting: visible, target: {} } as unknown as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return []; }
+      root = null;
+      rootMargin = '';
+      thresholds: readonly number[] = [];
+    };
+    globalThis.IntersectionObserver = ControllableIO as unknown as typeof IntersectionObserver;
+    try {
+      const now = Date.now();
+      const { rerender } = render(<SparklineCanvas data={[{ timestamp: now, value: 50 }]} color="--chart-cpu" />);
+      emit(false);
+      const hiddenCalls = clearRectCalls();
+      const hiddenSlides = animateSpy.mock.calls.length;
+      expect(hiddenCalls).toBeGreaterThan(0);
+
+      // Stats update while hidden: no canvas draw, no slide restart.
+      rerender(<SparklineCanvas data={[{ timestamp: now + 1000, value: 60 }]} color="--chart-cpu" />);
+      expect(clearRectCalls()).toBe(hiddenCalls);
+      expect(animateSpy.mock.calls.length).toBe(hiddenSlides);
+
+      // Becoming visible refreshes the stale snapshot and restarts slide + flash.
+      emit(true);
+      expect(clearRectCalls()).toBe(hiddenCalls + 1);
+      expect(animateSpy.mock.calls.length).toBe(hiddenSlides + 2);
+    } finally {
+      globalThis.IntersectionObserver = originalIO;
+    }
+  });
+
+  it('keeps the dot mounted across updates and re-flashes it per sample', () => {
+    const now = Date.now();
+    const { container, rerender } = render(
+      <SparklineCanvas data={[{ timestamp: now, value: 50 }]} color="--chart-cpu" />,
+    );
+    const dot = container.querySelector('.sparkline-dot') as HTMLElement;
+    expect(dot).not.toBeNull();
+    expect(animateCallsFor(container, '.sparkline-dot').length).toBe(1);
+
+    rerender(<SparklineCanvas data={[{ timestamp: now + 1000, value: 60 }]} color="--chart-cpu" />);
+
+    // Same node: no remount, so the dot never vanishes between commit and draw.
+    expect(container.querySelector('.sparkline-dot')).toBe(dot);
+    const flashes = animateCallsFor(container, '.sparkline-dot');
+    expect(flashes.length).toBe(2);
+    expect(flashes[1].args[0]).toEqual([{ opacity: 0.9 }, { opacity: 0.45 }]);
+    expect(flashes[1].args[1]).toEqual({ duration: 600, easing: 'ease-out' });
+    expect(flashes[0].cancel).toHaveBeenCalled();
   });
 });

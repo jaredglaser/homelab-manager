@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
+import { subscribeRafTicker } from '@/lib/utils/raf-ticker';
 
 /**
  * Small rootMargin so charts start animating just before scrolling into view.
@@ -10,21 +11,29 @@ const ROOT_MARGIN = '100px';
  * Runs a requestAnimationFrame callback only while `targetRef` intersects the
  * viewport, pausing when off-screen to avoid perpetual 60fps work.
  *
+ * Callbacks run on a process-wide shared ticker rather than a per-mount loop.
+ * Return true to hold full vsync rate. Returning nothing drops to its idle cadence.
+ * Pass no callback for notification-only visibility tracking: no ticker subscription,
+ * only onActiveChange flips. Both read the latest values on each transition.
+ *
  * - `callback` is always called with the latest closure — callers can pass a
  *   freshly-created function each render without re-subscribing the observer.
  * - The effect re-runs on `targetRef` identity changes only, NOT on
  *   `targetRef.current` reassignment. Pass a ref to a stable DOM element.
- * - Falls back to an unconditional rAF loop if `IntersectionObserver` setup
- *   throws (missing API, broken polyfill, detached node).
- * - If `callback` throws, the loop stops for this mount but self-heals on the
- *   next isIntersecting:false → true transition.
+ * - Falls back to an unconditional ticker subscription if `IntersectionObserver`
+ *   setup throws (missing API, broken polyfill, detached node).
+ * - If `callback` throws, this mount unsubscribes from the ticker but
+ *   self-heals on the next isIntersecting:false → true transition.
  */
 export function useVisibleRAF(
   targetRef: RefObject<Element | null>,
-  callback: (timestamp: number) => void,
+  callback: ((timestamp: number) => boolean | void) | undefined,
+  onActiveChange?: (active: boolean) => void,
 ): void {
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
+  const onActiveChangeRef = useRef(onActiveChange);
+  onActiveChangeRef.current = onActiveChange;
 
   useEffect(() => {
     const el = targetRef.current;
@@ -33,33 +42,41 @@ export function useVisibleRAF(
       return;
     }
 
-    let rafId: number | null = null;
+    let unsubscribe: (() => void) | null = null;
     let visible = false;
+    let lastNotified: boolean | null = null;
+
+    // Fires only on observed-state changes, including the IO initial delivery,
+    // which can be isIntersecting:false before any start().
+    const notify = (active: boolean) => {
+      if (lastNotified === active) return;
+      lastNotified = active;
+      onActiveChangeRef.current?.(active);
+    };
 
     const stop = () => {
       if (visible) {
         visible = false;
-        if (rafId !== null) cancelAnimationFrame(rafId);
-        rafId = null;
+        unsubscribe?.();
+        unsubscribe = null;
+        notify(false);
       }
     };
 
     const tick = (ts: number) => {
       try {
-        callbackRef.current(ts);
+        if (!callbackRef.current) return;
+        return callbackRef.current(ts);
       } catch (err) {
-        console.error('useVisibleRAF: callback threw; stopping rAF loop for this mount.', err);
+        console.error('useVisibleRAF: callback threw, unsubscribing this mount from the rAF ticker.', err);
         stop();
-        return;
       }
-      rafId = requestAnimationFrame(tick);
     };
 
     const start = () => {
-      if (!visible) {
-        visible = true;
-        rafId = requestAnimationFrame(tick);
-      }
+      if (visible) return;
+      visible = true;
+      if (callbackRef.current) unsubscribe = subscribeRafTicker(tick);
     };
 
     // Environments without IntersectionObserver (older test shims): run unconditionally.
@@ -79,6 +96,7 @@ export function useVisibleRAF(
           if (!entry) return;
           if (entry.isIntersecting) start();
           else stop();
+          notify(entry.isIntersecting);
         },
         { rootMargin: ROOT_MARGIN },
       );
@@ -92,7 +110,7 @@ export function useVisibleRAF(
         stop();
       };
     } catch (err) {
-      console.error('useVisibleRAF: IntersectionObserver setup failed; running rAF unconditionally.', err);
+      console.error('useVisibleRAF: IntersectionObserver setup failed, subscribing to the ticker unconditionally.', err);
       start();
       return () => stop();
     }
