@@ -14,7 +14,7 @@ const ROOT_MARGIN = '100px';
  * Callbacks run on a process-wide shared ticker rather than a per-mount loop.
  * Return true to hold full vsync rate. Returning nothing drops to its idle cadence.
  * Pass no callback for notification-only visibility tracking: no ticker subscription,
- * only onActiveChange flips.
+ * only onActiveChange flips. Both read the latest values on each transition.
  *
  * - `callback` is always called with the latest closure — callers can pass a
  *   freshly-created function each render without re-subscribing the observer.
@@ -32,6 +32,8 @@ export function useVisibleRAF(
 ): void {
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
+  const onActiveChangeRef = useRef(onActiveChange);
+  onActiveChangeRef.current = onActiveChange;
 
   useEffect(() => {
     const el = targetRef.current;
@@ -49,7 +51,7 @@ export function useVisibleRAF(
     const notify = (active: boolean) => {
       if (lastNotified === active) return;
       lastNotified = active;
-      onActiveChange?.(active);
+      onActiveChangeRef.current?.(active);
     };
 
     const stop = () => {
@@ -66,7 +68,7 @@ export function useVisibleRAF(
         if (!callbackRef.current) return;
         return callbackRef.current(ts);
       } catch (err) {
-        console.error('useVisibleRAF: callback threw; stopping rAF loop for this mount.', err);
+        console.error('useVisibleRAF: callback threw, unsubscribing this mount from the rAF ticker.', err);
         stop();
       }
     };
@@ -74,7 +76,7 @@ export function useVisibleRAF(
     const start = () => {
       if (visible) return;
       visible = true;
-      if (callback) unsubscribe = subscribeRafTicker(tick);
+      if (callbackRef.current) unsubscribe = subscribeRafTicker(tick);
     };
 
     // Environments without IntersectionObserver (older test shims): run unconditionally.
@@ -108,7 +110,7 @@ export function useVisibleRAF(
         stop();
       };
     } catch (err) {
-      console.error('useVisibleRAF: IntersectionObserver setup failed; running rAF unconditionally.', err);
+      console.error('useVisibleRAF: IntersectionObserver setup failed, subscribing to the ticker unconditionally.', err);
       start();
       return () => stop();
     }

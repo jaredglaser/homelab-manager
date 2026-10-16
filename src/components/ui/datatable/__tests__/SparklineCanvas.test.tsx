@@ -266,6 +266,42 @@ describe('SparklineCanvas', () => {
     expect(slides[0].cancel).toHaveBeenCalled();
   });
 
+  it('redraws and restarts the slide after a width change', () => {
+    const now = Date.now();
+    const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
+
+    const { container, rerender } = render(<SparklineCanvas data={data} color="--chart-cpu" />);
+    const mountDraws = clearRectCalls();
+    expect(animateCallsFor(container, '.inset-0').length).toBe(1);
+
+    // Same data reference: only the setup effect re-runs, which must redraw
+    // and re-anchor the slide at the new drawable width.
+    rerender(<SparklineCanvas data={data} color="--chart-cpu" width={120} />);
+
+    expect(clearRectCalls()).toBeGreaterThan(mountDraws);
+    const slides = animateCallsFor(container, '.inset-0');
+    expect(slides.length).toBe(2);
+    expect(slides[1].args[0]).toEqual([
+      { transform: 'translateX(0)' },
+      { transform: 'translateX(-116px)' },
+    ]);
+    expect(slides[0].cancel).toHaveBeenCalled();
+  });
+
+  it('cancels the slide when data becomes empty', () => {
+    const now = Date.now();
+    const { container, rerender } = render(
+      <SparklineCanvas data={[{ timestamp: now, value: 50 }]} color="--chart-cpu" />,
+    );
+    const slides = animateCallsFor(container, '.inset-0');
+    expect(slides.length).toBe(1);
+
+    rerender(<SparklineCanvas data={[]} color="--chart-cpu" />);
+
+    expect(slides[0].cancel).toHaveBeenCalled();
+    expect(animateCallsFor(container, '.inset-0').length).toBe(1);
+  });
+
   it('cancels the slide animation on unmount', () => {
     const now = Date.now();
     const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];

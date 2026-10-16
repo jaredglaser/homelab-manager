@@ -437,6 +437,38 @@ describe('useVisibleRAF', () => {
     expect(onActive).toHaveBeenCalledWith(false);
   });
 
+  it('suppresses duplicate same-state onActiveChange dispatches', () => {
+    const cb = mock(() => {});
+    const onActive = mock((_a: boolean) => {});
+    const targetRef = makeTargetRef();
+
+    renderHook(() => useVisibleRAF(targetRef, cb, onActive));
+
+    ioInstances[0].emit(targetRef.current, true);
+    ioInstances[0].emit(targetRef.current, true);
+    ioInstances[0].emit(targetRef.current, false);
+
+    expect(onActive.mock.calls.map((call) => call[0])).toEqual([true, false]);
+  });
+
+  it('notification-only mode in the IO-absent fallback never fires onActiveChange', () => {
+    const originalIoInner = globalThis.IntersectionObserver;
+    (globalThis as unknown as Record<string, unknown>).IntersectionObserver = undefined;
+    try {
+      const onActive = mock((_a: boolean) => {});
+      const targetRef = makeTargetRef();
+      const rafSpy = globalThis.requestAnimationFrame as unknown as ReturnType<typeof mock>;
+      const rafCallsBefore = rafSpy.mock.calls.length;
+
+      renderHook(() => useVisibleRAF(targetRef, undefined, onActive));
+
+      expect(onActive).not.toHaveBeenCalled();
+      expect(rafSpy.mock.calls.length).toBe(rafCallsBefore);
+    } finally {
+      globalThis.IntersectionObserver = originalIoInner;
+    }
+  });
+
   it('stops the loop and logs when the callback throws, allowing resume on next visibility toggle', () => {
     const error = new Error('boom');
     let throwOnce = true;

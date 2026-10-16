@@ -174,9 +174,9 @@ export default memo(function SparklineCanvas({
     }
   }, [color, height]);
 
-  // Canvas setup (DPR scaling, gradient initialization). Runs once per width/height change.
-  // Declared before the data effect so a mount that already has data draws on
-  // the first commit instead of waiting for a ticker tick.
+  // Canvas setup (DPR scaling, gradient initialization). Runs once per
+  // width/height change, redrawing at the end so the bitmap wipe from the
+  // canvas resize never leaves a blank sparkline until the next sample.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -199,6 +199,8 @@ export default memo(function SparklineCanvas({
       gradient.addColorStop(1, areaEndColorRef.current);
       gradientRef.current = gradient;
     }
+
+    if (!hiddenRef.current) drawRef.current();
 
     return () => {
       slideAnimRef.current?.cancel();
