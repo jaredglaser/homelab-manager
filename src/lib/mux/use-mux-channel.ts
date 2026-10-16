@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { useQuery, useQueryClient, skipToken, type QueryKey } from '@tanstack/react-query';
 import type { z } from 'zod';
 import { muxConnection, type MuxStatus } from '@/lib/mux/mux-connection';
 import type { MuxTopicFrame } from '@/lib/mux/protocol';
@@ -107,8 +107,10 @@ export interface UseMuxQueryResult<TState> {
 
 /**
  * Stream-fed TanStack Query cache: frames fold into one cache entry via
- * setQueryData. No queryFn on purpose: the stream is the only source, and
- * re-subscribing re-delivers the topic's initial state.
+ * setQueryData. queryFn: skipToken marks the query fetch-less (the stream is
+ * the only source, and re-subscribing re-delivers the topic's initial state);
+ * omitting queryFn without skipToken makes TanStack Query log its dev error
+ * on every render of the consuming component.
  */
 export function useMuxQuery<TSchema extends z.ZodTypeAny, TRevived, TState>(
   channel: MuxChannel<TSchema, TRevived>,
@@ -122,6 +124,7 @@ export function useMuxQuery<TSchema extends z.ZodTypeAny, TRevived, TState>(
 
   const { data } = useQuery({
     queryKey: options.queryKey,
+    queryFn: skipToken,
     initialData: options.initial,
     staleTime: Infinity,
     gcTime: Infinity,
