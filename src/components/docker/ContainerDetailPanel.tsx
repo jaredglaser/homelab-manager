@@ -89,7 +89,7 @@ function ActionStripButton({ icon, label, onClick, disabled }: ActionStripButton
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-muted-foreground border border-border bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      className="inline-flex items-center gap-1 px-3 min-h-11 rounded text-sm font-medium text-muted-foreground border border-border bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer lg:px-2 lg:min-h-0 lg:h-[28px] lg:text-xs"
     >
       {icon}
       {label}
@@ -142,10 +142,10 @@ function StatusStrip({
 
       <StatusItem label="ID" value={shortId} />
 
-      <div className="w-full lg:w-auto lg:ml-auto flex items-center gap-1">
+      <div className="w-full lg:w-auto lg:ml-auto flex flex-wrap lg:flex-nowrap items-center gap-1">
         <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
 
-        <div className="w-px h-4 mx-1 shrink-0 bg-border" />
+        <div className="w-px h-4 mx-1 shrink-0 bg-border hidden lg:block" />
 
         <ActionStripButton
           icon={<Image size={12} />}
@@ -153,7 +153,7 @@ function StatusStrip({
           onClick={onIconClick}
         />
 
-        <div className="w-px h-4 mx-1 shrink-0 bg-border" />
+        <div className="w-px h-4 mx-1 shrink-0 bg-border hidden lg:block" />
 
         <ActionStripButton
           icon={<ScrollText size={12} />}

@@ -55,12 +55,12 @@ export default function ContainerActionButtons({
   const isPending = mutation.isPending;
 
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-2 lg:gap-0.5">
       <IconTooltip label="Start">
         <Button
           variant="ghost"
           size="icon-sm"
-          className="p-1!"
+          className="size-11 p-1! lg:size-8"
           disabled={isRunning || isPending}
           onClick={() => trigger('start')}
           aria-label="Start container"
@@ -76,7 +76,7 @@ export default function ContainerActionButtons({
         <Button
           variant="ghost"
           size="icon-sm"
-          className={`p-1! ${isRunning && !isPending ? 'text-destructive' : ''}`}
+          className={`size-11 p-1! lg:size-8 ${isRunning && !isPending ? 'text-destructive' : ''}`}
           disabled={!isRunning || isPending}
           onClick={() => trigger('stop')}
           aria-label="Stop container"
@@ -92,7 +92,7 @@ export default function ContainerActionButtons({
         <Button
           variant="ghost"
           size="icon-sm"
-          className="p-1!"
+          className="size-11 p-1! lg:size-8"
           disabled={!isRunning || isPending}
           onClick={() => trigger('restart')}
           aria-label="Restart container"

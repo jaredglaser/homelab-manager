@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import { usePulseIndicator } from '@/hooks/usePulseIndicator';
 import type { DockerContainerTableRow } from '@/types/docker';
 
@@ -14,6 +15,7 @@ function ContainerNameCell({
   expanded: boolean;
 }>) {
   const { inventory, stats } = row;
+  const isMobile = useIsMobile();
 
   const [iconError, setIconError] = useState(false);
 
@@ -31,12 +33,14 @@ function ContainerNameCell({
   return (
     <>
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-foreground">
-          <ChevronRight
-            size={16}
-            className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-          />
-        </Button>
+        {!isMobile && (
+          <Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-foreground">
+            <ChevronRight
+              size={16}
+              className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+            />
+          </Button>
+        )}
 
         {/* Pulse indicator: for running and restarting containers with data */}
         {(inventory.state === 'running' || inventory.state === 'restarting') && (

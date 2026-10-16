@@ -1,10 +1,13 @@
 import { memo, useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useIsTouch } from '@/hooks/useMediaQuery';
+import { cn } from '@/lib/utils/cn';
 
 const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: string; selected: boolean; onSelect: (slug: string) => void }) {
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const isTouch = useIsTouch();
   const handleLoad = useCallback(() => setLoaded(true), []);
   const handleError = useCallback(() => setLoaded(true), []);
 
@@ -36,9 +39,11 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
     <button
       type="button"
       onClick={() => onSelect(slug)}
-      className={`flex flex-col items-center p-2 rounded-md cursor-pointer hover:bg-blue-500/10 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
-        selected ? 'bg-blue-500/20 ring-1 ring-blue-500' : ''
-      }`}
+      className={cn(
+        'flex flex-col items-center p-2 rounded-md cursor-pointer hover:bg-blue-500/10 outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+        isTouch && 'tap-target',
+        selected && 'bg-blue-500/20 ring-1 ring-blue-500',
+      )}
     >
       <div className="relative w-8 h-8">
         {!loaded && (
@@ -67,8 +72,24 @@ const IconRow = memo(function IconRow({ slugs, currentIcon, onSelect }: { slugs:
   );
 });
 
-const ICON_COLS = 7;
+const ICON_MIN_COLS = 3;
+const ICON_MAX_COLS = 7;
+const ICON_CELL_MIN_WIDTH = 64;
+const ICON_GRID_GAP = 8;
 const ICON_ROW_HEIGHT = 76;
+
+/**
+ * Number of columns the grid can fit is derived from the measured container
+ * width and clamped to [ICON_MIN_COLS, ICON_MAX_COLS]. The same value drives
+ * both the CSS `gridTemplateColumns` and the `iconRows` chunking below, so the
+ * two can never disagree the way a hardcoded `grid-cols-7` class paired with
+ * a separate constant could.
+ */
+function computeIconCols(containerWidth: number): number {
+  if (containerWidth <= 0) return ICON_MAX_COLS;
+  const cols = Math.floor((containerWidth + ICON_GRID_GAP) / (ICON_CELL_MIN_WIDTH + ICON_GRID_GAP));
+  return Math.min(ICON_MAX_COLS, Math.max(ICON_MIN_COLS, cols));
+}
 
 interface IconGridProps {
   filteredIcons: readonly string[];
@@ -84,14 +105,30 @@ export default function IconGrid({
   emptyMessage,
 }: IconGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setContainerWidth(entry.contentRect.width);
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const cols = useMemo(() => computeIconCols(containerWidth), [containerWidth]);
 
   const iconRows = useMemo(() => {
     const rows: string[][] = [];
-    for (let i = 0; i < filteredIcons.length; i += ICON_COLS) {
-      rows.push(filteredIcons.slice(i, i + ICON_COLS));
+    for (let i = 0; i < filteredIcons.length; i += cols) {
+      rows.push(filteredIcons.slice(i, i + cols));
     }
     return rows;
-  }, [filteredIcons]);
+  }, [filteredIcons, cols]);
 
   const virtualizer = useVirtualizer({
     count: iconRows.length,
@@ -105,7 +142,7 @@ export default function IconGrid({
   // Reset the scroll position so the first match is always visible.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 0 });
-  }, [filteredIcons]);
+  }, [filteredIcons, cols]);
 
   return (
     <div
@@ -121,9 +158,10 @@ export default function IconGrid({
             return (
               <div
                 key={virtualRow.index}
-                className="grid grid-cols-7 gap-2 absolute left-0 w-full"
+                className="grid gap-2 absolute left-0 w-full"
                 style={{
                   height: virtualRow.size,
+                  gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >

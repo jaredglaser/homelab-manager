@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { ChevronRight, Server, WifiOff } from 'lucide-react';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import type { DockerHostTableRow } from '@/types/docker';
 
 const HostNameCell = memo(function HostNameCell({
@@ -13,10 +14,11 @@ const HostNameCell = memo(function HostNameCell({
   const { children, aggregated: a } = row;
   const hasContainers = children.length > 0;
   const canToggle = hasContainers;
+  const isMobile = useIsMobile();
 
   return (
     <div className="flex items-center gap-2">
-      {canToggle && (
+      {canToggle && !isMobile && (
         <span className="inline-flex items-center justify-center p-1" aria-hidden="true">
           <ChevronRight
             size={18}
