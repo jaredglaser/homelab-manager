@@ -28,3 +28,26 @@ test('a running container offers an enabled stop control', async ({ page }) => {
   await expect(stop).toHaveCount(1);
   await expect(stop).toBeVisible();
 });
+
+test('the icon picker grid is a bounded scroll viewport', async ({ page }) => {
+  await page.goto('/docker');
+  await page.getByText('nginx-proxy').first().click();
+  await page.getByRole('button', { name: 'Icon', exact: true }).first().click();
+
+  const grid = page.locator('[data-slot="dialog-content"] .themed-scrollbar');
+  await expect(grid).toBeVisible();
+
+  // The grid must stay smaller than its content so the virtualizer only mounts
+  // the visible rows; a full-height grid mounts every icon cell at once.
+  await expect
+    .poll(() =>
+      grid.evaluate((el) => ({
+        scrollable: el.scrollHeight > el.clientHeight,
+        cells: el.querySelectorAll('button').length,
+      })),
+    )
+    .toEqual({ scrollable: true, cells: expect.any(Number) });
+
+  const cells = await grid.evaluate((el) => el.querySelectorAll('button').length);
+  expect(cells).toBeLessThan(100);
+});
