@@ -52,3 +52,41 @@ test('a container opens its detail view from a tap', async ({ page }) => {
 
   await expect(page.getByRole('button', { name: 'Stop container' }).first()).toBeVisible();
 });
+
+test('expandable rows show a trailing disclosure chevron', async ({ page }) => {
+  await page.goto('/docker');
+  const hostRow = page.locator('[data-host-id="192.168.1.10"]');
+  const chevron = hostRow.locator('svg.lucide-chevron-right');
+  await expect(chevron).toHaveCount(1);
+
+  const box = await chevron.boundingBox();
+  expect(box, 'trailing chevron has no bounding box').not.toBeNull();
+  expect(box!.x + box!.width, 'trailing chevron extends past the right viewport edge').toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  );
+
+  await expect(chevron).toHaveClass(/rotate-90/);
+  await hostRow.click();
+  await expect(chevron).not.toHaveClass(/rotate-90/);
+});
+
+test('the expanded detail panel fits the viewport', async ({ page }) => {
+  await page.goto('/docker');
+  await page.getByText('nginx-proxy').first().click();
+
+  await expect(page.getByRole('button', { name: 'Stop container' }).first()).toBeVisible();
+
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow, 'expanded detail panel overflows the viewport horizontally').toBeLessThanOrEqual(1);
+
+  for (const name of ['Icon', 'Logs', 'Terminal', 'History']) {
+    const box = await page.getByRole('button', { name }).first().boundingBox();
+    expect(box, `${name} button has no bounding box`).not.toBeNull();
+    expect(
+      box!.x + box!.width,
+      `${name} button extends past the right viewport edge`,
+    ).toBeLessThanOrEqual(page.viewportSize()!.width);
+  }
+});

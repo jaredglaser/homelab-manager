@@ -43,6 +43,31 @@ function defaultProps(overrides?: Partial<DataTableProps<TestRow>>) {
   } as DataTableProps<TestRow>;
 }
 
+function mockContainerWidth(width: number): () => void {
+  const originalResizeObserver = globalThis.ResizeObserver;
+  let resizeCallback: ResizeObserverCallback | null = null;
+
+  globalThis.ResizeObserver = class MockResizeObserver {
+    constructor(cb: ResizeObserverCallback) {
+      resizeCallback = cb;
+    }
+    observe() {
+      if (resizeCallback) {
+        resizeCallback(
+          [{ contentRect: { width } } as unknown as ResizeObserverEntry],
+          this as unknown as ResizeObserver,
+        );
+      }
+    }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+
+  return () => {
+    globalThis.ResizeObserver = originalResizeObserver;
+  };
+}
+
 /**
  * Mock element dimensions so useVirtualizer renders rows.
  * Happy-DOM returns 0 for getBoundingClientRect and clientHeight by default,
@@ -336,26 +361,7 @@ describe('DataTable', () => {
   });
 
   it('hides non-active metric group columns on mobile', () => {
-    // Mock ResizeObserver to report a narrow width
-    const originalResizeObserver = globalThis.ResizeObserver;
-    let resizeCallback: ResizeObserverCallback | null = null;
-
-    globalThis.ResizeObserver = class MockResizeObserver {
-      constructor(cb: ResizeObserverCallback) {
-        resizeCallback = cb;
-      }
-      observe() {
-        // Immediately fire with a narrow width (below 1024 MOBILE_BREAKPOINT)
-        if (resizeCallback) {
-          resizeCallback(
-            [{ contentRect: { width: 800 } } as unknown as ResizeObserverEntry],
-            this as unknown as ResizeObserver,
-          );
-        }
-      }
-      unobserve() {}
-      disconnect() {}
-    } as unknown as typeof ResizeObserver;
+    const restore = mockContainerWidth(800);
 
     const columnsWithGroups: typeof columns = [
       { id: 'name', accessorKey: 'name', header: 'Name', size: 200, meta: { flex: 'minmax(200px, 1fr)' } },
@@ -388,7 +394,48 @@ describe('DataTable', () => {
       const memoryElements = screen.getAllByText('Memory');
       expect(memoryElements.length).toBe(1); // toolbar button only, no header cell
     } finally {
-      globalThis.ResizeObserver = originalResizeObserver;
+      restore();
+    }
+  });
+
+  it('appends a caret track with a trailing chevron on mobile expandable rows', () => {
+    const restore = mockContainerWidth(800);
+
+    try {
+      const { container } = render(
+        <DataTable
+          data={testData}
+          columns={columns}
+          getRowId={(row) => row.id}
+          renderDetailPanel={() => <div>panel</div>}
+        />,
+      );
+
+      const header = container.querySelector('[data-slot="datatable-header"]') as HTMLElement;
+      expect(header.style.gridTemplateColumns.endsWith(' 16px')).toBe(true);
+
+      const chevrons = container.querySelectorAll('svg.lucide-chevron-right');
+      expect(chevrons.length).toBe(testData.length);
+
+      const firstRow = screen.getByText('Alpha').closest('[role="button"]')!;
+      fireEvent.click(firstRow);
+      expect(chevrons[0].getAttribute('class')).toContain('rotate-90');
+    } finally {
+      restore();
+    }
+  });
+
+  it('adds no caret track when no row can expand', () => {
+    const restore = mockContainerWidth(800);
+
+    try {
+      const { container } = render(<DataTable {...defaultProps()} />);
+
+      const header = container.querySelector('[data-slot="datatable-header"]') as HTMLElement;
+      expect(header.style.gridTemplateColumns.endsWith(' 16px')).toBe(false);
+      expect(container.querySelectorAll('svg.lucide-chevron-right').length).toBe(0);
+    } finally {
+      restore();
     }
   });
 

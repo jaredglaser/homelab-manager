@@ -16,7 +16,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { dataTableFeatures, type DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
-import { ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, ChevronRight } from 'lucide-react';
 import { DataTableToolbar } from '@/components/ui/datatable/DataTableToolbar';
 import { MOBILE_BREAKPOINT } from '@/lib/constants/breakpoints';
 import { useGeneralSettings } from '@/hooks/useSettings';
@@ -90,6 +90,9 @@ export const SPARKLINE_MIN_WIDTH = 1428;
 /** Grid weight the name column gets on mobile, relative to 1fr for every other column. */
 const MOBILE_NAME_COLUMN_WEIGHT = 2;
 
+/** Fixed trailing track that holds the disclosure chevron on mobile expandable rows. */
+const MOBILE_CARET_TRACK = '16px';
+
 /**
  * Build a CSS grid-template-columns string from visible TanStack Table columns.
  * Uses column meta.flex if available (name column: 'minmax(200px, 1fr)').
@@ -107,9 +110,10 @@ function buildGridTemplate<TRow extends RowData>(
   containerWidth: number,
   sparklineEnabled: boolean,
   isMobile: boolean,
+  hasExpandableRows: boolean,
 ): string {
   const sparklinesVisible = containerWidth >= SPARKLINE_MIN_WIDTH && sparklineEnabled;
-  return columns
+  const tracks = columns
     .map((col) => {
       const meta = col.columnDef.meta as {
         flex?: string;
@@ -128,6 +132,9 @@ function buildGridTemplate<TRow extends RowData>(
       return `${col.getSize()}px`;
     })
     .join(' ');
+  // Own track rather than an overlay on the last column: a wide metric value would
+  // slide under the chevron and get clipped by the cell's overflow-hidden.
+  return isMobile && hasExpandableRows ? `${tracks} ${MOBILE_CARET_TRACK}` : tracks;
 }
 
 /**
@@ -159,7 +166,9 @@ export function DataTable<TRow extends RowData>({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const [isMobile, setIsMobile] = useState(false);
+  // Seeded from the viewport so the first paint already uses the mobile template;
+  // waiting for the ResizeObserver paints the 890px desktop grid at phone widths.
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < MOBILE_BREAKPOINT);
   const [containerWidth, setContainerWidth] = useState(0);
   const [activeMetricGroupIndex, setActiveMetricGroupIndex] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -265,7 +274,11 @@ export function DataTable<TRow extends RowData>({
   const { rows } = table.getRowModel();
   const isVirtualized = rows.length > VIRTUALIZATION_THRESHOLD;
   const visibleColumns = table.getVisibleLeafColumns();
-  const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns, containerWidth, showSparklines, isMobile), [visibleColumns, containerWidth, showSparklines, isMobile]);
+  const hasExpandableRows = renderDetailPanel != null || rows.some((r) => r.subRows.length > 0);
+  const gridTemplate = useMemo(
+    () => buildGridTemplate(visibleColumns, containerWidth, showSparklines, isMobile, hasExpandableRows),
+    [visibleColumns, containerWidth, showSparklines, isMobile, hasExpandableRows],
+  );
 
   const defaultEstimateSize = useCallback(() => DEFAULT_ROW_HEIGHT, []);
 
@@ -485,6 +498,14 @@ function DataTableRow<TRow extends RowData>({ row, gridTemplate, rowClassName, r
           {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </div>
       ))}
+      {isMobile && canExpand && (
+        <div aria-hidden="true" className="flex items-center justify-center">
+          <ChevronRight
+            size={14}
+            className={`shrink-0 text-muted-foreground transition-transform duration-200 ${row.getIsExpanded() ? 'rotate-90' : ''}`}
+          />
+        </div>
+      )}
     </div>
   );
 }
