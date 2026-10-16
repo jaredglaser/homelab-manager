@@ -10,9 +10,8 @@ let anyBusy = false;
 const IDLE_TICK_MS = 100;
 
 function runLoop(now: number): void {
-  // Only the chain that owns scheduledId may re-queue. Otherwise a same-tick
-  // unsubscribe-to-empty plus subscribe leaves two live chains ticking every
-  // subscriber twice per frame.
+  // Only the chain that still owns scheduledId may re-queue, otherwise a
+  // same-tick unsubscribe plus subscribe leaves a second chain double-ticking.
   const ownId = scheduledId;
   const step = () => {
     if (scheduledId !== ownId) return;
@@ -48,8 +47,8 @@ function runLoop(now: number): void {
 /**
  * One rAF loop shared by all subscribers. Return true from the callback to
  * hold full vsync rate. When nobody does, the loop ticks at ~IDLE_TICK_MS.
- * A throwing subscriber stops the loop for everyone until the throwing
- * subscriber is removed, so callers should still catch inside their callback.
+ * A throwing subscriber stops the loop for everyone. Removing the throwing
+ * subscriber re-arms it, so callers should still catch inside their callback.
  */
 export function subscribeRafTicker(cb: TickCallback): () => void {
   subscribers.add(cb);
@@ -63,6 +62,14 @@ export function subscribeRafTicker(cb: TickCallback): () => void {
     if (subscribers.size === 0 && scheduledId !== null) {
       cancelAnimationFrame(scheduledId);
       scheduledId = null;
+      return;
+    }
+    // A throw leaves the loop dead (scheduledId null). Removing the throwing
+    // subscriber while others remain must re-arm them.
+    if (subscribers.size > 0 && scheduledId === null) {
+      lastTick = 0;
+      anyBusy = false;
+      scheduledId = requestAnimationFrame(runLoop);
     }
   };
 }

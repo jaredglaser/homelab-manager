@@ -346,4 +346,19 @@ describe('SparklineCanvas', () => {
       globalThis.IntersectionObserver = originalIO;
     }
   });
+
+  it('remounts the pulse dot when a new point arrives', () => {
+    const now = Date.now();
+    const { container, rerender } = render(
+      <SparklineCanvas data={[{ timestamp: now, value: 50 }]} color="--chart-cpu" />,
+    );
+    const first = container.querySelector('.sparkline-dot') as HTMLElement;
+    expect(first).not.toBeNull();
+
+    rerender(<SparklineCanvas data={[{ timestamp: now + 1000, value: 60 }]} color="--chart-cpu" />);
+    const second = container.querySelector('.sparkline-dot') as HTMLElement;
+    // A fresh node is what restarts the CSS pulse animation.
+    expect(second).not.toBe(first);
+    expect(second.style.left).not.toBe('-9999px');
+  });
 });

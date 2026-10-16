@@ -197,4 +197,78 @@ describe('raf-ticker', () => {
     expect(rafCallbacks.length).toBe(3);
     if (unsubReplacement) track(unsubReplacement);
   });
+
+  it('cancels a foreign chain when a mid-tick resubscriber throws', () => {
+    const errSpy = mock(() => {});
+    const originalErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+    try {
+      const cafSpy = globalThis.cancelAnimationFrame as unknown as ReturnType<typeof mock>;
+      let unsubA: () => void = () => {};
+      let replacementCalls = 0;
+      const replacement = mock((_t: number) => {
+        replacementCalls += 1;
+      });
+      let unsubReplacement: (() => void) | null = null;
+      const a = mock((_t: number) => {
+        unsubA();
+        unsubReplacement = subscribeRafTicker(replacement);
+        track(unsubReplacement);
+        throw new Error('boom');
+      });
+      unsubA = track(subscribeRafTicker(a));
+
+      rafCallbacks[0](1000);
+
+      // The throw aborted iteration before the replacement was visited, and
+      // the death path cancelled the foreign chain the resubscribe queued.
+      expect(replacementCalls).toBe(0);
+      expect(cafSpy).toHaveBeenCalled();
+      expect(errSpy).toHaveBeenCalled();
+
+      // State is clean: a fresh subscribe queues exactly one frame, and the
+      // still-subscribed replacement ticks on it.
+      const revived = mock((_t: number) => {});
+      const before = rafCallbacks.length;
+      track(subscribeRafTicker(revived));
+      expect(rafCallbacks.length).toBe(before + 1);
+      rafCallbacks[before](2000);
+      expect(replacementCalls).toBe(1);
+      expect(revived).toHaveBeenCalledTimes(1);
+    } finally {
+      console.error = originalErr;
+    }
+  });
+
+  it('a fresh subscribe while the thrower is still subscribed restarts only to die again', () => {
+    const errSpy = mock(() => {});
+    const originalErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+    try {
+      const thrower = mock((_t: number) => {
+        throw new Error('boom');
+      });
+      const unsubThrower = track(subscribeRafTicker(thrower));
+
+      rafCallbacks[0](1000);
+      expect(errSpy).toHaveBeenCalledTimes(1);
+      expect(rafCallbacks.length).toBe(1);
+
+      const revived = mock((_t: number) => {});
+      track(subscribeRafTicker(revived));
+      rafCallbacks[1](2000);
+
+      // The thrower throws again: revived is never ticked, nothing pending.
+      expect(revived).not.toHaveBeenCalled();
+      expect(errSpy).toHaveBeenCalledTimes(2);
+      expect(rafCallbacks.length).toBe(2);
+
+      // Removing the thrower self-heals and re-arms the loop for the survivor.
+      unsubThrower();
+      rafCallbacks[2](3000);
+      expect(revived).toHaveBeenCalledTimes(1);
+    } finally {
+      console.error = originalErr;
+    }
+  });
 });
