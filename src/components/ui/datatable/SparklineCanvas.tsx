@@ -1,7 +1,6 @@
 import { memo, useEffect, useRef } from 'react';
 import { resolveChartColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis } from '@/lib/charts/y-axis';
-import { useVisibleRAF } from '@/hooks/useVisibleRAF';
 
 interface TimeSeriesPoint {
   timestamp: number;
@@ -32,6 +31,7 @@ export default memo(function SparklineCanvas({
   className,
 }: SparklineCanvasProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dotRef = useRef<HTMLDivElement>(null);
   const smoothMaxRef = useRef(0);
@@ -40,7 +40,6 @@ export default memo(function SparklineCanvas({
   const areaStartColorRef = useRef('');
   const areaEndColorRef = useRef('');
   const rightEdgeTimeRef = useRef(0);
-  const lastDrawTimeRef = useRef(0);
 
   // Pre-allocated buffers, written into every draw, never replaced
   const pointsXRef = useRef(new Float64Array(MAX_POINTS));
@@ -49,9 +48,25 @@ export default memo(function SparklineCanvas({
   // Cached gradient - only recreated when colors or dimensions change
   const gradientRef = useRef<CanvasGradient | null>(null);
   const gradientCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const slideAnimRef = useRef<Animation | null>(null);
 
   const drawWidth = width - PADDING * 2;
   const drawHeight = height - PADDING * 2;
+
+  // Between data arrivals the drawn snapshot is frozen, so the stage slides it
+  // left at timeScale on the compositor and idle motion costs no canvas
+  // repaints. Each draw re-anchors the right edge to now, so the transform must
+  // reset to 0 in the same frame the new snapshot lands.
+  const startSlide = () => {
+    const stage = stageRef.current;
+    if (!stage || typeof stage.animate !== 'function') return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    slideAnimRef.current?.cancel();
+    slideAnimRef.current = stage.animate(
+      [{ transform: 'translateX(0)' }, { transform: `translateX(-${drawWidth}px)` }],
+      { duration: SPARKLINE_TIME_WINDOW_MS, easing: 'linear', fill: 'forwards' },
+    );
+  };
 
   const drawNow = () => {
     const ctx = gradientCtxRef.current;
@@ -68,6 +83,8 @@ export default memo(function SparklineCanvas({
 
     if (len === 0 || rightEdgeTimeRef.current === 0) {
       if (dot) dot.style.left = '-9999px';
+      slideAnimRef.current?.cancel();
+      slideAnimRef.current = null;
       return;
     }
 
@@ -115,6 +132,8 @@ export default memo(function SparklineCanvas({
       dot.style.left = `${pxBuf[count - 1]}px`;
       dot.style.top = `${pyBuf[count - 1]}px`;
     }
+
+    startSlide();
   };
   const drawRef = useRef(drawNow);
   drawRef.current = drawNow;
@@ -163,9 +182,9 @@ export default memo(function SparklineCanvas({
       gradientRef.current = gradient;
     }
 
-    lastDrawTimeRef.current = 0;
-
     return () => {
+      slideAnimRef.current?.cancel();
+      slideAnimRef.current = null;
       gradientCtxRef.current = null;
       gradientRef.current = null;
     };
@@ -194,30 +213,20 @@ export default memo(function SparklineCanvas({
     drawRef.current();
   }, [data]);
 
-  // Throttle interval when idle: ~4fps keeps the time-axis sliding smoothly
-  // without burning GPU on full-rate draws per sparkline.
-  const IDLE_INTERVAL_MS = 250;
-
-  // Ticker-driven redraws only slide the time window between data arrivals.
-  // The first tick after (re)subscribe always draws (lastDrawTimeRef is 0).
-  useVisibleRAF(wrapperRef, (now: number) => {
-    if (lastDrawTimeRef.current !== 0 && now - lastDrawTimeRef.current < IDLE_INTERVAL_MS) return;
-    lastDrawTimeRef.current = now;
-    drawRef.current();
-  });
-
   return (
     <div ref={wrapperRef} className={`relative shrink-0 ${className ?? ''}`} style={{ contain: 'strict', height, width }}>
-      <canvas ref={canvasRef} style={{ width, height, display: 'block' }} />
-      {data.length > 0 && (
-        <div
-          ref={dotRef}
-          // New key per latest point remounts the node, restarting the pulse animation.
-          key={data[data.length - 1].timestamp}
-          className="sparkline-dot"
-          style={{ backgroundColor: lineColorRef.current }}
-        />
-      )}
+      <div ref={stageRef} className="absolute inset-0">
+        <canvas ref={canvasRef} style={{ width, height, display: 'block' }} />
+        {data.length > 0 && (
+          <div
+            ref={dotRef}
+            // New key per latest point remounts the node, restarting the pulse animation.
+            key={data[data.length - 1].timestamp}
+            className="sparkline-dot"
+            style={{ backgroundColor: lineColorRef.current }}
+          />
+        )}
+      </div>
     </div>
   );
 });
