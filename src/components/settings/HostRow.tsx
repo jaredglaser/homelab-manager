@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils/cn'
 
 function StatusDot({ status }: { status: HostListItem['status'] }) {
   if (status === 'healthy') {
@@ -72,7 +73,7 @@ function HostAction({ label, ariaLabel, disabled, onClick, className, children }
           <Button
             variant="ghost"
             size="icon-sm"
-            className={className ?? 'text-foreground'}
+            className={cn('size-11 lg:size-8', className ?? 'text-foreground')}
             onClick={onClick}
             disabled={disabled}
             aria-label={ariaLabel}
@@ -114,7 +115,7 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex items-center gap-2 lg:gap-1 shrink-0">
         <HostAction label="Check health" ariaLabel="check health" disabled={busy} onClick={onHealthCheck}>
           {isChecking ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
         </HostAction>
