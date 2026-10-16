@@ -42,8 +42,8 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 - **Host Management** - Add and configure managed Docker hosts via a setup wizard; agent sidecars handle stats streaming, log access, and deployments
 - **Secrets Management** - JWE-encrypted stack secrets and per-agent keypairs stored in TimescaleDB
 - **TimescaleDB Persistence** - 1-second collection interval, rolled up into 1-minute and 1-hour continuous aggregates so hourly history is kept forever
-- **Live-Updating UI** - SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
-- **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated SSE channel
+- **Live-Updating UI** - One muxed WebSocket with shared server-side polling (1 DB query/sec per source, regardless of client count)
+- **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated settings topic on that socket
 - **Theming** - Dark/light color modes with selectable light-mode palettes
 - **Virtualized Tables** - Shared DataTable with CSS Grid + conditional contained virtualization for large datasets
 - **Stale Detection** - Per-entity amber highlighting when a host or container stops reporting

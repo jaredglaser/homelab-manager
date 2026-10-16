@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { z } from 'zod';
 import { useMuxChannel, type MuxChannel } from '@/lib/mux/use-mux-channel';
-import { useSSEBuffer } from './timeSeriesStream/useSSEBuffer';
+import { useTimeSeriesBuffer } from './timeSeriesStream/useTimeSeriesBuffer';
 import { useVisibilityRefresh } from './timeSeriesStream/useVisibilityRefresh';
 import { useLatestByEntity } from './timeSeriesStream/useLatestByEntity';
 import type { RowAccessors } from './timeSeriesStream/types';
@@ -55,7 +55,7 @@ interface UseTimeSeriesStreamResult<TRow> {
  * periodic refresh, and stale detection. `preloadFn`/`initialData` are revived here (when
  * the channel defines `revive`) so they land on the same row shape mux messages already arrive in.
  *
- * @param options.channel - Mux channel for the stats topic (`src/lib/sse/channels/*-stats.ts`).
+ * @param options.channel - Mux channel for the stats topic (`src/lib/channels/*-stats.ts`).
  * @param options.preloadFn - Fetches historical rows (e.g. bucketed history) to seed the buffer.
  * @param options.getKey - Row key used for dedup against preload/mux overlap.
  * @param options.getTime - Row timestamp (ms epoch); drives sort and eviction.
@@ -97,7 +97,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
   const channelRef = useRef(channel);
   channelRef.current = channel;
 
-  const { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime, resetFirstFlush } = useSSEBuffer<TRow, RowAccessors<TRow>>({
+  const { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime, resetFirstFlush } = useTimeSeriesBuffer<TRow, RowAccessors<TRow>>({
     accessorsRef,
     windowSeconds,
     updateIntervalMs,

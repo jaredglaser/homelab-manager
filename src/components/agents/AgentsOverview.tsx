@@ -4,8 +4,7 @@ import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
-import { AGENT_INVENTORY_TOPIC } from '@/lib/mux/protocol'
-import { agentInventoryChannel } from '@/lib/sse/channels/agent-inventory'
+import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
 import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/hooks/toastAtom'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -254,7 +253,7 @@ export default function AgentsOverview() {
   })
 
   // The worker sweep publishes a fresh snapshot over the mux, so the table updates without polling.
-  useMuxChannel({ ...agentInventoryChannel, topic: AGENT_INVENTORY_TOPIC }, {
+  useMuxChannel(agentInventoryChannel, {
     onData: useCallback(
       (snapshot: { entries: AgentInventoryEntry[] }) => {
         queryClient.setQueryData(AGENTS_INVENTORY_QUERY_KEY, snapshot.entries)

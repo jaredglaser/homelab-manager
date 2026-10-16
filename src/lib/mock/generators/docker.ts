@@ -208,7 +208,7 @@ export function generateContainerHistory(
 
 // ─── Mock Container Log Generation ──────────────────────────────────────────
 
-/** Log line in the same shape the SSE docker-logs endpoint emits. */
+/** Log line in the same shape the mux logs topic streams. */
 export interface MockLogLine {
   text: string;
   stream: 'stdout' | 'stderr';

@@ -513,7 +513,7 @@ describe('StackEditorForm', () => {
     expect(deployToastGate.shouldToast(secondId)).toBe(false);
   });
 
-  it('does not consume the gate on an in_progress trigger ack, leaving the terminal toast to SSE', async () => {
+  it('does not consume the gate on an in_progress trigger ack, leaving the terminal toast to the stream', async () => {
     const { deployToastGate } = await import('@/lib/stacks/deploy-outcome-toast');
     mockTriggerDeploy.mockImplementation(() => Promise.resolve({ deployId: 810001, status: 'in_progress' as DeployStatus, logs: 'Image update started' }));
     await renderForm();
@@ -522,11 +522,11 @@ describe('StackEditorForm', () => {
     await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
     expect(mockShowToast).not.toHaveBeenCalled();
 
-    // The one-shot gate is untouched, so the SSE terminal frame can still toast.
+    // The one-shot gate is untouched, so the stream terminal frame can still toast.
     expect(deployToastGate.shouldToast(810001)).toBe(true);
   });
 
-  it('never touches the gate on an in_progress approve ack, leaving the terminal toast to SSE', async () => {
+  it('never touches the gate on an in_progress approve ack, leaving the terminal toast to the stream', async () => {
     const { deployToastGate } = await import('@/lib/stacks/deploy-outcome-toast');
     mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: 810002, status: 'in_progress' as DeployStatus, logs: 'Image update started' }));
     await renderForm();
@@ -585,7 +585,7 @@ describe('StackEditorForm', () => {
     await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('delete failed', 'error'));
   });
 
-  it('fires no optimistic toast for a teardown-pending delete: the SSE outcome owns it', async () => {
+  it('fires no optimistic toast for a teardown-pending delete: the stream outcome owns it', async () => {
     mockDeleteStack.mockImplementation(() => Promise.resolve({ status: 'teardown-pending', deployId: 5 }));
     await renderForm();
     fireEvent.click(screen.getByRole('button', { name: 'action-delete' }));

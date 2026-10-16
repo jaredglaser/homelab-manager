@@ -479,7 +479,7 @@ describe('DataTable', () => {
         setRetention: () => {},
         setDockerDebugLogging: () => {},
         setDbFlushDebugLogging: () => {},
-        setSseDebugLogging: () => {},
+        setStreamDebugLogging: () => {},
       }));
     });
 

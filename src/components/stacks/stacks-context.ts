@@ -1,14 +1,14 @@
 import { createContext, useContext } from 'react';
 import type { StackSummary, StackStatusEntry } from '@/types/stacks';
 
-/** Static stack list + hosts. Changes on stack CRUD, not on SSE ticks. */
+/** Static stack list + hosts. Changes on stack CRUD, not on stream ticks. */
 export interface StackListContextValue {
   stacks: StackSummary[];
   hosts: string[];
   isLoading: boolean;
 }
 
-/** Live container status + deploy change counter. Changes on every SSE tick. */
+/** Live container status + deploy change counter. Changes on every stream tick. */
 export interface StackStatusContextValue {
   statusMap: Map<string, StackStatusEntry>;
   deployVersion: number;

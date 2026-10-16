@@ -12,7 +12,7 @@ mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection'
 }));
 
 import { useDockerInventory, mergeUpsert } from '../useDockerInventory';
-import { dockerInventoryChannel } from '@/lib/sse/channels/docker-inventory';
+import { dockerInventoryChannel } from '@/lib/channels/docker-inventory';
 import type {
   DockerInventoryBroadcastEvent,
   DockerInventorySnapshotContainer,

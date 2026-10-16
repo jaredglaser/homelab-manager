@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import type { StackStatusEntry } from '@/types/stacks';
 import { zDeployChangeOutcome, type DeployChangeOutcome } from '@/lib/deploy/types';
 import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
+import { STACK_STATUS_TOPIC } from '@/lib/mux/protocol';
+import type { MuxChannel } from '@/lib/mux/use-mux-channel';
 
-/** Discriminated union for stack-status SSE messages (the wire shape has no Date fields, so `revive` is the identity). */
-export type StackSSEMessage =
+export type StackStatusWireMessage =
   | StackStatusEntry[]
   | { type: 'deploy_changed'; stack: string; host: string; outcome?: DeployChangeOutcome };
 
@@ -52,15 +52,13 @@ const zStackStatusWireMessage = z.union([
   }),
 ]);
 
-export const stackStatusChannel = defineSseChannel({
-  url: '/api/stack-status',
-  errorEvent: 'stack_status_error',
+export const stackStatusChannel: MuxChannel<typeof zStackStatusWireMessage> = {
+  topic: STACK_STATUS_TOPIC,
   schema: zStackStatusWireMessage,
-  revive: (message): StackSSEMessage => message,
-});
+};
 
 /** Omits `outcome` entirely rather than sending it as null/undefined when absent. */
-export function toStackStatusWireMessage(event: StackBroadcastEvent): StackSSEMessage {
+export function toStackStatusWireMessage(event: StackBroadcastEvent): StackStatusWireMessage {
   if (event.type === 'deploy_changed') {
     return {
       type: 'deploy_changed',
@@ -70,8 +68,4 @@ export function toStackStatusWireMessage(event: StackBroadcastEvent): StackSSEMe
     };
   }
   return event.entries;
-}
-
-export function serializeStackStatusEvent(event: StackBroadcastEvent): string {
-  return `data: ${JSON.stringify(toStackStatusWireMessage(event))}\n\n`;
 }

@@ -1,7 +1,7 @@
-import type { SettingsSSEMessage } from '@/types/settings';
-import type { StackSSEMessage } from '@/lib/sse/channels/stack-status';
+import type { SettingsWireMessage } from '@/types/settings';
+import type { StackStatusWireMessage } from '@/lib/channels/stack-status';
 
-// Demo stand-in for the pg NOTIFY broadcast services that feed the real SSE and mux routes.
+// Demo stand-in for the pg NOTIFY broadcast services that feed the real mux route.
 
 type Listener<T> = (message: T) => void;
 
@@ -18,5 +18,5 @@ function createBus<T>() {
   };
 }
 
-export const settingsUpdates = createBus<SettingsSSEMessage>();
-export const stackStatusUpdates = createBus<StackSSEMessage>();
+export const settingsUpdates = createBus<SettingsWireMessage>();
+export const stackStatusUpdates = createBus<StackStatusWireMessage>();

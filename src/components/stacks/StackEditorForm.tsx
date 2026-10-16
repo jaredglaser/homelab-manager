@@ -190,9 +190,9 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         message: data.logs,
       })
       // For updates the server replies in_progress right away and the deploy
-      // finishes later, so the success/failure toast comes from the SSE
+      // finishes later, so the success/failure toast comes from the stream
       // terminal frame for this deployId, not from this response. The gate is
-      // one claim per deployId, so claiming here would silence that later SSE
+      // one claim per deployId, so claiming here would silence that later stream
       // toast. Claim only when this response itself produces a toast.
       // 'queued' is unreachable here: only git_push triggers queue, and a
       // blocked ui/manual_rollback trigger fails immediately instead.
@@ -250,7 +250,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const deleteMutation = useMutation({
     mutationFn: (teardown: boolean) =>
       deleteStack({ data: { stackName, teardown } }),
-    // The SSE outcome toast in useStackStatus covers this: deleteStack awaits the
+    // The stream outcome toast in useStackStatus covers this: deleteStack awaits the
     // full teardown, so its terminal NOTIFY beats this response.
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
@@ -282,7 +282,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         message: data.logs,
       })
       // No pre-claim: claiming in onMutate and releasing on a non-toast response
-      // erases a terminal SSE frame that arrived during the await, losing the toast.
+      // erases a terminal stream frame that arrived during the await, losing the toast.
       if (outcome && deployToastGate.shouldToast(data.deployId)) {
         showToast(outcome.message, outcome.severity)
       }
@@ -296,7 +296,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const rejectMutation = useMutation({
     mutationFn: (deployId: number) => rejectDeploy({ data: { deployId } }),
-    // Claim before the SSE "Manually rejected" outcome for the same deployId can arrive.
+    // Claim before the stream "Manually rejected" outcome for the same deployId can arrive.
     onMutate: (deployId: number) => {
       deployToastGate.claim(deployId)
     },

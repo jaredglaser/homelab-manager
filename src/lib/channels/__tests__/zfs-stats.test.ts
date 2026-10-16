@@ -18,11 +18,6 @@ const wireRow = {
 };
 
 describe('zfsStatsChannel', () => {
-  it('exposes the url and errorEvent used by the route and the client', () => {
-    expect(zfsStatsChannel.url).toBe('/api/zfs-stats');
-    expect(zfsStatsChannel.errorEvent).toBe('stats_error');
-  });
-
   it('validates an array of well-formed rows', () => {
     const result = zfsStatsChannel.schema.safeParse([wireRow]);
     expect(result.success).toBe(true);

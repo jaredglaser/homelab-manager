@@ -26,7 +26,7 @@ interface SparklineCellProps {
  * The accumulator lives in an external store keyed by seriesKey, so it survives
  * the unmount/remount the virtualizer triggers when repositioning rows (CLAUDE.md
  * gotcha 12). Ingest is idempotent and runs before the store read, so a data
- * update settles in a single commit (no second commit per SSE tick across the
+ * update settles in a single commit (no second commit per stream tick across the
  * many on-screen sparklines).
  */
 export default memo(function SparklineCell({ data, color, seriesKey }: SparklineCellProps) {

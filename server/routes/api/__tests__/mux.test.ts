@@ -63,9 +63,9 @@ mockModule<typeof import('@/lib/stacks/stack-status-broadcast-service')>(
   }),
 );
 
-mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({
+mockModule<typeof import('@/lib/auth/ws-auth')>('@/lib/auth/ws-auth', (real) => ({
   ...real,
-  authenticateSSE: mockAuthenticate,
+  authenticateWsUpgrade: mockAuthenticate,
 }));
 
 mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({
@@ -649,7 +649,7 @@ describe('control topics (settings, stack-status)', () => {
     await import('@/lib/server-init');
     await import('@/lib/settings/settings-broadcast-service');
     await import('@/lib/stacks/stack-status-broadcast-service');
-    await import('@/lib/sse/channels/stack-status');
+    await import('@/lib/channels/stack-status');
   });
   const expectedStackEntry = {
     host: 'server1',

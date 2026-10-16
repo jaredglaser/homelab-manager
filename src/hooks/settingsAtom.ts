@@ -58,7 +58,7 @@ export interface Settings {
   developer: {
     dockerDebugLogging: boolean;
     dbFlushDebugLogging: boolean;
-    sseDebugLogging: boolean;
+    streamDebugLogging: boolean;
   };
 }
 
@@ -109,7 +109,7 @@ export const DEFAULT_SETTINGS: Settings = {
   developer: {
     dockerDebugLogging: false,
     dbFlushDebugLogging: false,
-    sseDebugLogging: false,
+    streamDebugLogging: false,
   },
 };
 
@@ -215,7 +215,7 @@ export function parseSettings(raw: Record<string, string>): Settings {
     developer: {
       dockerDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.dockerDebugLogging], DEFAULT_SETTINGS.developer.dockerDebugLogging),
       dbFlushDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.dbFlushDebugLogging], DEFAULT_SETTINGS.developer.dbFlushDebugLogging),
-      sseDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.sseDebugLogging], DEFAULT_SETTINGS.developer.sseDebugLogging),
+      streamDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.streamDebugLogging], DEFAULT_SETTINGS.developer.streamDebugLogging),
     },
   };
 }
@@ -228,7 +228,7 @@ export const settingsAtom = atom<Settings>((get) => parseSettings(get(rawSetting
 
 /** Transient Proxmox last-update timestamp - not persisted, used to decouple
  *  the update indicator from the data-receiving component (avoids prop drilling
- *  that would re-render the entire Proxmox page on every SSE message). */
+ *  that would re-render the entire Proxmox page on every stream message). */
 export const proxmoxLastUpdateAtom = atom<number>(0);
 
 /**
@@ -321,7 +321,7 @@ function developerEqual(a: Settings['developer'], b: Settings['developer']): boo
     a === b ||
     (a.dockerDebugLogging === b.dockerDebugLogging &&
       a.dbFlushDebugLogging === b.dbFlushDebugLogging &&
-      a.sseDebugLogging === b.sseDebugLogging)
+      a.streamDebugLogging === b.streamDebugLogging)
   );
 }
 

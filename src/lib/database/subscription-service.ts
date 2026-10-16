@@ -37,7 +37,7 @@ export interface StatsPollServiceDeps {
 }
 
 /**
- * Shared poll service: one setInterval per source (docker, zfs), broadcasting to subscribed SSE clients.
+ * Shared poll service: one setInterval per source (docker, zfs), broadcasting to subscribed mux clients.
  * Auto-starts on first subscriber per source, auto-stops when the last leaves.
  */
 export class StatsPollService {

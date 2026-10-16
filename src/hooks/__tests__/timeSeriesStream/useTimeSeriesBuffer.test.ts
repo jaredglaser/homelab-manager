@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { useRef } from 'react';
 import { renderHook, act } from '@testing-library/react';
-import { useSSEBuffer } from '../../timeSeriesStream/useSSEBuffer';
+import { useTimeSeriesBuffer } from '../../timeSeriesStream/useTimeSeriesBuffer';
 import type { RowAccessors } from '../../timeSeriesStream/types';
 import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
@@ -20,11 +20,11 @@ const defaultAccessors: RowAccessors<Row> = {
 function renderBuffer(windowSeconds = 60, updateIntervalMs = 30) {
   return renderHook(() => {
     const accessorsRef = useRef<RowAccessors<Row>>(defaultAccessors);
-    return useSSEBuffer<Row, RowAccessors<Row>>({ accessorsRef, windowSeconds, updateIntervalMs });
+    return useTimeSeriesBuffer<Row, RowAccessors<Row>>({ accessorsRef, windowSeconds, updateIntervalMs });
   });
 }
 
-describe('useSSEBuffer', () => {
+describe('useTimeSeriesBuffer', () => {
   let intervals: TimerMock;
   let timers: TimerMock;
 

@@ -1,6 +1,4 @@
 import { z } from 'zod';
-import { defineSseChannel } from '@/lib/sse/define-sse-channel';
-import { STATS_ERROR_EVENT } from '@/lib/sse/channels/stats-error-event';
 import { statsTopic } from '@/lib/mux/protocol';
 import type { MuxChannel } from '@/lib/mux/use-mux-channel';
 
@@ -24,14 +22,7 @@ const zZFSStatsWireRow = z.object({
 
 const zZFSStatsWireRows = z.array(zZFSStatsWireRow);
 
-export const zfsStatsChannel = defineSseChannel({
-  url: '/api/zfs-stats',
-  errorEvent: STATS_ERROR_EVENT,
-  schema: zZFSStatsWireRows,
-});
-
-// Live stats ride the WS mux, sharing the wire schema with the SSE channel above.
-export const zfsStatsMuxChannel: MuxChannel<typeof zZFSStatsWireRows> = {
+export const zfsStatsChannel: MuxChannel<typeof zZFSStatsWireRows> = {
   topic: statsTopic('zfs'),
   schema: zZFSStatsWireRows,
 };

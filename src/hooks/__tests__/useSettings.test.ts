@@ -593,39 +593,39 @@ type ReactNode = import('react').ReactNode;
             });
         });
 
-        it('should derive sseDebugLogging from raw atom', () => {
+        it('should derive streamDebugLogging from raw atom', () => {
             const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.developer.sseDebugLogging]: 'true',
+                [SETTINGS_KEYS.developer.streamDebugLogging]: 'true',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            expect(result.current.developer.sseDebugLogging).toBe(true);
+            expect(result.current.developer.streamDebugLogging).toBe(true);
         });
 
-        it('should update sseDebugLogging state', () => {
+        it('should update streamDebugLogging state', () => {
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            expect(result.current.developer.sseDebugLogging).toBe(false);
+            expect(result.current.developer.streamDebugLogging).toBe(false);
 
             act(() => {
-                result.current.setSseDebugLogging(true);
+                result.current.setStreamDebugLogging(true);
             });
 
-            expect(result.current.developer.sseDebugLogging).toBe(true);
+            expect(result.current.developer.streamDebugLogging).toBe(true);
         });
 
-        it('should persist sseDebugLogging to database', () => {
+        it('should persist streamDebugLogging to database', () => {
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             act(() => {
-                result.current.setSseDebugLogging(true);
+                result.current.setStreamDebugLogging(true);
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.developer.sseDebugLogging, value: 'true' },
+                data: { key: SETTINGS_KEYS.developer.streamDebugLogging, value: 'true' },
             });
         });
     });
