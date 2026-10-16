@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.3](https://github.com/jaredglaser/homelab-manager/compare/v0.2.2...v0.2.3) (2026-10-15)
+
+
+### Features
+
+* **docker:** unify container service identity on the label-derived service key ([#551](https://github.com/jaredglaser/homelab-manager/issues/551)) ([bf09e34](https://github.com/jaredglaser/homelab-manager/commit/bf09e348f122236e3c94ebce2d38fa7e0ec76cae))
+
+
+### Bug Fixes
+
+* **ci:** retry transient GitHub API errors in CI scripts ([#545](https://github.com/jaredglaser/homelab-manager/issues/545)) ([88b4281](https://github.com/jaredglaser/homelab-manager/commit/88b4281f8309595e94c8357de9d18dd22abd68d6))
+* **docker:** register container identity from inventory events and backfill orphaned service keys ([#541](https://github.com/jaredglaser/homelab-manager/issues/541)) ([d98f93c](https://github.com/jaredglaser/homelab-manager/commit/d98f93c059d701bf1c307f6360c4ae552b704db8))
+* **docker:** stop shell select trigger from overlapping modal header tabs ([#542](https://github.com/jaredglaser/homelab-manager/issues/542)) ([d2b64b0](https://github.com/jaredglaser/homelab-manager/commit/d2b64b0a0118388e21dba604038f1edce81d3bea))
+
 ## [0.2.2](https://github.com/jaredglaser/homelab-manager/compare/v0.2.1...v0.2.2) (2026-10-14)
 
 
