@@ -304,4 +304,46 @@ describe('SparklineCanvas', () => {
 
     clearCssColorVars('--chart-memory');
   });
+
+  it('skips canvas draws for hidden sparklines until IO reports them visible', () => {
+    const originalIO = globalThis.IntersectionObserver;
+    let emit: (visible: boolean) => void = () => {};
+    const ControllableIO = class {
+      constructor(cb: IntersectionObserverCallback) {
+        emit = (visible: boolean) =>
+          cb(
+            [{ isIntersecting: visible, target: {} } as unknown as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return []; }
+      root = null;
+      rootMargin = '';
+      thresholds: readonly number[] = [];
+    };
+    globalThis.IntersectionObserver = ControllableIO as unknown as typeof IntersectionObserver;
+    try {
+      const now = Date.now();
+      const { rerender } = render(<SparklineCanvas data={[{ timestamp: now, value: 50 }]} color="--chart-cpu" />);
+      emit(false);
+      const hiddenCalls = clearRectCalls();
+      const hiddenSlides = animateSpy.mock.calls.length;
+      expect(hiddenCalls).toBeGreaterThan(0);
+
+      // Stats update while hidden: no canvas draw, no slide restart.
+      rerender(<SparklineCanvas data={[{ timestamp: now + 1000, value: 60 }]} color="--chart-cpu" />);
+      expect(clearRectCalls()).toBe(hiddenCalls);
+      expect(animateSpy.mock.calls.length).toBe(hiddenSlides);
+
+      // Becoming visible refreshes the stale snapshot and restarts the slide.
+      emit(true);
+      expect(clearRectCalls()).toBe(hiddenCalls + 1);
+      expect(animateSpy.mock.calls.length).toBe(hiddenSlides + 1);
+    } finally {
+      globalThis.IntersectionObserver = originalIO;
+    }
+  });
 });

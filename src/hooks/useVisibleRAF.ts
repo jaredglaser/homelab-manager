@@ -13,6 +13,8 @@ const ROOT_MARGIN = '100px';
  *
  * Callbacks run on a process-wide shared ticker rather than a per-mount loop.
  * Return true to hold full vsync rate. Returning nothing drops to its idle cadence.
+ * Pass no callback for notification-only visibility tracking: no ticker subscription,
+ * only onActiveChange flips.
  *
  * - `callback` is always called with the latest closure — callers can pass a
  *   freshly-created function each render without re-subscribing the observer.
@@ -25,7 +27,8 @@ const ROOT_MARGIN = '100px';
  */
 export function useVisibleRAF(
   targetRef: RefObject<Element | null>,
-  callback: (timestamp: number) => boolean | void,
+  callback: ((timestamp: number) => boolean | void) | undefined,
+  onActiveChange?: (active: boolean) => void,
 ): void {
   const callbackRef = useRef(callback);
   callbackRef.current = callback;
@@ -39,17 +42,28 @@ export function useVisibleRAF(
 
     let unsubscribe: (() => void) | null = null;
     let visible = false;
+    let lastNotified: boolean | null = null;
+
+    // Fires only on observed-state changes, including the IO initial delivery,
+    // which can be isIntersecting:false before any start().
+    const notify = (active: boolean) => {
+      if (lastNotified === active) return;
+      lastNotified = active;
+      onActiveChange?.(active);
+    };
 
     const stop = () => {
       if (visible) {
         visible = false;
         unsubscribe?.();
         unsubscribe = null;
+        notify(false);
       }
     };
 
     const tick = (ts: number) => {
       try {
+        if (!callbackRef.current) return;
         return callbackRef.current(ts);
       } catch (err) {
         console.error('useVisibleRAF: callback threw; stopping rAF loop for this mount.', err);
@@ -58,10 +72,9 @@ export function useVisibleRAF(
     };
 
     const start = () => {
-      if (!visible) {
-        visible = true;
-        unsubscribe = subscribeRafTicker(tick);
-      }
+      if (visible) return;
+      visible = true;
+      if (callback) unsubscribe = subscribeRafTicker(tick);
     };
 
     // Environments without IntersectionObserver (older test shims): run unconditionally.
@@ -81,6 +94,7 @@ export function useVisibleRAF(
           if (!entry) return;
           if (entry.isIntersecting) start();
           else stop();
+          notify(entry.isIntersecting);
         },
         { rootMargin: ROOT_MARGIN },
       );

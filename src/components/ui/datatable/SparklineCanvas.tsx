@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from 'react';
 import { resolveChartColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis } from '@/lib/charts/y-axis';
+import { useVisibleRAF } from '@/hooks/useVisibleRAF';
 
 interface TimeSeriesPoint {
   timestamp: number;
@@ -40,6 +41,7 @@ export default memo(function SparklineCanvas({
   const areaStartColorRef = useRef('');
   const areaEndColorRef = useRef('');
   const rightEdgeTimeRef = useRef(0);
+  const hiddenRef = useRef(false);
 
   // Pre-allocated buffers, written into every draw, never replaced
   const pointsXRef = useRef(new Float64Array(MAX_POINTS));
@@ -210,8 +212,21 @@ export default memo(function SparklineCanvas({
           : Math.max(niceMax, smoothMaxRef.current * MAX_DECAY);
     }
 
+    if (hiddenRef.current) return;
     drawRef.current();
   }, [data]);
+
+  // The IO never reporting leaves hiddenRef false, so a never-observed
+  // sparkline keeps drawing instead of freezing.
+  useVisibleRAF(wrapperRef, undefined, (active) => {
+    hiddenRef.current = !active;
+    if (active) {
+      drawRef.current();
+      return;
+    }
+    slideAnimRef.current?.cancel();
+    slideAnimRef.current = null;
+  });
 
   return (
     <div ref={wrapperRef} className={`relative shrink-0 ${className ?? ''}`} style={{ contain: 'strict', height, width }}>
