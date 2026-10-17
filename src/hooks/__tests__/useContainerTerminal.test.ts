@@ -138,6 +138,23 @@ describe('useContainerTerminal', () => {
     expect(mockTerminal.write).toHaveBeenCalledWith(expect.any(Uint8Array));
   });
 
+  it('drops ArrayBuffer output while paused but keeps the session connected', async () => {
+    const { result } = renderHook(() =>
+      useContainerTerminal({
+        containerId: 'abc123',
+        host: 'server1',
+        shell: 'bash',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+        paused: true,
+      }),
+    );
+    await settleAndOpen();
+    const ws = mockWsInstances[0]!;
+    act(() => { ws.onmessage?.({ data: new ArrayBuffer(4) } as MessageEvent); });
+    expect(mockTerminal.write).not.toHaveBeenCalled();
+    expect(result.current.isConnected).toBe(true);
+  });
+
   it('sends stdin keypresses over WebSocket', async () => {
     renderHook(() =>
       useContainerTerminal({
