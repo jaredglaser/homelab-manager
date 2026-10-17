@@ -108,7 +108,7 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
   const { stackStatusBroadcastService } = await import(
     '../../../src/lib/stacks/stack-status-broadcast-service'
   );
-  const { toStackStatusWireMessage } = await import('../../../src/lib/sse/channels/stack-status');
+  const { toStackStatusWireMessage } = await import('../../../src/lib/channels/stack-status');
   const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
   });
@@ -312,8 +312,8 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
   return {
     async open(peer: Peer) {
       try {
-        const { authenticateSSE } = await import('../../../src/lib/auth/sse-auth');
-        const user = await authenticateSSE(peer.request as unknown as Request);
+        const { authenticateWsUpgrade } = await import('../../../src/lib/auth/ws-auth');
+        const user = await authenticateWsUpgrade(peer.request as unknown as Request);
         if (!user) {
           pendingMessages.delete(peer.id);
           try { peer.close(1008, 'Unauthorized'); } catch { /* already closed */ }

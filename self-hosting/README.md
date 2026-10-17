@@ -89,7 +89,7 @@ docker compose down -v
 |---------|-------|-------------|
 | `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (raw stats kept 24 hours, 1-minute aggregates 30 days, 1-hour aggregates forever; automatic compression per tier). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
 | `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - connects to agent sidecars (Docker/ZFS) and polls Proxmox, writes stats to TimescaleDB. Also applies database migrations on startup. |
-| `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Streams stats from TimescaleDB to connected clients via SSE. |
+| `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Streams stats from TimescaleDB to connected clients over the `/api/mux` WebSocket. |
 
 Two more images run on **monitored hosts** (not in this compose file). The Add Host wizard generates a compose stack for them during enrollment:
 
@@ -167,7 +167,7 @@ On by default. Configure an OIDC provider (designed and tested with [Pocket ID](
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTH_DISABLED` | unset (auth required) | Set to `true` (or `1`/`yes`/`on`) to disable OIDC login for all routes and SSE streams |
+| `AUTH_DISABLED` | unset (auth required) | Set to `true` (or `1`/`yes`/`on`) to disable OIDC login for all routes and the `/api/mux` WebSocket |
 | `OIDC_ISSUER_URL` | - | OIDC issuer URL, used for discovery (e.g. `https://id.example.com`) |
 | `OIDC_CLIENT_ID` | - | OIDC client ID registered with your provider |
 | `OIDC_CLIENT_SECRET` | - | OIDC client secret. Not validated at startup; a missing or wrong secret surfaces as a failed login attempt, so test a login after changing it. |
@@ -196,7 +196,7 @@ If login succeeds at the provider but the dashboard shows "You don't have access
 Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular homelab choice - refer to its docs for setup. Three dashboard-specific requirements:
 
 - **Serve over HTTPS if you can.** The session cookie is only marked `Secure` when `OIDC_REDIRECT_URI` starts with `https://`, so an https reverse proxy plus an https redirect URI keeps the session cookie off plaintext connections.
-- **Do not buffer SSE.** All real-time updates stream over long-lived `text/event-stream` responses under `/api/`. Disable response buffering for those routes (nginx: `proxy_buffering off;`) and raise the read/idle timeout well above its 60s default, or the dashboard will appear frozen or lose live updates.
+- **Do not buffer the WebSocket.** All real-time updates stream over one long-lived WebSocket at `/api/mux`. Disable response buffering for it (nginx: `proxy_buffering off;`) and raise the read/idle timeout well above its 60s default, or the dashboard will appear frozen or lose live updates.
 - **Forward client IPs.** The dashboard records `X-Forwarded-For` on login sessions for auditing, so pass it through.
 
 **Keep the dashboard on your LAN.** A reverse proxy does not change the security posture described in the warning above. Do not route this dashboard through a public-facing proxy.

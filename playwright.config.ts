@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Both targets are static production builds (no dev server) served over MSW, so
- * route loaders, auth, and SSE are intercepted before first render.
+ * route loaders, auth, and the WebSocket are intercepted before first render.
  */
 
 const DEMO_PORT = 3100;

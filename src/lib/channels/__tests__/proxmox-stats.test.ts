@@ -27,11 +27,6 @@ const wireRow = {
 };
 
 describe('proxmoxStatsChannel', () => {
-  it('exposes the url and errorEvent used by the route and the client', () => {
-    expect(proxmoxStatsChannel.url).toBe('/api/proxmox-stats');
-    expect(proxmoxStatsChannel.errorEvent).toBe('stats_error');
-  });
-
   it('validates an array of well-formed rows', () => {
     const result = proxmoxStatsChannel.schema.safeParse([wireRow]);
     expect(result.success).toBe(true);

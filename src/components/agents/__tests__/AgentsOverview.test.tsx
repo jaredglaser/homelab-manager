@@ -218,7 +218,7 @@ describe('AgentsOverview (connected)', () => {
     )
   }
 
-  it('applies an SSE snapshot to the rendered rows', async () => {
+  it('applies a live snapshot to the rendered rows', async () => {
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
 

@@ -1,8 +1,8 @@
 import type { PoolClient } from 'pg';
-import type { SettingsSSEMessage } from '@/types/settings';
+import type { SettingsWireMessage } from '@/types/settings';
 import { backoffDelayMs } from '@/lib/utils/backoff';
 
-type SettingsCallback = (message: SettingsSSEMessage) => void;
+type SettingsCallback = (message: SettingsWireMessage) => void;
 
 async function defaultGetPoolClient(): Promise<PoolClient> {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -42,7 +42,7 @@ export interface SettingsBroadcastServiceDeps {
  * Server-side broadcast service for settings changes.
  *
  * Listens to PostgreSQL NOTIFY on the 'settings_change' channel and
- * broadcasts changes to all subscribed SSE clients. On subscribe,
+ * broadcasts changes to all subscribed WebSocket clients. On subscribe,
  * sends the full settings state as an 'init' message - this handles
  * both startup sync and reconnection recovery.
  *
@@ -168,7 +168,7 @@ export class SettingsBroadcastService {
     if (this.subscribers.size === 0) return;
     try {
       const all = await this.loadAllSettings();
-      const message: SettingsSSEMessage = { type: 'init', settings: Object.fromEntries(all) };
+      const message: SettingsWireMessage = { type: 'init', settings: Object.fromEntries(all) };
 
       for (const cb of this.subscribers) {
         try {
@@ -213,7 +213,7 @@ export class SettingsBroadcastService {
       const value = await this.loadSingleSetting(key);
 
       if (value !== null) {
-        const message: SettingsSSEMessage = { type: 'change', key, value };
+        const message: SettingsWireMessage = { type: 'change', key, value };
         for (const cb of this.subscribers) {
           cb(message);
         }

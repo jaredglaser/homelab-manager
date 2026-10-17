@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import {
   zDockerInventorySnapshotContainer,
   zDockerInventoryUpdateContainer,
 } from '@/types/docker-inventory';
 import type { DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
+import { INVENTORY_TOPIC } from '@/lib/mux/protocol';
+import type { MuxChannel } from '@/lib/mux/use-mux-channel';
 
 // Same fields as the canonical schemas, but Date fields re-typed as the ISO strings
 // JSON.stringify actually produces; the canonical schemas type them z.date() because
@@ -40,9 +41,11 @@ function reviveContainerDates<T extends WireInventoryDates>(
   };
 }
 
-export const dockerInventoryChannel = defineSseChannel({
-  url: '/api/docker-inventory',
-  errorEvent: 'inventory_error',
+export const dockerInventoryChannel: MuxChannel<
+  typeof zDockerInventoryWireEvent,
+  DockerInventoryBroadcastEvent
+> = {
+  topic: INVENTORY_TOPIC,
   schema: zDockerInventoryWireEvent,
   revive: (event): DockerInventoryBroadcastEvent => {
     if (event.type === 'init') {
@@ -53,4 +56,4 @@ export const dockerInventoryChannel = defineSseChannel({
     }
     return { type: 'destroy', host: event.host, containerId: event.containerId, at: new Date(event.at) };
   },
-});
+};

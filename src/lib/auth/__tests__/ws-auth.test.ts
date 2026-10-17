@@ -9,9 +9,9 @@ function makeMockRequest(cookieHeader?: string): Request {
   } as unknown as Request;
 }
 
-// Imported dynamically per test, not statically: other files mock '@/lib/auth/sse-auth' wholesale,
+// Imported dynamically per test, not statically: other files mock '@/lib/auth/ws-auth' wholesale,
 // and a static import here can bind to that mock instead of the real module.
-describe('authenticateSSE', () => {
+describe('authenticateWsUpgrade', () => {
   const originalEnv = { ...process.env };
 
   afterEach(() => {
@@ -20,9 +20,9 @@ describe('authenticateSSE', () => {
 
   it('returns SYNTHETIC_ADMIN when auth is disabled', async () => {
     process.env.AUTH_DISABLED = 'true';
-    const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+    const { authenticateWsUpgrade } = await import('@/lib/auth/ws-auth');
 
-    const result = await authenticateSSE(makeMockRequest());
+    const result = await authenticateWsUpgrade(makeMockRequest());
 
     expect(result).toMatchObject({
       id: 0,
@@ -33,18 +33,18 @@ describe('authenticateSSE', () => {
 
   it('returns null when auth is enabled and no session cookie is present', async () => {
     delete process.env.AUTH_DISABLED;
-    const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+    const { authenticateWsUpgrade } = await import('@/lib/auth/ws-auth');
 
-    const result = await authenticateSSE(makeMockRequest());
+    const result = await authenticateWsUpgrade(makeMockRequest());
 
     expect(result).toBeNull();
   });
 
   it('returns null when the cookie header has no session cookie', async () => {
     delete process.env.AUTH_DISABLED;
-    const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+    const { authenticateWsUpgrade } = await import('@/lib/auth/ws-auth');
 
-    const result = await authenticateSSE(makeMockRequest('other=abc; foo=bar'));
+    const result = await authenticateWsUpgrade(makeMockRequest('other=abc; foo=bar'));
 
     expect(result).toBeNull();
   });

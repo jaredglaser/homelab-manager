@@ -18,7 +18,7 @@ export type DeployTrigger = (typeof DEPLOY_TRIGGER_VALUES)[number];
 
 /**
  * Wire shape for a deploy lifecycle outcome, broadcast over the `deploy_change`
- * NOTIFY channel and forwarded on the stack-status SSE stream. Single source of
+ * NOTIFY channel and forwarded on the `stack-status` WebSocket topic. Single source of
  * truth for both the server-side broadcast parse and the client-side channel
  * schema, so the two can't drift.
  */

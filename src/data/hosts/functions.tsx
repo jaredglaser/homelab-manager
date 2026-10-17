@@ -125,8 +125,8 @@ export const listHosts = createServerFn()
  * Agents inventory: every registered agent (id, name, status, version, detail)
  * from the stored snapshot the worker's sweep persists. Zero network I/O: this
  * never probes agents, so request latency is flat and client count cannot
- * fan out probes. Live data arrives over the /api/agent-inventory SSE channel,
- * which pushes a fresh snapshot after each worker sweep. This server function
+ * fan out probes. Live data arrives over the `agent-inventory` WebSocket topic, which
+ * pushes a fresh snapshot after each worker sweep. This server function
  * is the initial data source for the admin agents overview.
  */
 export const listAgentsInventory = createServerFn()

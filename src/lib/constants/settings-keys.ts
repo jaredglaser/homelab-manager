@@ -48,7 +48,8 @@ export const SETTINGS_KEYS = {
   developer: {
     dockerDebugLogging: 'developer/dockerDebugLogging',
     dbFlushDebugLogging: 'developer/dbFlushDebugLogging',
-    sseDebugLogging: 'developer/sseDebugLogging',
+    // Key literal is persisted in the DB settings table and localStorage. Renaming it would reset the user's toggle.
+    streamDebugLogging: 'developer/sseDebugLogging',
   },
 } as const;
 

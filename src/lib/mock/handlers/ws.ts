@@ -74,7 +74,7 @@ export interface MuxMockClient {
   addEventListener(type: 'message' | 'close', listener: (event: { data?: unknown }) => void): void;
 }
 
-// Event payloads follow the channel wire schemas in src/lib/sse/channels.
+// Event payloads follow the channel wire schemas in src/lib/channels.
 export function createConnectionHandler({ client }: { client: MuxMockClient }): void {
   const topicCleanups = new Map<string, () => void>();
   const stopTopic = (topic: string) => {

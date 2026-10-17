@@ -17,11 +17,6 @@ const snapshotContainer = {
 };
 
 describe('dockerInventoryChannel', () => {
-  it('exposes the url and errorEvent used by the route and the client', () => {
-    expect(dockerInventoryChannel.url).toBe('/api/docker-inventory');
-    expect(dockerInventoryChannel.errorEvent).toBe('inventory_error');
-  });
-
   it('validates a well-formed init frame', () => {
     const result = dockerInventoryChannel.schema.safeParse({
       type: 'init',

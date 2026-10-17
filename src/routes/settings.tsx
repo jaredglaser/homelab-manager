@@ -48,7 +48,7 @@ function SettingsContent() {
     setLightPalette,
     setDockerDebugLogging,
     setDbFlushDebugLogging,
-    setSseDebugLogging,
+    setStreamDebugLogging,
   } = useGeneralSettings();
   const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
   const { zfs, setZfsDecimal } = useZfsSettings();
@@ -306,14 +306,14 @@ function SettingsContent() {
             </div>
             <div className="flex justify-between items-center">
               <div>
-                <Label>SSE Pipeline Logging</Label>
+                <Label>Stream Debug Logging</Label>
                 <span className="text-xs text-muted-foreground block">
-                  Log NOTIFY reception, cache updates, and SSE event emission
+                  Log live stream preload and buffer refresh activity
                 </span>
               </div>
               <Switch
-                checked={developer.sseDebugLogging}
-                onCheckedChange={setSseDebugLogging}
+                checked={developer.streamDebugLogging}
+                onCheckedChange={setStreamDebugLogging}
               />
             </div>
           </div>

@@ -4,9 +4,9 @@ import { createConnectionHandler, type MuxMockClient } from '@/lib/mock/handlers
 import { settingsUpdates, stackStatusUpdates } from '@/lib/mock/live-updates';
 import { generateDefaultSettings } from '@/lib/mock/generators/settings';
 import { generateStackStatusEntry } from '@/lib/mock/generators/stacks';
-import { settingsChannel } from '@/lib/sse/channels/settings';
-import { stackStatusChannel } from '@/lib/sse/channels/stack-status';
-import { dockerInventoryChannel } from '@/lib/sse/channels/docker-inventory';
+import { settingsChannel } from '@/lib/channels/settings';
+import { stackStatusChannel } from '@/lib/channels/stack-status';
+import { dockerInventoryChannel } from '@/lib/channels/docker-inventory';
 
 interface MuxFrame {
   type: string;

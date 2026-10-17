@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { z } from 'zod';
 import { useMuxChannel, type MuxChannel } from '@/lib/mux/use-mux-channel';
-import { useSSEBuffer } from './timeSeriesStream/useSSEBuffer';
+import { useTimeSeriesBuffer } from './timeSeriesStream/useTimeSeriesBuffer';
 import { useVisibilityRefresh } from './timeSeriesStream/useVisibilityRefresh';
 import { useLatestByEntity } from './timeSeriesStream/useLatestByEntity';
 import type { RowAccessors } from './timeSeriesStream/types';
@@ -50,14 +50,14 @@ interface UseTimeSeriesStreamResult<TRow> {
 }
 
 /**
- * Time-windowed stream that preloads historical rows and merges subsequent mux updates.
+ * Time-windowed stream that preloads historical rows and merges subsequent WebSocket updates.
  * Composes the buffer, visibility refresh, and latest-by-entity sub-hooks; owns preload,
  * periodic refresh, and stale detection. `preloadFn`/`initialData` are revived here (when
- * the channel defines `revive`) so they land on the same row shape mux messages already arrive in.
+ * the channel defines `revive`) so they land on the same row shape WebSocket messages already arrive in.
  *
- * @param options.channel - Mux channel for the stats topic (`src/lib/sse/channels/*-stats.ts`).
+ * @param options.channel - Mux channel for the stats topic (`src/lib/channels/*-stats.ts`).
  * @param options.preloadFn - Fetches historical rows (e.g. bucketed history) to seed the buffer.
- * @param options.getKey - Row key used for dedup against preload/mux overlap.
+ * @param options.getKey - Row key used for dedup against preload/WebSocket overlap.
  * @param options.getTime - Row timestamp (ms epoch); drives sort and eviction.
  * @param options.getEntity - Entity identifier driving the `latestByEntity` map.
  * @param options.windowSeconds - Retention window in seconds; rows beyond it are evicted (default 60).
@@ -69,9 +69,9 @@ interface UseTimeSeriesStreamResult<TRow> {
  * @returns Stream state:
  *   - `rows`: sorted ascending by time, within the window
  *   - `latestByEntity`: latest row per entity, structurally shared so reference equality skips work downstream
- *   - `isConnected`: mux socket state
+ *   - `isConnected`: WebSocket state
  *   - `error`: composed in preference order (channel error, i.e. serviceError, then preloadError)
- *   - `hasData`: true after the first seed or mux flush
+ *   - `hasData`: true after the first seed or WebSocket flush
  *   - `isStale`: true when no data has arrived for ~30s
  *   - `dropCount`: cumulative count of rows shed by the server under backpressure
  *   - `droppedEvents`: gap markers (topic, count, observed-at) for those shed frames
@@ -97,7 +97,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
   const channelRef = useRef(channel);
   channelRef.current = channel;
 
-  const { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime, resetFirstFlush } = useSSEBuffer<TRow, RowAccessors<TRow>>({
+  const { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime, resetFirstFlush } = useTimeSeriesBuffer<TRow, RowAccessors<TRow>>({
     accessorsRef,
     windowSeconds,
     updateIntervalMs,
@@ -203,7 +203,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     });
   }, []);
 
-  // Keeps the buffer bounded at ~preload size regardless of how long the mux stream has been running.
+  // Keeps the buffer bounded at ~preload size regardless of how long the WebSocket stream has been running.
   // Without this, a 30-min window accumulates ~1800 raw rows/container.
   useEffect(() => {
     if (!refreshIntervalMs) return;
@@ -217,7 +217,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     lastRefreshRef,
   });
 
-  // The mux does not replay missed history, so rows lost while disconnected need a re-preload.
+  // The WebSocket does not replay missed history, so rows lost while disconnected need a re-preload.
   const onReconnect = useCallback(() => {
     // Re-arm the first-flush gate so the first frame paints even when the cooldown skips the refresh.
     resetFirstFlush();

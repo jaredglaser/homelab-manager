@@ -64,7 +64,7 @@ describe('StackDriftActions', () => {
     mockShowToast.mockClear();
   });
 
-  it('skips the deploy outcome toast when the SSE channel already toasted the deploy', async () => {
+  it('skips the deploy outcome toast when the stack-status stream already toasted the deploy', async () => {
     // Fresh id: the deployToastGate singleton dedupes by id across this file.
     const deployId = Date.now();
     resolveResult = resolutionResult({ deployId, deployStatus: 'succeeded' });
@@ -84,7 +84,7 @@ describe('StackDriftActions', () => {
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/donetick succeeded', 'success');
-    // The mutation consumed the one-shot claim, so the SSE terminal frame for
+    // The mutation consumed the one-shot claim, so the stream terminal frame for
     // the same deployId stays silent.
     expect(deployToastGate.shouldToast(deployId)).toBe(false);
   });
@@ -109,7 +109,7 @@ describe('StackDriftActions', () => {
       'Drift resolution for server1/donetick is still deploying',
       'info',
     );
-    // The later terminal SSE frame must still be able to toast.
+    // The later terminal stream frame must still be able to toast.
     expect(deployToastGate.shouldToast(deployId)).toBe(true);
   });
 });

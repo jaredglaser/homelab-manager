@@ -7,9 +7,9 @@ import {
   STATS_DROP_EVERY_TICKS,
   type MuxMockClient,
 } from '@/lib/mock/handlers/ws';
-import { dockerStatsChannel } from '@/lib/sse/channels/docker-stats';
-import { zfsStatsChannel } from '@/lib/sse/channels/zfs-stats';
-import { proxmoxStatsChannel } from '@/lib/sse/channels/proxmox-stats';
+import { dockerStatsChannel } from '@/lib/channels/docker-stats';
+import { zfsStatsChannel } from '@/lib/channels/zfs-stats';
+import { proxmoxStatsChannel } from '@/lib/channels/proxmox-stats';
 
 interface MuxFrame {
   type: string;

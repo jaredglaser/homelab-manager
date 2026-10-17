@@ -18,11 +18,6 @@ const wireRow = {
 };
 
 describe('dockerStatsChannel', () => {
-  it('exposes the url and errorEvent used by the route and the client', () => {
-    expect(dockerStatsChannel.url).toBe('/api/docker-stats');
-    expect(dockerStatsChannel.errorEvent).toBe('stats_error');
-  });
-
   it('validates an array of well-formed rows', () => {
     const result = dockerStatsChannel.schema.safeParse([wireRow]);
     expect(result.success).toBe(true);
