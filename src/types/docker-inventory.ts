@@ -2,7 +2,7 @@
  * Domain types for the Docker container inventory pipeline.
  *
  * Agent → worker → `docker_container_events` hypertable → NOTIFY →
- * web broadcast service → `inventory` mux topic → `useDockerInventory()` hook.
+ * web broadcast service → `inventory` WebSocket topic → `useDockerInventory()` hook.
  *
  * Discriminated union note: on this web-broadcast layer the `init` frame
  * (`DockerInventorySnapshotContainer`) carries the full label map sourced from
@@ -96,7 +96,7 @@ export const zDockerInventoryUpdateContainer = zInventoryContainerBase.extend({
 });
 export type DockerInventoryUpdateContainer = z.infer<typeof zDockerInventoryUpdateContainer>;
 
-/** Events fanned out from `DockerInventoryBroadcastService` to mux subscribers. */
+/** Events fanned out from `DockerInventoryBroadcastService` to WebSocket subscribers. */
 export const zDockerInventoryBroadcastEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('init'), containers: z.array(zDockerInventorySnapshotContainer) }),
   z.object({ type: z.literal('upsert'), container: zDockerInventoryUpdateContainer }),

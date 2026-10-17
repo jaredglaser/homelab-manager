@@ -36,7 +36,7 @@ interface UseTimeSeriesBufferResult<TRow> {
 }
 
 /**
- * Time-windowed buffer of rows fed by the mux and seeded by preload.
+ * Time-windowed buffer of rows fed by the WebSocket and seeded by preload.
  *
  * Owns the sorted buffer (single source of truth for `rows`), a dedup set against
  * preload/live overlap, and a pending queue flushed on a fixed interval so eviction

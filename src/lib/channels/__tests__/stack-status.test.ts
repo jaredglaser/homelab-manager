@@ -112,7 +112,7 @@ describe('stackStatusChannel', () => {
 });
 
 describe('toStackStatusWireMessage', () => {
-  it('maps a status event to the bare entries array (the mux payload shape)', () => {
+  it('maps a status event to the bare entries array (the WebSocket payload shape)', () => {
     const event: StackBroadcastEvent = {
       type: 'status',
       entries: [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }],

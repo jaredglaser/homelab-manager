@@ -42,7 +42,7 @@ export interface SettingsBroadcastServiceDeps {
  * Server-side broadcast service for settings changes.
  *
  * Listens to PostgreSQL NOTIFY on the 'settings_change' channel and
- * broadcasts changes to all subscribed mux clients. On subscribe,
+ * broadcasts changes to all subscribed WebSocket clients. On subscribe,
  * sends the full settings state as an 'init' message - this handles
  * both startup sync and reconnection recovery.
  *

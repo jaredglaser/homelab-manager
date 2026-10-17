@@ -1,7 +1,7 @@
 import type { SettingsWireMessage } from '@/types/settings';
 import type { StackStatusWireMessage } from '@/lib/channels/stack-status';
 
-// Demo stand-in for the pg NOTIFY broadcast services that feed the real mux route.
+// Demo stand-in for the pg NOTIFY broadcast services that feed the real `/api/mux` route.
 
 type Listener<T> = (message: T) => void;
 

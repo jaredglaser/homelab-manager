@@ -7,7 +7,7 @@ graph TD
     Browser["Browser<br/>(multiple tabs)"]
 
     subgraph TanStack_Start["TanStack Start Server"]
-        Mux["WS Mux<br/>(/api/mux topics)"]
+        Mux["WebSocket<br/>(/api/mux topics)"]
         PollSvc["StatsPollService<br/>(shared 1s poll)"]
         StackBroadcast["StackStatusBroadcastService<br/>(LISTEN docker_container_change + deploy_change)"]
     end
@@ -53,7 +53,7 @@ graph TD
 ```
 
 The frontend reads stats from the database, not directly from Docker/ZFS APIs. This enables:
-- **Shared polling** - `StatsPollService` runs 1 query/sec per source, broadcasting results to every subscribed WS mux topic
+- **Shared polling** - `StatsPollService` runs 1 query/sec per source, broadcasting results to every subscribed WebSocket topic
 - **Direct DB queries** with seq-based cursors - no intermediate cache layer
 - **Stale data detection** at both global (30+ second warning) and per-entity levels (amber highlighting for individual hosts/containers)
 
@@ -81,7 +81,7 @@ The worker connects to agent sidecars on each managed host via SSE. For Docker s
 flowchart LR
     DB["TimescaleDB"]
     PollSvc["StatsPollService<br/>(1s shared poll)"]
-    Mux["WS Mux<br/>(/api/mux topic adapters)"]
+    Mux["WebSocket<br/>(/api/mux topic adapters)"]
     Hook["useTimeSeriesStream<br/>(hook)"]
     Table["Virtualized Table<br/>(CSS Grid)"]
 
@@ -97,7 +97,7 @@ flowchart LR
 4. **ContainerInventoryCollector** connects to each agent's `/containers/events` endpoint and persists container inventory events to `docker_container_events`
 5. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows, and inserts into TimescaleDB
 6. Stats are **inserted** into TimescaleDB wide hypertables
-7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to the mux topic adapters behind `stats:*`
+7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to the WebSocket topic adapters behind `stats:*`
 8. **One WebSocket at `/api/mux`** (`server/routes/api/mux.ts`) carries every live topic: `inventory`, `settings`, `stack-status` (control class), `stats:docker|zfs|proxmox`, and `logs:<host>/<containerId>` (bulk class). Multiple browser tabs share the same connection and the same poll - only 1 DB query/sec per source
 9. **Subscribe protocol** - the client sends `{ type: 'sub' | 'unsub', ref, topics }`; each command is answered by one `{ type: 'ack', ref, ok }` (with `error`/`code` on rejection), and topic data arrives as `{ type: 'event', topic, kind, payload }` with `kind` of `data`, `backlog_start`, `backlog_done`, `stream_end`, `error`, or `dropped`. Re-subscribing a topic restarts its adapter and re-delivers initial state (snapshots or log backlog) - that is the resync mechanism; after every reconnect the client re-sends its full topic set. Bulk frames are shed under socket backpressure and reported as `dropped` counts, and a session holds at most 250 topics (circuit breaker)
 10. The **`useTimeSeriesStream` hook** preloads history via REST, then merges topic updates into a time-windowed buffer with stale detection; shed frames surface as gap markers
@@ -105,7 +105,7 @@ flowchart LR
 
 ## Proxmox Data Model
 
-Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` discriminator column to distinguish cluster, node, qemu, lxc, and storage entities (similar to how ZFS uses `entity_type` for pool/vdev/disk). This keeps the architecture consistent: one table -> one StatsPollService source -> one mux topic -> one `useTimeSeriesStream` hook.
+Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` discriminator column to distinguish cluster, node, qemu, lxc, and storage entities (similar to how ZFS uses `entity_type` for pool/vdev/disk). This keeps the architecture consistent: one table -> one StatsPollService source -> one WebSocket topic -> one `useTimeSeriesStream` hook.
 
 - **Bidirectional conversion**: `overviewToRows()` converts the Proxmox API overview to flat DB rows; `buildProxmoxOverview()` reconstructs the overview from latest rows per entity
 - **Runtime-configurable interval**: The Proxmox poll interval (1s or 10s) can be changed via the settings UI; changes propagate via `SettingsListener` -> `ProxmoxCollector.pollInterval` setter

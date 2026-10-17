@@ -252,7 +252,7 @@ export default function AgentsOverview() {
     queryFn: () => listAgentsInventory(),
   })
 
-  // The worker sweep publishes a fresh snapshot over the mux, so the table updates without polling.
+  // The worker sweep publishes a fresh snapshot over the WebSocket, so the table updates without polling.
   useMuxChannel(agentInventoryChannel, {
     onData: useCallback(
       (snapshot: { entries: AgentInventoryEntry[] }) => {

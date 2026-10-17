@@ -126,7 +126,7 @@ export interface StackContainer {
   mounts: ContainerMount[];
 }
 
-/** Live status entry for a stack as received over the stack-status mux topic. */
+/** Live status entry for a stack as received over the `stack-status` WebSocket topic. */
 export interface StackStatusEntry {
   stack: string;
   host: string;

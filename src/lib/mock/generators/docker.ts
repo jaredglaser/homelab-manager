@@ -208,7 +208,7 @@ export function generateContainerHistory(
 
 // ─── Mock Container Log Generation ──────────────────────────────────────────
 
-/** Log line in the same shape the mux logs topic streams. */
+/** Log line in the same shape the `logs` WebSocket topic streams. */
 export interface MockLogLine {
   text: string;
   stream: 'stdout' | 'stderr';
