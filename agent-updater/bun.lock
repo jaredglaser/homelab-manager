@@ -8,8 +8,8 @@
         "dockerode": "5.0.1",
       },
       "devDependencies": {
-        "@types/bun": "1.4.2",
-        "@types/dockerode": "4.0.1",
+        "@types/bun": "1.4.3",
+        "@types/dockerode": "4.0.2",
         "typescript": "7.0.2",
       },
     },
@@ -43,11 +43,11 @@
 
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.0", "", {}, "sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw=="],
 
-    "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+    "@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 
     "@types/docker-modem": ["@types/docker-modem@3.0.6", "", { "dependencies": { "@types/node": "*", "@types/ssh2": "*" } }, "sha512-yKpAGEuKRSS8wwx0joknWxsmLha78wNMe9R2S3UNsVOkZded8UqOrV8KoeDXoXsjndxwyF3eIhyClGbO1SEhEg=="],
 
-    "@types/dockerode": ["@types/dockerode@4.0.1", "", { "dependencies": { "@types/docker-modem": "*", "@types/node": "*", "@types/ssh2": "*" } }, "sha512-cmUpB+dPN955PxBEuXE3f6lKO1hHiIGYJA46IVF3BJpNsZGvtBDcRnlrHYHtOH/B6vtDOyl2kZ2ShAu3mgc27Q=="],
+    "@types/dockerode": ["@types/dockerode@4.0.2", "", { "dependencies": { "@types/docker-modem": "*", "@types/node": "*", "@types/ssh2": "*" } }, "sha512-hA4myZ0XzwHG/p/eCLElYsQS3y1XZfvi6AfLFKVp1SNpPkO6J3xLatacAFVkReTxXRoIa3eHJmhJi9w6I3+zNA=="],
 
     "@types/node": ["@types/node@25.5.0", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-jp2P3tQMSxWugkCUKLRPVUpGaL5MVFwF8RDuSRztfwgN1wmqJeMSbKlnEtQqU8UrhTmzEmZdu2I6v2dpp7XIxw=="],
 
@@ -109,7 +109,7 @@
 
     "buildcheck": ["buildcheck@0.0.7", "", {}, "sha512-lHblz4ahamxpTmnsk+MNTRWsjYKv965MwOrSJyeD588rR3Jcu7swE+0wN5F+PbL5cjgu/9ObkhfzEPuofEMwLA=="],
 
-    "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
+    "bun-types": ["bun-types@1.4.3", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
 
     "chownr": ["chownr@1.1.4", "", {}, "sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg=="],
 
