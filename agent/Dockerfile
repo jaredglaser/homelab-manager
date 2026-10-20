@@ -1,8 +1,8 @@
 # Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
-FROM docker:29.8.1-cli AS toolchain
+FROM docker:29.9.0-cli AS toolchain
 
 # Application stage
-FROM oven/bun:1.4.2 AS base
+FROM oven/bun:1.4.3 AS base
 
 COPY --from=toolchain /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=toolchain /usr/local/libexec/docker/cli-plugins /usr/local/lib/docker/cli-plugins
