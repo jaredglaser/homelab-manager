@@ -68,6 +68,10 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    ignore:
+      # Bumps must include .bun-version, which dependabot cannot edit; the
+      # guard test fails an oven/bun-only bump, so these are made manually.
+      - dependency-name: "oven/bun"
     groups:
       root-docker-patch-minor:
         patterns:
@@ -82,6 +86,8 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: "oven/bun"
     groups:
       agent-docker-patch-minor:
         patterns:
@@ -96,6 +102,8 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: "oven/bun"
     groups:
       agent-updater-docker-patch-minor:
         patterns:

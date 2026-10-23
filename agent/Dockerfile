@@ -1,8 +1,11 @@
+# Must match .bun-version; scripts/__tests__/bun-version.test.ts fails CI on drift.
+ARG BUN_VERSION=1.4.2
+
 # Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
 FROM docker:29.8.1-cli AS toolchain
 
 # Application stage
-FROM oven/bun:1.4.2 AS base
+FROM oven/bun:${BUN_VERSION} AS base
 
 COPY --from=toolchain /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=toolchain /usr/local/libexec/docker/cli-plugins /usr/local/lib/docker/cli-plugins
@@ -14,7 +17,9 @@ COPY bun.lock ./bun.lock
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
-RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.14 \
+# Global ARGs do not carry into stages; re-declared for the cache mount id below.
+ARG BUN_VERSION
+RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-${BUN_VERSION} \
     bun install --frozen-lockfile --production --ignore-scripts
 
 COPY src ./src
