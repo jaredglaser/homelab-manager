@@ -1,14 +1,19 @@
 # Dockerfile for homelab-manager
 # Multi-stage build: deps (dev), base (worker/cleanup), production (web)
 
+# Must match .bun-version; scripts/__tests__/bun-version.test.ts fails CI on drift.
+ARG BUN_VERSION=1.4.2
+
 # Dependencies only - used for dev containers (source mounted via volume)
-FROM oven/bun:1.4.2 AS deps
+FROM oven/bun:${BUN_VERSION} AS deps
+# Global ARGs do not carry into stages; re-declared for the cache mount id below.
+ARG BUN_VERSION
 WORKDIR /app
 COPY package.json bun.lock ./
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
-RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-1.4.2 \
+RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-${BUN_VERSION} \
     bun install --frozen-lockfile --ignore-scripts
 EXPOSE 3000
 
