@@ -2,7 +2,7 @@
 ARG BUN_VERSION=1.4.2
 
 # Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
-FROM docker:29.8.1-cli AS toolchain
+FROM docker:29.9.1-cli AS toolchain
 
 # Application stage
 FROM oven/bun:${BUN_VERSION} AS base
