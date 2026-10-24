@@ -9,6 +9,8 @@ import type {
   StackDriftResolution,
   StackDriftResolutionResult,
 } from '@/types/stacks';
+import type { ImageChangelog, ImageRelease, ImageUpdateSummary } from '@/types/image-updates';
+import { constraintFromTag, parseVersionTag } from '@/lib/image-updates/version';
 import { generateStackStatusEntry } from '@/lib/mock/generators/stacks';
 import { stackStatusUpdates } from '@/lib/mock/live-updates';
 
@@ -202,7 +204,7 @@ volumes:
 `,
   pihole: `services:
   pihole:
-    image: pihole/pihole:latest
+    image: pihole/pihole:2025.08.0
     restart: unless-stopped
     ports:
       - "53:53/udp"
@@ -486,5 +488,132 @@ export async function resolveDrift(opts: {
     commitSha: null,
     deployId: null,
     deployStatus: null,
+  };
+}
+
+function imagesFromCompose(stackName: string): string[] {
+  const compose = MOCK_COMPOSE[stackName] ?? '';
+  return [...compose.matchAll(/^\s*image:\s*(\S+)$/gm)].map((match) => match[1]);
+}
+
+function tagOfImage(image: string): string | null {
+  const slash = image.lastIndexOf('/');
+  const colon = image.lastIndexOf(':');
+  return colon > slash ? image.slice(colon + 1) : null;
+}
+
+const MOCK_SOURCE_REPOS: Record<string, string> = {
+  'traefik:v3': 'traefik/traefik',
+  'nginx:latest': 'nginx/nginx',
+  'pihole/pihole:2025.08.0': 'pi-hole/pi-hole',
+};
+
+function buildUpdateSummary(image: string): ImageUpdateSummary {
+  const currentTag = tagOfImage(image);
+  const parsed = currentTag !== null ? parseVersionTag(currentTag) : null;
+  const constraint = currentTag !== null ? constraintFromTag(currentTag) : null;
+  if (parsed === null || constraint === null) {
+    // nginx:latest simulates a moved registry digest; other floating tags stay
+    // inconclusive (locally built, no digest in inventory).
+    const floatingUpdate = image === 'nginx:latest';
+    return {
+      image,
+      currentTag,
+      latestMatchingTag: null,
+      latestOverallTag: '1.29.3',
+      updateAvailable: floatingUpdate ? true : null,
+      sourceRepo: MOCK_SOURCE_REPOS[image] ?? null,
+      error: null,
+    };
+  }
+  if (parsed.patch !== null) {
+    return {
+      image,
+      currentTag,
+      latestMatchingTag: currentTag,
+      latestOverallTag: currentTag,
+      updateAvailable: false,
+      sourceRepo: MOCK_SOURCE_REPOS[image] ?? null,
+      error: null,
+    };
+  }
+  const newer = parsed.minor === null ? `${parsed.major}.9.4` : `${parsed.major}.${parsed.minor}.9`;
+  const latestMatchingTag = parsed.raw.startsWith('v') ? `v${newer}` : newer;
+  return {
+    image,
+    currentTag,
+    latestMatchingTag,
+    latestOverallTag: latestMatchingTag,
+    updateAvailable: true,
+    sourceRepo: MOCK_SOURCE_REPOS[image] ?? null,
+    error: null,
+  };
+}
+
+export async function getImageUpdateInfo(opts: {
+  data: { stack: string; host: string };
+}): Promise<ImageUpdateSummary[]> {
+  const images = [...new Set(imagesFromCompose(opts.data.stack))];
+  return images.map(buildUpdateSummary);
+}
+
+const MOCK_CHANGELOG_BODY = [
+  '### Highlights',
+  '',
+  '- Faster startup on hosts with many containers',
+  '- Fixed a memory leak in the metrics exporter',
+  '',
+  '```yaml',
+  'services:',
+  '  app:',
+  '    image: example-org/mock-app:3.5.2',
+  '```',
+  '',
+  'See the **upgrade guide** before updating from *older* majors.',
+].join('\n');
+
+const MOCK_RELEASES: ImageRelease[] = [
+  {
+    tagName: 'v3.5.2',
+    name: 'v3.5.2',
+    publishedAt: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+    url: 'https://github.com/example-org/mock-app/releases/tag/v3.5.2',
+    body: MOCK_CHANGELOG_BODY,
+    prerelease: false,
+  },
+  {
+    tagName: 'v3.5.1',
+    name: 'v3.5.1',
+    publishedAt: new Date(Date.now() - 21 * 86_400_000).toISOString(),
+    url: 'https://github.com/example-org/mock-app/releases/tag/v3.5.1',
+    body: '### Fixes\n\n- Fixed a crash when the config file was read-only',
+    prerelease: false,
+  },
+  {
+    tagName: 'v3.5.0',
+    name: 'v3.5.0',
+    publishedAt: new Date(Date.now() - 45 * 86_400_000).toISOString(),
+    url: 'https://github.com/example-org/mock-app/releases/tag/v3.5.0',
+    body: '### New features\n\n1. Prometheus metrics endpoint\n2. Structured JSON logging',
+    prerelease: false,
+  },
+  {
+    tagName: 'v4.0.0-rc.1',
+    name: 'v4.0.0-rc.1',
+    publishedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    url: 'https://github.com/example-org/mock-app/releases/tag/v4.0.0-rc.1',
+    body: '### Breaking changes\n\n- Configuration keys renamed',
+    prerelease: true,
+  },
+];
+
+export async function getImageChangelog(opts: {
+  data: { stack: string; host: string; image: string };
+}): Promise<ImageChangelog> {
+  return {
+    image: opts.data.image,
+    sourceRepo: 'example-org/mock-app',
+    releases: MOCK_RELEASES,
+    error: null,
   };
 }

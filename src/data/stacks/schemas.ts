@@ -47,6 +47,17 @@ export const resolveDriftSchema = z.object({
   resolution: z.enum(['trust_repo', 'trust_agent', 'remove']),
 });
 
+export const getImageUpdateInfoSchema = z.object({
+  stack: stackNameField,
+  host: z.string().min(1),
+});
+
+export const getImageChangelogSchema = z.object({
+  stack: stackNameField,
+  host: z.string().min(1),
+  image: z.string().min(1),
+});
+
 export const controlStackSchema = z.discriminatedUnion('scope', [
   z.object({
     stack: stackNameField,
