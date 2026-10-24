@@ -6,6 +6,7 @@ const snapshotContainer = {
   containerId: 'abc123',
   name: 'plex',
   image: 'plexinc/pms-docker:latest',
+  imageDigest: null,
   state: 'running',
   composeProject: 'media',
   serviceKey: 'media/plex',

@@ -126,7 +126,8 @@ function makeInventory(
     containerId,
     name,
     image: 'nginx:latest',
-    state: 'running',
+
+    imageDigest: null,    state: 'running',
     composeProject: null,
     serviceKey: name,
     startedAt: baseDate,

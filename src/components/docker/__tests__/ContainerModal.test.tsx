@@ -41,6 +41,7 @@ const sampleInventory: DockerInventorySnapshotContainer = {
   containerId: 'abc123def456abc123def456abc123def456abc123def456abc123def456abc123',
   name: 'nginx-proxy',
   image: 'nginx:latest',
+  imageDigest: null,
   state: 'running',
   composeProject: null,
   serviceKey: 'nginx-proxy',
