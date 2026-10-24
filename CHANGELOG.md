@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.5](https://github.com/jaredglaser/homelab-manager/compare/v0.2.4...v0.2.5) (2026-10-24)
+
+
+### Bug Fixes
+
+* **mux:** mark stream-fed queries fetch-less with skipToken ([#558](https://github.com/jaredglaser/homelab-manager/issues/558)) ([b8baa35](https://github.com/jaredglaser/homelab-manager/commit/b8baa35738e65a2fa733226463cc577a4c9f2788))
+
+
+### Performance Improvements
+
+* **ui:** pause modal content while the dialog exit transition runs ([#557](https://github.com/jaredglaser/homelab-manager/issues/557)) ([ed2f359](https://github.com/jaredglaser/homelab-manager/commit/ed2f3598d58c33c9b8bbd90997c1c02d5a9b7f92))
+
 ## [0.2.4](https://github.com/jaredglaser/homelab-manager/compare/v0.2.3...v0.2.4) (2026-10-16)
 
 
