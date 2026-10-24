@@ -364,8 +364,17 @@ Full stack management interface at `/stacks` (top-level navigation).
 | `DeleteStackDialog` | Stack deletion confirmation |
 | `RollbackDialog` | Rollback to previous deployment |
 | `StackSettingsDialog` | Stack settings editor |
+| `ImageUpdateDialog` | Registry update check and release notes per container image |
 
 **Real-time updates:** The `useStackStatus` hook subscribes to the `stack-status` topic on the `/api/mux` WebSocket. Container status changes and deployment completions are broadcast to all connected browsers.
+
+### Image Update Checks (`src/lib/image-updates/`)
+
+On-demand registry checks behind two GET server functions (`getImageUpdateInfo`, `getImageChangelog`). The stack containers panel calls `getImageUpdateInfo` on mount; each distinct image the stack runs is checked against its registry's tag list, and the running tag doubles as the constraint: `redis:7` matches newer 7.x only, `redis:7.4` newer 7.4.x, variant suffixes (`7-alpine`) must match exactly, and prereleases never count as updates unless the running tag is one. Floating tags (`latest`) are digest-compared instead: the agent resolves each container's `RepoDigests` at event time (cached per image ID in the broadcaster) and the inventory pipeline persists it as `docker_container_events.image_digest` (migration 039, also carried in the NOTIFY payload), so an update is a moved manifest digest on the registry side. Without a stored digest (locally built image) the check stays inconclusive. Registries: Docker Hub via its Hub API, everything else through the anonymous Docker Registry v2 token flow with the token realm pinned to the registry's own host. Results are cached in memory (summaries 5 min, release notes 1 hour; failures are not cached).
+
+Because the digest lives in the DB, the same check is reusable by a future scheduled refresher (once or twice a day) that diffs update states and notifies users; nothing in the current design assumes an interactive caller.
+
+Release notes come from GitHub Releases, resolved from the image's `org.opencontainers.image.source` label, and are fetched only when the dialog opens to stay inside GitHub's anonymous rate limit. The dialog defaults to releases matching the running tag's constraint with an all-releases toggle, so an out-of-constraint major (3.0 while running `:2`) stays discoverable without being offered as the update.
 
 ### Host Management (Settings UI)
 
