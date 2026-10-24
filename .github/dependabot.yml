@@ -24,6 +24,15 @@ updates:
       semver-patch-days: 7
       semver-minor-days: 14
       semver-major-days: 30
+    ignore:
+      # Shared deps flow from root via scripts/dep-sync.ts (root package.json is
+      # the source of truth); a per-package bump fails the bun run deps:check guard.
+      - dependency-name: "dockerode"
+      - dependency-name: "jose"
+      - dependency-name: "zod"
+      - dependency-name: "@types/dockerode"
+      - dependency-name: "@types/bun"
+      - dependency-name: "typescript"
     groups:
       agent-npm-patch-minor:
         patterns:
@@ -40,6 +49,13 @@ updates:
       semver-patch-days: 7
       semver-minor-days: 14
       semver-major-days: 30
+    ignore:
+      - dependency-name: "dockerode"
+      - dependency-name: "jose"
+      - dependency-name: "zod"
+      - dependency-name: "@types/dockerode"
+      - dependency-name: "@types/bun"
+      - dependency-name: "typescript"
     groups:
       agent-updater-npm-patch-minor:
         patterns:
