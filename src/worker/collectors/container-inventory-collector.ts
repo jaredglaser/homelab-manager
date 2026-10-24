@@ -285,6 +285,7 @@ export class ContainerInventoryCollector extends BaseCollector {
         state: container.state,
         name: container.name,
         image: container.image,
+        imageDigest: container.imageDigest ?? null,
         labels,
         ports: container.ports,
         mounts: container.mounts,

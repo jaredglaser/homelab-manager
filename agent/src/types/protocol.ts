@@ -51,6 +51,8 @@ export const zInventorySnapshotContainer = z.object({
   id: z.string(),
   name: z.string(),
   image: z.string(),
+  /** Manifest digest the image was pulled by; null for locally built images. Defaulted so an old agent streaming to a new worker still validates. */
+  imageDigest: z.string().nullable().default(null),
   state: zContainerState,
   labels: z.record(z.string(), z.string()),
   /** ISO timestamp; null when the container has not yet started. */

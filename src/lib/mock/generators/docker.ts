@@ -148,6 +148,7 @@ export function generateDockerInventorySnapshot(now: Date): DockerInventorySnaps
     return {
       host: e.host,
       containerId: e.containerId,
+      imageDigest: `sha256:${e.containerId.repeat(8).slice(0, 64)}`,
       name: e.containerName,
       image: e.image,
       state,
