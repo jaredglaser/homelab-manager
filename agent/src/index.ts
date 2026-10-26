@@ -12,6 +12,16 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
+import { handleTlsEnroll, parseTlsHttpFallback, resolveTlsStartup } from './lib/tls-enroll';
+
+function isFileReadable(path: string): boolean {
+  try {
+    accessSync(path, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const portEnv = process.env.AGENT_PORT;
 let PORT = 9090;
@@ -83,13 +93,24 @@ try {
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH;
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH;
 
-if ((TLS_CERT_PATH && !TLS_KEY_PATH) || (!TLS_CERT_PATH && TLS_KEY_PATH)) {
-  console.error('Both TLS_CERT_PATH and TLS_KEY_PATH must be set together. Only one was provided.');
+const tlsHttpFallback = (() => {
+  try {
+    return parseTlsHttpFallback(process.env.HLM_TLS_HTTP_FALLBACK);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+})();
+
+const tlsDecision = resolveTlsStartup(TLS_CERT_PATH, TLS_KEY_PATH, tlsHttpFallback, isFileReadable);
+if (tlsDecision.mode === 'fatal') {
+  console.error(tlsDecision.error);
   process.exit(1);
 }
+if (tlsDecision.mode === 'http' && tlsDecision.warning) console.warn(tlsDecision.warning);
 
-const tlsConfig = TLS_CERT_PATH && TLS_KEY_PATH
-  ? { cert: Bun.file(TLS_CERT_PATH), key: Bun.file(TLS_KEY_PATH) }
+const tlsConfig = tlsDecision.mode === 'tls'
+  ? { cert: Bun.file(tlsDecision.certPath), key: Bun.file(tlsDecision.keyPath) }
   : undefined;
 
 let docker: Dockerode | null = null;
@@ -161,6 +182,10 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
 
   if (url.pathname === '/agent/update' && request.method === 'POST') {
     return handleAgentUpdate(docker, AGENT_CONTAINER_NAME, PORT, request);
+  }
+
+  if (url.pathname === '/tls/enroll' && request.method === 'POST') {
+    return handleTlsEnroll(request, STACKS_DIR);
   }
 
   return null;
