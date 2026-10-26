@@ -8,6 +8,7 @@ import type {
 } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from '@/lib/deploy/types';
 import { retry } from '@/lib/utils/backoff';
+import { agentFetch } from '@/lib/clients/agent-http';
 
 /** Agent's 15-min pull+up budget on /stacks/update, plus 1 min network slack. */
 const UPDATE_TIMEOUT_MS = 960_000;
@@ -47,6 +48,8 @@ interface AgentClientConfig {
   controlTimeoutMs?: number;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetchFn?: typeof fetch;
+  /** Pinned per-host TLS certificate (PEM) for https agent URLs. */
+  caCertPem?: string | null;
 }
 
 export interface AgentHealthResponse {
@@ -68,8 +71,8 @@ export type StackControlRequest =
  * All requests include the bearer token and a timeout via AbortSignal.
  * Adapts the raw agent JSON into the internal AgentDeployResponse / AgentHealthResponse shapes.
  *
- * HTTPS is supported natively: use https:// in the agent URL.
- * For self-signed certs, set NODE_EXTRA_CA_CERTS env var to the CA certificate path.
+ * https agent URLs are fetched through the agent-http wrapper with the host's
+ * pinned certificate as trust anchor (self-signed per-host certs).
  *
  * Transient failures (network errors, 502/503/504) are retried up to 3 total
  * attempts with exponential backoff (1s, 2s) via the shared `retry()` helper.
@@ -82,6 +85,7 @@ export class AgentClient {
   private readonly timeoutMs: number;
   private readonly controlTimeoutMs: number;
   private readonly fetchFn: typeof fetch;
+  private readonly caCertPem: string | null | undefined;
 
   constructor(config: AgentClientConfig) {
     // Strip trailing slash
@@ -90,6 +94,7 @@ export class AgentClient {
     this.timeoutMs = config.timeoutMs ?? 300_000;
     this.controlTimeoutMs = config.controlTimeoutMs ?? 60_000;
     this.fetchFn = config.fetchFn ?? fetch;
+    this.caCertPem = config.caCertPem;
   }
 
   async deploy(payload: AgentDeployPayload): Promise<AgentDeployResponse> {
@@ -224,11 +229,11 @@ export class AgentClient {
   private async attempt<T>(url: string, init: RequestInit, timeoutMs?: number): Promise<T> {
     let response: Response;
     try {
-      response = await this.fetchFn(url, {
+      response = await agentFetch(url, {
         ...init,
         signal: AbortSignal.timeout(timeoutMs ?? this.timeoutMs),
         redirect: 'manual',
-      });
+      }, { caCertPem: this.caCertPem }, this.fetchFn);
     } catch (err) {
       // Distinguish our own per-attempt timeout from a genuine network failure.
       // DOMException('...', 'TimeoutError') is the canonical AbortSignal.timeout()

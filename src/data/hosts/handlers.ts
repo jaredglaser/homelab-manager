@@ -2,6 +2,7 @@ import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-r
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
+import { agentFetch } from '@/lib/clients/agent-http';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
@@ -17,6 +18,8 @@ export interface KeypairsDep {
 export interface AddHostResult {
   host: HostListItem;
   publicJwk?: import('jose').JWK;
+  /** Only set when TLS was provisioned; the wizard shows these as files for the operator to copy. */
+  tls?: { certPem: string; keyPem: string };
 }
 
 export type HostOperationResult =
@@ -167,7 +170,11 @@ export async function handleRotateHostKeypair(
  * health check passes.
  */
 export async function handleVerifyHost(
-  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  deps: HostHandlerDeps & {
+    keypairs: KeypairsDep;
+    /** Must run after repo.create: the cert row has an FK on the host name. Returns the https agent URL to store. */
+    provisionTls?: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string; certPem: string; keyPem: string }>;
+  },
   data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
   const name = data.name.trim();
@@ -185,6 +192,26 @@ export async function handleVerifyHost(
     throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`);
   }
 
+  let tls: { certPem: string; keyPem: string } | undefined;
+  if (deps.provisionTls) {
+    let provisioned: { agentUrl: string; certPem: string; keyPem: string };
+    try {
+      provisioned = await deps.provisionTls(name, data.agentUrl);
+    } catch (err) {
+      await deps.repo.delete(host.id);
+      throw new Error(
+        `Failed to provision the TLS certificate: ${err instanceof Error ? err.message : err}. Host record cleaned up.`,
+      );
+    }
+    const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+    tls = { certPem: provisioned.certPem, keyPem: provisioned.keyPem };
+    return {
+      host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
+      publicJwk,
+      tls,
+    };
+  }
+
   return {
     host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
     publicJwk,
@@ -197,6 +224,8 @@ export async function handleUpdateAgent(
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
     checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
     resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+    /** Pinned TLS certificate lookup for https agent URLs; absent means no pinning. */
+    getCaCert?: (hostname: string) => Promise<string | null>;
   },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
@@ -269,12 +298,12 @@ export async function handleUpdateAgent(
   let triggerResponse: Response;
   try {
     const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
-    triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
+    triggerResponse = await agentFetch(`${agentBaseUrl}/agent/update`, {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetImage }),
       redirect: 'manual',
-    });
+    }, { caCertPem: deps.getCaCert ? await deps.getCaCert(host.name) : null });
   } catch (err) {
     return {
       hostId: host.id,

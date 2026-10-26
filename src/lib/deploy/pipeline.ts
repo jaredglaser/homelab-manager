@@ -22,7 +22,7 @@ export interface StackRepoWriter {
 interface PipelineDeps {
   deployRepo: DeployRepository;
   hostsRepo: HostRepository;
-  agentClientFactory: (agentUrl: string, signer: () => Promise<string>) => AgentClient;
+  agentClientFactory: (agentUrl: string, signer: () => Promise<string>, hostName?: string) => AgentClient | Promise<AgentClient>;
   secretResolver: SecretResolver;
   /** Resolve a JWT signer closure for a given host. */
   tokenResolver: (host: ManagedHost) => Promise<() => Promise<string>>;
@@ -470,7 +470,7 @@ export class DeployPipeline {
     let result;
     try {
       const signer = await this.tokenResolver(host);
-      const agent = this.agentClientFactory(host.agentUrl, signer);
+      const agent = await this.agentClientFactory(host.agentUrl, signer, host.name);
 
       switch (request.action) {
         case 'deploy':

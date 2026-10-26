@@ -7,7 +7,7 @@ interface WizardProps {
   isAdding: boolean
   addError: string | null
   onSubmit: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
-  verifyResult: { publicJwk: unknown } | null
+  verifyResult: { publicJwk: unknown; tls?: { certPem: string; keyPem: string } } | null
 }
 
 function makeProps(overrides?: Partial<WizardProps>): WizardProps {
@@ -257,6 +257,34 @@ describe('AddHostWizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.queryByTestId('pubkey-display')).toBeNull()
+    })
+
+    it('shows the TLS cert and key files with their target path after verification', () => {
+      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
+      const tls = { certPem: 'CERT-PEM-CONTENT', keyPem: 'KEY-PEM-CONTENT' }
+      render(<AddHostWizard {...makeProps({ verifyResult: { publicJwk, tls } })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('tls-dir-display').textContent).toBe(
+        '/opt/homelab-manager/stacks/hlm-agent-tls/dev-machine'
+      )
+      expect(screen.getByTestId('tls-cert-display').textContent).toContain('CERT-PEM-CONTENT')
+      expect(screen.getByTestId('tls-key-display').textContent).toContain('KEY-PEM-CONTENT')
+      expect(screen.getByText(/chmod 600/)).toBeDefined()
+      expect(screen.getByText(/cert.pem and/)).toBeDefined()
+    })
+
+    it('does not show the TLS files without tls material in the verify result', () => {
+      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
+      render(<AddHostWizard {...makeProps({ verifyResult: { publicJwk } })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.queryByTestId('tls-cert-display')).toBeNull()
+      expect(screen.queryByTestId('tls-key-display')).toBeNull()
     })
   })
 

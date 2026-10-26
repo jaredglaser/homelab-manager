@@ -105,8 +105,25 @@ function buildSocketProxy(): Record<string, unknown> {
   };
 }
 
+const AGENT_STACKS_DIR = '/opt/homelab-manager/stacks';
+const TLS_DIR_NAME = 'hlm-agent-tls';
+
+export function hostTlsDir(hostName: string): string {
+  return `${AGENT_STACKS_DIR}/${TLS_DIR_NAME}/${hostName}`;
+}
+
+export function hostTlsCertPath(hostName: string): string {
+  return `${hostTlsDir(hostName)}/cert.pem`;
+}
+
+export function hostTlsKeyPath(hostName: string): string {
+  return `${hostTlsDir(hostName)}/key.pem`;
+}
+
 function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const { docker, zfs } = config.capabilities;
+  const tlsCertPath = hostTlsCertPath(config.hostName);
+  const tlsKeyPath = hostTlsKeyPath(config.hostName);
 
   const environment: Record<string, string> = {
     AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
@@ -114,6 +131,10 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_HOST_NAME: config.hostName,
     // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.
     AGENT_IMAGE: '${AGENT_IMAGE}',
+    TLS_CERT_PATH: tlsCertPath,
+    TLS_KEY_PATH: tlsKeyPath,
+    // Only the compose healthcheck below consumes this; without it Bun fetch rejects the self-signed cert.
+    NODE_EXTRA_CA_CERTS: tlsCertPath,
   };
 
   if (docker) {
@@ -146,6 +167,17 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
 
   agent['volumes'] = volumes;
 
+  agent['healthcheck'] = {
+    test: [
+      'CMD-SHELL',
+      `bun -e "fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"`,
+    ],
+    interval: '30s',
+    timeout: '5s',
+    start_period: '15s',
+    retries: 3,
+  };
+
   if (docker && zfs) {
     agent['group_add'] = ['${DOCKER_GID}'];
   }
@@ -159,3 +191,4 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
 
   return agent;
 }
+

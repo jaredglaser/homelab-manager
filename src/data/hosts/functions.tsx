@@ -32,6 +32,16 @@ async function loadKeypairsRepo(): Promise<import('@/lib/database/repositories/a
   return new AgentKeypairsRepository(dbClient.getPool(), keyring);
 }
 
+async function loadTlsCertsRepo(): Promise<import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { AgentTlsCertificatesRepository } = await import('@/lib/database/repositories/agent-tls-certificates-repository');
+  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+  const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  const keyring = await loadMasterKeyring();
+  return new AgentTlsCertificatesRepository(dbClient.getPool(), keyring);
+}
+
 /**
  * Build a checkHealth function that probes the unauthenticated /health endpoint
  * for liveness, then pulls version detail from the authenticated /info endpoint
@@ -40,15 +50,25 @@ async function loadKeypairsRepo(): Promise<import('@/lib/database/repositories/a
  */
 async function buildCheckHealth(
   keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
+  tlsCerts?: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository,
 ): Promise<(url: string, hostName: string) => Promise<import('@/lib/services/agent-health-service').AgentHealthResult>> {
   const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
   const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
-  return (url, hostName) =>
-    checkAgentHealth(url, undefined, fetch, async () => {
+  return async (url, hostName) => {
+    let caCertPem: string | null = null;
+    if (tlsCerts) {
+      try {
+        caCertPem = await tlsCerts.getCertForHost(hostName);
+      } catch (err) {
+        console.error(`[hosts] TLS cert lookup failed for ${hostName}:`, err instanceof Error ? err.message : err);
+      }
+    }
+    return checkAgentHealth(url, undefined, fetch, async () => {
       const privateKey = await keypairs.getPrivateKeyForHost(hostName);
       if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
       return signAgentJwt(privateKey, hostName);
-    });
+    }, caCertPem);
+  };
 }
 
 /**
@@ -59,7 +79,14 @@ async function buildProbeCheckHealth(): Promise<
   (url: string, hostName: string) => Promise<import('@/lib/services/agent-health-service').AgentHealthResult>
 > {
   try {
-    return await buildCheckHealth(await loadKeypairsRepo());
+    const keypairs = await loadKeypairsRepo();
+    let tlsCerts: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository | undefined;
+    try {
+      tlsCerts = await loadTlsCertsRepo();
+    } catch {
+      tlsCerts = undefined;
+    }
+    return await buildCheckHealth(keypairs, tlsCerts);
   } catch (err) {
     console.info(
       '[hosts] Agent keypairs unavailable, probing liveness without version detail:',
@@ -87,9 +114,17 @@ export const verifyHost = createServerFn()
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
+    const { provisionHostTls } = await import('@/lib/services/agent-provisioning-service');
+    const { generateTlsCert } = await import('@/lib/services/agent-tls-cert-generator');
+    const tlsCerts = await loadTlsCertsRepo();
     return handleVerifyHost({
       ...baseDeps,
       keypairs: makeKeypairsDep(keypairs),
+      provisionTls: (hostName, agentUrl) =>
+        provisionHostTls(hostName, agentUrl, {
+          generateCert: generateTlsCert,
+          storeCert: (name, certPem, keyPem) => tlsCerts.createForHost(name, certPem, keyPem),
+        }),
     }, data);
   });
 
@@ -180,6 +215,7 @@ export const updateAgent = createServerFn()
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
+    const tlsCerts = await loadTlsCertsRepo();
     const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
     return handleUpdateAgent({
       ...baseDeps,
@@ -188,7 +224,15 @@ export const updateAgent = createServerFn()
         if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
         return () => signAgentJwt(privateKey, hostname);
       },
-      checkHealth: await buildCheckHealth(keypairs),
+      checkHealth: await buildCheckHealth(keypairs, tlsCerts),
+      getCaCert: async (hostname) => {
+        try {
+          return await tlsCerts.getCertForHost(hostname);
+        } catch (err) {
+          console.error(`[hosts] TLS cert lookup failed for ${hostname}:`, err instanceof Error ? err.message : err);
+          return null;
+        }
+      },
     }, data);
   });
 

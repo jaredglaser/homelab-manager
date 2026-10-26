@@ -121,6 +121,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       getSigner,
+      async () => null,
       factory,
     );
 
@@ -141,6 +142,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       async (n) => async () => `jwt-${n}`,
+      async () => null,
       factory,
     );
 
@@ -166,6 +168,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -192,6 +195,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -216,6 +220,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       getSigner,
+      async () => null,
       factory,
     );
 
@@ -240,6 +245,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       getSigner,
+      async () => null,
       factory,
     );
 
@@ -258,6 +264,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => { throw new Error('db down'); },
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -278,6 +285,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -302,6 +310,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       findAll as () => Promise<ManagedHost[]>,
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -325,6 +334,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => [makeHost('a')],
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -342,6 +352,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => [makeHost('a'), makeHost('b'), makeHost('c')],
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -361,6 +372,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => [makeHost('a'), makeHost('b')],
       async (n) => async () => `jwt-${n}`,
+      async () => null,
       factory,
     );
 
@@ -393,6 +405,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => [makeHost('a')],
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -427,6 +440,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       okSigner,
+      async () => null,
       factory,
     );
 

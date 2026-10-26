@@ -11,6 +11,8 @@ interface VerifyConnectionStepProps {
   isAdding: boolean
   canVerify: boolean
   publicJwkJson: string | null
+  tls?: { certPem: string; keyPem: string }
+  tlsDir?: string | null
   onAgentUrlChange: (value: string) => void
   onVerify: () => void
 }
@@ -20,6 +22,8 @@ export default function VerifyConnectionStep({
   isAdding,
   canVerify,
   publicJwkJson,
+  tls,
+  tlsDir,
   onAgentUrlChange,
   onVerify,
 }: VerifyConnectionStepProps) {
@@ -59,6 +63,38 @@ export default function VerifyConnectionStep({
               {publicJwkJson}
             </pre>
             <CopyButton text={publicJwkJson} label="public key" />
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {tls && tlsDir && (
+        <Alert variant="info" className="mt-2">
+          <AlertDescription className="w-full">
+            <p className="text-sm mb-2">
+              The agent serves HTTPS with a private certificate. Create the directory{' '}
+              <code data-testid="tls-dir-display">{tlsDir}</code> on the agent host, save these files as cert.pem and
+              key.pem there, then run <code>chmod 600</code> on both before starting the stack:
+            </p>
+            <div className="flex flex-col gap-2">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold">cert.pem</span>
+                  <CopyButton text={tls.certPem} label="cert.pem" />
+                </div>
+                <pre className="text-xs w-full overflow-auto p-2 rounded bg-level1 text-foreground" data-testid="tls-cert-display">
+                  {tls.certPem}
+                </pre>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold">key.pem</span>
+                  <CopyButton text={tls.keyPem} label="key.pem" />
+                </div>
+                <pre className="text-xs w-full overflow-auto p-2 rounded bg-level1 text-foreground" data-testid="tls-key-display">
+                  {tls.keyPem}
+                </pre>
+              </div>
+            </div>
           </AlertDescription>
         </Alert>
       )}

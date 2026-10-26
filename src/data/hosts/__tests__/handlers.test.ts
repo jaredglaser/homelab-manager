@@ -254,6 +254,55 @@ describe('handleVerifyHost', () => {
     });
     expect(deps.keypairs.createForHost).toHaveBeenCalledWith('padded-host');
   });
+
+  it('provisions TLS, rewrites the stored agent URL to https, and returns the material', async () => {
+    const repo = mockRepo();
+    const deps = {
+      ...baseDeps(),
+      repo,
+      keypairs: makeKeypairsMock(),
+      provisionTls: mock(async (_hostName: string, _agentUrl: string) => ({
+        agentUrl: 'https://x:9090',
+        certPem: 'CERT-PEM',
+        keyPem: 'KEY-PEM',
+      })),
+    };
+    const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
+    expect(deps.provisionTls).toHaveBeenCalledWith('tlshost', 'http://x:9090');
+    expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'https://x:9090' });
+    expect(result.host.agentUrl).toBe('http://192.168.1.10:9090');
+    expect(result.tls).toEqual({ certPem: 'CERT-PEM', keyPem: 'KEY-PEM' });
+  });
+
+  it('rolls back the host record when TLS provisioning fails', async () => {
+    const deps = {
+      ...baseDeps(),
+      keypairs: makeKeypairsMock(),
+      provisionTls: mock(async () => {
+        throw new Error('openssl missing');
+      }),
+    };
+    await expect(
+      handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' }),
+    ).rejects.toThrow(/Failed to provision the TLS certificate: openssl missing/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('creates the host record with the original URL before the https rewrite', async () => {
+    const repo = mockRepo();
+    const deps = {
+      ...baseDeps(),
+      repo,
+      keypairs: makeKeypairsMock(),
+      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090', certPem: 'C', keyPem: 'K' })),
+    };
+    await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
+    expect(repo.create).toHaveBeenCalledWith({
+      name: 'tlshost',
+      agentUrl: 'http://x:9090',
+      capabilities: undefined,
+    });
+  });
 });
 
 describe('handleUpdateHost', () => {
