@@ -1,9 +1,4 @@
-/**
- * Wire types for image update checks: registry tag lookups compared against the
- * tag a stack's container is running, plus release notes pulled from the image's
- * source repository. Consumed by the stack containers panel (icon highlight) and
- * the image update dialog (changelog).
- */
+/** Wire types for image update checks and image changelogs. */
 
 /** Update check result for one image ref as a container runs it (e.g. `redis:7`). */
 export interface ImageUpdateSummary {

@@ -513,7 +513,7 @@ function buildUpdateSummary(image: string): ImageUpdateSummary {
   const parsed = currentTag !== null ? parseVersionTag(currentTag) : null;
   const constraint = currentTag !== null ? constraintFromTag(currentTag) : null;
   if (parsed === null || constraint === null) {
-    // nginx:latest simulates a moved registry digest; other floating tags stay
+    // nginx:latest simulates a moved registry digest. Other floating tags stay
     // inconclusive (locally built, no digest in inventory).
     const floatingUpdate = image === 'nginx:latest';
     return {

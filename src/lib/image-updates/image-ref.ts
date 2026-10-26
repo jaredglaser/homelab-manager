@@ -16,6 +16,8 @@ export interface ParsedImageRef {
 }
 
 const IMPLICIT_REGISTRY = 'docker.io';
+/** Spellings that all serve the same hub images as the implicit registry. */
+const DOCKER_HUB_HOSTS = new Set(['docker.io', 'index.docker.io', 'registry-1.docker.io']);
 const OFFICIAL_REPO_NAMESPACE = 'library/';
 
 /** A ref that failed to parse (empty, or a tag/digest with no repository part). */
@@ -51,7 +53,7 @@ export function parseImageRef(image: string): ParsedImageRef {
     // A leading component is a registry host when it looks like one: a dot
     // (ghcr.io), a port (localhost:5000), or the literal `localhost`.
     if (first.includes('.') || first.includes(':') || first === 'localhost') {
-      registry = first;
+      registry = DOCKER_HUB_HOSTS.has(first) ? IMPLICIT_REGISTRY : first;
       repo = rest.slice(firstSlash + 1);
     }
   }

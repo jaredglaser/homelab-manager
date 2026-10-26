@@ -1,26 +1,20 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { ChangelogError, fetchGitHubReleases } from '../github-releases';
-
-function withFetch(impl: (url: string) => Promise<Response>): { restore: () => void; fetchMock: ReturnType<typeof mock> } {
-  const fetchMock = mock(impl);
-  const original = globalThis.fetch;
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-  return { restore: () => { globalThis.fetch = original; }, fetchMock };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
+import { jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 const RELEASE = {
   tag_name: 'v1.1.0',
   name: 'Version 1.1.0',
   published_at: '2026-01-15T10:00:00Z',
   html_url: 'https://github.com/o/r/releases/v1.1.0',
-  body: '## Changes\n- fixed a thing',
+  body: '## Changes\\n- fixed a thing',
   prerelease: false,
   draft: false,
 };
+
+function page(tagPrefix: string, count: number): unknown[] {
+  return Array.from({ length: count }, (_, i) => ({ ...RELEASE, tag_name: tagPrefix + i }));
+}
 
 describe('fetchGitHubReleases', () => {
   test('maps releases to the wire shape, newest first as served', async () => {
@@ -36,12 +30,71 @@ describe('fetchGitHubReleases', () => {
         name: 'Version 1.1.0',
         publishedAt: '2026-01-15T10:00:00Z',
         url: 'https://github.com/o/r/releases/v1.1.0',
-        body: '## Changes\n- fixed a thing',
+        body: '## Changes\\n- fixed a thing',
         prerelease: false,
       });
       expect(releases[1].name).toBeNull();
       expect(releases[1].body).toBeNull();
       expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({ Accept: 'application/vnd.github+json' });
+    } finally {
+      restore();
+    }
+  });
+
+  test('follows the Link rel=next header for a second page', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target.includes('page=2')) {
+        return Promise.resolve(jsonResponse(page('v2.', 30)));
+      }
+      return Promise.resolve(new Response(JSON.stringify(page('v1.', 50)), {
+        status: 200,
+        headers: { Link: '<https://api.github.com/repos/o/r/releases?per_page=50&page=2>; rel="next"' },
+      }));
+    });
+    try {
+      const releases = await fetchGitHubReleases('o/r');
+      expect(releases).toHaveLength(80);
+      expect(releases[49].tagName).toBe('v1.49');
+      expect(releases[50].tagName).toBe('v2.0');
+      expect(fetchMock.mock.calls.length).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('caps the fetch at MAX_RELEASES without a third page', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target.includes('page=2')) {
+        return Promise.resolve(jsonResponse(page('v2.', 60)));
+      }
+      return Promise.resolve(new Response(JSON.stringify(page('v1.', 50)), {
+        status: 200,
+        headers: { Link: '<https://api.github.com/repos/o/r/releases?per_page=50&page=2>; rel="next"' },
+      }));
+    });
+    try {
+      const releases = await fetchGitHubReleases('o/r');
+      expect(releases).toHaveLength(100);
+      expect(fetchMock.mock.calls.length).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a cross-host Link header is not followed', async () => {
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(new Response(JSON.stringify(page('v1.', 50)), {
+        status: 200,
+        headers: { Link: '<https://evil.example/repos/o/r/releases?page=2>; rel="next"' },
+      })),
+    );
+    try {
+      const releases = await fetchGitHubReleases('o/r');
+      expect(releases).toHaveLength(50);
+      expect(fetchMock.mock.calls.length).toBe(1);
+      expect(String(fetchMock.mock.calls[0][0])).not.toContain('evil.example');
     } finally {
       restore();
     }
@@ -66,7 +119,9 @@ describe('fetchGitHubReleases', () => {
   test('404 names the repository in the error', async () => {
     const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 404)));
     try {
-      await expect(fetchGitHubReleases('o/r')).rejects.toThrow('No releases published at github.com/o/r');
+      await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
+        new ChangelogError('No releases are published at github.com/o/r, so there are no release notes to show.'),
+      );
     } finally {
       restore();
     }
@@ -75,16 +130,31 @@ describe('fetchGitHubReleases', () => {
   test('rate limit surfaces a retry-later message', async () => {
     const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 403)));
     try {
-      await expect(fetchGitHubReleases('o/r')).rejects.toThrow('rate limit');
+      await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
+        new ChangelogError('GitHub API rate limit reached. Try again later.'),
+      );
     } finally {
       restore();
     }
   });
 
-  test('malformed source repo throws without a network call', async () => {
+  test('other failures report the pinned copy without a status code', async () => {
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 500)));
+    try {
+      await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
+        new ChangelogError('GitHub failed to return release notes, so the changelog is unavailable right now.'),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('malformed source repo throws the pinned copy without a network call', async () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
     try {
-      await expect(fetchGitHubReleases('https://github.com/o/r')).rejects.toThrow(ChangelogError);
+      await expect(fetchGitHubReleases('https://github.com/o/r')).rejects.toThrow(
+        new ChangelogError('The source repository "https://github.com/o/r" is not a valid GitHub owner/repo pair, so release notes cannot be fetched.'),
+      );
       await expect(fetchGitHubReleases('o/r/extra/deep')).rejects.toThrow(ChangelogError);
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {

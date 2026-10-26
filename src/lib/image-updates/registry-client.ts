@@ -6,14 +6,50 @@ import {
   newestVersionTag,
   parseVersionTag,
 } from './version';
+import { BoundedCache } from '@/lib/bounded-cache';
 import type { ImageUpdateSummary } from '@/types/image-updates';
 
 const REQUEST_TIMEOUT_MS = 10_000;
+const TAG_LIST_BUDGET_MS = 15_000;
+const TAG_LIST_MAX_PAGES = 10;
 const TAG_LIST_PAGE_SIZE = 1000;
 const DOCKER_HUB_API = 'https://hub.docker.com/v2';
+const DOCKER_HUB_HOST = 'hub.docker.com';
+const DOCKER_HUB_REGISTRY = 'https://registry-1.docker.io';
 
-/** Registry tag listing failed; the message is shown in the UI as the check error. */
 export class RegistryCheckError extends Error {}
+
+const DEFAULT_ALLOWED_REGISTRIES = new Set([
+  'docker.io',
+  'ghcr.io',
+  'quay.io',
+  'gcr.io',
+  'registry.k8s.io',
+  'lscr.io',
+]);
+
+const REGISTRY_HOST_PATTERN = /^[a-z0-9][a-z0-9.-]*(?::\d{1,5})?$/;
+
+export function parseExtraRegistries(value: string | undefined): string[] {
+  if (value === undefined) return [];
+  const entries = value.split(',').map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  return entries.map((entry) => {
+    if (!REGISTRY_HOST_PATTERN.test(entry.toLowerCase())) {
+      throw new Error(
+        'IMAGE_UPDATE_EXTRA_REGISTRIES entry "' + entry + '" is not a valid registry host. ' +
+          'Use comma-separated hostnames with an optional port, for example IMAGE_UPDATE_EXTRA_REGISTRIES="nas.lan:5000,registry.home.arpa"',
+      );
+    }
+    return entry.toLowerCase();
+  });
+}
+
+const EXTRA_REGISTRIES = new Set(parseExtraRegistries(process.env.IMAGE_UPDATE_EXTRA_REGISTRIES));
+
+export function isRegistryAllowed(registry: string, extraRegistries: ReadonlySet<string> = EXTRA_REGISTRIES): boolean {
+  const host = registry.toLowerCase();
+  return DEFAULT_ALLOWED_REGISTRIES.has(host) || extraRegistries.has(host);
+}
 
 interface RegistryEndpoints {
   base: string;
@@ -23,7 +59,7 @@ interface RegistryEndpoints {
 
 function registryEndpoints(registry: string): RegistryEndpoints {
   if (registry === 'docker.io') return { base: DOCKER_HUB_API, hubRepo: true };
-  return { base: `https://${registry}` };
+  return { base: 'https://' + registry };
 }
 
 interface TokenCacheEntry {
@@ -31,47 +67,58 @@ interface TokenCacheEntry {
   expiresAt: number;
 }
 
-const tokenCache = new Map<string, TokenCacheEntry>();
+const tokenCache = new BoundedCache<TokenCacheEntry>(300);
 
-/**
- * Docker Registry v2 token flow for anonymous pull access. Registries that
- * serve public images without a token (or with a 200 on the first probe) never
- * reach the token request. Tokens are cached per registry+repo until shortly
- * before their `exp` claim.
- */
+// The realm pin rejects hosts outside the fetch base plus these delegations
+// (Docker Hub's registry endpoint issues tokens from auth.docker.io).
+const DELEGATED_TOKEN_HOSTS = new Map<string, Set<string>>([
+  ['registry-1.docker.io', new Set(['auth.docker.io'])],
+]);
+
 async function getPullToken(registry: string, repo: string, base: string): Promise<string | null> {
-  const cacheKey = `${registry}|${repo}`;
+  const cacheKey = registry + '|' + repo;
   const cached = tokenCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token;
+  if (cached) return cached.token;
 
-  const probe = await fetch(`${base}/v2/`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  const probe = await fetch(base + '/v2/', { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (probe.ok) return null;
   const authHeader = probe.headers.get('www-authenticate');
   const realm = authHeader?.match(/realm="([^"]+)"/)?.[1];
   if (probe.status !== 401 || !realm) {
-    throw new RegistryCheckError(`registry ${registry} did not offer anonymous pull access`);
+    throw new RegistryCheckError(
+      'Registry ' + registry + ' does not allow anonymous tag access, so its update state cannot be checked.',
+    );
   }
   const service = authHeader?.match(/service="([^"]+)"/)?.[1];
-  const scope = `repository:${repo}:pull`;
-  // The realm comes from the registry's own response header, but the registry
-  // name came from a user-supplied image ref: a realm pointing anywhere else
-  // would turn a typo'd image into an arbitrary server-side GET.
+  const scope = 'repository:' + repo + ':pull';
   const realmUrl = new URL(realm);
-  if (realmUrl.protocol !== 'https:' || realmUrl.host !== registry) {
-    throw new RegistryCheckError(`registry ${registry} pointed its token endpoint at an unexpected host`);
+  const baseHost = new URL(base).host;
+  const delegated = DELEGATED_TOKEN_HOSTS.get(baseHost);
+  if (realmUrl.protocol !== 'https:' || (realmUrl.host !== baseHost && !delegated?.has(realmUrl.host))) {
+    throw new RegistryCheckError(
+      'Registry ' + registry + ' pointed its token endpoint at an unexpected host, so the update check stopped for safety.',
+    );
   }
   const tokenUrl = realmUrl;
   if (service) tokenUrl.searchParams.set('service', service);
   tokenUrl.searchParams.set('scope', scope);
   const tokenResponse = await fetch(tokenUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!tokenResponse.ok) {
-    throw new RegistryCheckError(`registry ${registry} token endpoint returned ${tokenResponse.status}`);
+    console.error('[image-updates] registry ' + registry + ' token endpoint returned ' + tokenResponse.status);
+    throw new RegistryCheckError(
+      'Registry ' + registry + ' failed to issue a read token, so its update state cannot be checked.',
+    );
   }
   const body = (await tokenResponse.json()) as { token?: string; access_token?: string };
   const token = body.token ?? body.access_token;
-  if (!token) throw new RegistryCheckError(`registry ${registry} token response carried no token`);
+  if (!token) {
+    throw new RegistryCheckError(
+      'Registry ' + registry + ' did not return a usable read token, so its update state cannot be checked.',
+    );
+  }
   const exp = decodeJwtExp(token);
-  tokenCache.set(cacheKey, { token, expiresAt: exp ?? Date.now() + 5 * 60_000 });
+  const expiresAt = exp ?? Date.now() + 5 * 60_000;
+  tokenCache.set(cacheKey, { token, expiresAt }, expiresAt - Date.now());
   return token;
 }
 
@@ -91,52 +138,96 @@ interface TagPage {
   next?: string | null;
 }
 
-async function fetchDockerHubTags(repo: string): Promise<string[]> {
+function budgetRemaining(deadline: number, registry: string): number {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    throw new RegistryCheckError(
+      'Listing tags from ' + registry + ' took too long, so the update state could not be checked.',
+    );
+  }
+  return remaining;
+}
+
+function budgetedFetch(url: string, init: RequestInit, deadline: number, registry: string): Promise<Response> {
+  const remaining = budgetRemaining(deadline, registry);
+  return fetch(url, { ...init, signal: AbortSignal.timeout(remaining) });
+}
+
+async function fetchDockerHubTags(repo: string, deadline: number): Promise<string[]> {
+  budgetRemaining(deadline, 'docker.io');
   const tags: string[] = [];
-  let url: string | null = `${DOCKER_HUB_API}/repositories/${repo}/tags?page_size=100`;
-  // Cap pages so a pathological repo cannot hold the check open: 10 pages of
-  // 100 tags is far past where the newest matching tag can hide.
-  for (let page = 0; page < 10 && url; page++) {
-    const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  let url: string | null = DOCKER_HUB_API + '/repositories/' + repo + '/tags?page_size=100';
+  for (let page = 0; page < TAG_LIST_MAX_PAGES && url; page++) {
+    const response = await budgetedFetch(url, {}, deadline, 'docker.io');
     if (response.status === 404) return tags;
-    if (!response.ok) throw new RegistryCheckError(`Docker Hub returned ${response.status} for ${repo}`);
+    if (!response.ok) {
+      console.error('[image-updates] Docker Hub returned ' + response.status + ' for ' + repo + ' tags');
+      throw new RegistryCheckError(
+        "Docker Hub failed to list tags for " + repo + ", so this image's update state cannot be checked.",
+      );
+    }
     const body = (await response.json()) as TagPage;
     for (const result of body.results ?? []) {
       if (result.name) tags.push(result.name);
     }
-    url = body.next ?? null;
+    const next = body.next ?? null;
+    if (next && new URL(next).host !== DOCKER_HUB_HOST) {
+      throw new RegistryCheckError('Docker Hub sent the next page from a different host, so the tag list stopped early.');
+    }
+    url = next;
   }
   return tags;
 }
 
-function nextLink(header: string | null, base: string): string | null {
+function nextLink(header: string | null, registry: string, baseHost: string): string | null {
   const match = header?.match(/<([^>]+)>\s*;\s*rel="next"/) ?? header?.match(/<([^>]+)>/);
-  return match ? new URL(match[1], base).toString() : null;
+  if (!match) return null;
+  const next = new URL(match[1], 'https://' + baseHost);
+  if (next.host !== baseHost) {
+    throw new RegistryCheckError(
+      'Registry ' + registry + ' sent the next page from a different host, so the tag list stopped early.',
+    );
+  }
+  return next.toString();
 }
 
-async function fetchV2Tags(registry: string, repo: string, base: string): Promise<string[]> {
+async function fetchV2Tags(registry: string, repo: string, base: string, deadline: number): Promise<string[]> {
+  budgetRemaining(deadline, registry);
   const token = await getPullToken(registry, repo, base);
   const tags: string[] = [];
-  let url: string | null = `${base}/v2/${repo}/tags/list?n=${TAG_LIST_PAGE_SIZE}`;
-  // Same page cap as the Hub path; some registries (Quay) cap `n` well below
-  // TAG_LIST_PAGE_SIZE and paginate the rest through Link headers.
-  for (let page = 0; page < 10 && url; page++) {
+  const baseHost = new URL(base).host;
+  let url: string | null = base + '/v2/' + repo + '/tags/list?n=' + TAG_LIST_PAGE_SIZE;
+  for (let page = 0; page < TAG_LIST_MAX_PAGES && url; page++) {
     const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    if (token) headers.Authorization = 'Bearer ' + token;
+    const response = await budgetedFetch(url, { headers }, deadline, registry);
     if (response.status === 404) return tags;
-    if (!response.ok) throw new RegistryCheckError(`registry ${registry} returned ${response.status} for ${repo} tags`);
+    if (!response.ok) {
+      console.error('[image-updates] registry ' + registry + ' returned ' + response.status + ' for ' + repo + ' tags');
+      throw new RegistryCheckError(
+        "Registry " + registry + " failed to list tags for " + repo + ", so this image's update state cannot be checked.",
+      );
+    }
     const body = (await response.json()) as { tags?: string[] | null };
     for (const tag of body.tags ?? []) tags.push(tag);
-    url = nextLink(response.headers.get('link'), base);
+    url = nextLink(response.headers.get('link'), registry, baseHost);
   }
   return tags;
+}
+
+export interface TagListOptions {
+  deadline?: number;
 }
 
 /** List tag names for a repository. Empty list means the repo (or its tags) does not exist. */
-export async function listRegistryTags(registry: string, repo: string): Promise<string[]> {
+export async function listRegistryTags(
+  registry: string,
+  repo: string,
+  options: TagListOptions = {},
+): Promise<string[]> {
   const endpoints = registryEndpoints(registry);
-  return endpoints.hubRepo ? fetchDockerHubTags(repo) : fetchV2Tags(registry, repo, endpoints.base);
+  const deadline = options.deadline ?? Date.now() + TAG_LIST_BUDGET_MS;
+  return endpoints.hubRepo ? fetchDockerHubTags(repo, deadline) : fetchV2Tags(registry, repo, endpoints.base, deadline);
 }
 
 /**
@@ -148,8 +239,8 @@ export async function listRegistryTags(registry: string, repo: string): Promise<
 export async function fetchRemoteManifestDigest(registry: string, repo: string, tag: string): Promise<string | null> {
   const endpoints = registryEndpoints(registry);
   if (endpoints.hubRepo) {
-    // Hub's API has no manifest HEAD; the registry endpoint serves it with the same token flow.
-    return headManifestDigest('https://registry-1.docker.io', registry, repo, tag);
+    // Hub's API has no manifest HEAD. The registry endpoint serves it with the same token flow.
+    return headManifestDigest(DOCKER_HUB_REGISTRY, registry, repo, tag);
   }
   return headManifestDigest(endpoints.base, registry, repo, tag);
 }
@@ -157,14 +248,19 @@ export async function fetchRemoteManifestDigest(registry: string, repo: string, 
 async function headManifestDigest(base: string, registry: string, repo: string, tag: string): Promise<string | null> {
   const token = await getPullToken(registry, repo, base);
   const headers: Record<string, string> = { Accept: MANIFEST_ACCEPT_HEADER };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(`${base}/v2/${repo}/manifests/${encodeURIComponent(tag)}`, {
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const response = await fetch(base + '/v2/' + repo + '/manifests/' + encodeURIComponent(tag), {
     method: 'HEAD',
     headers,
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (response.status === 404) return null;
-  if (!response.ok) throw new RegistryCheckError(`registry ${registry} returned ${response.status} for ${repo}:${tag}`);
+  if (!response.ok) {
+    console.error('[image-updates] registry ' + registry + ' returned ' + response.status + ' for ' + repo + ':' + tag);
+    throw new RegistryCheckError(
+      'Registry ' + registry + ' failed to read the digest for ' + repo + ':' + tag + ', so the update state is unknown.',
+    );
+  }
   return response.headers.get('docker-content-digest');
 }
 
@@ -175,11 +271,6 @@ const MANIFEST_ACCEPT_HEADER = [
   'application/vnd.docker.distribution.manifest.v2+json',
 ].join(', ');
 
-/**
- * Compare a running tag against the registry's tag list and produce the update
- * summary for one image. Registry failures produce `error` rather than throwing,
- * so one unreachable registry cannot blank the whole panel.
- */
 export async function checkImageUpdate(
   image: string,
   labels: Record<string, string>,
@@ -203,6 +294,15 @@ export async function checkImageUpdate(
   }
   base.currentTag = ref.tag;
   if (!ref.tag) return base;
+
+  if (!isRegistryAllowed(ref.registry)) {
+    return {
+      ...base,
+      error:
+        'Registry ' + ref.registry + ' is not on the allowed registries list. ' +
+        'Add it to IMAGE_UPDATE_EXTRA_REGISTRIES to check updates for its images.',
+    };
+  }
 
   const constraint = constraintFromTag(ref.tag);
   if (!constraint) {
@@ -249,5 +349,5 @@ export function sourceRepoFromLabels(labels: Record<string, string>): string | n
   const match = source.match(/^https:\/\/github\.com\/([^/]+)\/([^/#?]+)/);
   if (!match) return null;
   const repo = match[2].replace(/\.git$/, '');
-  return `${match[1]}/${repo}`;
+  return match[1] + '/' + repo;
 }

@@ -1,32 +1,15 @@
 import type { DockerContainerEventRow, DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
+import { BoundedCache } from '@/lib/bounded-cache';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 import { checkImageUpdate, sourceRepoFromLabels } from './registry-client';
 import { fetchGitHubReleases } from './github-releases';
 
 const SUMMARY_CACHE_TTL_MS = 5 * 60_000;
 const CHANGELOG_CACHE_TTL_MS = 60 * 60_000;
+const CACHE_MAX_ENTRIES = 300;
 
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-
-const summaryCache = new Map<string, CacheEntry<ImageUpdateSummary[]>>();
-const changelogCache = new Map<string, CacheEntry<ImageChangelog>>();
-
-function cacheGet<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
-  const entry = cache.get(key);
-  if (!entry) return undefined;
-  if (entry.expiresAt <= Date.now()) {
-    cache.delete(key);
-    return undefined;
-  }
-  return entry.value;
-}
-
-function cacheSet<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
+const summaryCache = new BoundedCache<ImageUpdateSummary[]>(CACHE_MAX_ENTRIES);
+const changelogCache = new BoundedCache<ImageChangelog>(CACHE_MAX_ENTRIES);
 
 async function loadStackContainers(stack: string, host: string): Promise<DockerContainerEventUpsertRow[]> {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -44,14 +27,9 @@ async function loadStackContainers(stack: string, host: string): Promise<DockerC
   );
 }
 
-/**
- * Update check for every distinct image a stack runs. Results are cached for
- * five minutes: the panel re-runs this on every mount, and registries rate-limit
- * anonymous tag listings.
- */
 export async function getImageUpdateSummaries(stack: string, host: string): Promise<ImageUpdateSummary[]> {
-  const cacheKey = `${host}/${stack}`;
-  const cached = cacheGet(summaryCache, cacheKey);
+  const cacheKey = host + '/' + stack;
+  const cached = summaryCache.get(cacheKey);
   if (cached) return cached;
 
   const containers = await loadStackContainers(stack, host);
@@ -78,17 +56,17 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
   // Stable ordering: Map iteration is insertion order, which follows the
   // snapshot's arbitrary container order.
   summaries.sort((a, b) => a.image.localeCompare(b.image));
-  cacheSet(summaryCache, cacheKey, summaries, SUMMARY_CACHE_TTL_MS);
+  // Failures stay uncached, matching the changelog path: a registry outage
+  // must not pin its error in the panel for the full TTL.
+  if (summaries.every((summary) => summary.error === null)) {
+    summaryCache.set(cacheKey, summaries, SUMMARY_CACHE_TTL_MS);
+  }
   return summaries;
 }
 
-/**
- * Release notes for one image a stack runs. Fetched only when the dialog opens
- * (GitHub's anonymous API allows 60 requests/hour) and cached for an hour.
- */
 export async function getImageChangelog(stack: string, host: string, image: string): Promise<ImageChangelog> {
-  const cacheKey = `${host}/${stack}|${image}`;
-  const cached = cacheGet(changelogCache, cacheKey);
+  const cacheKey = host + '/' + stack + '|' + image;
+  const cached = changelogCache.get(cacheKey);
   if (cached) return cached;
 
   const containers = await loadStackContainers(stack, host);
@@ -111,7 +89,7 @@ export async function getImageChangelog(stack: string, host: string, image: stri
   // Failures stay uncached: a rate-limit or hiccup must not pin the error in
   // the dialog for an hour after the API has recovered.
   if (changelog.error === null) {
-    cacheSet(changelogCache, cacheKey, changelog, CHANGELOG_CACHE_TTL_MS);
+    changelogCache.set(cacheKey, changelog, CHANGELOG_CACHE_TTL_MS);
   }
   return changelog;
 }

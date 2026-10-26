@@ -1,18 +1,25 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { checkImageUpdate, fetchRemoteManifestDigest, sourceRepoFromLabels } from '../registry-client';
-
-function withFetch(impl: (url: string, init?: RequestInit) => Promise<Response>): { restore: () => void; fetchMock: ReturnType<typeof mock> } {
-  const fetchMock = mock(impl);
-  const original = globalThis.fetch;
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-  return { restore: () => { globalThis.fetch = original; }, fetchMock };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
+import { checkImageUpdate, fetchRemoteManifestDigest, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, sourceRepoFromLabels } from '../registry-client';
+import { jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
+
+const HUB_PROBE = 'https://registry-1.docker.io/v2/';
+const HUB_REALM_HEADER = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io"';
+
+function hubTokenFlow(fetchMock: ReturnType<typeof mock>, manifestDigest: string | null): void {
+  fetchMock.mockImplementation((url) => {
+    const target = String(url);
+    if (target === HUB_PROBE) {
+      return Promise.resolve(new Response(null, { status: 401, headers: { 'WWW-Authenticate': HUB_REALM_HEADER } }));
+    }
+    if (target.startsWith('https://auth.docker.io/token')) {
+      return Promise.resolve(jsonResponse({ token: 'tok' }));
+    }
+    if (manifestDigest === null) return Promise.resolve(new Response(null, { status: 404 }));
+    return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': manifestDigest } }));
+  });
+}
 
 describe('sourceRepoFromLabels', () => {
   test('extracts owner/repo from a github.com source label', () => {
@@ -27,6 +34,51 @@ describe('sourceRepoFromLabels', () => {
   test('returns null for non-github or missing labels', () => {
     expect(sourceRepoFromLabels({ [SOURCE_LABEL]: 'https://gitlab.com/o/r' })).toBeNull();
     expect(sourceRepoFromLabels({})).toBeNull();
+  });
+});
+
+describe('parseExtraRegistries', () => {
+  test('parses a comma list with trimmed whitespace and dropped empties', () => {
+    expect(parseExtraRegistries(' nas.lan:5000 , registry.home.arpa ,,')).toEqual(['nas.lan:5000', 'registry.home.arpa']);
+  });
+
+  test('returns an empty list for unset and empty values', () => {
+    expect(parseExtraRegistries(undefined)).toEqual([]);
+    expect(parseExtraRegistries('')).toEqual([]);
+    expect(parseExtraRegistries('  ')).toEqual([]);
+  });
+
+  test('malformed entries throw with the fix-it copy', () => {
+    let message: string | undefined;
+    try {
+      parseExtraRegistries('nas lan:5000');
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toBe(
+      'IMAGE_UPDATE_EXTRA_REGISTRIES entry "nas lan:5000" is not a valid registry host. ' +
+        'Use comma-separated hostnames with an optional port, for example IMAGE_UPDATE_EXTRA_REGISTRIES="nas.lan:5000,registry.home.arpa"',
+    );
+  });
+
+  test('rejects multiple ports and URL schemes', () => {
+    expect(() => parseExtraRegistries('nas.lan:5000:6000')).toThrow();
+    expect(() => parseExtraRegistries('https://nas.lan')).toThrow();
+  });
+});
+
+describe('isRegistryAllowed', () => {
+  test('default allowlist covers the built-in registries', () => {
+    expect(isRegistryAllowed('docker.io')).toBe(true);
+    expect(isRegistryAllowed('ghcr.io')).toBe(true);
+    expect(isRegistryAllowed('registry.k8s.io')).toBe(true);
+    expect(isRegistryAllowed('lscr.io')).toBe(true);
+  });
+
+  test('unknown registries are blocked unless listed as extras', () => {
+    expect(isRegistryAllowed('nas.lan:5000')).toBe(false);
+    expect(isRegistryAllowed('NAS.LAN:5000', new Set(['nas.lan:5000']))).toBe(true);
+    expect(isRegistryAllowed('registry.home.arpa', new Set(['registry.home.arpa']))).toBe(true);
   });
 });
 
@@ -90,6 +142,36 @@ describe('checkImageUpdate', () => {
     }
   });
 
+  test('a registry outside the allowlist errors without any fetch', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
+    try {
+      const summary = await checkImageUpdate('nas.lan:5000/app:1.0', {});
+      expect(summary.error).toBe(
+        'Registry nas.lan:5000 is not on the allowed registries list. ' +
+          'Add it to IMAGE_UPDATE_EXTRA_REGISTRIES to check updates for its images.',
+      );
+      expect(summary.updateAvailable).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('index.docker.io spellings resolve to the docker.io hub path', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      expect(String(url)).toContain('hub.docker.com/v2/repositories/library/redis/tags');
+      return Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.10' }], next: null }));
+    });
+    try {
+      const summary = await checkImageUpdate('index.docker.io/redis:7', {});
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.latestMatchingTag).toBe('7.10');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+
   test('ghcr.io performs the anonymous token dance and lists tags', async () => {
     const { restore, fetchMock } = withFetch((url) => {
       const target = String(url);
@@ -105,7 +187,7 @@ describe('checkImageUpdate', () => {
       return Promise.resolve(jsonResponse({ tags: ['1.0.0', '1.0.5', '1.1.0'] }));
     });
     try {
-      const summary = await checkImageUpdate('ghcr.io/owner/app:1.0', {});
+      const summary = await checkImageUpdate('ghcr.io/owner/dance:1.0', {});
       expect(summary.updateAvailable).toBe(true);
       expect(summary.latestMatchingTag).toBe('1.0.5');
       expect(summary.latestOverallTag).toBe('1.1.0');
@@ -164,7 +246,7 @@ describe('checkImageUpdate', () => {
     }
   });
 
-  test('a realm pointing at another host is rejected', async () => {
+  test('a realm pointing at another host is rejected with the pinned copy', async () => {
     const { restore, fetchMock } = withFetch((url) => {
       if (String(url) === 'https://ghcr.io/v2/') {
         return Promise.resolve(new Response(null, {
@@ -176,14 +258,72 @@ describe('checkImageUpdate', () => {
     });
     try {
       const summary = await checkImageUpdate('ghcr.io/owner/other:1.0', {});
-      expect(summary.error).toContain('unexpected host');
+      expect(summary.error).toBe(
+        'Registry ghcr.io pointed its token endpoint at an unexpected host, so the update check stopped for safety.',
+      );
       expect(fetchMock.mock.calls.length).toBe(1);
     } finally {
       restore();
     }
   });
 
-  test('v2 tag listing follows Link pagination', async () => {
+  test('a probe that offers no token flow reports the no-anonymous-access copy', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(new Response(null, { status: 403 })),
+    );
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/app:1.0', {});
+      expect(summary.error).toBe(
+        'Registry ghcr.io does not allow anonymous tag access, so its update state cannot be checked.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a failing token endpoint reports the pinned copy without a status code', async () => {
+    const { restore } = withFetch((url) => {
+      const target = String(url);
+      if (target === 'https://ghcr.io/v2/') {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        }));
+      }
+      return Promise.resolve(jsonResponse({}, 500));
+    });
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/badtoken:1.0', {});
+      expect(summary.error).toBe(
+        'Registry ghcr.io failed to issue a read token, so its update state cannot be checked.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a token response without a token reports the pinned copy', async () => {
+    const { restore } = withFetch((url) => {
+      const target = String(url);
+      if (target === 'https://ghcr.io/v2/') {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/notoken:1.0', {});
+      expect(summary.error).toBe(
+        'Registry ghcr.io did not return a usable read token, so its update state cannot be checked.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('v2 tag listing follows relative Link pagination', async () => {
     const { restore, fetchMock } = withFetch((url) => {
       const target = String(url);
       if (target.endsWith('/v2/')) {
@@ -207,6 +347,109 @@ describe('checkImageUpdate', () => {
     }
   });
 
+  test('v2 pagination follows an absolute same-host Link', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target.endsWith('/v2/')) return Promise.resolve(new Response(null, { status: 200 }));
+      if (target.includes('last=')) return Promise.resolve(jsonResponse({ tags: ['1.2.0'] }));
+      return Promise.resolve(new Response(JSON.stringify({ tags: ['1.1.0'] }), {
+        status: 200,
+        headers: { Link: '<https://ghcr.io/v2/owner/app/tags/list?n=1000&last=1.1.0>; rel="next"' },
+      }));
+    });
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/paged:1', {});
+      expect(summary.latestMatchingTag).toBe('1.2.0');
+      expect(fetchMock.mock.calls.length).toBe(3);
+    } finally {
+      restore();
+    }
+  });
+
+  test('v2 pagination never fetches a cross-host Link and never leaks the token', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target === 'https://ghcr.io/v2/') {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        }));
+      }
+      if (target.startsWith('https://ghcr.io/token')) {
+        return Promise.resolve(jsonResponse({ token: 'tok' }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({ tags: ['1.1.0'] }), {
+        status: 200,
+        headers: { Link: '<https://evil.example/v2/owner/app/tags/list?last=1.1.0>; rel="next"' },
+      }));
+    });
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/paged:1', {});
+      expect(summary.error).toBe(
+        'Registry ghcr.io sent the next page from a different host, so the tag list stopped early.',
+      );
+      for (const [calledUrl, init] of fetchMock.mock.calls) {
+        const target = String(calledUrl);
+        expect(target).not.toContain('evil.example');
+        if (init?.headers && 'Authorization' in (init.headers as Record<string, string>)) {
+          expect(target.startsWith('https://ghcr.io/')).toBe(true);
+        }
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  test('hub pagination never fetches a cross-host next url', async () => {
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({
+        results: [{ name: '7' }],
+        next: 'https://evil.example/v2/repositories/library/redis/tags?page=2',
+      })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7', {});
+      expect(summary.error).toBe('Docker Hub sent the next page from a different host, so the tag list stopped early.');
+      expect(fetchMock.mock.calls.length).toBe(1);
+      expect(String(fetchMock.mock.calls[0][0])).not.toContain('evil.example');
+    } finally {
+      restore();
+    }
+  });
+
+  test('hub pagination follows an absolute same-host next url', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target.includes('page=2')) {
+        return Promise.resolve(jsonResponse({ results: [{ name: '7.10' }], next: null }));
+      }
+      return Promise.resolve(jsonResponse({
+        results: [{ name: '7' }],
+        next: 'https://hub.docker.com/v2/repositories/library/redis/tags?page=2&page_size=100',
+      }));
+    });
+    try {
+      const summary = await checkImageUpdate('redis:7', {});
+      expect(summary.latestMatchingTag).toBe('7.10');
+      expect(summary.updateAvailable).toBe(true);
+      expect(fetchMock.mock.calls.length).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an exhausted tag listing budget rejects with the pinned copy before any fetch', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
+    try {
+      await expect(listRegistryTags('ghcr.io', 'owner/app', { deadline: Date.now() - 1 })).rejects.toThrow(
+        'Listing tags from ghcr.io took too long, so the update state could not be checked.',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
   test('source label is carried through to the summary', async () => {
     const { restore } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
     try {
@@ -221,7 +464,9 @@ describe('checkImageUpdate', () => {
 describe('fetchRemoteManifestDigest', () => {
   test('returns the Docker-Content-Digest of a HEAD request', async () => {
     const { restore, fetchMock } = withFetch((url) => {
-      expect(String(url)).toBe('https://ghcr.io/v2/owner/app/manifests/latest');
+      const target = String(url);
+      if (target === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      expect(target).toBe('https://ghcr.io/v2/owner/app/manifests/latest');
       return Promise.resolve(new Response(null, {
         status: 200,
         headers: { 'Docker-Content-Digest': 'sha256:' + 'c'.repeat(64) },
@@ -230,14 +475,17 @@ describe('fetchRemoteManifestDigest', () => {
     try {
       const digest = await fetchRemoteManifestDigest('ghcr.io', 'owner/app', 'latest');
       expect(digest).toBe('sha256:' + 'c'.repeat(64));
-      expect(fetchMock.mock.calls[0][1]?.method).toBe('HEAD');
+      expect(fetchMock.mock.calls[1][1]?.method).toBe('HEAD');
     } finally {
       restore();
     }
   });
 
   test('a vanished tag returns null', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(null, { status: 404 })));
+    const { restore } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, { status: 404 }));
+    });
     try {
       expect(await fetchRemoteManifestDigest('ghcr.io', 'owner/app', 'latest')).toBeNull();
     } finally {
@@ -245,14 +493,37 @@ describe('fetchRemoteManifestDigest', () => {
     }
   });
 
-  test('docker.io HEADs registry-1.docker.io, not the Hub API', async () => {
-    const { restore } = withFetch((url) => {
-      if (String(url).endsWith('/v2/')) return Promise.resolve(new Response(null, { status: 200 }));
-      expect(String(url)).toBe('https://registry-1.docker.io/v2/library/redis/manifests/latest');
-      return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'd'.repeat(64) } }));
-    });
+  test('docker.io HEADs registry-1.docker.io through the auth.docker.io realm', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
+    hubTokenFlow(fetchMock, 'sha256:' + 'd'.repeat(64));
     try {
       expect(await fetchRemoteManifestDigest('docker.io', 'library/redis', 'latest')).toBe('sha256:' + 'd'.repeat(64));
+      const targets = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(targets[0]).toBe(HUB_PROBE);
+      expect(targets[1]).toContain('https://auth.docker.io/token');
+      expect(targets[2]).toBe('https://registry-1.docker.io/v2/library/redis/manifests/latest');
+      const head = fetchMock.mock.calls[2];
+      expect((head[1]?.headers as Record<string, string>).Authorization).toBe('Bearer tok');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a registry-1.docker.io realm outside the delegated hosts is rejected', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      if (String(url) === HUB_PROBE) {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://evil.example/token"' },
+        }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    try {
+      await expect(fetchRemoteManifestDigest('docker.io', 'library/other', 'latest')).rejects.toThrow(
+        'Registry docker.io pointed its token endpoint at an unexpected host, so the update check stopped for safety.',
+      );
+      expect(fetchMock.mock.calls.length).toBe(1);
     } finally {
       restore();
     }
@@ -260,13 +531,36 @@ describe('fetchRemoteManifestDigest', () => {
 });
 
 describe('checkImageUpdate: floating tags', () => {
-  test('a moved digest flags an update without listing tags', async () => {
+  test('a moved docker.io digest flags an update through the full token flow', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
+    hubTokenFlow(fetchMock, 'sha256:' + 'b'.repeat(64));
+    try {
+      const summary = await checkImageUpdate('myhub:latest', {}, 'sha256:' + 'a'.repeat(64));
+      expect(summary.updateAvailable).toBe(true);
+      expect(fetchMock.mock.calls.length).toBe(3);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a matching docker.io digest reports up to date', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
+    hubTokenFlow(fetchMock, 'sha256:' + 'a'.repeat(64));
+    try {
+      const summary = await checkImageUpdate('myhub:latest', {}, 'sha256:' + 'a'.repeat(64));
+      expect(summary.updateAvailable).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a moved ghcr.io digest flags an update without listing tags', async () => {
     const { restore, fetchMock } = withFetch((url) => {
       if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
       return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'b'.repeat(64) } }));
     });
     try {
-      const summary = await checkImageUpdate('myapp:latest', {}, 'sha256:' + 'a'.repeat(64));
+      const summary = await checkImageUpdate('ghcr.io/myorg/myapp:latest', {}, 'sha256:' + 'a'.repeat(64));
       expect(summary.updateAvailable).toBe(true);
       expect(fetchMock.mock.calls.length).toBe(2);
     } finally {
@@ -280,7 +574,7 @@ describe('checkImageUpdate: floating tags', () => {
       return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'a'.repeat(64) } }));
     });
     try {
-      const summary = await checkImageUpdate('myapp:latest', {}, 'sha256:' + 'a'.repeat(64));
+      const summary = await checkImageUpdate('ghcr.io/myorg/myapp:latest', {}, 'sha256:' + 'a'.repeat(64));
       expect(summary.updateAvailable).toBe(false);
     } finally {
       restore();
@@ -290,7 +584,7 @@ describe('checkImageUpdate: floating tags', () => {
   test('no local digest stays inconclusive without any registry call', async () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(null, { status: 200 })));
     try {
-      const summary = await checkImageUpdate('myapp:latest', {}, null);
+      const summary = await checkImageUpdate('ghcr.io/myorg/myapp:latest', {}, null);
       expect(summary.updateAvailable).toBeNull();
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -301,11 +595,32 @@ describe('checkImageUpdate: floating tags', () => {
   test('a HEAD failure lands in error, not a throw', async () => {
     const { restore } = withFetch(() => Promise.reject(new Error('registry down')));
     try {
-      const summary = await checkImageUpdate('myapp:latest', {}, 'sha256:' + 'a'.repeat(64));
+      const summary = await checkImageUpdate('ghcr.io/myorg/myapp:latest', {}, 'sha256:' + 'a'.repeat(64));
       expect(summary.updateAvailable).toBeNull();
       expect(summary.error).toContain('registry down');
     } finally {
       restore();
     }
+  });
+
+  test('a failing digest HEAD reports the pinned copy', async () => {
+    const { restore } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, { status: 500 }));
+    });
+    try {
+      const summary = await checkImageUpdate('ghcr.io/myorg/myapp:latest', {}, 'sha256:' + 'a'.repeat(64));
+      expect(summary.error).toBe(
+        'Registry ghcr.io failed to read the digest for myorg/myapp:latest, so the update state is unknown.',
+      );
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('RegistryCheckError', () => {
+  test('is an Error subclass', () => {
+    expect(new RegistryCheckError('x')).toBeInstanceOf(Error);
   });
 });

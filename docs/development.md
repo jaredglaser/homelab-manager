@@ -61,6 +61,16 @@ HOMELAB_DEV_SEED="true"
 COMPOSE_PROFILES="management"
 ```
 
+#### Extra registries for image update checks
+
+Stack image update checks only query registries on a built-in allowlist: docker.io, ghcr.io, quay.io, gcr.io, registry.k8s.io, and lscr.io. To check images hosted on another registry, add its hostname to `IMAGE_UPDATE_EXTRA_REGISTRIES` in `.env` (comma-separated hostnames with an optional port):
+
+```env
+IMAGE_UPDATE_EXTRA_REGISTRIES="nas.lan:5000,registry.home.arpa"
+```
+
+Entries must be HTTPS-reachable because the registry token flow requires it. Malformed entries fail startup.
+
 ### Step 2: Start the Dev Stack
 
 ```bash

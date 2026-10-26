@@ -38,6 +38,21 @@ describe('parseImageRef', () => {
     });
   });
 
+  test('docker.io alias hosts normalize to the implicit registry', () => {
+    expect(parseImageRef('index.docker.io/redis:7')).toEqual({
+      registry: 'docker.io',
+      repo: 'library/redis',
+      tag: '7',
+      digest: null,
+    });
+    expect(parseImageRef('registry-1.docker.io/library/redis:7')).toEqual({
+      registry: 'docker.io',
+      repo: 'library/redis',
+      tag: '7',
+      digest: null,
+    });
+  });
+
   test('digest ref keeps the digest and drops the tag', () => {
     const digest = 'sha256:' + 'a'.repeat(64);
     expect(parseImageRef(`ghcr.io/owner/app:1.0@${digest}`)).toEqual({

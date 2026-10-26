@@ -311,10 +311,6 @@ export const ensureVariablesExist = createServerFn({ method: 'POST' })
     );
   });
 
-/**
- * Registry update check for every distinct image a stack runs. Drives the
- * update-available highlight on the stack containers panel.
- */
 export const getImageUpdateInfo = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(getImageUpdateInfoSchema)
@@ -323,10 +319,6 @@ export const getImageUpdateInfo = createServerFn()
     return getImageUpdateSummaries(data.stack, data.host);
   });
 
-/**
- * Release notes for one image a stack runs. Fetched on dialog open, not on
- * panel load, to stay inside GitHub's anonymous API rate limit.
- */
 export const getImageChangelog = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(getImageChangelogSchema)

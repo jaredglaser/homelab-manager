@@ -3,8 +3,9 @@ import type { ImageRelease } from '@/types/image-updates';
 const REQUEST_TIMEOUT_MS = 10_000;
 const RELEASES_PER_PAGE = 50;
 const MAX_RELEASES = 100;
+const MAX_PAGES = MAX_RELEASES / RELEASES_PER_PAGE;
+const GITHUB_API_HOST = 'api.github.com';
 
-/** Release notes could not be fetched; the message is shown in the dialog. */
 export class ChangelogError extends Error {}
 
 interface GitHubRelease {
@@ -18,40 +19,46 @@ interface GitHubRelease {
 }
 
 /**
- * Fetch release notes from a GitHub repository's Releases API. Anonymous
- * requests are rate-limited to 60/hour per IP, so callers cache aggressively;
- * drafts are skipped and releases without a body still appear (the tag alone
- * is often the changelog line).
+ * Anonymous GitHub API calls are rate limited to 60/hour per IP, so callers
+ * cache aggressively.
  */
 export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRelease[]> {
   const [owner, repo, ...rest] = sourceRepo.split('/');
   if (!owner || !repo || rest.length > 0) {
-    throw new ChangelogError(`"${sourceRepo}" is not an owner/repo pair`);
+    throw new ChangelogError(
+      'The source repository "' + sourceRepo + '" is not a valid GitHub owner/repo pair, so release notes cannot be fetched.',
+    );
   }
 
-  const response = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/releases?per_page=${RELEASES_PER_PAGE}`,
-    {
+  const releases: GitHubRelease[] = [];
+  let url: string | null = 'https://' + GITHUB_API_HOST + '/repos/' + owner + '/' + repo + '/releases?per_page=' + RELEASES_PER_PAGE;
+  for (let page = 0; page < MAX_PAGES && url; page++) {
+    const response = await fetch(url, {
       headers: {
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    },
-  );
+    });
 
-  if (response.status === 404) {
-    throw new ChangelogError(`No releases published at github.com/${sourceRepo}`);
-  }
-  if (response.status === 403 || response.status === 429) {
-    throw new ChangelogError('GitHub API rate limit reached; try again later');
-  }
-  if (!response.ok) {
-    throw new ChangelogError(`GitHub API returned ${response.status}`);
+    if (response.status === 404) {
+      throw new ChangelogError('No releases are published at github.com/' + sourceRepo + ', so there are no release notes to show.');
+    }
+    if (response.status === 403 || response.status === 429) {
+      throw new ChangelogError('GitHub API rate limit reached. Try again later.');
+    }
+    if (!response.ok) {
+      console.error('[image-updates] GitHub releases API returned ' + response.status + ' for ' + owner + '/' + repo);
+      throw new ChangelogError('GitHub failed to return release notes, so the changelog is unavailable right now.');
+    }
+
+    const body = (await response.json()) as GitHubRelease[];
+    releases.push(...body);
+    if (releases.length >= MAX_RELEASES) break;
+    url = nextReleasesPage(response.headers.get('link'));
   }
 
-  const body = (await response.json()) as GitHubRelease[];
-  return body
+  return releases
     .filter((release) => !release.draft && release.tag_name)
     .slice(0, MAX_RELEASES)
     .map((release) => ({
@@ -62,4 +69,12 @@ export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRele
       body: release.body ?? null,
       prerelease: release.prerelease ?? false,
     }));
+}
+
+function nextReleasesPage(header: string | null): string | null {
+  const match = header?.match(/<([^>]+)>\s*;\s*rel="next"/);
+  if (!match) return null;
+  const next = new URL(match[1], 'https://' + GITHUB_API_HOST);
+  if (next.host !== GITHUB_API_HOST) return null;
+  return next.toString();
 }

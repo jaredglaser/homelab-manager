@@ -1,17 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { mockModule } from '@/lib/test/mock-module';
+import { jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
-
-function withFetch(impl: (url: string) => Promise<Response>): { restore: () => void; fetchMock: ReturnType<typeof mock> } {
-  const fetchMock = mock(impl);
-  const original = globalThis.fetch;
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
-  return { restore: () => { globalThis.fetch = original; }, fetchMock };
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
 
 function containerRow(overrides: Partial<DockerContainerEventUpsertRow>): DockerContainerEventUpsertRow {
   return {
@@ -61,6 +51,25 @@ function mockSnapshot(rows: DockerContainerEventUpsertRow[]): void {
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
 
+const HUB_PROBE = 'https://registry-1.docker.io/v2/';
+const HUB_REALM_HEADER = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io"';
+
+function mockHubDigestFlow(
+  fetchMock: ReturnType<typeof mock>,
+  manifestDigest: string,
+): void {
+  fetchMock.mockImplementation((url) => {
+    const target = String(url);
+    if (target === HUB_PROBE) {
+      return Promise.resolve(new Response(null, { status: 401, headers: { 'WWW-Authenticate': HUB_REALM_HEADER } }));
+    }
+    if (target.startsWith('https://auth.docker.io/token')) {
+      return Promise.resolve(jsonResponse({ token: 'tok' }));
+    }
+    return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': manifestDigest } }));
+  });
+}
+
 describe('getImageUpdateSummaries', () => {
   test('checks each distinct image once and sorts summaries by image', async () => {
     mockSnapshot([
@@ -106,20 +115,42 @@ describe('getImageUpdateSummaries', () => {
     }
   });
 
-  test('floating-tag images compare the stored digest against the registry', async () => {
+  test('registry failures stay uncached so the next call retries', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', composeProject: 'uncached' })]);
+    let calls = 0;
+    const { restore } = withFetch(() => {
+      calls++;
+      if (calls === 1) return Promise.reject(new Error('network down'));
+      return Promise.resolve(jsonResponse({ results: [{ name: '1.0' }], next: null }));
+    });
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const first = await getImageUpdateSummaries('uncached', 'host1');
+      expect(first[0].error).toContain('network down');
+      const second = await getImageUpdateSummaries('uncached', 'host1');
+      expect(second[0].error).toBeNull();
+      expect(second[0].updateAvailable).toBe(false);
+      expect(calls).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('floating-tag docker.io images compare the stored digest through the auth.docker.io realm', async () => {
     mockSnapshot([
       containerRow({ image: 'myapp:latest', imageDigest: 'sha256:' + 'a'.repeat(64), composeProject: 'floating' }),
     ]);
-    const { restore, fetchMock } = withFetch((url) => {
-      const target = String(url);
-      if (target === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
-      return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'b'.repeat(64) } }));
-    });
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
+    mockHubDigestFlow(fetchMock, 'sha256:' + 'b'.repeat(64));
     try {
       const { getImageUpdateSummaries } = await import('../image-update-service');
       const [summary] = await getImageUpdateSummaries('floating', 'host1');
       expect(summary.updateAvailable).toBe(true);
-      expect(fetchMock.mock.calls.length).toBe(2);
+      const targets = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(targets[0]).toBe(HUB_PROBE);
+      expect(targets[1]).toContain('https://auth.docker.io/token');
+      expect(targets[2]).toBe('https://registry-1.docker.io/v2/library/myapp/manifests/latest');
+      expect(fetchMock.mock.calls.length).toBe(3);
     } finally {
       restore();
     }
@@ -171,7 +202,7 @@ describe('getImageChangelog', () => {
       const { getImageChangelog } = await import('../image-update-service');
       const changelog = await getImageChangelog('changelog-no-repo', 'host1', 'app:1.0');
       expect(changelog.sourceRepo).toBeNull();
-      expect(changelog.error).toContain('No GitHub source repository');
+      expect(changelog.error).toBe('No GitHub source repository found for this image');
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       restore();
@@ -185,7 +216,7 @@ describe('getImageChangelog', () => {
       const { getImageChangelog } = await import('../image-update-service');
       const changelog = await getImageChangelog('changelog-error', 'host1', 'app:1.0');
       expect(changelog.releases).toEqual([]);
-      expect(changelog.error).toContain('No releases published');
+      expect(changelog.error).toBe('No releases are published at github.com/o/r, so there are no release notes to show.');
     } finally {
       restore();
     }

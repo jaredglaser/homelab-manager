@@ -1,13 +1,4 @@
-/**
- * Version-tag parsing and constraint matching for image update checks.
- *
- * A running tag doubles as the update constraint: `redis:7` means "newest tag
- * with major 7", `redis:7.4` means "newest 7.4.x", `redis:7.4.1` pins exactly.
- * Variant suffixes (`7-alpine`, `2-bookworm`) must match too, so an alpine pin
- * is never "updated" to a debian tag. Floating tags (`latest`, `main`, `edge`,
- * digest pins) carry no constraint: nothing on the registry can be "newer than
- * latest" without comparing digests, which the web side has no data for.
- */
+/** Version-tag parsing and constraint matching for image update checks. */
 
 export interface ParsedVersionTag {
   major: number;
@@ -25,7 +16,7 @@ export interface TagConstraint {
   minor: number | null;
   patch: number | null;
   variant: string | null;
-  /** True when the running tag itself is a prerelease; only then do prerelease candidates match. */
+  /** True when the running tag itself is a prerelease, in which case only prerelease candidates match. */
   allowPrerelease: boolean;
 }
 
