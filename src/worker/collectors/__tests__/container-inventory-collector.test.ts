@@ -32,7 +32,8 @@ function makeRow(overrides: Partial<DockerContainerEventRow> = {}): DockerContai
     state: 'running',
     name: 'plex',
     image: 'plexinc/pms-docker:latest',
-    labels: {},
+
+    imageDigest: null,    labels: {},
     ports: [],
     mounts: [],
     composeProject: null,
@@ -49,7 +50,8 @@ function makeContainer(overrides: Record<string, unknown> = {}) {
     id: 'abc123',
     name: 'plex',
     image: 'plexinc/pms-docker:latest',
-    state: 'running' as const,
+
+    imageDigest: null,    state: 'running' as const,
     labels: {},
     ports: [],
     mounts: [],
@@ -426,7 +428,8 @@ describe('ContainerInventoryCollector: ports/mounts fingerprinting', () => {
         id: 'abc123',
         name: 'plex',
         image: 'plexinc/pms-docker:latest',
-        state: 'running',
+
+        imageDigest: null,        state: 'running',
         labels: {},
         startedAt: null,
         finishedAt: null,

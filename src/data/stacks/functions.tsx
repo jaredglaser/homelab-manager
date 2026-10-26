@@ -21,7 +21,10 @@ import {
   rejectDeploySchema,
   controlStackSchema,
   resolveDriftSchema,
+  getImageUpdateInfoSchema,
+  getImageChangelogSchema,
 } from '@/data/stacks/schemas';
+import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 
 /**
  * List all stacks from the manifest with their current sync status.
@@ -306,6 +309,22 @@ export const ensureVariablesExist = createServerFn({ method: 'POST' })
     await Promise.all(
       data.variableNames.map((name) => repo.ensureExists(data.stackName, name)),
     );
+  });
+
+export const getImageUpdateInfo = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(getImageUpdateInfoSchema)
+  .handler(async ({ data }): Promise<ImageUpdateSummary[]> => {
+    const { getImageUpdateSummaries } = await import('@/lib/image-updates/image-update-service');
+    return getImageUpdateSummaries(data.stack, data.host);
+  });
+
+export const getImageChangelog = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(getImageChangelogSchema)
+  .handler(async ({ data }): Promise<ImageChangelog> => {
+    const { getImageChangelog } = await import('@/lib/image-updates/image-update-service');
+    return getImageChangelog(data.stack, data.host, data.image);
   });
 
 /**

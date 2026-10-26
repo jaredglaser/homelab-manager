@@ -11,6 +11,7 @@ const baseEvent: NewContainerEvent = {
   state: 'running',
   name: 'plex',
   image: 'plexinc/pms-docker:latest',
+  imageDigest: 'sha256:' + 'd'.repeat(64),
   labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
   ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
   mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
@@ -28,6 +29,7 @@ const dbRow = {
   state: 'running',
   name: 'plex',
   image: 'plexinc/pms-docker:latest',
+  imageDigest: 'sha256:' + 'd'.repeat(64),
   labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
   ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
   mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
@@ -64,6 +66,7 @@ describe('DockerContainerEventRepository', () => {
         'running',
         'plex',
         'plexinc/pms-docker:latest',
+        baseEvent.imageDigest,
         JSON.stringify(baseEvent.labels),
         JSON.stringify(baseEvent.ports),
         JSON.stringify(baseEvent.mounts),
@@ -120,19 +123,20 @@ describe('DockerContainerEventRepository', () => {
       expect(params[4]).toBeNull();  // state
       expect(params[5]).toBeNull();  // name
       expect(params[6]).toBeNull();  // image
-      expect(params[8]).toBe('[]');  // ports
-      expect(params[9]).toBe('[]');  // mounts
-      expect(params[10]).toBeNull(); // service_key
-      expect(params[11]).toBeNull(); // started_at
-      expect(params[12]).toBeNull(); // finished_at
-      expect(params[13]).toBeNull(); // exit_code
+      expect(params[7]).toBeNull();  // image_digest
+      expect(params[9]).toBe('[]');  // ports
+      expect(params[10]).toBe('[]'); // mounts
+      expect(params[11]).toBeNull(); // service_key
+      expect(params[12]).toBeNull(); // started_at
+      expect(params[13]).toBeNull(); // finished_at
+      expect(params[14]).toBeNull(); // exit_code
     });
 
     it('stores labels as JSON string parameter', async () => {
       mock.pushResult([dbRow]);
       await repo.insert(baseEvent);
 
-      const labelsParam = mock.queries[0].params[7];
+      const labelsParam = mock.queries[0].params[8];
       expect(typeof labelsParam).toBe('string');
       expect(JSON.parse(labelsParam as string)).toEqual(baseEvent.labels);
     });
