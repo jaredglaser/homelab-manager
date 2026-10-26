@@ -22,7 +22,11 @@ interface HelperCapture {
   createError?: Error;
 }
 
-function dockerStub(capture: HelperCapture, runningDigest: string | null = null): Dockerode {
+function dockerStub(
+  capture: HelperCapture,
+  runningDigest: string | null = null,
+  runningRepo = 'ghcr.io/jaredglaser/homelab-manager-agent',
+): Dockerode {
   const container = {
     inspect: mock(() => {
       if (capture.inspectError) return Promise.reject(capture.inspectError);
@@ -41,7 +45,7 @@ function dockerStub(capture: HelperCapture, runningDigest: string | null = null)
     getImage: mock((_id: string) => ({
       inspect: mock(() =>
         runningDigest
-          ? Promise.resolve({ RepoDigests: ['ghcr.io/jaredglaser/homelab-manager-agent@' + runningDigest] })
+          ? Promise.resolve({ RepoDigests: [runningRepo + '@' + runningDigest] })
           : Promise.resolve({ RepoDigests: [] }),
       ),
     })),
@@ -86,6 +90,43 @@ describe('handleAgentUpdate', () => {
       updateRequest({ targetImage: 'ghcr.io/jaredglaser/homelab-manager-agent@sha256:not-hex' }),
     );
     expect(response.status).toBe(400);
+    expect(capture.createOptions).toBeNull();
+  });
+
+  test('returns 400 for an extra at-segment appended to a valid digest ref', async () => {
+    const capture: HelperCapture = { createOptions: null };
+    const response = await handleAgentUpdate(
+      dockerStub(capture),
+      'hlm-agent',
+      9090,
+      updateRequest({ targetImage: `${TARGET}@sha256:${'c'.repeat(64)}` }),
+    );
+    expect(response.status).toBe(400);
+    expect(capture.createOptions).toBeNull();
+  });
+
+  test('returns 400 for leading or trailing whitespace around the ref', async () => {
+    const capture: HelperCapture = { createOptions: null };
+    for (const targetImage of [` ${TARGET}`, `\n${TARGET}`, `${TARGET}\n`]) {
+      const response = await handleAgentUpdate(dockerStub(capture), 'hlm-agent', 9090, updateRequest({ targetImage }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain('digest');
+    }
+    expect(capture.createOptions).toBeNull();
+  });
+
+  test('returns 400 when the target repo differs from the running agent image repo', async () => {
+    const capture: HelperCapture = { createOptions: null };
+    const response = await handleAgentUpdate(
+      dockerStub(capture, 'sha256:' + 'b'.repeat(64), 'ghcr.io/attacker/other-image'),
+      'hlm-agent',
+      9090,
+      updateRequest({ targetImage: TARGET }),
+    );
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBe('The requested update target does not belong to the image repository this agent runs from');
     expect(capture.createOptions).toBeNull();
   });
 
@@ -157,6 +198,38 @@ describe('handleAgentUpdate', () => {
     expect(second.status).toBe(409);
     const body = await second.json();
     expect(body.error).toBe('An update is already in progress');
+  });
+
+  test('lets only the first of two concurrent requests spawn the helper', async () => {
+    const capture: HelperCapture = { createOptions: null };
+    const docker = dockerStub(capture, 'sha256:' + 'b'.repeat(64));
+    const [first, second] = await Promise.all([
+      handleAgentUpdate(docker, 'hlm-agent', 9090, updateRequest({ targetImage: TARGET })),
+      handleAgentUpdate(docker, 'hlm-agent', 9090, updateRequest({ targetImage: TARGET })),
+    ]);
+    const statuses = [first.status, second.status].sort();
+    expect(statuses).toEqual([202, 409]);
+    expect((docker as unknown as { createContainer: { mock: { calls: unknown[] } } }).createContainer.mock.calls).toHaveLength(1);
+  });
+
+  test('allows an immediate retry after a failed helper spawn', async () => {
+    const capture: HelperCapture = { createOptions: null };
+    let failing = true;
+    const docker = dockerStub(capture, 'sha256:' + 'b'.repeat(64));
+    const createContainer = (docker as unknown as { createContainer: ReturnType<typeof mock> }).createContainer;
+    createContainer.mockImplementation((options: Record<string, unknown>) => {
+      if (failing) {
+        failing = false;
+        return Promise.reject(new Error('no space left on device'));
+      }
+      capture.createOptions = options;
+      return Promise.resolve({ start: mock(() => Promise.resolve()) });
+    });
+    const first = await handleAgentUpdate(docker, 'hlm-agent', 9090, updateRequest({ targetImage: TARGET }));
+    expect(first.status).toBe(500);
+    const second = await handleAgentUpdate(docker, 'hlm-agent', 9090, updateRequest({ targetImage: TARGET }));
+    expect(second.status).toBe(202);
+    expect(capture.createOptions).not.toBeNull();
   });
 
   test('maps a helper spawn failure to 500 with the reason', async () => {

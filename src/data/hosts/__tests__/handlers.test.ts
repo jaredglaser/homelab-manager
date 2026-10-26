@@ -477,7 +477,7 @@ describe('handleUpdateAgent', () => {
       expect(result.healthy).toBe(true);
       if (result.healthy) expect(result.version).toBe('2.0.0');
       expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
-      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0' });
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0', imageDigest: TEST_DIGEST, outOfDate: false });
     } finally {
       restore();
     }
@@ -595,6 +595,44 @@ describe('handleUpdateAgent', () => {
     }
   });
 
+  it('reports an interrupted update when the agent still runs the previous digest', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const staleDigest = 'sha256:' + 'a'.repeat(64);
+      const deps = updateDeps(undefined, mock(() =>
+        Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: staleDigest }),
+      ));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.error).toBe('The agent is still running its previous image, so the update was interrupted before it completed');
+        expect(result.suggestions).toContain('Check free disk space on the host, then retry the update');
+      }
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('records the applied digest when a rebuilt image keeps the version string', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const repo = mockRepo();
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(repo, mock(() =>
+        Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: TEST_DIGEST }),
+      ));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
   it('reports an unreadable version when the agent is healthy but reports none after the trigger', async () => {
     const timers = mockSetTimeout({ fireImmediately: true });
     const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
@@ -643,7 +681,7 @@ describe('handleUpdateAgent', () => {
       let calls = 0;
       const deps = updateDeps(undefined, mock(() => {
         calls += 1;
-        // The pre-check answers without a version and /info 404s; every poll is healthy with a version.
+        // The pre-check answers without a version and /info 404s. Every poll is healthy with a version.
         return Promise.resolve(
           calls === 1
             ? { healthy: true as const, infoSupported: false }

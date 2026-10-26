@@ -206,7 +206,6 @@ Agent updates are manager-driven and manual only: the manager resolves the regis
 6. Poll the Docker healthcheck, then verify the agent's HTTP `/health` endpoint, rolling back to the previous digest on failure
 
 **Detection:** the agent reports its running image digest on `/info`; the worker's inventory sweep compares it against the registry digest of the manager's agent image and persists the verdict the agents overview displays.
-7. Roll back to the previous image if either health check fails
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
