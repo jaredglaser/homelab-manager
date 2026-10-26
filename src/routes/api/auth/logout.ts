@@ -1,3 +1,5 @@
+// Unauthenticated by design: clears the session itself.
+/* eslint-disable local/endpoint-auth */
 import { createFileRoute } from '@tanstack/react-router';
 import { logoutGetHandler } from '@/lib/auth/logout-handler';
 

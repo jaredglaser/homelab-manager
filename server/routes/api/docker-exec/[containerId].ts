@@ -24,10 +24,26 @@ function clampDim(raw: string | null, fallback: number): number {
 }
 
 export default defineWebSocketHandler({
-  upgrade(request) {
+  // Auth must complete before open()'s host lookup: an unauthenticated caller
+  // must get an identical rejection no matter which host name it supplies.
+  async upgrade(request) {
     const url = new URL(request.url);
     if (!url.searchParams.get('host')) {
       throw Response.json({ error: 'Missing host parameter' }, { status: 400 });
+    }
+
+    const { authenticateWsUpgrade } = await import('../../../../src/lib/auth/ws-auth');
+    const user = await authenticateWsUpgrade(request);
+    if (!user) {
+      throw Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { requireRole, ForbiddenError } = await import('../../../../src/lib/auth/require-role');
+    try {
+      requireRole('admin', 'operator')(user);
+    } catch (err) {
+      if (!(err instanceof ForbiddenError)) throw err;
+      throw Response.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
   },
 
