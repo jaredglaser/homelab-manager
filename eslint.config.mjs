@@ -49,7 +49,9 @@ export const WS_MUX_SEAM_RESTRICTIONS = [
 ];
 
 // Endpoint auth enforcement. Exemptions are inline eslint-disable directives at the exempt site, never a central allowlist.
-const AUTH_SEAM_NAMES = ['authMiddleware', 'requireRole', 'authenticateWsUpgrade', 'authenticateRequest', 'resolveUserFromCookie'];
+// resolveUserFromCookie only counts as a call argument, never a callee: it resolves a user without rejecting, so a route that calls it and ignores the result stays unauthenticated.
+const ENFORCING_SEAM_NAMES = ['authMiddleware', 'requireRole', 'authenticateWsUpgrade', 'authenticateRequest'];
+const ARGUMENT_SEAM_NAMES = [...ENFORCING_SEAM_NAMES, 'resolveUserFromCookie'];
 
 const endpointAuthRule = {
   meta: {
@@ -61,7 +63,7 @@ const endpointAuthRule = {
     schema: [],
     messages: {
       routeMissingAuth:
-        'Route references no auth enforcement seam (authenticateWsUpgrade, authenticateRequest, authMiddleware, requireRole, resolveUserFromCookie). Add auth enforcement or disable this rule at the top of the file with the reason it is unauthenticated by design.',
+        'Route references no auth enforcement call (authenticateWsUpgrade, authenticateRequest, authMiddleware, requireRole as a call callee or argument). resolveUserFromCookie does not qualify because it resolves a user without rejecting. Add auth enforcement or disable this rule at the top of the file with the reason it is unauthenticated by design.',
       fnMissingAuth:
         'createServerFn chain attaches no authMiddleware. Add it to .middleware([...]) or disable this rule on this line with the reason the function is unauthenticated by design.',
     },
@@ -69,13 +71,18 @@ const endpointAuthRule = {
   create(context) {
     const filename = context.filename;
     if (filename.includes('/server/routes/') || filename.includes('/src/routes/api/')) {
-      let sawSeam = false;
+      let sawEnforcingCall = false;
       return {
-        [`Identifier[name=/^(?:${AUTH_SEAM_NAMES.join('|')})$/]`]() {
-          sawSeam = true;
+        'CallExpression > Identifier'(node) {
+          const call = node.parent;
+          if (call.callee === node) {
+            if (ENFORCING_SEAM_NAMES.includes(node.name)) sawEnforcingCall = true;
+          } else if (call.arguments.includes(node)) {
+            if (ARGUMENT_SEAM_NAMES.includes(node.name)) sawEnforcingCall = true;
+          }
         },
         'Program:exit'(program) {
-          if (!sawSeam) context.report({ node: program, messageId: 'routeMissingAuth' });
+          if (!sawEnforcingCall) context.report({ node: program, messageId: 'routeMissingAuth' });
         },
       };
     }
@@ -292,14 +299,9 @@ export default tseslint.config(
   },
   { files: ['src/lib/test/wait-for-condition.ts'], rules: { 'no-restricted-syntax': 'off' } },
 
-  // Endpoint auth enforcement.
+  // Endpoint auth enforcement. Route files branch to route mode inside the rule via the filename check and everything else here is createServerFn mode.
   {
-    files: [
-      'server/routes/**/*.ts',
-      'src/routes/api/**/*.ts',
-      'src/data/**/*.functions.tsx',
-      'src/data/**/functions.tsx',
-    ],
+    files: ['src/**/*.{ts,tsx}', 'server/**/*.ts'],
     ignores: ['**/__tests__/**'],
     plugins: { local: { rules: { 'endpoint-auth': endpointAuthRule } } },
     rules: { 'local/endpoint-auth': 'error' },
