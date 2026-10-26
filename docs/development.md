@@ -69,7 +69,7 @@ Stack image update checks only query registries on a built-in allowlist: docker.
 IMAGE_UPDATE_EXTRA_REGISTRIES="nas.lan:5000,registry.home.arpa"
 ```
 
-Entries must be HTTPS-reachable because the registry token flow requires it. Malformed entries fail startup.
+Entries must be HTTPS-reachable because the registry token flow requires it. A malformed entry does not fail startup: image update checks refuse to run and every check reports the error until the variable is fixed.
 
 ### Step 2: Start the Dev Stack
 

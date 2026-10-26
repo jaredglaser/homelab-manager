@@ -1,25 +1,8 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { checkImageUpdate, fetchRemoteManifestDigest, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, sourceRepoFromLabels } from '../registry-client';
-import { jsonResponse, withFetch } from '@/lib/test/fetch-mock';
+import { HUB_PROBE, hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
-
-const HUB_PROBE = 'https://registry-1.docker.io/v2/';
-const HUB_REALM_HEADER = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io"';
-
-function hubTokenFlow(fetchMock: ReturnType<typeof mock>, manifestDigest: string | null): void {
-  fetchMock.mockImplementation((url) => {
-    const target = String(url);
-    if (target === HUB_PROBE) {
-      return Promise.resolve(new Response(null, { status: 401, headers: { 'WWW-Authenticate': HUB_REALM_HEADER } }));
-    }
-    if (target.startsWith('https://auth.docker.io/token')) {
-      return Promise.resolve(jsonResponse({ token: 'tok' }));
-    }
-    if (manifestDigest === null) return Promise.resolve(new Response(null, { status: 404 }));
-    return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': manifestDigest } }));
-  });
-}
 
 describe('sourceRepoFromLabels', () => {
   test('extracts owner/repo from a github.com source label', () => {
@@ -197,6 +180,55 @@ describe('checkImageUpdate', () => {
     }
   });
 
+  test('lscr.io follows the ghcr.io delegated token realm for a floating tag', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target === 'https://lscr.io/v2/') {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        }));
+      }
+      if (target.startsWith('https://ghcr.io/token')) {
+        return Promise.resolve(jsonResponse({ token: 'tok' }));
+      }
+      expect(target).toBe('https://lscr.io/v2/linuxserver/nginx/manifests/latest');
+      return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'e'.repeat(64) } }));
+    });
+    try {
+      const summary = await checkImageUpdate('lscr.io/linuxserver/nginx:latest', {}, 'sha256:' + 'a'.repeat(64));
+      expect(summary.updateAvailable).toBe(true);
+      const targets = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(targets[0]).toBe('https://lscr.io/v2/');
+      expect(targets[1]).toContain('https://ghcr.io/token');
+      expect(targets[2]).toBe('https://lscr.io/v2/linuxserver/nginx/manifests/latest');
+      expect(fetchMock.mock.calls.length).toBe(3);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a non-lscr.io base with a ghcr.io realm is rejected as an unexpected host', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      if (String(url) === 'https://quay.io/v2/') {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        }));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    try {
+      const summary = await checkImageUpdate('quay.io/owner/app:1.0', {});
+      expect(summary.error).toBe(
+        'Registry quay.io pointed its token endpoint at an unexpected host, so the update check stopped for safety.',
+      );
+      expect(fetchMock.mock.calls.length).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
   test('variant constraint only matches the same variant', async () => {
     const { restore } = withFetch(() =>
       Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
@@ -246,7 +278,7 @@ describe('checkImageUpdate', () => {
     }
   });
 
-  test('a realm pointing at another host is rejected with the pinned copy', async () => {
+  test('a realm pointing at another host surfaces the safety stop message', async () => {
     const { restore, fetchMock } = withFetch((url) => {
       if (String(url) === 'https://ghcr.io/v2/') {
         return Promise.resolve(new Response(null, {
@@ -281,7 +313,38 @@ describe('checkImageUpdate', () => {
     }
   });
 
-  test('a failing token endpoint reports the pinned copy without a status code', async () => {
+  test('a redirecting probe surfaces the no-anonymous-access message without following', async () => {
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(new Response(null, { status: 302, headers: { Location: 'https://evil.example/v2/' } })),
+    );
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/redir:1.0', {});
+      expect(summary.error).toBe(
+        'Registry ghcr.io does not allow anonymous tag access, so its update state cannot be checked.',
+      );
+      expect(fetchMock.mock.calls.length).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a redirecting tag page surfaces the list-tags failure without following', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, { status: 302, headers: { Location: 'https://evil.example/tags' } }));
+    });
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/redir:1.0', {});
+      expect(summary.error).toBe(
+        "Registry ghcr.io failed to list tags for owner/redir, so this image's update state cannot be checked.",
+      );
+      expect(fetchMock.mock.calls.length).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a failing token endpoint surfaces the failed-token-issuance message', async () => {
     const { restore } = withFetch((url) => {
       const target = String(url);
       if (target === 'https://ghcr.io/v2/') {
@@ -302,7 +365,7 @@ describe('checkImageUpdate', () => {
     }
   });
 
-  test('a token response without a token reports the pinned copy', async () => {
+  test('a token response without a token surfaces the no-usable-token message', async () => {
     const { restore } = withFetch((url) => {
       const target = String(url);
       if (target === 'https://ghcr.io/v2/') {
@@ -361,6 +424,24 @@ describe('checkImageUpdate', () => {
       const summary = await checkImageUpdate('ghcr.io/owner/paged:1', {});
       expect(summary.latestMatchingTag).toBe('1.2.0');
       expect(fetchMock.mock.calls.length).toBe(3);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a Link header with only rel=prev stops pagination', async () => {
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target.endsWith('/v2/')) return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ tags: ['1.0.0'] }), {
+        status: 200,
+        headers: { Link: '</v2/owner/app/tags/list?last=1.0.0>; rel="prev"' },
+      }));
+    });
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/prevonly:1', {});
+      expect(summary.latestMatchingTag).toBe('1.0.0');
+      expect(fetchMock.mock.calls.length).toBe(2);
     } finally {
       restore();
     }
@@ -438,13 +519,40 @@ describe('checkImageUpdate', () => {
     }
   });
 
-  test('an exhausted tag listing budget rejects with the pinned copy before any fetch', async () => {
+  test('an exhausted tag listing budget rejects before any fetch', async () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
     try {
       await expect(listRegistryTags('ghcr.io', 'owner/app', { deadline: Date.now() - 1 })).rejects.toThrow(
         'Listing tags from ghcr.io took too long, so the update state could not be checked.',
       );
       expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('a hub tag listing failure surfaces its exact message', async () => {
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 500)));
+    try {
+      const summary = await checkImageUpdate('redis:7', {});
+      expect(summary.error).toBe(
+        "Docker Hub failed to list tags for library/redis, so this image's update state cannot be checked.",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a v2 tag listing failure surfaces its exact message', async () => {
+    const { restore } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(jsonResponse({}, 500));
+    });
+    try {
+      const summary = await checkImageUpdate('ghcr.io/owner/applist:1.0', {});
+      expect(summary.error).toBe(
+        "Registry ghcr.io failed to list tags for owner/applist, so this image's update state cannot be checked.",
+      );
     } finally {
       restore();
     }
@@ -603,7 +711,7 @@ describe('checkImageUpdate: floating tags', () => {
     }
   });
 
-  test('a failing digest HEAD reports the pinned copy', async () => {
+  test('a failing digest HEAD surfaces the unknown-update-state message', async () => {
     const { restore } = withFetch((url) => {
       if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
       return Promise.resolve(new Response(null, { status: 500 }));
@@ -613,6 +721,85 @@ describe('checkImageUpdate: floating tags', () => {
       expect(summary.error).toBe(
         'Registry ghcr.io failed to read the digest for myorg/myapp:latest, so the update state is unknown.',
       );
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('getPullToken cache', () => {
+  test('a cached token inside the 30 second expiry margin is refetched', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 10;
+    const jwt = 'h.' + btoa(JSON.stringify({ exp })).replace(/\+/g, '-').replace(/\//g, '_') + '.s';
+    let tokenRequests = 0;
+    const { restore } = withFetch((url) => {
+      const target = String(url);
+      if (target === 'https://ghcr.io/v2/') {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        }));
+      }
+      if (target.startsWith('https://ghcr.io/token')) {
+        tokenRequests++;
+        return Promise.resolve(jsonResponse({ token: jwt }));
+      }
+      return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'f'.repeat(64) } }));
+    });
+    try {
+      await fetchRemoteManifestDigest('ghcr.io', 'owner/expmargin', 'latest');
+      await fetchRemoteManifestDigest('ghcr.io', 'owner/expmargin', 'latest');
+      expect(tokenRequests).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an opaque token with a short expires_in is refetched inside the margin', async () => {
+    let tokenRequests = 0;
+    const { restore } = withFetch((url) => {
+      const target = String(url);
+      if (target === 'https://ghcr.io/v2/') {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        }));
+      }
+      if (target.startsWith('https://ghcr.io/token')) {
+        tokenRequests++;
+        return Promise.resolve(jsonResponse({ token: 'opaque', expires_in: 10 }));
+      }
+      return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'f'.repeat(64) } }));
+    });
+    try {
+      await fetchRemoteManifestDigest('ghcr.io', 'owner/shortexp', 'latest');
+      await fetchRemoteManifestDigest('ghcr.io', 'owner/shortexp', 'latest');
+      expect(tokenRequests).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an opaque token with a long expires_in is reused', async () => {
+    let tokenRequests = 0;
+    const { restore } = withFetch((url) => {
+      const target = String(url);
+      if (target === 'https://ghcr.io/v2/') {
+        return Promise.resolve(new Response(null, {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' },
+        }));
+      }
+      if (target.startsWith('https://ghcr.io/token')) {
+        tokenRequests++;
+        return Promise.resolve(jsonResponse({ token: 'opaque', expires_in: 300 }));
+      }
+      return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'f'.repeat(64) } }));
+    });
+    try {
+      await fetchRemoteManifestDigest('ghcr.io', 'owner/longexp', 'latest');
+      await fetchRemoteManifestDigest('ghcr.io', 'owner/longexp', 'latest');
+      expect(tokenRequests).toBe(1);
     } finally {
       restore();
     }

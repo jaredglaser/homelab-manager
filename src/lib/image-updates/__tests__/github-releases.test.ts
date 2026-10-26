@@ -7,7 +7,7 @@ const RELEASE = {
   name: 'Version 1.1.0',
   published_at: '2026-01-15T10:00:00Z',
   html_url: 'https://github.com/o/r/releases/v1.1.0',
-  body: '## Changes\\n- fixed a thing',
+  body: '## Changes\n- fixed a thing',
   prerelease: false,
   draft: false,
 };
@@ -30,7 +30,7 @@ describe('fetchGitHubReleases', () => {
         name: 'Version 1.1.0',
         publishedAt: '2026-01-15T10:00:00Z',
         url: 'https://github.com/o/r/releases/v1.1.0',
-        body: '## Changes\\n- fixed a thing',
+        body: '## Changes\n- fixed a thing',
         prerelease: false,
       });
       expect(releases[1].name).toBeNull();
@@ -116,6 +116,31 @@ describe('fetchGitHubReleases', () => {
     }
   });
 
+  test('drafts do not consume the MAX_RELEASES cap', async () => {
+    function mixedPage(valid: number, drafts: number, tagPrefix: string): unknown[] {
+      const entries: unknown[] = [];
+      for (let i = 0; i < valid; i++) entries.push({ ...RELEASE, tag_name: tagPrefix + i });
+      for (let i = 0; i < drafts; i++) entries.push({ ...RELEASE, tag_name: 'draft-' + i, draft: true });
+      return entries;
+    }
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target.includes('page=2')) return Promise.resolve(jsonResponse(mixedPage(40, 0, 'v2.')));
+      return Promise.resolve(new Response(JSON.stringify(mixedPage(60, 40, 'v1.')), {
+        status: 200,
+        headers: { Link: '<https://api.github.com/repos/o/r/releases?per_page=50&page=2>; rel="next"' },
+      }));
+    });
+    try {
+      const releases = await fetchGitHubReleases('o/r');
+      expect(releases).toHaveLength(100);
+      expect(releases.every((r) => !r.tagName.startsWith('draft-'))).toBe(true);
+      expect(fetchMock.mock.calls.length).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
   test('404 names the repository in the error', async () => {
     const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 404)));
     try {
@@ -138,7 +163,7 @@ describe('fetchGitHubReleases', () => {
     }
   });
 
-  test('other failures report the pinned copy without a status code', async () => {
+  test('other failures surface the changelog-unavailable message', async () => {
     const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 500)));
     try {
       await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
@@ -149,7 +174,7 @@ describe('fetchGitHubReleases', () => {
     }
   });
 
-  test('malformed source repo throws the pinned copy without a network call', async () => {
+  test('a malformed source repo throws without a network call', async () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
     try {
       await expect(fetchGitHubReleases('https://github.com/o/r')).rejects.toThrow(

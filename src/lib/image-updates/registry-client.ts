@@ -70,17 +70,19 @@ interface TokenCacheEntry {
 const tokenCache = new BoundedCache<TokenCacheEntry>(300);
 
 // The realm pin rejects hosts outside the fetch base plus these delegations
-// (Docker Hub's registry endpoint issues tokens from auth.docker.io).
+// (Docker Hub issues tokens from auth.docker.io, lscr.io from ghcr.io).
 const DELEGATED_TOKEN_HOSTS = new Map<string, Set<string>>([
   ['registry-1.docker.io', new Set(['auth.docker.io'])],
+  ['lscr.io', new Set(['ghcr.io'])],
 ]);
 
 async function getPullToken(registry: string, repo: string, base: string): Promise<string | null> {
   const cacheKey = registry + '|' + repo;
   const cached = tokenCache.get(cacheKey);
-  if (cached) return cached.token;
+  // A token inside its final 30 seconds can 401 transiently, so refetch it.
+  if (cached && cached.expiresAt > Date.now() + 30_000) return cached.token;
 
-  const probe = await fetch(base + '/v2/', { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  const probe = await fetch(base + '/v2/', { redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (probe.ok) return null;
   const authHeader = probe.headers.get('www-authenticate');
   const realm = authHeader?.match(/realm="([^"]+)"/)?.[1];
@@ -102,22 +104,26 @@ async function getPullToken(registry: string, repo: string, base: string): Promi
   const tokenUrl = realmUrl;
   if (service) tokenUrl.searchParams.set('service', service);
   tokenUrl.searchParams.set('scope', scope);
-  const tokenResponse = await fetch(tokenUrl, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  const tokenResponse = await fetch(tokenUrl, { redirect: 'error', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!tokenResponse.ok) {
     console.error('[image-updates] registry ' + registry + ' token endpoint returned ' + tokenResponse.status);
     throw new RegistryCheckError(
       'Registry ' + registry + ' failed to issue a read token, so its update state cannot be checked.',
     );
   }
-  const body = (await tokenResponse.json()) as { token?: string; access_token?: string };
+  const body = (await tokenResponse.json()) as { token?: string; access_token?: string; expires_in?: number };
   const token = body.token ?? body.access_token;
   if (!token) {
     throw new RegistryCheckError(
       'Registry ' + registry + ' did not return a usable read token, so its update state cannot be checked.',
     );
   }
+  // A numeric expires_in is authoritative for opaque tokens the JWT decode cannot read.
+  const declared = typeof body.expires_in === 'number' && body.expires_in > 0
+    ? Date.now() + body.expires_in * 1000
+    : null;
   const exp = decodeJwtExp(token);
-  const expiresAt = exp ?? Date.now() + 5 * 60_000;
+  const expiresAt = declared ?? exp ?? Date.now() + 5 * 60_000;
   tokenCache.set(cacheKey, { token, expiresAt }, expiresAt - Date.now());
   return token;
 }
@@ -150,7 +156,7 @@ function budgetRemaining(deadline: number, registry: string): number {
 
 function budgetedFetch(url: string, init: RequestInit, deadline: number, registry: string): Promise<Response> {
   const remaining = budgetRemaining(deadline, registry);
-  return fetch(url, { ...init, signal: AbortSignal.timeout(remaining) });
+  return fetch(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(remaining) });
 }
 
 async function fetchDockerHubTags(repo: string, deadline: number): Promise<string[]> {
@@ -180,7 +186,12 @@ async function fetchDockerHubTags(repo: string, deadline: number): Promise<strin
 }
 
 function nextLink(header: string | null, registry: string, baseHost: string): string | null {
-  const match = header?.match(/<([^>]+)>\s*;\s*rel="next"/) ?? header?.match(/<([^>]+)>/);
+  if (!header) return null;
+  // The bare-URL fallback is only for headers carrying no rel attribute at
+  // all, rel="prev" and rel="last" must not be read as a next page.
+  const match = header.includes('rel=')
+    ? header.match(/<([^>]+)>\s*;\s*rel="next"/)
+    : header.match(/<([^>]+)>/);
   if (!match) return null;
   const next = new URL(match[1], 'https://' + baseHost);
   if (next.host !== baseHost) {
@@ -252,6 +263,7 @@ async function headManifestDigest(base: string, registry: string, repo: string, 
   const response = await fetch(base + '/v2/' + repo + '/manifests/' + encodeURIComponent(tag), {
     method: 'HEAD',
     headers,
+    redirect: 'error',
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (response.status === 404) return null;

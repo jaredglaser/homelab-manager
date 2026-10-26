@@ -1,6 +1,6 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { mockModule } from '@/lib/test/mock-module';
-import { jsonResponse, withFetch } from '@/lib/test/fetch-mock';
+import { hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 
 function containerRow(overrides: Partial<DockerContainerEventUpsertRow>): DockerContainerEventUpsertRow {
@@ -50,25 +50,6 @@ function mockSnapshot(rows: DockerContainerEventUpsertRow[]): void {
 }
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
-
-const HUB_PROBE = 'https://registry-1.docker.io/v2/';
-const HUB_REALM_HEADER = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io"';
-
-function mockHubDigestFlow(
-  fetchMock: ReturnType<typeof mock>,
-  manifestDigest: string,
-): void {
-  fetchMock.mockImplementation((url) => {
-    const target = String(url);
-    if (target === HUB_PROBE) {
-      return Promise.resolve(new Response(null, { status: 401, headers: { 'WWW-Authenticate': HUB_REALM_HEADER } }));
-    }
-    if (target.startsWith('https://auth.docker.io/token')) {
-      return Promise.resolve(jsonResponse({ token: 'tok' }));
-    }
-    return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': manifestDigest } }));
-  });
-}
 
 describe('getImageUpdateSummaries', () => {
   test('checks each distinct image once and sorts summaries by image', async () => {
@@ -141,13 +122,13 @@ describe('getImageUpdateSummaries', () => {
       containerRow({ image: 'myapp:latest', imageDigest: 'sha256:' + 'a'.repeat(64), composeProject: 'floating' }),
     ]);
     const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
-    mockHubDigestFlow(fetchMock, 'sha256:' + 'b'.repeat(64));
+    hubTokenFlow(fetchMock, 'sha256:' + 'b'.repeat(64));
     try {
       const { getImageUpdateSummaries } = await import('../image-update-service');
       const [summary] = await getImageUpdateSummaries('floating', 'host1');
       expect(summary.updateAvailable).toBe(true);
       const targets = fetchMock.mock.calls.map((call) => String(call[0]));
-      expect(targets[0]).toBe(HUB_PROBE);
+      expect(targets[0]).toBe('https://registry-1.docker.io/v2/');
       expect(targets[1]).toContain('https://auth.docker.io/token');
       expect(targets[2]).toBe('https://registry-1.docker.io/v2/library/myapp/manifests/latest');
       expect(fetchMock.mock.calls.length).toBe(3);
@@ -202,7 +183,7 @@ describe('getImageChangelog', () => {
       const { getImageChangelog } = await import('../image-update-service');
       const changelog = await getImageChangelog('changelog-no-repo', 'host1', 'app:1.0');
       expect(changelog.sourceRepo).toBeNull();
-      expect(changelog.error).toBe('No GitHub source repository found for this image');
+      expect(changelog.error).toBe('No GitHub source repository found for this image.');
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       restore();

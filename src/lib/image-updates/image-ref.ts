@@ -50,10 +50,11 @@ export function parseImageRef(image: string): ParsedImageRef {
   const firstSlash = rest.indexOf('/');
   if (firstSlash !== -1) {
     const first = rest.slice(0, firstSlash);
+    const lowerFirst = first.toLowerCase();
     // A leading component is a registry host when it looks like one: a dot
     // (ghcr.io), a port (localhost:5000), or the literal `localhost`.
-    if (first.includes('.') || first.includes(':') || first === 'localhost') {
-      registry = DOCKER_HUB_HOSTS.has(first) ? IMPLICIT_REGISTRY : first;
+    if (lowerFirst.includes('.') || lowerFirst.includes(':') || lowerFirst === 'localhost') {
+      registry = DOCKER_HUB_HOSTS.has(lowerFirst) ? IMPLICIT_REGISTRY : lowerFirst;
       repo = rest.slice(firstSlash + 1);
     }
   }

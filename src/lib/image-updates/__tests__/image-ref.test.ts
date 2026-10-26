@@ -53,6 +53,15 @@ describe('parseImageRef', () => {
     });
   });
 
+  test('a mixed-case Hub host resolves to the docker.io hub path', () => {
+    expect(parseImageRef('Docker.io/redis:7')).toEqual({
+      registry: 'docker.io',
+      repo: 'library/redis',
+      tag: '7',
+      digest: null,
+    });
+  });
+
   test('digest ref keeps the digest and drops the tag', () => {
     const digest = 'sha256:' + 'a'.repeat(64);
     expect(parseImageRef(`ghcr.io/owner/app:1.0@${digest}`)).toEqual({
@@ -82,19 +91,25 @@ describe('parseImageRef', () => {
     });
   });
 
-  test('empty ref throws', () => {
-    expect(() => parseImageRef('  ')).toThrow(InvalidImageRefError);
+  test('empty ref throws its exact message', () => {
+    expect(() => parseImageRef('  ')).toThrow(new InvalidImageRefError('Image reference is empty'));
   });
 
-  test('empty tag throws', () => {
-    expect(() => parseImageRef('redis:')).toThrow(InvalidImageRefError);
+  test('empty tag throws its exact message', () => {
+    expect(() => parseImageRef('redis:')).toThrow(
+      new InvalidImageRefError('Image reference "redis:" has an empty tag'),
+    );
   });
 
-  test('empty digest throws', () => {
-    expect(() => parseImageRef('redis@')).toThrow(InvalidImageRefError);
+  test('empty digest throws its exact message', () => {
+    expect(() => parseImageRef('redis@')).toThrow(
+      new InvalidImageRefError('Image reference "redis@" has an empty digest'),
+    );
   });
 
-  test('bare digest with no repo throws', () => {
-    expect(() => parseImageRef('@sha256:' + 'a'.repeat(64))).toThrow(InvalidImageRefError);
+  test('bare digest with no repo throws its exact message', () => {
+    expect(() => parseImageRef('@sha256:' + 'a'.repeat(64))).toThrow(
+      new InvalidImageRefError('Image reference "@sha256:' + 'a'.repeat(64) + '" has no repository part'),
+    );
   });
 });

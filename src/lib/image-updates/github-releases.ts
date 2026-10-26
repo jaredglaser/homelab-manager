@@ -38,6 +38,7 @@ export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRele
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      redirect: 'error',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
@@ -53,13 +54,14 @@ export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRele
     }
 
     const body = (await response.json()) as GitHubRelease[];
-    releases.push(...body);
+    for (const release of body) {
+      if (!release.draft && release.tag_name) releases.push(release);
+    }
     if (releases.length >= MAX_RELEASES) break;
     url = nextReleasesPage(response.headers.get('link'));
   }
 
   return releases
-    .filter((release) => !release.draft && release.tag_name)
     .slice(0, MAX_RELEASES)
     .map((release) => ({
       tagName: release.tag_name as string,

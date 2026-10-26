@@ -56,8 +56,7 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
   // Stable ordering: Map iteration is insertion order, which follows the
   // snapshot's arbitrary container order.
   summaries.sort((a, b) => a.image.localeCompare(b.image));
-  // Failures stay uncached, matching the changelog path: a registry outage
-  // must not pin its error in the panel for the full TTL.
+  // Failures stay uncached: caching would pin a registry outage's error in the panel for the full TTL.
   if (summaries.every((summary) => summary.error === null)) {
     summaryCache.set(cacheKey, summaries, SUMMARY_CACHE_TTL_MS);
   }
@@ -78,7 +77,7 @@ export async function getImageChangelog(stack: string, host: string, image: stri
 
   const changelog: ImageChangelog = { image, sourceRepo, releases: [], error: null };
   if (!sourceRepo) {
-    changelog.error = 'No GitHub source repository found for this image';
+    changelog.error = 'No GitHub source repository found for this image.';
   } else {
     try {
       changelog.releases = await fetchGitHubReleases(sourceRepo);
@@ -86,8 +85,7 @@ export async function getImageChangelog(stack: string, host: string, image: stri
       changelog.error = err instanceof Error ? err.message : String(err);
     }
   }
-  // Failures stay uncached: a rate-limit or hiccup must not pin the error in
-  // the dialog for an hour after the API has recovered.
+  // Failures stay uncached: caching would pin a rate-limit error in the dialog for the full hour.
   if (changelog.error === null) {
     changelogCache.set(cacheKey, changelog, CHANGELOG_CACHE_TTL_MS);
   }
