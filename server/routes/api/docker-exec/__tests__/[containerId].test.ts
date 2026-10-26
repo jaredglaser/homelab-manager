@@ -1,9 +1,22 @@
 import { describe, it, expect, mock, beforeEach, beforeAll, afterAll } from 'bun:test';
 import { mockModule } from '@/lib/test/mock-module';
+import type { AuthUser } from '@/lib/auth/types';
 
 const mockFindByName = mock(async (_: string) => null as null | { name: string; agentUrl: string });
 const mockGetPrivateKeyForHost = mock(async (_: string) => null as null | object);
 const mockSignAgentJwt = mock(async () => 'fake.jwt.token');
+
+let authResult: AuthUser | null = null;
+const mockAuthenticateWsUpgrade = mock(async (): Promise<AuthUser | null> => authResult);
+
+mockModule<typeof import('@/lib/auth/ws-auth')>('@/lib/auth/ws-auth', (real) => ({
+  ...real,
+  authenticateWsUpgrade: mockAuthenticateWsUpgrade,
+}));
+
+function authUser(role: AuthUser['role']): AuthUser {
+  return { id: 1, email: 'operator@example.com', name: 'Operator', role };
+}
 
 mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
   databaseConnectionManager: {
@@ -80,7 +93,7 @@ const handlerModule = await import('../[containerId]');
 // hook callbacks themselves, call the exported handler with any event-shaped
 // argument and read `.crossws` off the resulting Response.
 interface HandlerHooks {
-  upgrade?: (req: { url: string }) => void;
+  upgrade?: (req: { url: string }) => Promise<void>;
   open: (peer: FakePeer) => Promise<void>;
   message: (peer: FakePeer, msg: FakeMessage) => void;
   close: (peer: FakePeer) => void;
@@ -118,25 +131,67 @@ beforeEach(() => {
   mockFindByName.mockImplementation(async () => null);
   mockGetPrivateKeyForHost.mockImplementation(async () => null);
   mockSignAgentJwt.mockImplementation(async () => 'fake.jwt.token');
+  authResult = authUser('operator');
 });
 
 describe('docker-exec websocket route', () => {
   describe('upgrade', () => {
-    it('rejects requests without host param with HTTP 400', () => {
-      const req = { url: 'http://localhost:3000/api/docker-exec/abc123' };
-      let thrown: unknown;
+    async function upgradeAndCatch(url: string): Promise<unknown> {
       try {
-        handler.upgrade?.(req);
+        await handler.upgrade?.({ url });
       } catch (e) {
-        thrown = e;
+        return e;
       }
+      return null;
+    }
+
+    it('rejects requests without host param with HTTP 400', async () => {
+      const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123');
       expect(thrown).toBeInstanceOf(Response);
       expect((thrown as Response).status).toBe(400);
     });
 
-    it('passes when host param is present', () => {
-      const req = { url: 'http://localhost:3000/api/docker-exec/abc123?host=server1' };
-      expect(() => handler.upgrade?.(req)).not.toThrow();
+    it('passes when an operator session resolves and host param is present', async () => {
+      const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+      expect(thrown).toBeNull();
+    });
+
+    it('rejects with HTTP 401 when no session resolves', async () => {
+      authResult = null;
+      const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+      expect(thrown).toBeInstanceOf(Response);
+      expect((thrown as Response).status).toBe(401);
+      expect(await (thrown as Response).json()).toEqual({ error: 'Unauthorized' });
+    });
+
+    it('rejects with HTTP 403 when the session role is below operator', async () => {
+      authResult = authUser('viewer');
+      const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+      expect(thrown).toBeInstanceOf(Response);
+      expect((thrown as Response).status).toBe(403);
+    });
+
+    it('returns an identical 401 rejection regardless of the supplied host name', async () => {
+      authResult = null;
+      const first = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+      const second = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=does-not-exist');
+      expect(first).toBeInstanceOf(Response);
+      expect(second).toBeInstanceOf(Response);
+      expect((second as Response).status).toBe((first as Response).status);
+      expect(await (second as Response).text()).toBe(await (first as Response).text());
+    });
+
+    it('rejects before any host lookup or keypair work when unauthenticated', async () => {
+      authResult = null;
+      mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'http://agent.local:9000' }));
+      mockGetPrivateKeyForHost.mockImplementation(async () => ({}));
+
+      await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+
+      expect(mockFindByName).not.toHaveBeenCalled();
+      expect(mockGetPrivateKeyForHost).not.toHaveBeenCalled();
+      expect(mockSignAgentJwt).not.toHaveBeenCalled();
+      expect(constructedWebSockets).toHaveLength(0);
     });
   });
 
