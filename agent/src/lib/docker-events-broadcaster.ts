@@ -20,12 +20,38 @@ export interface MinimalContainerInfo {
   Names: string[];
   State: string;
   Image: string;
+  /** Manifest digest the image was pulled by (RepoDigests), null for locally built images. */
+  imageDigest: string | null;
   Labels: Record<string, string>;
   StartedAt: string | null;
   FinishedAt: string | null;
   ExitCode: number | null;
   Ports: ContainerPort[];
   Mounts: ContainerMount[];
+}
+
+/**
+ * RepoDigests lives on the image inspect, not the container inspect, so each
+ * container event would otherwise cost an extra Docker call. The cache is keyed
+ * by the image ID (immutable per pull), never by the tag ref: a re-pulled
+ * `latest` keeps its ref while the digest changes. A failed inspect is not
+ * cached so the next event retries.
+ */
+const imageDigestCache = new Map<string, string | null>();
+
+export async function resolveImageDigest(docker: Dockerode, imageRef: string): Promise<string | null> {
+  if (imageDigestCache.has(imageRef)) return imageDigestCache.get(imageRef)!;
+  try {
+    const inspectData = await docker.getImage(imageRef).inspect();
+    const repoDigest = inspectData.RepoDigests?.[0];
+    const digest = repoDigest ? repoDigest.slice(repoDigest.indexOf('@') + 1) || null : null;
+    imageDigestCache.set(imageRef, digest);
+    return digest;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[DockerEventsBroadcaster] Image inspect failed for ${imageRef}:`, message);
+    return null;
+  }
 }
 
 function normalizeTimestamp(value: string | null | undefined): string | null {
@@ -161,6 +187,7 @@ function buildFromInspect(inspectData: Dockerode.ContainerInspectInfo): MinimalC
     Names: [inspectData.Name],
     State: state,
     Image: inspectData.Config?.Image ?? '',
+    imageDigest: null,
     Labels: inspectData.Config?.Labels ?? {},
     StartedAt: normalizeTimestamp(inspectData.State?.StartedAt),
     FinishedAt: normalizeTimestamp(inspectData.State?.FinishedAt),
@@ -176,6 +203,7 @@ function buildFromListEntry(c: Dockerode.ContainerInfo): MinimalContainerInfo {
     Names: c.Names,
     State: c.State,
     Image: c.Image,
+    imageDigest: null,
     Labels: c.Labels,
     StartedAt: null,
     FinishedAt: null,
@@ -262,6 +290,7 @@ async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
   try {
     const inspectData = await docker.getContainer(containerId).inspect();
     const containerInfo = buildFromInspect(inspectData);
+    containerInfo.imageDigest = await resolveImageDigest(docker, inspectData.Image);
     state.containers.set(containerId, containerInfo);
     broadcastToAll({ op: 'upsert', container: containerInfo });
   } catch (err: unknown) {
@@ -292,7 +321,9 @@ async function listAndEnrichContainers(docker: Dockerode): Promise<MinimalContai
     listed.map(async (c): Promise<MinimalContainerInfo> => {
       try {
         const inspectData = await docker.getContainer(c.Id).inspect();
-        return buildFromInspect(inspectData);
+        const containerInfo = buildFromInspect(inspectData);
+        containerInfo.imageDigest = await resolveImageDigest(docker, inspectData.Image);
+        return containerInfo;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[DockerEventsBroadcaster] Inspect failed for ${c.Id} during init, using listContainers fallback:`, message);

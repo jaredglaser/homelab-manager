@@ -681,6 +681,7 @@ describe('control topics (settings, stack-status)', () => {
         containerId: 'c1',
         name: 'plex',
         image: 'plexinc/pms-docker',
+        imageDigest: null,
         state: 'running',
         composeProject: 'plex',
         serviceKey: 'plex/plex',

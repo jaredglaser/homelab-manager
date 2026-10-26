@@ -9,6 +9,7 @@ import {
   normalizeMounts,
   portCandidatesFromInspect,
   portCandidatesFromList,
+  resolveImageDigest,
 } from '../docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../docker-events-broadcaster';
 import { waitForCondition } from '../test/wait-for-condition';
@@ -40,6 +41,7 @@ function makeContainer(
     Names: [`/${name}`],
     State: state,
     Image: image,
+    imageDigest: null,
     Labels: labels,
     StartedAt: null,
     FinishedAt: null,
@@ -63,13 +65,19 @@ function makeDocker(containers: MinimalContainerInfo[] = [], eventsEmitter = new
         return Promise.resolve({
           Id: c.Id,
           Name: c.Names[0],
+          Image: `sha256:${c.Id.padEnd(64, '0')}`,
           State: { Status: c.State },
           Config: { Image: c.Image, Labels: c.Labels },
         });
       }),
     })),
+    getImage: mock(() => ({
+      inspect: mock(() => Promise.resolve({ RepoDigests: [`nginx@${TEST_DIGEST}`] })),
+    })),
   };
 }
+
+const TEST_DIGEST = 'sha256:' + 'a'.repeat(64);
 
 describe('subscribe: init snapshot', () => {
   test('sends init event with all containers on first subscribe', async () => {
@@ -154,6 +162,7 @@ describe('subscribe: multiple subscribers', () => {
       inspect: mock(() => Promise.resolve({
         Id: updatedContainer.Id,
         Name: updatedContainer.Names[0],
+        Image: `sha256:${updatedContainer.Id.padEnd(64, '0')}`,
         State: { Status: updatedContainer.State },
         Config: { Image: updatedContainer.Image, Labels: updatedContainer.Labels },
       })),
@@ -1402,5 +1411,53 @@ describe('subscribe: init and upsert carry ports and mounts', () => {
     const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
     expect(init.containers[0].Ports).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
     expect(init.containers[0].Mounts).toEqual([{ type: 'bind', source: '/host', destination: '/data', rw: true }]);
+  });
+});
+
+describe('resolveImageDigest', () => {
+  test('extracts the digest from the first RepoDigests entry', async () => {
+    const docker = {
+      getImage: mock(() => ({
+        inspect: mock(() => Promise.resolve({ RepoDigests: [`ghcr.io/o/app@${TEST_DIGEST}`] })),
+      })),
+    };
+    const digest = await resolveImageDigest(docker as any, 'sha256:img1');
+    expect(digest).toBe(TEST_DIGEST);
+  });
+
+  test('locally built images (no RepoDigests) resolve to null', async () => {
+    const docker = {
+      getImage: mock(() => ({
+        inspect: mock(() => Promise.resolve({ RepoDigests: [] })),
+      })),
+    };
+    expect(await resolveImageDigest(docker as any, 'sha256:img2')).toBeNull();
+  });
+
+  test('caches per image ID so a second call skips the Docker inspect', async () => {
+    const inspect = mock(() => Promise.resolve({ RepoDigests: [`nginx@${TEST_DIGEST}`] }));
+    const docker = { getImage: mock(() => ({ inspect })) };
+    await resolveImageDigest(docker as any, 'sha256:cached');
+    await resolveImageDigest(docker as any, 'sha256:cached');
+    expect(inspect).toHaveBeenCalledTimes(1);
+  });
+
+  test('a failed image inspect resolves to null without being cached', async () => {
+    const inspect = mock(() => Promise.reject(new Error('image gone')));
+    const docker = { getImage: mock(() => ({ inspect })) };
+    expect(await resolveImageDigest(docker as any, 'sha256:flaky')).toBeNull();
+    expect(await resolveImageDigest(docker as any, 'sha256:flaky')).toBeNull();
+    expect(inspect).toHaveBeenCalledTimes(2);
+  });
+
+  test('init snapshot containers carry the resolved digest', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'web')];
+    const docker = makeDocker(containers, eventsEmitter);
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    unsub();
+    const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+    expect(init.containers[0].imageDigest).toBe(TEST_DIGEST);
   });
 });

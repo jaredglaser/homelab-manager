@@ -62,6 +62,8 @@ const zInventoryContainerBase = z.object({
   containerId: z.string(),
   name: z.string(),
   image: z.string(),
+  /** Manifest digest the image was pulled by; null for locally built images or pre-039 rows. */
+  imageDigest: z.string().nullable(),
   state: zContainerStateWeb,
   composeProject: z.string().nullable(),
   serviceKey: z.string(),
