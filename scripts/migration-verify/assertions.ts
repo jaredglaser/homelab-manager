@@ -1270,14 +1270,14 @@ export async function assertAgentTlsCertificates(pool: Pool, checks: Checks): Pr
     'SELECT cert_pem FROM agent_tls_certificates WHERE host_name = $1',
     [TLS_HOST]
   );
-  checks.equal('the pinned certificate is stored plaintext', stored, [TLS_CERT]);
+  checks.sameSet('the pinned certificate is stored plaintext', stored, [TLS_CERT]);
 
   const keyColumns = await selectColumn<string>(
     pool,
     `SELECT column_name FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'agent_tls_certificates' AND column_name LIKE '%key%'`
   );
-  checks.equal('the manager stores no key material', keyColumns, []);
+  checks.sameSet('the manager stores no key material', keyColumns, []);
 
   const rotated = `${TLS_CERT}-rotated`;
   await pool.query(
