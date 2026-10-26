@@ -110,26 +110,18 @@ describe('handleInfo', () => {
     expect(body.agentImageTag).toBeNull();
   });
 
-  test('reports the resolved agent-updater image digest and tag', async () => {
-    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, undefined, async () => ({
-      image: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
-      imageTag: 'latest',
-      imageDigest: 'sha256:' + 'c'.repeat(64),
-    }));
+  test('reports the running agent image digest', async () => {
+    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, undefined, async () => 'sha256:' + 'c'.repeat(64));
     const body = await response.json();
 
-    expect(body.agentUpdaterImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
-    expect(body.agentUpdaterImageTag).toBe('latest');
-    expect(body.agentUpdaterImageDigest).toBe('sha256:' + 'c'.repeat(64));
+    expect(body.agentImageDigest).toBe('sha256:' + 'c'.repeat(64));
   });
 
-  test('reports null agent-updater image fields when the sidecar cannot be inspected', async () => {
+  test('reports a null agent image digest when the agent cannot inspect itself', async () => {
     const response = await handleInfo(mockDockerClient() as any, zfsAvailable, undefined);
     const body = await response.json();
 
-    expect(body.agentUpdaterImage).toBeNull();
-    expect(body.agentUpdaterImageTag).toBeNull();
-    expect(body.agentUpdaterImageDigest).toBeNull();
+    expect(body.agentImageDigest).toBeNull();
   });
 
   test('resolves the image per request, so a later call can recover from an early failure', async () => {

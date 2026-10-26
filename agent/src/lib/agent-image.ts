@@ -26,7 +26,6 @@ export function parseImageTag(reference: string): string | null {
 }
 
 const UNRESOLVED: AgentImageInfo = { image: null, tag: null };
-
 // Dockerode sets no request timeout. Without this a socket-proxy that accepts the
 // connection and never answers leaves the resolver's in-flight promise pending forever,
 // and every later /info awaits that same promise instead of retrying.
@@ -98,27 +97,17 @@ export async function resolveAgentImage(
   }
 }
 
-export interface UpdaterImageInfo {
-  image: string | null;
-  imageTag: string | null;
-  imageDigest: string | null;
-}
-
-const UNRESOLVED_UPDATER: UpdaterImageInfo = { image: null, imageTag: null, imageDigest: null };
-
 // Resolved fresh on every /info, never cached: the manager compares this digest
-// against its own updater image to flag a stale sidecar, and a cached value
-// would freeze the skew report at whatever the first probe saw.
-export async function resolveUpdaterImageInfo(
+// against the registry digest of its own agent image to flag an update, and a
+// cached value would freeze the comparison at whatever the first probe saw.
+export async function resolveRunningAgentDigest(
   docker: Dockerode | null,
   containerName: string,
-): Promise<UpdaterImageInfo> {
-  if (!docker) return UNRESOLVED_UPDATER;
+): Promise<string | null> {
+  if (!docker) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const info = await inspectWithTimeout(docker, containerName);
-    const image = info.Config?.Image?.trim() ?? null;
-    let digest: string | null = null;
     try {
       // Dockerode sets no request timeout, so the image inspect gets the same bounded race as the container inspect above.
       const imageInfo = await Promise.race([
@@ -128,19 +117,15 @@ export async function resolveUpdaterImageInfo(
         }),
       ]);
       const repoDigest = imageInfo.RepoDigests?.[0];
-      if (repoDigest) digest = repoDigest.includes('@') ? repoDigest.split('@')[1] : repoDigest;
-    } catch {
-      // Digest stays null: the manager treats an unknown digest as current.
+      return repoDigest && repoDigest.includes('@') ? repoDigest.split('@')[1] : null;
     } finally {
       if (timer) clearTimeout(timer);
     }
-    if (!image && !digest) return UNRESOLVED_UPDATER;
-    return { image, imageTag: image ? parseImageTag(image) : null, imageDigest: digest };
   } catch (error) {
     console.error(
-      `Could not determine agent-updater image from container '${containerName}':`,
+      `Could not determine the running agent image digest from container '${containerName}':`,
       error instanceof Error ? error.message : error,
     );
-    return UNRESOLVED_UPDATER;
+    return null;
   }
 }

@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = join(import.meta.dir, '..', '..');
-const PACKAGE_DIRS = ['.', 'agent', 'agent-updater'];
+const PACKAGE_DIRS = ['.', 'agent'];
 
 const expected = readFileSync(join(root, '.bun-version'), 'utf-8').trim();
 
@@ -41,8 +41,8 @@ describe('bun version alignment', () => {
   });
 
   test('discovery finds every deployable Dockerfile, package, and workflow', () => {
-    expect(dockerfiles.length).toBeGreaterThanOrEqual(3);
-    expect(packages.length).toBeGreaterThanOrEqual(3);
+    expect(dockerfiles.length).toBeGreaterThanOrEqual(2);
+    expect(packages.length).toBeGreaterThanOrEqual(2);
     expect(workflows.length).toBeGreaterThanOrEqual(2);
   });
 

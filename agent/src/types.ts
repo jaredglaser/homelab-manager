@@ -62,10 +62,8 @@ export interface AgentInfoResponse {
   // Absent on agents predating image reporting; null means the agent looked and could not tell.
   agentImage?: string | null;
   agentImageTag?: string | null;
-  // Absent on agents predating updater reporting. Null covers no sidecar (ZFS-only) and "could not tell".
-  agentUpdaterImage?: string | null;
-  agentUpdaterImageTag?: string | null;
-  agentUpdaterImageDigest?: string | null;
+  // Absent on agents predating digest reporting. Null covers ZFS-only hosts and "could not tell".
+  agentImageDigest?: string | null;
   capabilities: {
     docker: AgentDockerCapability;
     zfs: AgentZfsCapability;

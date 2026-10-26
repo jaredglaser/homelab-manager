@@ -189,7 +189,6 @@ export const updateAgent = createServerFn()
         return () => signAgentJwt(privateKey, hostname);
       },
       checkHealth: await buildCheckHealth(keypairs),
-      devDashboard: import.meta.env.DEV === true,
     }, data);
   });
 

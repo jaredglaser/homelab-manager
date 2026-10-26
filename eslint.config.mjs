@@ -81,13 +81,6 @@ export default tseslint.config(
       globals: { ...globals.node },
     },
   },
-  {
-    files: ['agent-updater/src/**/*.ts'],
-    languageOptions: {
-      parserOptions: { projectService: true, tsconfigRootDir: `${import.meta.dirname}/agent-updater` },
-      globals: { ...globals.node },
-    },
-  },
 
   {
     files: ['src/**/*.{ts,tsx}'],
@@ -236,7 +229,7 @@ export default tseslint.config(
 
   // AGENTS.md rule 8. 45 findings; promoted to error by the console cleanup PR (3 of 3).
   {
-    files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts', 'agent-updater/src/**/*.ts'],
+    files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     rules: { 'no-console': ['warn', { allow: ['error', 'info', 'warn'] }] },
   },
 

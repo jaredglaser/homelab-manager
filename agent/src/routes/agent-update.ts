@@ -1,27 +1,39 @@
-// A container cannot replace itself: the relay hands the request to the agent-updater sidecar, which owns Docker.
+import type Dockerode from 'dockerode';
+import { resolveRunningAgentDigest } from '../lib/agent-image';
+import { spawnUpdateHelper } from '../lib/self-update';
+
 const DIGEST_REF_PATTERN = /@sha256:[0-9a-f]{64}$/;
 
-// Digest-only contract: a floating tag here would let the sidecar converge to an image newer than the manager itself runs.
+// Two overlapping applies would race two helper containers; the window only has to
+// cover one handover, and an agent restart clears it.
+const UPDATE_IN_PROGRESS_WINDOW_MS = 10 * 60_000;
+let lastUpdateTriggeredAt = 0;
+
+/** Test seam: clears the in-progress guard so tests are order-independent. */
+export function resetUpdateInProgressGuard(): void {
+  lastUpdateTriggeredAt = 0;
+}
+
+// Digest-only contract: a floating tag here would let the helper converge to an image newer than the manager itself runs.
 export async function handleAgentUpdate(
-  docker: unknown,
-  updaterUrl: string,
-  triggerToken: string | undefined,
+  docker: Dockerode | null,
+  containerName: string,
+  agentPort: number,
   request: Request,
 ): Promise<Response> {
   if (!docker) {
-    return Response.json({ error: 'Docker capability not enabled' }, { status: 503 });
-  }
-
-  if (!triggerToken) {
     return Response.json(
-      { error: 'Update trigger token is not configured on the agent. Regenerate the compose stack to set it.' },
+      {
+        error:
+          'Agent updates require Docker capability, which this agent does not have. Update it manually: run `docker compose pull && docker compose up -d` in the agent stack directory.',
+      },
       { status: 503 },
     );
   }
 
-  let body: { targetImage?: unknown; updaterTargetImage?: unknown };
+  let body: { targetImage?: unknown };
   try {
-    body = (await request.json()) as { targetImage?: unknown; updaterTargetImage?: unknown };
+    body = (await request.json()) as { targetImage?: unknown };
   } catch {
     return Response.json(
       { error: 'Agent update requires a JSON body with a digest-pinned targetImage' },
@@ -34,62 +46,33 @@ export async function handleAgentUpdate(
       { status: 400 },
     );
   }
-  // null means the manager could not pin the updater image, so the sidecar must skip its self-recreate.
-  let updaterTargetImage: string | undefined;
-  if (body?.updaterTargetImage !== undefined && body?.updaterTargetImage !== null) {
-    if (typeof body.updaterTargetImage !== 'string' || !DIGEST_REF_PATTERN.test(body.updaterTargetImage)) {
-      return Response.json(
-        { error: 'updaterTargetImage must be an image reference pinned to a sha256 digest' },
-        { status: 400 },
-      );
-    }
-    updaterTargetImage = body.updaterTargetImage;
-  }
 
-  let response: Response;
-  try {
-    response = await fetch(updaterUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + triggerToken },
-      body: JSON.stringify(updaterTargetImage ? { targetImage: body.targetImage, updaterTargetImage } : { targetImage: body.targetImage }),
-      signal: AbortSignal.timeout(30_000),
-      redirect: 'manual',
-    });
-  } catch {
-    return Response.json(
-      { error: 'agent-updater sidecar is not reachable. The agent stack has no agent-updater container, or it is not listening.' },
-      { status: 503 },
-    );
-  }
-
-  if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-    return Response.json(
-      { error: 'agent-updater trigger endpoint returned an unexpected redirect' },
-      { status: 502 },
-    );
-  }
-
-  const rawBody = await response.text().catch(() => '');
-  let sidecarBody: { updateAvailable?: unknown; error?: unknown } = {};
-  let sidecarTextError: string | undefined;
-  try {
-    sidecarBody = JSON.parse(rawBody) as { updateAvailable?: unknown; error?: unknown };
-  } catch {
-    // Plain-text bodies (auth and check-failure responses) carry the operator-facing message directly.
-    if (rawBody) sidecarTextError = rawBody;
-  }
-
-  if (response.status === 202) {
-    return Response.json({ started: true }, { status: 202 });
-  }
-  if (response.status === 200 && sidecarBody.updateAvailable === false) {
+  const currentDigest = await resolveRunningAgentDigest(docker, containerName);
+  const targetDigest = body.targetImage.split('@')[1];
+  if (currentDigest !== null && currentDigest === targetDigest) {
     return Response.json({ updateAvailable: false });
   }
-  if (response.status === 409) {
+
+  if (Date.now() - lastUpdateTriggeredAt < UPDATE_IN_PROGRESS_WINDOW_MS) {
     return Response.json({ error: 'An update is already in progress' }, { status: 409 });
   }
-  return Response.json(
-    { error: sidecarBody.error ?? sidecarTextError ?? `agent-updater trigger endpoint returned ${response.status}` },
-    { status: response.status === 200 ? 500 : response.status },
-  );
+
+  try {
+    await spawnUpdateHelper(docker, {
+      containerName,
+      targetImage: body.targetImage,
+      agentPort,
+      dockerHost: process.env.DOCKER_HOST,
+    });
+  } catch (error) {
+    return Response.json(
+      {
+        error: `Could not start the agent update: ${error instanceof Error ? error.message : String(error)}`,
+      },
+      { status: 500 },
+    );
+  }
+  lastUpdateTriggeredAt = Date.now();
+
+  return Response.json({ started: true }, { status: 202 });
 }

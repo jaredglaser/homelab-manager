@@ -96,11 +96,10 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 | Image | Description |
 |-------|-------------|
 | `ghcr.io/jaredglaser/homelab-manager-agent` | Agent sidecar deployed on each monitored Docker/ZFS host |
-| `ghcr.io/jaredglaser/homelab-manager-agent-updater` | Optional companion that keeps the agent image up to date |
 
 ### Image tags
 
-> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker), [agent](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent), [agent-updater](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent-updater)) on every release tag and on every push to `main`. The project is on its `0.x` line, which makes no compatibility promise: a minor bump may change the agent protocol or the database schema.
+> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker), [agent](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-agent)) on every release tag and on every push to `main`. The project is on its `0.x` line, which makes no compatibility promise: a minor bump may change the agent protocol or the database schema.
 
 | Tag | Built from | Use it for |
 |-----|-----------|-----------|
@@ -118,13 +117,12 @@ HLM_IMAGE_TAG=main
 
 Mixing tags across images is not tested, and one mismatch in particular breaks the dashboard: only the `worker` applies database migrations, so a `web:main` running against a `worker:latest` that has not applied a newer schema fails every write it attempts. Use the one variable rather than editing image lines.
 
-The `web` image knows which release it was built from, so the Add Host wizard on a `v0.2.x` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:0.2` and `...-agent-updater:0.2`. That is the minor line, so the agent-updater takes patches but never crosses into `0.3`, where the agent protocol is allowed to change. A `main` dashboard pins new agents to `main`. Hosts you enrolled before switching keep whatever tag their own `.env` pins, and the agent-updater holds them there.
+The `web` image knows which release it was built from, so the Add Host wizard on a `v0.2.x` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:0.2`. That is the minor line, so the agent takes patches but never crosses into `0.3`, where the agent protocol is allowed to change. A `main` dashboard pins new agents to `main`. Hosts you enrolled before switching keep whatever tag their own `.env` pins.
 
 Each agent reports the image it is running, so **Settings → Managed Hosts** shows every host's tag next to its version and flags the ones that do not match the dashboard. The notice names the tag the dashboard expects. To move a flagged host, set both variables in its `.env` on that host to that tag:
 
 ```env
 AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:0.2
-AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:0.2
 ```
 
 Then run `docker compose up -d` in the agent stack directory.
@@ -203,7 +201,7 @@ Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular hom
 
 ### Agent Environment
 
-These variables are set on each **agent** container (not on the dashboard or worker). The Add Host wizard (**Settings → Managed Hosts → Add Host**) generates a ready-to-use compose stack for the agent, including a Docker socket proxy, the agent-updater, and any ZFS device/binary mounts, so you normally never write this by hand. The variables below are for reference when customizing the generated stack.
+These variables are set on each **agent** container (not on the dashboard or worker). The Add Host wizard (**Settings → Managed Hosts → Add Host**) generates a ready-to-use compose stack for the agent, including a Docker socket proxy and any ZFS device/binary mounts, so you normally never write this by hand. The variables below are for reference when customizing the generated stack.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

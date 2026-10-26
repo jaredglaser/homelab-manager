@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Stepper } from '@/components/ui/stepper'
-import { getAgentImage, getAgentUpdaterImage } from '@/lib/hosts/host-utils'
+import { getAgentImage } from '@/lib/hosts/host-utils'
 import { generateAgentStackCompose, generateAgentStackEnv } from '@/lib/templates/agent-stack-compose'
 import CapabilitiesStep from '@/components/settings/wizard-steps/CapabilitiesStep'
 import ZfsSetupStep from '@/components/settings/wizard-steps/ZfsSetupStep'
@@ -44,20 +44,15 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
 
   const currentStepName = visibleSteps[activeStep]
 
-  // One token per wizard session: the compose and .env previews must show the value the operator will actually deploy.
-  const [triggerToken] = useState(() => crypto.randomUUID())
-
   const agentStackConfig = useMemo(() => ({
     hostName: name.trim(),
     agentTrustedPubkey: PUBKEY_PLACEHOLDER,
     agentImage: getAgentImage(),
-    agentUpdaterImage: getAgentUpdaterImage(),
-    triggerToken,
     capabilities: { docker, zfs },
     hlmZfsUid: parseGatedId(zfs, hlmZfsUid),
     hlmZfsGid: parseGatedId(zfs, hlmZfsGid),
     dockerGid: parseGatedId(docker && zfs, dockerGid),
-  }), [name, triggerToken, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+  }), [name, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
 
   const composeYaml = useMemo(() => {
     try {

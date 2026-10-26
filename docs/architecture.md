@@ -31,7 +31,6 @@ graph TD
     subgraph Hosts["Managed Docker Hosts"]
         Agent1["Agent Sidecar<br/>(Docker + ZFS)"]
         Agent2["Agent Sidecar<br/>(Docker + ZFS)"]
-        Updater["Agent-Updater<br/>(self-update)"]
     end
 
     ProxmoxHost["Proxmox VE<br/>REST API"]
@@ -133,7 +132,6 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 | Component | Location | Description |
 |-----------|----------|-------------|
 | Agent container | `agent/` | Sidecar for Docker/ZFS operations on managed hosts |
-| Agent-updater | `agent-updater/` | Sidecar that applies manual agent updates triggered by the manager. Never updates on its own. |
 | Deploy pipeline | `src/lib/deploy/` | Trigger-agnostic deploy orchestration |
 | Git management | `src/lib/git/` | In-app bare git repo with HTTP smart protocol |
 | Crypto helpers | `src/lib/crypto/` | Master key resolution, JWE encrypted-value, Ed25519 agent JWT signing |
@@ -189,25 +187,25 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/stacks/status` | List stacks in working directory |
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
-| POST | `/agent/update` | Relay a manual update to the agent-updater sidecar |
+| POST | `/agent/update` | Spawn a helper container that replaces the agent with the digest-pinned target image |
 
 **Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work. `ALLOW_LOGS=1` is required for container log streaming; without it the proxy returns 403 on `/containers/{id}/logs`.
 
-### Agent-Updater Sidecar (`agent-updater/`)
+### Agent Updates (`agent/src/handover.ts`)
 
-Separate Bun service that monitors and updates agent containers without manual Docker commands. Connects directly to the Docker socket proxy (bypasses the agent, which cannot replace its own container).
+Agent updates are manager-driven and manual only: the manager resolves the registry digest of its own agent image, the agents overview flags hosts whose running digest differs, and an admin applies the update per host.
 
-**Update policy:** manual only. The updater never checks for or applies updates on its own. The manager's per-host manual update action drives updates through the agent relay.
+**Mechanism:** a container cannot replace itself in-process (stopping it kills the process driving the recreate, and the replacement cannot bind the published port while the old container still runs). On `POST /agent/update` the agent spawns a one-shot helper container from its own current image through the Docker socket proxy; the helper outlives the agent container and performs the swap from outside.
 
-**Manual trigger:** the updater serves an internal-only HTTP endpoint (`HLM_TRIGGER_PORT`, default 9091, reachable only from the host's Docker network). `POST /trigger` requires the stack's shared `HLM_TRIGGER_TOKEN` bearer secret, checks the registry and, when a newer digest exists, answers 202 and performs the update asynchronously. The agent relays the manager's update requests to it.
+**Update sequence (helper container, `bun src/handover.ts`):**
+1. Pull the digest-pinned target image from the registry
+2. Inspect the agent container to capture environment and host config
+3. Stop and remove the old container
+4. Create a new container with the same config but the new image
+5. Start the new container
+6. Poll the Docker healthcheck, then verify the agent's HTTP `/health` endpoint, rolling back to the previous digest on failure
 
-**Update sequence:**
-1. Inspect existing container to capture environment and host config
-2. Pull new agent image from registry
-3. Stop and remove old container
-4. Create new container with same config but new image
-5. Start new container
-6. Poll the Docker healthcheck at a fixed interval, then verify the agent's HTTP `/health` endpoint
+**Detection:** the agent reports its running image digest on `/info`; the worker's inventory sweep compares it against the registry digest of the manager's agent image and persists the verdict the agents overview displays.
 7. Roll back to the previous image if either health check fails
 
 ### Deploy Pipeline (`src/lib/deploy/`)

@@ -24,11 +24,10 @@ export interface AgentInventoryEntry {
   versionSource: AgentVersionSource;
   agentImage: string | null;
   agentImageTag: string | null;
-  /** Digest of the agent-updater sidecar's image from the agent's /info. Null when unknown. */
-  agentUpdaterImageDigest: string | null;
-  agentUpdaterImageTag: string | null;
-  /** True when the last sweep found the sidecar's digest older than the manager's own updater image. */
-  updaterOutOfDate: boolean;
+  /** Digest of the image the agent container runs, from the agent's /info. Null when unknown. */
+  agentImageDigest: string | null;
+  /** True when the last sweep found the running digest different from the manager's own agent image. */
+  agentOutOfDate: boolean;
   /** Probe error detail when status is not online, else null. */
   lastError: string | null;
   /** ISO timestamp of the inventory pass that produced this entry. */
@@ -63,7 +62,7 @@ export function buildAgentInventoryEntry(
   host: ManagedHost,
   outcome: HealthCheckOutcome,
   checkedAt: Date = new Date(),
-  updaterOutOfDate = false,
+  agentOutOfDate = false,
 ): AgentInventoryEntry {
   if (outcome.healthy) {
     return {
@@ -78,9 +77,8 @@ export function buildAgentInventoryEntry(
       agentImageTag: host.agentImageTag,
       // Same-sweep consistency: the verdict is computed from the fresh outcome, so the digest it is
       // paired with must come from the same probe, not from the previous sweep's stored row.
-      agentUpdaterImageDigest: outcome.agentUpdaterImageDigest ?? null,
-      agentUpdaterImageTag: outcome.agentUpdaterImageTag ?? null,
-      updaterOutOfDate,
+      agentImageDigest: outcome.agentImageDigest ?? null,
+      agentOutOfDate,
       lastError: null,
       checkedAt: checkedAt.toISOString(),
     };
@@ -96,9 +94,8 @@ export function buildAgentInventoryEntry(
     versionSource: host.agentVersion ? 'stored' : 'unknown',
     agentImage: host.agentImage,
     agentImageTag: host.agentImageTag,
-    agentUpdaterImageDigest: host.agentUpdaterImageDigest,
-    agentUpdaterImageTag: host.agentUpdaterImageTag,
-    updaterOutOfDate: host.agentUpdaterOutOfDate,
+    agentImageDigest: host.agentImageDigest,
+    agentOutOfDate: host.agentOutOfDate,
     lastError: outcome.error,
     checkedAt: checkedAt.toISOString(),
   };
@@ -129,9 +126,8 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
     versionSource: host.agentVersion ? 'stored' : 'unknown',
     agentImage: host.agentImage,
     agentImageTag: host.agentImageTag,
-    agentUpdaterImageDigest: host.agentUpdaterImageDigest,
-    agentUpdaterImageTag: host.agentUpdaterImageTag,
-    updaterOutOfDate: host.agentUpdaterOutOfDate,
+    agentImageDigest: host.agentImageDigest,
+    agentOutOfDate: host.agentOutOfDate,
     lastError: null,
     // Not updatedAt: every writer to managed_hosts bumps that column (rename,
     // URL edit, key rotation, a single-host health check), so it reports a

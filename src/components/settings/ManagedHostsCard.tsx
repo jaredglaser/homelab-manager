@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import type { HostListItem } from '@/lib/hosts/host-utils'
-import { DEFAULT_AGENT_IMAGE_TAG, getAgentImage, getAgentImageTag, getAgentUpdaterImage } from '@/lib/hosts/host-utils'
+import { DEFAULT_AGENT_IMAGE_TAG, getAgentImage, getAgentImageTag } from '@/lib/hosts/host-utils'
 import HostRow from '@/components/settings/HostRow'
 import { KeypairDialog } from '@/components/settings/KeypairDialog'
 import { RemoveDialog, EditDialog } from '@/components/settings/HostDialogs'
@@ -61,7 +61,6 @@ export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: st
 export interface AgentChannelNoticeProps extends AgentChannelBuckets {
   expectedTag: string
   agentImage: string
-  agentUpdaterImage: string
 }
 
 function noticeTitle({ expectedTag, mismatched, unreported }: AgentChannelNoticeProps): string {
@@ -77,7 +76,7 @@ function noticeTitle({ expectedTag, mismatched, unreported }: AgentChannelNotice
 }
 
 export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
-  const { expectedTag, agentImage, agentUpdaterImage, mismatched, unreported } = props
+  const { expectedTag, agentImage, mismatched, unreported } = props
 
   return (
     <Alert variant={mismatched.length > 0 ? 'warning' : 'info'} className="mb-4">
@@ -86,11 +85,9 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
         {expectedTag !== DEFAULT_AGENT_IMAGE_TAG && (
           <p>
             This dashboard is a <code className="font-mono">{expectedTag}</code> build, so hosts you add below
-            are enrolled on <code className="font-mono">{agentImage}</code> and{' '}
-            <code className="font-mono">{agentUpdaterImage}</code>.
+            are enrolled on <code className="font-mono">{agentImage}</code>.
           </p>
         )}
-
         {mismatched.length > 0 && (
           <>
             <ul className="list-disc pl-5">
@@ -102,8 +99,7 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
               ))}
             </ul>
             <p>
-              To move a host, set <code className="font-mono">AGENT_IMAGE</code> and{' '}
-              <code className="font-mono">AGENT_UPDATER_IMAGE</code> to the{' '}
+              To move a host, set <code className="font-mono">AGENT_IMAGE</code> to the{' '}
               <code className="font-mono">{expectedTag}</code> tag in its{' '}
               <code className="font-mono">.env</code>, then run{' '}
               <code className="font-mono">docker compose up -d</code> on the host.
@@ -174,7 +170,6 @@ export function ManagedHostsCardView({
           <AgentChannelNotice
             expectedTag={agentImageTag}
             agentImage={getAgentImage()}
-            agentUpdaterImage={getAgentUpdaterImage()}
             mismatched={channel.mismatched}
             unreported={channel.unreported}
           />
