@@ -1,9 +1,4 @@
-/**
- * Bun's fetch (pinned 1.4.2) ignores a node:https Agent passed as dispatcher,
- * but honors its native `tls: { ca, rejectUnauthorized }` fetch option; this
- * wrapper is the single seam so manager-to-agent HTTPS pins the per-host cert
- * as trust anchor while keeping full hostname/SAN verification.
- */
+// Bun fetch pinned 1.4.2 ignores a node:https Agent dispatcher but honors its native tls option.
 export interface AgentTlsContext {
   /** PEM of the pinned per-host certificate; null or absent means no pinning. */
   caCertPem?: string | null;

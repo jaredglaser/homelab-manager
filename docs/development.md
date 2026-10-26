@@ -300,10 +300,14 @@ to https. The wizard-generated agent stack sets `TLS_CERT_PATH` and
 serves HTTPS with them. Re-run TLS provisioning from the Managed Hosts card to
 rotate a certificate.
 
-`HLM_TLS_HTTP_FALLBACK` (agent container): the agent refuses to start when its
-certificate or key file is missing or unreadable. Set it to `true` to serve
-plain HTTP instead, with a warning in the agent logs. The value must be exactly
-`true` or `false`; anything else stops the agent at startup.
+Before its first enrollment the agent serves plain HTTP with a warning in its
+logs (tracked by an `.enrolled` marker next to the certificate files), so the
+manager can reach it to enroll a certificate. After enrollment a missing or
+unreadable certificate or key file is fatal: the agent refuses to start.
+
+`HLM_TLS_HTTP_FALLBACK` (agent container): set it to `true` to serve plain HTTP
+instead of refusing to start, with a warning in the agent logs. The value must
+be exactly `true` or `false`. Anything else stops the agent at startup.
 
 ## Editor Setup (Zed)
 

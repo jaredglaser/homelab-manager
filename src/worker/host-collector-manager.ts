@@ -40,6 +40,8 @@ interface HostEntry {
   collectors: BaseCollector[];
   /** Identity hash to detect when reconciliation needs to recreate this host. */
   identity: string;
+  /** Pinned cert the collectors were created with; a change forces recreation. */
+  caCert: string | null;
   /**
    * Reference to the listener registered on the global abort signal so
    * removeHost can detach it. Without this, every add/remove cycle leaks a
@@ -149,9 +151,9 @@ export class HostCollectorManager implements AsyncDisposable {
   /**
    * Synchronise the active collector set with the current `managed_hosts`
    * table contents. Adds collectors for new hosts, disposes them for
-   * removed hosts, and recreates them for hosts whose `agentUrl` or
-   * capabilities changed. Signer-resolution failures are logged and the
-   * host is skipped (matches startup behavior).
+   * removed hosts, and recreates them for hosts whose `agentUrl`,
+   * capabilities, or pinned certificate changed. Signer-resolution failures
+   * are logged and the host is skipped (matches startup behavior).
    */
   reconcile(): Promise<void> {
     const next = this.reconcileChain.then(() => this.reconcileOnce());
@@ -185,7 +187,26 @@ export class HostCollectorManager implements AsyncDisposable {
       const newIdentity = identityFor(host);
       if (!existing) {
         await this.addHost(host);
-      } else if (existing.identity !== newIdentity) {
+        continue;
+      }
+      if (existing.identity !== newIdentity) {
+        await this.removeHost(host.name);
+        await this.addHost(host);
+        continue;
+      }
+      // Collectors capture the pinned cert at creation, so a rotated
+      // certificate would otherwise leave them reconnecting with the old pin.
+      let currentCert: string | null = null;
+      try {
+        currentCert = await this.getCaCert(host.name);
+      } catch (err) {
+        console.error(
+          `[HostCollectorManager] CA cert lookup failed for ${host.name}:`,
+          err instanceof Error ? err.message : err,
+        );
+        continue;
+      }
+      if (currentCert !== existing.caCert) {
         await this.removeHost(host.name);
         await this.addHost(host);
       }
@@ -252,6 +273,7 @@ export class HostCollectorManager implements AsyncDisposable {
       runners: wrappedRunners,
       collectors,
       identity: identityFor(host),
+      caCert: caCertPem,
       onGlobalAbort,
     });
   }

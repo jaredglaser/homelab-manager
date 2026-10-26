@@ -12,7 +12,7 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
-import { handleTlsEnroll, parseTlsHttpFallback, resolveTlsStartup } from './lib/tls-enroll';
+import { enrollMarkerPath, handleTlsEnroll, parseTlsHttpFallback, resolveTlsStartup } from './lib/tls-enroll';
 
 function isFileReadable(path: string): boolean {
   try {
@@ -102,7 +102,9 @@ const tlsHttpFallback = (() => {
   }
 })();
 
-const tlsDecision = resolveTlsStartup(TLS_CERT_PATH, TLS_KEY_PATH, tlsHttpFallback, isFileReadable);
+const tlsDecision = resolveTlsStartup(TLS_CERT_PATH, TLS_KEY_PATH, tlsHttpFallback, isFileReadable, () =>
+  isFileReadable(enrollMarkerPath(STACKS_DIR)),
+);
 if (tlsDecision.mode === 'fatal') {
   console.error(tlsDecision.error);
   process.exit(1);

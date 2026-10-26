@@ -109,25 +109,49 @@ describe('provisionHostTls', () => {
   });
 
   it('fails with the actionable copy when the agent never becomes healthy over https', async () => {
-    const { deps } = makeDeps({
+    const { deps, stored } = makeDeps({
       fetchResponses: [enrollResponse(), new Error('socket hang up')],
       healthResults: [false, false, false, false, false, false],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /TLS provisioning failed: the agent did not become healthy over HTTPS \(unreachable\)\. Fix the agent, then re-run TLS provisioning from the Managed Hosts card\./,
+      /TLS provisioning failed: the agent did not become healthy over HTTPS \(unreachable\)\. Provisioning may be incomplete: the agent may serve a certificate the manager has not pinned\. Re-run TLS provisioning from the Managed Hosts card, or follow the agent TLS recovery steps in the self-hosting README\./,
     );
+    expect(stored).toEqual([]);
   });
 
-  it('stores the cert and restarts before the first https probe', async () => {
+  it('stores the cert only after the first https probe succeeds', async () => {
     const { deps, stored, fetchCalls, healthCalls } = makeDeps({
       fetchResponses: [enrollResponse(), new Error('socket hang up')],
       healthResults: [true],
     });
     await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
-    expect(stored).toHaveLength(1);
     expect(fetchCalls).toHaveLength(2);
     expect(healthCalls).toHaveLength(1);
     expect(healthCalls[0].url).toBe('https://myhost.lan:9090');
+    expect(stored).toEqual([['myhost', CERT_PEM]]);
+  });
+
+  it('bounds the enroll and restart fetches with abort signals', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      healthResults: [true],
+    });
+    await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(fetchCalls).toHaveLength(2);
+    for (const call of fetchCalls) {
+      expect(call.init.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it('strips brackets from an IPv6 literal agent URL before building SANs', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      healthResults: [true],
+    });
+    const result = await provisionHostTls('myhost', 'http://[2001:db8::1]:9090', deps);
+    expect(result.agentUrl).toBe('https://[2001:db8::1]:9090');
+    const enrollInit = fetchCalls[0].init as RequestInit & { body?: string };
+    expect(JSON.parse(enrollInit.body ?? '{}')).toEqual({ sans: ['2001:db8::1', 'localhost'] });
   });
 
   it('wraps an enroll HTTP error with the agent-provided detail', async () => {

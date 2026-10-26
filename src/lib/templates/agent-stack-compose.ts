@@ -140,7 +140,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_CONTAINER_NAME: 'hlm-agent',
     TLS_CERT_PATH: tlsCertPath,
     TLS_KEY_PATH: tlsKeyPath,
-    // Only the compose healthcheck below consumes this; without it Bun fetch rejects the self-signed cert.
+    // Only the compose healthcheck below consumes this. Without it Bun fetch rejects the self-signed cert.
     NODE_EXTRA_CA_CERTS: tlsCertPath,
   };
 

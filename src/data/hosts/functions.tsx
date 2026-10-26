@@ -105,11 +105,7 @@ function makeKeypairsDep(
   };
 }
 
-/**
- * Build the provisionTls dep: drives the agent-side enrollment flow for one
- * host. The currently pinned cert (null on first provisioning) lets an https
- * host enroll over its existing TLS channel during rotation.
- */
+/** Pinned cert lets an https rotation enroll over its existing TLS channel. */
 function makeProvisionTls(
   keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
   tlsCerts: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository,

@@ -1247,12 +1247,6 @@ export async function assertServiceKeyUnification(
   );
 }
 
-/**
- * agent_tls_certificates: the FK is the whole point (host renames and deletes
- * must follow through), and rotation upserts in place. Self-contained: seeds
- * its own host row, so it runs identically in the fresh, upgrade, and
- * idempotent scenarios regardless of seed order.
- */
 export async function assertAgentTlsCertificates(pool: Pool, checks: Checks): Promise<void> {
   await pool.query(
     `INSERT INTO managed_hosts (name, agent_url) VALUES ($1, 'http://localhost:9090')

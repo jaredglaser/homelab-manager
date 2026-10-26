@@ -1,21 +1,19 @@
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { chmodSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/**
- * POST /tls/enroll: the agent generates its own per-host TLS keypair with
- * openssl, writes cert.pem and key.pem (mode 0600) into a flat directory under
- * the stacks volume, and returns only the public certificate PEM. The manager
- * never receives the private key, so enrollment over the pre-TLS HTTP channel
- * cannot leak it.
- */
-
 export const TLS_DIR_NAME = 'hlm-agent-tls';
+// Presence of this dot-file next to the certs separates a first boot before
+// enrollment (serve HTTP) from an enrolled host that lost its cert (fatal).
+export const ENROLL_MARKER_NAME = '.enrolled';
 
 const COMMON_NAME = 'hlm-agent-tls';
 const KEY_BITS = '2048';
 const CERT_DAYS = '3650';
 const MAX_SANS = 32;
+// The longest valid IPv6 text form is 45 characters.
+const MAX_IP_SAN_LENGTH = 45;
 
 export interface SpawnResult {
   stdout: string;
@@ -42,11 +40,6 @@ const realSpawn: SpawnFn = (command, args) =>
     });
   });
 
-/**
- * Parses HLM_TLS_HTTP_FALLBACK. Undefined means off; the only accepted values
- * are 'true' and 'false', so a typo fails loudly instead of silently serving
- * plain HTTP.
- */
 export function parseTlsHttpFallback(value: string | undefined): boolean {
   if (value === undefined) return false;
   if (value === 'true') return true;
@@ -59,18 +52,13 @@ export type TlsStartupDecision =
   | { mode: 'http'; warning?: string }
   | { mode: 'fatal'; error: string };
 
-/**
- * Decides how the agent serves traffic given its configured TLS paths. A
- * configured but missing or unreadable certificate is fatal unless the
- * HLM_TLS_HTTP_FALLBACK opt-in is set: the manager pins the serving
- * certificate, so silently serving HTTP under a TLS URL would break every
- * connection without explanation.
- */
+/** Missing cert plus no enrollment marker is a first boot served over HTTP with a warning. An enrolled host that lost its cert stays fatal, because silently serving HTTP under a pinned https URL breaks every connection unexplained. */
 export function resolveTlsStartup(
   certPath: string | undefined,
   keyPath: string | undefined,
   fallback: boolean,
   isReadable: (path: string) => boolean,
+  isEnrolled: () => boolean,
 ): TlsStartupDecision {
   if (!certPath && !keyPath) return { mode: 'http' };
   if (!certPath || !keyPath) {
@@ -85,20 +73,32 @@ export function resolveTlsStartup(
     return {
       mode: 'http',
       warning:
-        `${problem}. Serving HTTP because HLM_TLS_HTTP_FALLBACK=true; manager-to-agent connections run without TLS until TLS provisioning succeeds.`,
+        `${problem}. Serving HTTP because HLM_TLS_HTTP_FALLBACK=true. Manager-to-agent connections run without TLS until TLS provisioning succeeds.`,
+    };
+  }
+  if (!isEnrolled()) {
+    return {
+      mode: 'http',
+      warning:
+        `${problem}. No enrollment marker found, so this is a first boot before TLS enrollment. Serving HTTP so the manager can enroll a certificate and restart the agent with TLS. If this host was enrolled before, its certificate was lost. Re-run TLS provisioning from the manager, or set HLM_TLS_HTTP_FALLBACK=true to keep serving HTTP.`,
     };
   }
   return {
     mode: 'fatal',
     error:
-      `${problem}. The agent refuses to serve without its certificate. Re-run TLS provisioning from the manager (it writes cert.pem and key.pem and restarts the agent), or set HLM_TLS_HTTP_FALLBACK=true to serve HTTP without TLS.`,
+      `${problem}. The agent was enrolled before but its certificate is gone, so it refuses to serve. Re-run TLS provisioning from the manager, or set HLM_TLS_HTTP_FALLBACK=true to serve HTTP without TLS.`,
   };
 }
 
+function normalizeIpLiteral(value: string): string {
+  return value.startsWith('[') && value.endsWith(']') ? value.slice(1, -1) : value;
+}
+
 export function isIpLiteral(value: string): boolean {
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(value);
+  const bare = normalizeIpLiteral(value);
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(bare);
   if (ipv4) return ipv4.slice(1).every((octet) => Number(octet) <= 255);
-  return /^[0-9a-fA-F:]+$/.test(value) && value.includes(':');
+  return /^[0-9a-fA-F:]+$/.test(bare) && bare.includes(':');
 }
 
 const DNS_LABEL_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9_-]{0,61}[a-zA-Z0-9])?$/;
@@ -108,11 +108,7 @@ function isValidDnsName(value: string): boolean {
   return value.split('.').every((label) => DNS_LABEL_PATTERN.test(label));
 }
 
-/**
- * Validates the manager-dictated SAN list. Each entry must be an IP literal or
- * a DNS name; anything else (paths, traversal, whitespace) is rejected because
- * SAN text is embedded in an openssl argv and must never carry metacharacters.
- */
+// SAN text is spliced into an openssl argv: only IP literals and DNS names survive.
 export function parseAndValidateSans(body: unknown): string[] {
   const raw = (body as { sans?: unknown } | null)?.sans;
   if (!Array.isArray(raw) || raw.length === 0) {
@@ -126,12 +122,15 @@ export function parseAndValidateSans(body: unknown): string[] {
     if (typeof entry !== 'string') {
       throw new TlsEnrollError('Every SAN must be a string holding a DNS name or an IP address');
     }
-    const san = entry.trim();
+    const san = normalizeIpLiteral(entry.trim());
     const valid = isIpLiteral(san) || isValidDnsName(san);
     if (!valid) {
       throw new TlsEnrollError(
         `Invalid SAN '${entry}': each entry must be a DNS name (letters, numbers, hyphens, dots) or an IP address`,
       );
+    }
+    if (isIpLiteral(san) && san.length > MAX_IP_SAN_LENGTH) {
+      throw new TlsEnrollError(`Invalid SAN '${entry}': an IP literal is at most ${MAX_IP_SAN_LENGTH} characters`);
     }
     if (!sans.some((existing) => existing.toLowerCase() === san.toLowerCase())) {
       sans.push(san);
@@ -143,14 +142,28 @@ export function parseAndValidateSans(body: unknown): string[] {
 export class TlsEnrollError extends Error {}
 
 export function buildSubjectAltName(sans: string[]): string {
-  return sans.map((san) => (isIpLiteral(san) ? `IP:${san}` : `DNS:${san}`)).join(',');
+  return sans.map((san) => (isIpLiteral(san) ? `IP:${normalizeIpLiteral(san)}` : `DNS:${san}`)).join(',');
 }
 
-export async function handleTlsEnroll(
+export function enrollMarkerPath(stacksDir: string): string {
+  return join(stacksDir, TLS_DIR_NAME, ENROLL_MARKER_NAME);
+}
+
+// One enroll at a time: concurrent enrolls could otherwise rename a mismatched
+// key and cert pair into place.
+let enrollChain: Promise<unknown> = Promise.resolve();
+
+export function handleTlsEnroll(
   request: Request,
   stacksDir: string,
   spawnFn: SpawnFn = realSpawn,
 ): Promise<Response> {
+  const result = enrollChain.then(() => enroll(request, stacksDir, spawnFn));
+  enrollChain = result.catch(() => undefined);
+  return result;
+}
+
+async function enroll(request: Request, stacksDir: string, spawnFn: SpawnFn): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -168,6 +181,9 @@ export async function handleTlsEnroll(
   const tlsDir = join(stacksDir, TLS_DIR_NAME);
   const certPath = join(tlsDir, 'cert.pem');
   const keyPath = join(tlsDir, 'key.pem');
+  const token = randomBytes(8).toString('hex');
+  const stagedKeyPath = join(tlsDir, `.key-${token}.tmp`);
+  const stagedCertPath = join(tlsDir, `.cert-${token}.tmp`);
 
   let keyPem: string;
   try {
@@ -187,10 +203,19 @@ export async function handleTlsEnroll(
     );
   }
 
-  mkdirSync(tlsDir, { recursive: true });
-  writeFileSync(keyPath, keyPem, { mode: 0o600 });
-  chmodSync(keyPath, 0o600);
+  try {
+    mkdirSync(tlsDir, { recursive: true });
+    writeFileSync(stagedKeyPath, keyPem, { mode: 0o600 });
+    chmodSync(stagedKeyPath, 0o600);
+  } catch (err) {
+    removeQuietly(stagedKeyPath);
+    return Response.json(
+      { error: `Could not write the TLS key material: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 },
+    );
+  }
 
+  let certPem: string;
   try {
     const certResult = await spawnFn('openssl', [
       'req',
@@ -199,26 +224,46 @@ export async function handleTlsEnroll(
       '-days',
       CERT_DAYS,
       '-key',
-      keyPath,
+      stagedKeyPath,
       '-subj',
       `/CN=${COMMON_NAME}`,
       '-addext',
       `subjectAltName=${buildSubjectAltName(sans)}`,
     ]);
     assertOpensslOk(certResult, 'certificate signing');
-    writeFileSync(certPath, certResult.stdout, { mode: 0o600 });
-    chmodSync(certPath, 0o600);
-    return Response.json({ certPem: certResult.stdout });
+    certPem = certResult.stdout;
   } catch (err) {
-    try {
-      unlinkSync(keyPath);
-    } catch {
-      // The key stays on disk if removal fails; the next enroll overwrites it.
-    }
+    removeQuietly(stagedKeyPath);
     return Response.json(
       { error: `Could not sign the TLS certificate: ${err instanceof Error ? err.message : String(err)}` },
       { status: 500 },
     );
+  }
+
+  // Rename into place only after signing succeeds, so an interrupted enroll
+  // leaves the previous key and cert pair intact and consistent.
+  try {
+    writeFileSync(stagedCertPath, certPem, { mode: 0o600 });
+    chmodSync(stagedCertPath, 0o600);
+    renameSync(stagedKeyPath, keyPath);
+    renameSync(stagedCertPath, certPath);
+    writeFileSync(enrollMarkerPath(stacksDir), new Date().toISOString());
+    return Response.json({ certPem });
+  } catch (err) {
+    removeQuietly(stagedKeyPath);
+    removeQuietly(stagedCertPath);
+    return Response.json(
+      { error: `Could not write the TLS key material: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 },
+    );
+  }
+}
+
+function removeQuietly(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch {
+    // Already renamed or never written.
   }
 }
 

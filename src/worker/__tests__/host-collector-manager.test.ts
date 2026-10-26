@@ -71,13 +71,14 @@ interface FactoryCall {
   hostName: string;
   signer: () => Promise<string>;
   controller: AbortController;
+  caCertPem: string | null;
 }
 
 function makeFactory(): { factory: HostCollectorFactory; calls: FactoryCall[]; created: FakeCollector[] } {
   const calls: FactoryCall[] = [];
   const created: FakeCollector[] = [];
-  const factory: HostCollectorFactory = (host, signer, controller, stack) => {
-    calls.push({ hostName: host.name, signer, controller });
+  const factory: HostCollectorFactory = (host, signer, controller, stack, caCertPem) => {
+    calls.push({ hostName: host.name, signer, controller, caCertPem });
     const { collector, runner } = makeFakeCollector(`fake-${host.name}`);
     stack.use(collector);
     created.push(collector);
@@ -206,6 +207,55 @@ describe('HostCollectorManager', () => {
     await manager.reconcile();
 
     expect(calls).toHaveLength(2);
+
+    await manager[Symbol.asyncDispose]();
+  });
+
+  it('recreates a host when its pinned certificate changes', async () => {
+    const { factory, calls, created } = makeFactory();
+    let hosts = [makeHost('a')];
+    let cert: string | null = 'CERT-A';
+    const manager = new HostCollectorManager(
+      makeWorkerConfig(),
+      controller.signal,
+      async () => hosts,
+      okSigner,
+      async () => cert,
+      factory,
+    );
+
+    await manager.reconcile();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].caCertPem).toBe('CERT-A');
+
+    cert = 'CERT-B';
+    await manager.reconcile();
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1].caCertPem).toBe('CERT-B');
+    expect(created[0].stopped).toBe(true);
+    expect(created[1].stopped).toBe(false);
+
+    await manager[Symbol.asyncDispose]();
+  });
+
+  it('keeps collectors when the pinned certificate is unchanged', async () => {
+    const { factory, calls } = makeFactory();
+    let hosts = [makeHost('a')];
+    const manager = new HostCollectorManager(
+      makeWorkerConfig(),
+      controller.signal,
+      async () => hosts,
+      okSigner,
+      async () => 'CERT-A',
+      factory,
+    );
+
+    await manager.reconcile();
+    hosts = [makeHost('a', { status: 'unhealthy' })];
+    await manager.reconcile();
+
+    expect(calls).toHaveLength(1);
 
     await manager[Symbol.asyncDispose]();
   });

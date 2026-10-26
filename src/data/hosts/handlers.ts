@@ -44,6 +44,7 @@ export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
   findAll(): Promise<ManagedHost[]>;
   create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  findByName(name: string): Promise<ManagedHost | null>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateLastSweptAt(id: number, at: Date): Promise<void>;
@@ -176,18 +177,21 @@ export async function handleVerifyHost(
   data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
   const name = data.name.trim();
-  const host = await deps.repo.create({
+  // The wizard re-runs verifyHost after a failed attempt, and the pending row
+  // from that attempt blocks a second create on the unique host name.
+  const existing = await deps.repo.findByName(name);
+  const host = existing ?? (await deps.repo.create({
     name,
     agentUrl: data.agentUrl,
     capabilities: data.capabilities,
-  });
+  }));
 
   let publicJwk;
   try {
     ({ publicJwk } = await deps.keypairs.createForHost(name));
   } catch (err) {
-    await deps.repo.delete(host.id);
-    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`);
+    if (!existing) await deps.repo.delete(host.id);
+    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
   }
 
   if (deps.provisionTls) {
@@ -212,11 +216,7 @@ export async function handleVerifyHost(
   };
 }
 
-/**
- * Re-run TLS provisioning for an enrolled host: the agent regenerates its
- * keypair, the manager re-pins the new certificate, and the agent URL ends on
- * https. The host record and its keypair are never touched on failure.
- */
+/** Re-runs TLS provisioning for an enrolled host. Failure leaves the host record and its enrolled keypair untouched. */
 export async function handleRotateHostTls(
   deps: HostHandlerDeps & {
     provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;

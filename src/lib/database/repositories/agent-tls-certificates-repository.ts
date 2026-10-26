@@ -1,10 +1,6 @@
 import type { Pool } from 'pg';
 
-/**
- * Public per-host certificates the manager pins as trust anchors for
- * manager-to-agent HTTPS. Only the public cert lives here: the agent generates
- * and keeps its own private key, so there is nothing to encrypt.
- */
+/** Public certs only: the agent keeps its private key. */
 export class AgentTlsCertificatesRepository {
   constructor(private readonly pool: Pool) {}
 

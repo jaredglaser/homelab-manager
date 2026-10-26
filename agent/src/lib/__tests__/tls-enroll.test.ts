@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'bun:test';
 import { generateKeyPair, exportJWK } from 'jose';
-import { mkdtempSync, statSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, statSync, readFileSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   buildSubjectAltName,
+  ENROLL_MARKER_NAME,
   handleTlsEnroll,
   parseAndValidateSans,
   parseTlsHttpFallback,
@@ -74,6 +75,17 @@ describe('tls-enroll', () => {
       expect(() => parseAndValidateSans({ sans: ['-bad.lan'] })).toThrow(/Invalid SAN/);
       expect(() => parseAndValidateSans({ sans: ['bad-.lan'] })).toThrow(/Invalid SAN/);
     });
+
+    it('accepts a bracketed IPv6 literal and stores it bare', () => {
+      expect(parseAndValidateSans({ sans: ['[::1]'] })).toEqual(['::1']);
+      expect(parseAndValidateSans({ sans: ['[::1]', '::1'] })).toEqual(['::1']);
+    });
+
+    it('rejects an IP literal longer than the 45-character IPv6 text form', () => {
+      const oversized = 'a'.repeat(44) + '::b';
+      expect(oversized.length).toBeGreaterThan(45);
+      expect(() => parseAndValidateSans({ sans: [oversized] })).toThrow(/at most 45 characters/);
+    });
   });
 
   describe('buildSubjectAltName', () => {
@@ -81,6 +93,10 @@ describe('tls-enroll', () => {
       expect(buildSubjectAltName(['myhost.lan', '192.168.1.10', '::1'])).toBe(
         'DNS:myhost.lan,IP:192.168.1.10,IP:::1',
       );
+    });
+
+    it('strips brackets from a bracketed IPv6 literal', () => {
+      expect(buildSubjectAltName(['[2001:db8::1]'])).toBe('IP:2001:db8::1');
     });
   });
 
@@ -108,6 +124,7 @@ describe('tls-enroll', () => {
         expect(statSync(keyPath).mode & 0o777).toBe(0o600);
         expect(readFileSync(certPath, 'utf8')).toBe(CERT_PEM);
         expect(readFileSync(keyPath, 'utf8')).toBe(KEY_PEM);
+        expect(existsSync(join(dir, 'hlm-agent-tls', ENROLL_MARKER_NAME))).toBe(true);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -167,15 +184,57 @@ describe('tls-enroll', () => {
       expect(body.error).toContain('Invalid SAN');
     });
 
-    it('removes the staged key and returns 500 when signing fails', async () => {
+    it('leaves the previous key and cert pair consistent when an enroll is interrupted at signing', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
       try {
+        const tlsDir = join(dir, 'hlm-agent-tls');
+        mkdirSync(tlsDir, { recursive: true });
+        const previousKey = 'previous key\n';
+        const previousCert = 'previous cert\n';
+        writeFileSync(join(tlsDir, 'key.pem'), previousKey);
+        writeFileSync(join(tlsDir, 'cert.pem'), previousCert);
+
         const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stderr: 'signing broke', exitCode: 1 }]);
         const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), dir, spawnFn);
         expect(response.status).toBe(500);
         const body = (await response.json()) as { error: string };
         expect(body.error).toContain('TLS certificate signing failed');
-        expect(existsSync(join(dir, 'hlm-agent-tls', 'key.pem'))).toBe(false);
+        expect(readFileSync(join(tlsDir, 'key.pem'), 'utf8')).toBe(previousKey);
+        expect(readFileSync(join(tlsDir, 'cert.pem'), 'utf8')).toBe(previousCert);
+        expect(existsSync(join(tlsDir, ENROLL_MARKER_NAME))).toBe(false);
+        const leftovers = readdirSync(tlsDir).filter((name) => name.endsWith('.tmp'));
+        expect(leftovers).toEqual([]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('serializes concurrent enrolls so the final pair comes from one enroll', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
+      try {
+        const CERT_A = '-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----\n';
+        const CERT_B = '-----BEGIN CERTIFICATE-----\nB\n-----END CERTIFICATE-----\n';
+        const { spawnFn, calls } = fakeSpawn([
+          { stdout: KEY_PEM }, { stdout: CERT_A }, { stdout: KEY_PEM }, { stdout: CERT_B },
+        ]);
+        const [first, second] = await Promise.all([
+          handleTlsEnroll(enrollRequest(['a.lan']), dir, spawnFn),
+          handleTlsEnroll(enrollRequest(['b.lan']), dir, spawnFn),
+        ]);
+        expect(first.status).toBe(200);
+        expect(second.status).toBe(200);
+
+        // Signing reads the staged key before any rename, so a serialized run
+        // is keygen, sign, keygen, sign with no interleave.
+        const signingCalls = calls.map((c) => c.args[0]);
+        expect(signingCalls).toEqual(['genpkey', 'req', 'genpkey', 'req']);
+
+        const tlsDir = join(dir, 'hlm-agent-tls');
+        const key = readFileSync(join(tlsDir, 'key.pem'), 'utf8');
+        const cert = readFileSync(join(tlsDir, 'cert.pem'), 'utf8');
+        expect((await second.json()) as { certPem: string }).toEqual({ certPem: cert });
+        expect(existsSync(join(tlsDir, ENROLL_MARKER_NAME))).toBe(true);
+        expect(key.length).toBeGreaterThan(0);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -201,7 +260,7 @@ describe('tls-enroll', () => {
     const unreadable = () => false;
 
     it('serves TLS when both files are readable', () => {
-      expect(resolveTlsStartup('/c.pem', '/k.pem', false, readable)).toEqual({
+      expect(resolveTlsStartup('/c.pem', '/k.pem', false, readable, () => true)).toEqual({
         mode: 'tls',
         certPath: '/c.pem',
         keyPath: '/k.pem',
@@ -209,16 +268,16 @@ describe('tls-enroll', () => {
     });
 
     it('serves plain HTTP without a warning when TLS is not configured', () => {
-      expect(resolveTlsStartup(undefined, undefined, false, readable)).toEqual({ mode: 'http' });
+      expect(resolveTlsStartup(undefined, undefined, false, readable, () => false)).toEqual({ mode: 'http' });
     });
 
     it('is fatal when only one path is set', () => {
-      expect(resolveTlsStartup('/c.pem', undefined, false, readable).mode).toBe('fatal');
-      expect(resolveTlsStartup(undefined, '/k.pem', true, readable).mode).toBe('fatal');
+      expect(resolveTlsStartup('/c.pem', undefined, false, readable, () => false).mode).toBe('fatal');
+      expect(resolveTlsStartup(undefined, '/k.pem', true, readable, () => false).mode).toBe('fatal');
     });
 
-    it('refuses to start when the cert is missing and no fallback is set', () => {
-      const decision = resolveTlsStartup('/c.pem', '/k.pem', false, unreadable);
+    it('is fatal when an enrolled host loses its cert and no fallback is set', () => {
+      const decision = resolveTlsStartup('/c.pem', '/k.pem', false, unreadable, () => true);
       expect(decision.mode).toBe('fatal');
       if (decision.mode === 'fatal') {
         expect(decision.error).toContain('HLM_TLS_HTTP_FALLBACK=true');
@@ -227,16 +286,25 @@ describe('tls-enroll', () => {
     });
 
     it('is fatal when only the key is unreadable', () => {
-      const decision = resolveTlsStartup('/c.pem', '/k.pem', false, (p) => p === '/c.pem');
+      const decision = resolveTlsStartup('/c.pem', '/k.pem', false, (p) => p === '/c.pem', () => true);
       expect(decision.mode).toBe('fatal');
     });
 
     it('serves HTTP with a loud warning when the fallback opt-in is set', () => {
-      const decision = resolveTlsStartup('/c.pem', '/k.pem', true, unreadable);
+      const decision = resolveTlsStartup('/c.pem', '/k.pem', true, unreadable, () => true);
       expect(decision.mode).toBe('http');
       if (decision.mode === 'http') {
         expect(decision.warning).toContain('HLM_TLS_HTTP_FALLBACK=true');
         expect(decision.warning).toContain('without TLS');
+      }
+    });
+
+    it('serves HTTP with a warning on a first boot before enrollment', () => {
+      const decision = resolveTlsStartup('/c.pem', '/k.pem', false, unreadable, () => false);
+      expect(decision.mode).toBe('http');
+      if (decision.mode === 'http') {
+        expect(decision.warning).toContain('first boot');
+        expect(decision.warning).toContain('Re-run TLS provisioning');
       }
     });
   });

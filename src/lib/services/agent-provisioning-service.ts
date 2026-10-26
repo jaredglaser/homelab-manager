@@ -1,15 +1,6 @@
 import { agentFetch } from '@/lib/clients/agent-http';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
-/**
- * Provisions per-host TLS by driving the agent itself: the agent generates the
- * keypair at POST /tls/enroll and keeps the private key, so no key material
- * crosses the pre-TLS enrollment channel. After storing the returned public
- * certificate the manager restarts the agent container (the daemon kills the
- * agent process mid-response, so connection loss there is expected), polls
- * HTTPS health with the new pin, and only then flips the host's agent URL.
- */
-
 /** The compose healthcheck fetches https://localhost, so the cert must verify for it. */
 const HEALTHCHECK_EXTRA_SANS = ['localhost'] as const;
 
@@ -17,6 +8,12 @@ const HEALTHCHECK_EXTRA_SANS = ['localhost'] as const;
 const AGENT_CONTAINER_NAME = 'hlm-agent';
 
 const IP_LOOKUP_TIMEOUT_MS = 3000;
+
+/** Enroll involves two openssl invocations on the agent; 30s bounds a hung agent. */
+const ENROLL_TIMEOUT_MS = 30_000;
+
+/** Docker restart waits out the default 10s stop timeout; 30s leaves slack for the start and the response. */
+const RESTART_TIMEOUT_MS = 30_000;
 
 /** Same cadence as handleUpdateAgent's post-update poll: 0.5s to 16s, ~31.5s total. */
 const TLS_HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
@@ -51,7 +48,8 @@ export async function provisionHostTls(
     throw new Error(`Agent URL must use http or https, got '${parsed.protocol}'`);
   }
   const baseUrl = agentUrl.replace(/\/+$/, '');
-  const hostname = parsed.hostname;
+  // A URL like http://[::1]:9090 carries brackets in hostname; SANs take the bare literal.
+  const hostname = parsed.hostname.replace(/^\[(.+)\]$/, '$1');
   const fetchFn = deps.fetchFn ?? fetch;
   const sleepFn = deps.sleepFn ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
@@ -59,7 +57,6 @@ export async function provisionHostTls(
   const sans = buildSans(hostname, ip);
 
   const certPem = await enrollCert(baseUrl, sans, deps, fetchFn);
-  await wrapFailure('the certificate could not be stored', () => deps.storeCert(hostName, certPem));
 
   await requestRestart(baseUrl, deps, fetchFn);
 
@@ -70,12 +67,16 @@ export async function provisionHostTls(
     await sleepFn(delay);
     lastResult = await deps.checkHealth(httpsUrl, hostName, certPem);
     if (lastResult.healthy) {
+      // Store the pin only after the https probe proves the agent serves the
+      // new certificate, so a failed rotation never leaves the DB pin pointing
+      // at a certificate the agent is not serving.
+      await wrapFailure('the certificate could not be stored', () => deps.storeCert(hostName, certPem));
       return { agentUrl: httpsUrl, certPem };
     }
   }
 
   throw new Error(
-    `TLS provisioning failed: the agent did not become healthy over HTTPS (${lastResult.error}). ${RERUN_ADVICE}`,
+    `TLS provisioning failed: the agent did not become healthy over HTTPS (${lastResult.error}). Provisioning may be incomplete: the agent may serve a certificate the manager has not pinned. Re-run TLS provisioning from the Managed Hosts card, or follow the agent TLS recovery steps in the self-hosting README.`,
   );
 }
 
@@ -108,6 +109,7 @@ async function enrollCert(
         headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
         body: JSON.stringify({ sans }),
         redirect: 'manual',
+        signal: AbortSignal.timeout(ENROLL_TIMEOUT_MS),
       },
       { caCertPem: deps.caCertPem ?? null },
       fetchFn,
@@ -144,6 +146,7 @@ async function requestRestart(
         method: 'POST',
         headers: { Authorization: 'Bearer ' + jwt },
         redirect: 'manual',
+        signal: AbortSignal.timeout(RESTART_TIMEOUT_MS),
       },
       { caCertPem: deps.caCertPem ?? null },
       fetchFn,
@@ -151,7 +154,7 @@ async function requestRestart(
   } catch (err) {
     if (isRestartConnectionLoss(err)) {
       // The daemon kills the agent process during the restart, so the response
-      // usually never completes; connection loss here is success-unknown and
+      // usually never completes. Connection loss here is success-unknown and
       // the https poll below is the real verdict.
       return;
     }
@@ -196,7 +199,7 @@ async function readErrorBody(response: Response): Promise<string> {
     const parsed = JSON.parse(raw) as { error?: unknown };
     if (typeof parsed?.error === 'string') return parsed.error;
   } catch {
-    // Body was not JSON; keep the raw text.
+    // Body was not JSON. Keep the raw text.
   }
   return raw || `unexpected status ${response.status}`;
 }

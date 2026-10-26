@@ -38,6 +38,7 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     findById: mock(() => Promise.resolve(mockRow())),
     findAll: mock(() => Promise.resolve([mockRow()])),
     create: mock(() => Promise.resolve(mockRow())),
+    findByName: mock((_name: string) => Promise.resolve(null)),
     update: mock(() => Promise.resolve(mockRow())),
     delete: mock(() => Promise.resolve()),
     updateStatus: mock(() => Promise.resolve()),
@@ -300,6 +301,38 @@ describe('handleVerifyHost', () => {
       agentUrl: 'http://x:9090',
       capabilities: undefined,
     });
+  });
+
+  it('reuses the existing record and re-runs provisioning on a second verifyHost call', async () => {
+    const repo = mockRepo({
+      findByName: mock((_name: string) => Promise.resolve(mockRow({ agentUrl: 'http://x:9090' }))),
+      update: mock(() => Promise.resolve(mockRow({ agentUrl: 'https://x:9090' }))),
+    });
+    const deps = {
+      ...baseDeps(repo),
+      keypairs: makeKeypairsMock(),
+      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
+    };
+    const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
+    expect(repo.create).not.toHaveBeenCalled();
+    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('tlshost');
+    expect(deps.provisionTls).toHaveBeenCalledWith('tlshost', 'http://x:9090');
+    expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'https://x:9090' });
+    expect(result.host.agentUrl).toBe('https://x:9090');
+  });
+
+  it('keeps a pre-existing record when keypair generation fails on re-run', async () => {
+    const repo = mockRepo({
+      findByName: mock((_name: string) => Promise.resolve(mockRow())),
+    });
+    const deps = {
+      ...baseDeps(repo),
+      keypairs: { ...makeKeypairsMock(), createForHost: mock(() => Promise.reject(new Error('keygen failed'))) },
+    };
+    await expect(
+      handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' }),
+    ).rejects.toThrow(/Failed to generate agent keypair/);
+    expect(repo.delete).not.toHaveBeenCalled();
   });
 });
 
