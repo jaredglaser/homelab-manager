@@ -77,40 +77,40 @@ describe('computeMetrics (unit)', () => {
     const prevFrames = new Map();
     const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
     // cpuDelta=2000, systemDelta=10000 → (2000/10000)*4*100 = 80
-    expect(result.cpuPercent).toBe(80);
+    expect(result!.cpuPercent).toBe(80);
   });
 
   test('returns 0 CPU when system delta is 0', () => {
     const stats = JSON.parse(makeStatsJson({ systemCpu: 10000, preSystemCpu: 10000 }));
     const prevFrames = new Map();
     const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
-    expect(result.cpuPercent).toBe(0);
+    expect(result!.cpuPercent).toBe(0);
   });
 
   test('computes memory usage and percent', () => {
     const stats = JSON.parse(makeStatsJson({ memUsage: 512 * 1024 * 1024, memLimit: 1024 * 1024 * 1024 }));
     const prevFrames = new Map();
     const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
-    expect(result.memoryUsage).toBe(512 * 1024 * 1024);
-    expect(result.memoryLimit).toBe(1024 * 1024 * 1024);
-    expect(result.memoryPercent).toBe(50);
+    expect(result!.memoryUsage).toBe(512 * 1024 * 1024);
+    expect(result!.memoryLimit).toBe(1024 * 1024 * 1024);
+    expect(result!.memoryPercent).toBe(50);
   });
 
   test('returns 0 memory percent when limit is 0', () => {
     const stats = JSON.parse(makeStatsJson({ memUsage: 100, memLimit: 0 }));
     const prevFrames = new Map();
     const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
-    expect(result.memoryPercent).toBe(0);
+    expect(result!.memoryPercent).toBe(0);
   });
 
   test('emits 0 rates on first frame', () => {
     const stats = JSON.parse(makeStatsJson({ rxBytes: 5000, txBytes: 3000 }));
     const prevFrames = new Map();
     const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
-    expect(result.networkRxBytesPerSec).toBe(0);
-    expect(result.networkTxBytesPerSec).toBe(0);
-    expect(result.blockReadBytesPerSec).toBe(0);
-    expect(result.blockWriteBytesPerSec).toBe(0);
+    expect(result!.networkRxBytesPerSec).toBe(0);
+    expect(result!.networkTxBytesPerSec).toBe(0);
+    expect(result!.blockReadBytesPerSec).toBe(0);
+    expect(result!.blockWriteBytesPerSec).toBe(0);
   });
 
   test('computes correct rates on second frame', () => {
@@ -128,27 +128,27 @@ describe('computeMetrics (unit)', () => {
     const result = computeMetrics('c1', 'test', 'img', frame2, prevFrames);
 
     // 2 second delta: (3000-1000)/2 = 1000, (1500-500)/2 = 500
-    expect(result.networkRxBytesPerSec).toBe(1000);
-    expect(result.networkTxBytesPerSec).toBe(500);
+    expect(result!.networkRxBytesPerSec).toBe(1000);
+    expect(result!.networkTxBytesPerSec).toBe(500);
     // (8192-4096)/2 = 2048, (4096-2048)/2 = 1024
-    expect(result.blockReadBytesPerSec).toBe(2048);
-    expect(result.blockWriteBytesPerSec).toBe(1024);
+    expect(result!.blockReadBytesPerSec).toBe(2048);
+    expect(result!.blockWriteBytesPerSec).toBe(1024);
   });
 
   test('handles missing networks gracefully', () => {
     const stats = JSON.parse(makeStatsJson({ networks: null }));
     const prevFrames = new Map();
     const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
-    expect(result.networkRxBytesPerSec).toBe(0);
-    expect(result.networkTxBytesPerSec).toBe(0);
+    expect(result!.networkRxBytesPerSec).toBe(0);
+    expect(result!.networkTxBytesPerSec).toBe(0);
   });
 
   test('handles missing blkio_stats gracefully', () => {
     const stats = JSON.parse(makeStatsJson({ blkioStats: null }));
     const prevFrames = new Map();
     const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
-    expect(result.blockReadBytesPerSec).toBe(0);
-    expect(result.blockWriteBytesPerSec).toBe(0);
+    expect(result!.blockReadBytesPerSec).toBe(0);
+    expect(result!.blockWriteBytesPerSec).toBe(0);
   });
 
   test('uses stats.read as timestamp', () => {
@@ -156,7 +156,14 @@ describe('computeMetrics (unit)', () => {
     const stats = JSON.parse(makeStatsJson({ read: ts }));
     const prevFrames = new Map();
     const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
-    expect(result.timestamp).toBe(ts);
+    expect(result!.timestamp).toBe(ts);
+  });
+
+  test('returns null for the zero-sentinel frame without touching prevFrames', () => {
+    const stats = JSON.parse(makeStatsJson({ read: '0001-01-01T00:00:00Z' }));
+    const prevFrames = new Map();
+    expect(computeMetrics('c1', 'test', 'img', stats, prevFrames)).toBeNull();
+    expect(prevFrames.has('c1')).toBe(false);
   });
 
   test('per-container previous frames are independent', () => {
@@ -172,8 +179,8 @@ describe('computeMetrics (unit)', () => {
     const resultB = computeMetrics('c2', 'b', 'img', frame2b, prevFrames);
 
     // c1: (3000-1000)/1 = 2000, c2: (9000-5000)/1 = 4000
-    expect(resultA.networkRxBytesPerSec).toBe(2000);
-    expect(resultB.networkRxBytesPerSec).toBe(4000);
+    expect(resultA!.networkRxBytesPerSec).toBe(2000);
+    expect(resultB!.networkRxBytesPerSec).toBe(4000);
   });
 });
 
@@ -232,6 +239,37 @@ describe('handleStatsStream', () => {
     expect(typeof parsed.timestamp).toBe('string');
     // Should NOT have nested stats object
     expect((parsed as any).stats).toBeUndefined();
+  });
+
+  test('drops zero-sentinel frames instead of emitting them', async () => {
+    const statsEmitter = new EventEmitter();
+
+    const container = {
+      Id: 'abc123def456',
+      Names: ['/my-container'],
+      Image: 'nginx:latest',
+    };
+
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve([container])),
+      getContainer: mock(() => ({
+        stats: mock(() => Promise.resolve(statsEmitter)),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request);
+
+    await waitForCondition(() => statsEmitter.listenerCount('data') > 0);
+
+    statsEmitter.emit('data', Buffer.from(makeStatsJson({ read: '0001-01-01T00:00:00Z' }) + '\n'));
+    statsEmitter.emit('data', Buffer.from(makeStatsJson({ read: '2026-03-29T12:00:05.000000000Z' }) + '\n'));
+
+    const text = await readUntil(response, (s) => s.includes('"containerId"'));
+    ac.abort();
+
+    expect(parseStatsEvent(text).timestamp).toBe('2026-03-29T12:00:05.000000000Z');
   });
 
   test('closes stream and destroys Docker streams on abort', async () => {
