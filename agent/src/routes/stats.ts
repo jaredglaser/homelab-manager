@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
 import { createSseStream, type SseEmitter } from '../lib/sse-stream';
+import { ZERO_TIMESTAMP } from '../lib/docker-events-broadcaster';
 
 const DEFAULT_REFRESH_INTERVAL_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -76,6 +77,7 @@ function sumBlockIOBytes(blkioStats: { io_service_bytes_recursive?: Array<{ op: 
 /**
  * Compute flat metrics from a raw Docker stats frame.
  * Rate fields (network, block I/O) require a previous frame; first frame emits 0.
+ * Returns null for Docker's zero-sentinel frames, which carry no sample yet.
  */
 export function computeMetrics(
   containerId: string,
@@ -83,7 +85,11 @@ export function computeMetrics(
   image: string,
   stats: Record<string, any>,
   prevFrames: Map<string, PreviousFrame>,
-): ComputedStats {
+): ComputedStats | null {
+  // A zero-sentinel read means Docker has no sample yet. Emitting it would plant
+  // a year-1 row whose min(time) then drives multi-year aggregate backfills.
+  if (stats.read === ZERO_TIMESTAMP) return null;
+
   // CPU (Docker CLI formula)
   const cpuDelta = (stats.cpu_stats?.cpu_usage?.total_usage ?? 0) - (stats.precpu_stats?.cpu_usage?.total_usage ?? 0);
   const systemDelta = (stats.cpu_stats?.system_cpu_usage ?? 0) - (stats.precpu_stats?.system_cpu_usage ?? 0);
@@ -224,7 +230,8 @@ function openContainerStream(
     readable.on('data', (chunk: Buffer) => {
       if (ctx.stopped) return;
       buffer = parseStatsChunks(buffer, chunk, (stats) => {
-        ctx.emit.data(computeMetrics(id, name, image, stats as Record<string, any>, prevFrames));
+        const metrics = computeMetrics(id, name, image, stats as Record<string, any>, prevFrames);
+        if (metrics) ctx.emit.data(metrics);
       }, () => {
         console.error(`Malformed stats JSON from container ${id}, skipping frame`);
       });
