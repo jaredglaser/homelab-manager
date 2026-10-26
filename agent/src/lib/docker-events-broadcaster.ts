@@ -6,7 +6,7 @@ const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 32_000;
 
 /** Docker's sentinel for an unset timestamp. Normalized to null. */
-const ZERO_TIMESTAMP = '0001-01-01T00:00:00Z';
+export const ZERO_TIMESTAMP = '0001-01-01T00:00:00Z';
 
 /** States in which ExitCode is meaningful. Docker returns 0 while running, which is misleading. */
 const TERMINAL_STATES = new Set(['exited', 'dead']);
