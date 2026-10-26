@@ -123,6 +123,8 @@ export function hostTlsKeyPath(): string {
   return `${hostTlsDir()}/key.pem`;
 }
 
+const HEALTH_CHECK_RETRIES = 3;
+
 function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const { docker, zfs } = config.capabilities;
   const tlsCertPath = hostTlsCertPath();
@@ -180,7 +182,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     interval: '30s',
     timeout: '5s',
     start_period: '15s',
-    retries: 3,
+    retries: HEALTH_CHECK_RETRIES,
   };
 
   if (docker && zfs) {
