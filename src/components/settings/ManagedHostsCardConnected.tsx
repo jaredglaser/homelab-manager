@@ -11,7 +11,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
   const { showToast } = useToast()
   const [addError, setAddError] = useState<string | null>(null)
-  const [verifyResult, setVerifyResult] = useState<{ publicJwk: unknown } | null>(null)
+  const [verifyResult, setVerifyResult] = useState<{ publicJwk: unknown; tls?: { certPem: string; keyPem: string } } | null>(null)
   const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
 
   const { data: hosts = [], isLoading } = useQuery({
@@ -29,7 +29,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setAddError(null)
       if (result.publicJwk) {
-        setVerifyResult({ publicJwk: result.publicJwk })
+        setVerifyResult({ publicJwk: result.publicJwk, tls: result.tls })
       } else {
         setVerifyResult(null)
       }

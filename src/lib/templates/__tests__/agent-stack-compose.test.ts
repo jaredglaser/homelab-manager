@@ -190,14 +190,34 @@ describe('generateAgentStackCompose', () => {
     }
   });
 
-  it('agent-updater always points at the agent for health checks', () => {
+  it('agent-updater always points at the agent for TLS health checks', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackCompose(config);
       const parsed = parseYaml(result);
       expect(parsed.services['agent-updater'].environment.HLM_AGENT_URL).toBe(
-        'http://hlm-agent:9090'
+        'https://hlm-agent:9090'
+      );
+      expect(parsed.services['agent-updater'].environment.NODE_EXTRA_CA_CERTS).toBe(
+        `/opt/homelab-manager/stacks/hlm-agent-tls/${config.hostName}/cert.pem`
       );
     }
+  });
+
+  it('agent gets TLS env, ca trust, and an https healthcheck override', () => {
+    const result = generateAgentStackCompose(dockerOnlyConfig);
+    const parsed = parseYaml(result);
+    const agent = parsed.services['agent'];
+    expect(agent.environment.TLS_CERT_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem');
+    expect(agent.environment.TLS_KEY_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/test-host/key.pem');
+    expect(agent.environment.NODE_EXTRA_CA_CERTS).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem');
+    expect(agent.healthcheck.test[0]).toBe('CMD-SHELL');
+    expect(agent.healthcheck.test[1]).toContain("fetch('https://localhost:'");
+  });
+
+  it('updater mounts the host TLS dir read-only', () => {
+    const parsed = parseYaml(generateAgentStackCompose(dockerOnlyConfig));
+    const volumes = parsed.services['agent-updater'].volumes as string[];
+    expect(volumes.some((v) => v.startsWith('${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}/hlm-agent-tls/test-host:') && v.endsWith(':ro'))).toBe(true);
   });
 
   it('agent-updater joins agent-public only when docker capability is enabled', () => {

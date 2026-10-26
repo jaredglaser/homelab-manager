@@ -72,6 +72,7 @@ export class ContainerInventoryCollector extends BaseCollector {
   private readonly eventRepository: DockerContainerEventRepository;
   private readonly metadataRepository: EntityMetadataRepository | null;
   private readonly streamConnector: StreamConnector;
+  private readonly caCertPem: string | null;
 
   /** In-memory cache of last-written (state, eventType) per containerId on this host. */
   private readonly stateCache = new Map<string, CachedContainerState>();
@@ -87,6 +88,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     parentAbortController?: AbortController,
     streamConnector?: StreamConnector,
     metadataRepository?: EntityMetadataRepository,
+    caCertPem?: string | null,
   ) {
     super(undefined, undefined, parentAbortController);
     this.signal = this.abortController.signal;
@@ -96,6 +98,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     this.metadataRepository = metadataRepository ?? null;
     this.name = `ContainerInventoryCollector[${host.name}]`;
     this.streamConnector = streamConnector ?? connectAgentSseStream;
+    this.caCertPem = caCertPem ?? null;
   }
 
   override async run(): Promise<void> {
@@ -133,6 +136,7 @@ export class ContainerInventoryCollector extends BaseCollector {
         path: '/containers/events',
         signer: this.signer,
         signal: cycleAbort.signal,
+        caCertPem: this.caCertPem,
       });
 
       this.resetBackoff();

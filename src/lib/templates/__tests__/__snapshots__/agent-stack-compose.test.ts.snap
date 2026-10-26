@@ -41,9 +41,20 @@ services:
       HLM_UPDATER_URL: http://hlm-agent-updater:9091/trigger
       HLM_UPDATER_CONTAINER: hlm-agent-updater
       HLM_TRIGGER_TOKEN: \${HLM_TRIGGER_TOKEN}
+      TLS_CERT_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
+      TLS_KEY_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/key.pem
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bun -e \\"fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\\""
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     networks:
       - agent-internal
       - agent-public
@@ -58,14 +69,16 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}/hlm-agent-tls/test-host:/opt/homelab-manager/stacks/hlm-agent-tls/test-host:ro
     environment:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_SELF_CONTAINER: hlm-agent-updater
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
-      HLM_AGENT_URL: http://hlm-agent:9090
+      HLM_AGENT_URL: https://hlm-agent:9090
       HLM_TRIGGER_PORT: "9091"
       HLM_SELF_IMAGE: \${AGENT_UPDATER_IMAGE}
       HLM_TRIGGER_TOKEN: \${HLM_TRIGGER_TOKEN}
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
     labels:
       - hlm.managed=true
       - hlm.role=agent-updater
@@ -97,12 +110,23 @@ services:
       HLM_UPDATER_URL: http://hlm-agent-updater:9091/trigger
       HLM_UPDATER_CONTAINER: hlm-agent-updater
       HLM_TRIGGER_TOKEN: \${HLM_TRIGGER_TOKEN}
+      TLS_CERT_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
+      TLS_KEY_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/key.pem
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
       - /dev/zfs:/dev/zfs
     user: \${HLM_ZFS_UID}:\${HLM_ZFS_GID}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bun -e \\"fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\\""
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     labels:
       - hlm.managed=true
       - hlm.role=agent
@@ -112,14 +136,16 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}/hlm-agent-tls/test-host:/opt/homelab-manager/stacks/hlm-agent-tls/test-host:ro
     environment:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_SELF_CONTAINER: hlm-agent-updater
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
-      HLM_AGENT_URL: http://hlm-agent:9090
+      HLM_AGENT_URL: https://hlm-agent:9090
       HLM_TRIGGER_PORT: "9091"
       HLM_SELF_IMAGE: \${AGENT_UPDATER_IMAGE}
       HLM_TRIGGER_TOKEN: \${HLM_TRIGGER_TOKEN}
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
     labels:
       - hlm.managed=true
       - hlm.role=agent-updater
@@ -167,6 +193,9 @@ services:
       HLM_UPDATER_URL: http://hlm-agent-updater:9091/trigger
       HLM_UPDATER_CONTAINER: hlm-agent-updater
       HLM_TRIGGER_TOKEN: \${HLM_TRIGGER_TOKEN}
+      TLS_CERT_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
+      TLS_KEY_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/key.pem
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
@@ -174,6 +203,14 @@ services:
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
       - /dev/zfs:/dev/zfs
     user: \${HLM_ZFS_UID}:\${HLM_ZFS_GID}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bun -e \\"fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\\""
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     group_add:
       - \${DOCKER_GID}
     networks:
@@ -190,14 +227,16 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}/hlm-agent-tls/test-host:/opt/homelab-manager/stacks/hlm-agent-tls/test-host:ro
     environment:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_SELF_CONTAINER: hlm-agent-updater
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
-      HLM_AGENT_URL: http://hlm-agent:9090
+      HLM_AGENT_URL: https://hlm-agent:9090
       HLM_TRIGGER_PORT: "9091"
       HLM_SELF_IMAGE: \${AGENT_UPDATER_IMAGE}
       HLM_TRIGGER_TOKEN: \${HLM_TRIGGER_TOKEN}
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem
     labels:
       - hlm.managed=true
       - hlm.role=agent-updater

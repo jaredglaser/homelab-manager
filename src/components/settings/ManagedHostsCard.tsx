@@ -15,7 +15,7 @@ export interface ManagedHostsCardProps {
   onAdd: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
   isAdding: boolean
   addError: string | null
-  verifyResult: { publicJwk: unknown } | null
+  verifyResult: { publicJwk: unknown; tls?: { certPem: string; keyPem: string } } | null
   onRemove: (hostId: number) => void
   isRemoving: boolean
   onUpdate: (hostId: number, name: string, agentUrl: string) => void

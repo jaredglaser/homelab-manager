@@ -461,6 +461,7 @@ async function getAgentClientForHost(host: string): Promise<AgentClient> {
   const { HostRepository } = await import('@/lib/database/repositories/host-repository');
   const { AgentClient } = await import('@/lib/clients/agent-client');
   const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
+  const { AgentTlsCertificatesRepository } = await import('@/lib/database/repositories/agent-tls-certificates-repository');
   const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
   const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
 
@@ -474,11 +475,21 @@ async function getAgentClientForHost(host: string): Promise<AgentClient> {
 
   const keyring = await loadMasterKeyring();
   const agentKeypairs = new AgentKeypairsRepository(pool, keyring);
+  const tlsCerts = new AgentTlsCertificatesRepository(pool, keyring);
   const privateKey = await agentKeypairs.getPrivateKeyForHost(managedHost.name);
   if (!privateKey) throw new Error(`No agent keypair for host "${managedHost.name}". Re-enroll the agent.`);
 
   const signer = () => signAgentJwt(privateKey, managedHost.name);
-  return new AgentClient({ agentUrl: managedHost.agentUrl, signer });
+  let caCertPem: string | null = null;
+  try {
+    caCertPem = await tlsCerts.getCertForHost(managedHost.name);
+  } catch (err) {
+    console.error(
+      `[StackService] TLS cert lookup failed for ${managedHost.name}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+  return new AgentClient({ agentUrl: managedHost.agentUrl, signer, caCertPem });
 }
 
 export async function controlStackForHost(

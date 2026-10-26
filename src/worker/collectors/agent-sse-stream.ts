@@ -9,6 +9,8 @@
  * is the parsed JSON body of a `data: ` SSE field.
  */
 
+import { agentFetch } from '@/lib/clients/agent-http';
+
 export class AgentSseStreamError extends Error {
   constructor(
     message: string,
@@ -30,6 +32,8 @@ export interface AgentSseConnectOptions {
   path: string;
   signer: () => Promise<string>;
   signal: AbortSignal;
+  /** Pinned per-host TLS certificate (PEM); used when the agent URL is https. */
+  caCertPem?: string | null;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetchFn?: FetchFn;
 }
@@ -69,11 +73,11 @@ export async function connectAgentSseStream(
   const url = joinAgentUrl(options.agentUrl, options.path);
   const fetchFn = options.fetchFn ?? globalThis.fetch;
 
-  const response = await fetchFn(url, {
+  const response = await agentFetch(url, {
     headers: { Authorization: `Bearer ${await options.signer()}` },
     signal: options.signal,
     redirect: 'manual',
-  });
+  }, { caCertPem: options.caCertPem }, fetchFn as typeof fetch);
 
   if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
     throw new AgentSseStreamError('Agent URL returned an unexpected redirect', response.status, url);

@@ -25,6 +25,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
   const { HostRepository } = await import('@/lib/database/repositories/host-repository');
   const { AgentClient } = await import('@/lib/clients/agent-client');
+  const { AgentTlsCertificatesRepository } = await import('@/lib/database/repositories/agent-tls-certificates-repository');
   const { DeployPipeline } = await import('@/lib/deploy/pipeline');
   const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
   const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
@@ -38,6 +39,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   const keyring = await loadMasterKeyring();
   const stackSecrets = new StackSecretsRepository(pool, keyring);
   const agentKeypairs = new AgentKeypairsRepository(pool, keyring);
+  const tlsCerts = new AgentTlsCertificatesRepository(pool, keyring);
 
   // DeployRepository and HostRepository are lightweight pool wrappers.
   // The pool itself is cached by databaseConnectionManager, so per-call allocation
@@ -50,7 +52,17 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   const pipeline = new DeployPipeline({
     deployRepo,
     hostsRepo: new HostRepository(pool),
-    agentClientFactory: (url, signer) => new AgentClient({ agentUrl: url, signer }),
+    agentClientFactory: async (url, signer, hostName) => {
+      let caCertPem: string | null = null;
+      if (hostName) {
+        try {
+          caCertPem = await tlsCerts.getCertForHost(hostName);
+        } catch (err) {
+          console.error(`[DeployPipeline] TLS cert lookup failed for ${hostName}:`, err instanceof Error ? err.message : err);
+        }
+      }
+      return new AgentClient({ agentUrl: url, signer, caCertPem });
+    },
     stackRepoWriter,
     secretResolver: new StackSecretsResolver(stackSecrets),
     tokenResolver: async (host) => {
