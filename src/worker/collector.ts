@@ -111,7 +111,7 @@ async function main() {
       const keyring = await loadMasterKeyring();
       const keypairs = new AgentKeypairsRepository(db.getPool(), keyring);
       const { AgentTlsCertificatesRepository } = await import('@/lib/database/repositories/agent-tls-certificates-repository');
-      const tlsCerts = new AgentTlsCertificatesRepository(db.getPool(), keyring);
+      const tlsCerts = new AgentTlsCertificatesRepository(db.getPool());
       const getCaCert = async (hostname: string): Promise<string | null> => {
         try {
           return await tlsCerts.getCertForHost(hostname);

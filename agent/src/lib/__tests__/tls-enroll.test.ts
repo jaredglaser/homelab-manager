@@ -119,6 +119,45 @@ describe('tls-enroll', () => {
       expect(response.status).toBe(400);
     });
 
+    it('generates a real certificate through the default openssl spawn', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
+      try {
+        const response = await handleTlsEnroll(enrollRequest(['myhost.lan', '192.168.1.10']), dir);
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { certPem: string };
+        expect(body.certPem).toContain('BEGIN CERTIFICATE');
+        expect(body.certPem).toContain('END CERTIFICATE');
+        expect(statSync(join(dir, 'hlm-agent-tls', 'key.pem')).mode & 0o777).toBe(0o600);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }, 20000);
+
+    it('caps the SAN list at 32 entries', async () => {
+      const { spawnFn, calls } = fakeSpawn([]);
+      const response = await handleTlsEnroll(
+        enrollRequest(Array.from({ length: 33 }, (_, i) => `host${i}.lan`)),
+        '/tmp',
+        spawnFn,
+      );
+      expect(response.status).toBe(400);
+      expect(calls).toHaveLength(0);
+    });
+
+    it('returns 500 without writing files when key generation fails', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
+      try {
+        const { spawnFn } = fakeSpawn([{ stderr: 'keygen broke', exitCode: 1 }]);
+        const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), dir, spawnFn);
+        expect(response.status).toBe(500);
+        const body = (await response.json()) as { error: string };
+        expect(body.error).toContain('Could not generate the TLS private key');
+        expect(existsSync(join(dir, 'hlm-agent-tls'))).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('returns 400 without spawning openssl when a SAN fails validation', async () => {
       const { spawnFn, calls } = fakeSpawn([]);
       const response = await handleTlsEnroll(enrollRequest(['../escape']), '/tmp', spawnFn);

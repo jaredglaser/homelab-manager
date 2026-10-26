@@ -39,7 +39,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   const keyring = await loadMasterKeyring();
   const stackSecrets = new StackSecretsRepository(pool, keyring);
   const agentKeypairs = new AgentKeypairsRepository(pool, keyring);
-  const tlsCerts = new AgentTlsCertificatesRepository(pool, keyring);
+  const tlsCerts = new AgentTlsCertificatesRepository(pool);
 
   // DeployRepository and HostRepository are lightweight pool wrappers.
   // The pool itself is cached by databaseConnectionManager, so per-call allocation

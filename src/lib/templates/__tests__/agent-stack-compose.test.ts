@@ -176,11 +176,22 @@ describe('generateAgentStackCompose', () => {
     const result = generateAgentStackCompose(dockerOnlyConfig);
     const parsed = parseYaml(result);
     const agent = parsed.services['agent'];
-    expect(agent.environment.TLS_CERT_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem');
-    expect(agent.environment.TLS_KEY_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/test-host/key.pem');
-    expect(agent.environment.NODE_EXTRA_CA_CERTS).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/test-host/cert.pem');
+    expect(agent.container_name).toBe('hlm-agent');
+    expect(agent.environment.AGENT_CONTAINER_NAME).toBe('hlm-agent');
+    expect(agent.environment.TLS_CERT_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
+    expect(agent.environment.TLS_KEY_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/key.pem');
+    expect(agent.environment.NODE_EXTRA_CA_CERTS).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
     expect(agent.healthcheck.test[0]).toBe('CMD-SHELL');
     expect(agent.healthcheck.test[1]).toContain("fetch('https://localhost:'");
+  });
+
+  it('TLS paths never vary with the host name', () => {
+    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+      const parsed = parseYaml(generateAgentStackCompose(config));
+      const agent = parsed.services['agent'];
+      expect(agent.environment.TLS_CERT_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
+      expect(agent.environment.TLS_KEY_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/key.pem');
+    }
   });
 
   it('agent attached to both internal and public networks when docker capability', () => {

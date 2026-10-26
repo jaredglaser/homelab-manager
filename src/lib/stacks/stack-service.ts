@@ -475,7 +475,7 @@ async function getAgentClientForHost(host: string): Promise<AgentClient> {
 
   const keyring = await loadMasterKeyring();
   const agentKeypairs = new AgentKeypairsRepository(pool, keyring);
-  const tlsCerts = new AgentTlsCertificatesRepository(pool, keyring);
+  const tlsCerts = new AgentTlsCertificatesRepository(pool);
   const privateKey = await agentKeypairs.getPrivateKeyForHost(managedHost.name);
   if (!privateKey) throw new Error(`No agent keypair for host "${managedHost.name}". Re-enroll the agent.`);
 

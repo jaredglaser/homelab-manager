@@ -1,5 +1,7 @@
 export const DOCKER_HOST = 'ci-docker-a';
 export const ZFS_HOST = 'ci-zfs-a';
+export const TLS_HOST = 'ci-tls-host';
+export const TLS_CERT = '-----BEGIN CERTIFICATE-----\nci-tls-cert\n-----END CERTIFICATE-----\n';
 export const PROXMOX_HOST = 'ci-pve-a';
 
 export const ACTIVE_CONTAINER = {
@@ -193,6 +195,7 @@ export const PROXMOX_SUPPORTING_GAP_MINUTES = 1;
 
 export const EXPECTED_TABLES = [
   'agent_keypairs',
+  'agent_tls_certificates',
   'deploy_history',
   'deploy_queue',
   'docker_container_events',

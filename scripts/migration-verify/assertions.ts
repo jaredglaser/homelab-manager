@@ -2,6 +2,8 @@ import type { Pool } from 'pg';
 import type { Checks } from './checks';
 import {
   ACTIVE_CONTAINER,
+  TLS_HOST,
+  TLS_CERT,
   COUNTER_BUCKET_SAMPLES,
   COUNTER_GUEST,
   DOCKER_HOST,
@@ -1242,5 +1244,73 @@ export async function assertServiceKeyUnification(
     'the rerun leaves the rewritten key in place',
     await serviceKeyFor(UNIFY_COMPOSE.containerId),
     UNIFY_COMPOSE.latestEventKey
+  );
+}
+
+/**
+ * agent_tls_certificates: the FK is the whole point (host renames and deletes
+ * must follow through), and rotation upserts in place. Self-contained: seeds
+ * its own host row, so it runs identically in the fresh, upgrade, and
+ * idempotent scenarios regardless of seed order.
+ */
+export async function assertAgentTlsCertificates(pool: Pool, checks: Checks): Promise<void> {
+  await pool.query(
+    `INSERT INTO managed_hosts (name, agent_url) VALUES ($1, 'http://localhost:9090')
+     ON CONFLICT (name) DO NOTHING`,
+    [TLS_HOST]
+  );
+  await pool.query(
+    `INSERT INTO agent_tls_certificates (host_name, cert_pem) VALUES ($1, $2)
+     ON CONFLICT (host_name) DO NOTHING`,
+    [TLS_HOST, TLS_CERT]
+  );
+
+  const stored = await selectColumn<string>(
+    pool,
+    'SELECT cert_pem FROM agent_tls_certificates WHERE host_name = $1',
+    [TLS_HOST]
+  );
+  checks.equal('the pinned certificate is stored plaintext', stored, [TLS_CERT]);
+
+  const keyColumns = await selectColumn<string>(
+    pool,
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'agent_tls_certificates' AND column_name LIKE '%key%'`
+  );
+  checks.equal('the manager stores no key material', keyColumns, []);
+
+  const rotated = `${TLS_CERT}-rotated`;
+  await pool.query(
+    `INSERT INTO agent_tls_certificates (host_name, cert_pem) VALUES ($1, $2)
+     ON CONFLICT (host_name) DO UPDATE SET cert_pem = EXCLUDED.cert_pem, created_at = now()`,
+    [TLS_HOST, rotated]
+  );
+  checks.equal(
+    'rotation replaces the certificate in place instead of adding a row',
+    await count(pool, 'SELECT count(*) FROM agent_tls_certificates WHERE host_name = $1', [TLS_HOST]),
+    1
+  );
+  checks.equal(
+    'rotation stores the new certificate',
+    (await selectColumn<string>(
+      pool,
+      'SELECT cert_pem FROM agent_tls_certificates WHERE host_name = $1',
+      [TLS_HOST]
+    ))[0],
+    rotated
+  );
+
+  await pool.query('UPDATE managed_hosts SET name = $2 WHERE name = $1', [TLS_HOST, `${TLS_HOST}-renamed`]);
+  checks.equal(
+    'a host rename cascades to the certificate row',
+    await count(pool, 'SELECT count(*) FROM agent_tls_certificates WHERE host_name = $1', [`${TLS_HOST}-renamed`]),
+    1
+  );
+
+  await pool.query('DELETE FROM managed_hosts WHERE name = $1', [`${TLS_HOST}-renamed`]);
+  checks.equal(
+    'deleting the host deletes its certificate row',
+    await count(pool, 'SELECT count(*) FROM agent_tls_certificates'),
+    0
   );
 }

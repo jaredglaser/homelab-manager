@@ -7,7 +7,7 @@ interface WizardProps {
   isAdding: boolean
   addError: string | null
   onSubmit: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
-  verifyResult: { publicJwk: unknown; tls?: { certPem: string; keyPem: string } } | null
+  verifyResult: { publicJwk: unknown } | null
 }
 
 function makeProps(overrides?: Partial<WizardProps>): WizardProps {
@@ -259,32 +259,24 @@ describe('AddHostWizard', () => {
       expect(screen.queryByTestId('pubkey-display')).toBeNull()
     })
 
-    it('shows the TLS cert and key files with their target path after verification', () => {
-      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
-      const tls = { certPem: 'CERT-PEM-CONTENT', keyPem: 'KEY-PEM-CONTENT' }
-      render(<AddHostWizard {...makeProps({ verifyResult: { publicJwk, tls } })} />)
+    it('shows the provisioning error with a re-run provisioning action on failure', () => {
+      render(<AddHostWizard {...makeProps({ addError: 'TLS provisioning failed: the agent did not become healthy over HTTPS.' })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('tls-dir-display').textContent).toBe(
-        '/opt/homelab-manager/stacks/hlm-agent-tls/dev-machine'
-      )
-      expect(screen.getByTestId('tls-cert-display').textContent).toContain('CERT-PEM-CONTENT')
-      expect(screen.getByTestId('tls-key-display').textContent).toContain('KEY-PEM-CONTENT')
-      expect(screen.getByText(/chmod 600/)).toBeDefined()
-      expect(screen.getByText(/cert.pem and/)).toBeDefined()
+      expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+      expect(screen.getByText(/TLS provisioning failed/)).toBeDefined()
     })
 
-    it('does not show the TLS files without tls material in the verify result', () => {
+    it('does not show the re-run action when verification succeeded', () => {
       const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
       render(<AddHostWizard {...makeProps({ verifyResult: { publicJwk } })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.queryByTestId('tls-cert-display')).toBeNull()
-      expect(screen.queryByTestId('tls-key-display')).toBeNull()
+      expect(screen.queryByTestId('rerun-provisioning')).toBeNull()
     })
   })
 
@@ -299,13 +291,22 @@ describe('AddHostWizard', () => {
   })
 
   describe('error display', () => {
-    it('shows error alert when addError is set', () => {
+    it('shows the error with a re-run action on the verify step when addError is set', () => {
       render(<AddHostWizard {...makeProps({ addError: 'Connection refused' })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText('Connection refused')).toBeDefined()
+      expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
 
-    it('does not show alert when addError is null', () => {
+    it('does not show an error alert when addError is null', () => {
       render(<AddHostWizard {...makeProps({ addError: null })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.queryByRole('alert')).toBeNull()
     })
   })

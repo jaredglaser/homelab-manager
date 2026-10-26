@@ -10,6 +10,7 @@ import {
   handleUpdateHost,
   handleGetHostPublicJwk,
   handleRotateHostKeypair,
+  handleRotateHostTls,
   handleUpdateAgent,
 } from '../handlers';
 
@@ -255,46 +256,43 @@ describe('handleVerifyHost', () => {
     expect(deps.keypairs.createForHost).toHaveBeenCalledWith('padded-host');
   });
 
-  it('provisions TLS, rewrites the stored agent URL to https, and returns the material', async () => {
-    const repo = mockRepo();
+  it('provisions TLS and stores the https agent URL on success', async () => {
+    const repo = mockRepo({
+      update: mock(() => Promise.resolve(mockRow({ agentUrl: 'https://x:9090' }))),
+    });
     const deps = {
-      ...baseDeps(),
-      repo,
+      ...baseDeps(repo),
       keypairs: makeKeypairsMock(),
-      provisionTls: mock(async (_hostName: string, _agentUrl: string) => ({
-        agentUrl: 'https://x:9090',
-        certPem: 'CERT-PEM',
-        keyPem: 'KEY-PEM',
-      })),
+      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
     };
     const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
     expect(deps.provisionTls).toHaveBeenCalledWith('tlshost', 'http://x:9090');
     expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'https://x:9090' });
-    expect(result.host.agentUrl).toBe('http://192.168.1.10:9090');
-    expect(result.tls).toEqual({ certPem: 'CERT-PEM', keyPem: 'KEY-PEM' });
+    expect(result.host.agentUrl).toBe('https://x:9090');
   });
 
-  it('rolls back the host record when TLS provisioning fails', async () => {
+  it('leaves the host pending with the actionable provisioning error on failure', async () => {
+    const repo = mockRepo();
     const deps = {
-      ...baseDeps(),
+      ...baseDeps(repo),
       keypairs: makeKeypairsMock(),
       provisionTls: mock(async () => {
-        throw new Error('openssl missing');
+        throw new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
       }),
     };
     await expect(
       handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' }),
-    ).rejects.toThrow(/Failed to provision the TLS certificate: openssl missing/);
-    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+    ).rejects.toThrow(/TLS provisioning failed: the agent did not become healthy over HTTPS/);
+    expect(repo.delete).not.toHaveBeenCalled();
+    expect(repo.update).not.toHaveBeenCalled();
   });
 
   it('creates the host record with the original URL before the https rewrite', async () => {
     const repo = mockRepo();
     const deps = {
-      ...baseDeps(),
-      repo,
+      ...baseDeps(repo),
       keypairs: makeKeypairsMock(),
-      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090', certPem: 'C', keyPem: 'K' })),
+      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
     };
     await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
     expect(repo.create).toHaveBeenCalledWith({
@@ -305,6 +303,32 @@ describe('handleVerifyHost', () => {
   });
 });
 
+describe('handleRotateHostTls', () => {
+  it('re-runs provisioning against the current agent URL and stores the resulting https URL', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090' }))),
+      update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
+    });
+    const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
+    const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7 });
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090');
+    expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
+  });
+
+  it('propagates the provisioning error without touching the host record', async () => {
+    const repo = mockRepo();
+    const deps = {
+      repo,
+      provisionTls: mock(async () => {
+        throw new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
+      }),
+    };
+    await expect(handleRotateHostTls(deps, { hostId: 1 })).rejects.toThrow(/TLS provisioning failed/);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+});
 describe('handleUpdateHost', () => {
   it('updates agentUrl and returns mapped HostListItem when name is unchanged', async () => {
     const updatedRow = mockRow({ name: 'test-host', agentUrl: 'http://new-url:9090' });

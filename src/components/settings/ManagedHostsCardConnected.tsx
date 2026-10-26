@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost, getHostPublicJwk, rotateHostKeypair } from '@/data/hosts/functions'
+import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost, getHostPublicJwk, rotateHostKeypair, rotateHostTls } from '@/data/hosts/functions'
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
 import { useToast } from '@/hooks/toastAtom'
 
@@ -11,8 +11,9 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
   const { showToast } = useToast()
   const [addError, setAddError] = useState<string | null>(null)
-  const [verifyResult, setVerifyResult] = useState<{ publicJwk: unknown; tls?: { certPem: string; keyPem: string } } | null>(null)
+  const [verifyResult, setVerifyResult] = useState<{ publicJwk: unknown } | null>(null)
   const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
+  const [rotatingTlsHostIds, setRotatingTlsHostIds] = useState<Set<number>>(new Set())
 
   const { data: hosts = [], isLoading } = useQuery({
     queryKey: HOSTS_QUERY_KEY,
@@ -29,7 +30,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setAddError(null)
       if (result.publicJwk) {
-        setVerifyResult({ publicJwk: result.publicJwk, tls: result.tls })
+        setVerifyResult({ publicJwk: result.publicJwk })
       } else {
         setVerifyResult(null)
       }
@@ -95,6 +96,23 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     },
   })
 
+  const rotateTlsMutation = useMutation({
+    mutationFn: (hostId: number) => {
+      setRotatingTlsHostIds((prev) => new Set(prev).add(hostId))
+      return rotateHostTls({ data: { hostId } })
+    },
+    onSuccess: (result, hostId) => {
+      setRotatingTlsHostIds((prev) => { const next = new Set(prev); next.delete(hostId); return next })
+      void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+      showToast(`TLS certificate rotated for ${result.agentUrl}. The agent restarted with the new certificate.`, 'success')
+    },
+    onError: (err: unknown, hostId: number) => {
+      setRotatingTlsHostIds((prev) => { const next = new Set(prev); next.delete(hostId); return next })
+      const message = err instanceof Error ? err.message : 'Failed to rotate the TLS certificate'
+      showToast(message, 'error')
+    },
+  })
+
   const healthMutation = useMutation({
     mutationFn: (hostId: number) => {
       setCheckingHostIds(prev => new Set(prev).add(hostId))
@@ -142,6 +160,8 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       onRotateKeypair={(hostId) => rotateKeypairMutation.mutate(hostId)}
       keypairRotating={rotateKeypairMutation.isPending}
       keypairJwkJson={keypairJwkJson}
+      onRotateTls={(hostId) => rotateTlsMutation.mutate(hostId)}
+      rotatingTlsHostIds={rotatingTlsHostIds}
     />
   )
 }

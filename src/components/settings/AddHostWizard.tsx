@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Stepper } from '@/components/ui/stepper'
 import { getAgentImage } from '@/lib/hosts/host-utils'
@@ -9,7 +8,6 @@ import ZfsSetupStep from '@/components/settings/wizard-steps/ZfsSetupStep'
 import ComposeFileStep from '@/components/settings/wizard-steps/ComposeFileStep'
 import ConfigurationStep from '@/components/settings/wizard-steps/ConfigurationStep'
 import VerifyConnectionStep from '@/components/settings/wizard-steps/VerifyConnectionStep'
-import { hostTlsDir } from '@/lib/templates/agent-stack-compose'
 
 const WIZARD_STEPS = ['Capabilities', 'ZFS Setup', 'Compose File', 'Configuration', 'Verify Connection'] as const
 
@@ -20,7 +18,7 @@ interface AddHostWizardProps {
   isAdding: boolean
   addError: string | null
   onSubmit: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
-  verifyResult: { publicJwk: unknown; tls?: { certPem: string; keyPem: string } } | null
+  verifyResult: { publicJwk: unknown } | null
 }
 
 function parseGatedId(enabled: boolean, raw: string): number | undefined {
@@ -147,19 +145,12 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
             isAdding={isAdding}
             canVerify={canVerify}
             publicJwkJson={publicJwkJson}
-            tls={verifyResult?.tls}
-            tlsDir={verifyResult?.tls ? hostTlsDir(name.trim()) : null}
+            error={addError}
             onAgentUrlChange={setAgentUrl}
             onVerify={handleVerify}
           />
         )}
       </div>
-
-      {addError && (
-        <Alert variant="error" className="mt-1">
-          <AlertDescription>{addError}</AlertDescription>
-        </Alert>
-      )}
 
       <div className="flex justify-between">
         <div>

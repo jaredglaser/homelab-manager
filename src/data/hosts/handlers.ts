@@ -18,8 +18,6 @@ export interface KeypairsDep {
 export interface AddHostResult {
   host: HostListItem;
   publicJwk?: import('jose').JWK;
-  /** Only set when TLS was provisioned; the wizard shows these as files for the operator to copy. */
-  tls?: { certPem: string; keyPem: string };
 }
 
 export type HostOperationResult =
@@ -172,8 +170,8 @@ export async function handleRotateHostKeypair(
 export async function handleVerifyHost(
   deps: HostHandlerDeps & {
     keypairs: KeypairsDep;
-    /** Must run after repo.create: the cert row has an FK on the host name. Returns the https agent URL to store. */
-    provisionTls?: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string; certPem: string; keyPem: string }>;
+    /** Must run after repo.create: the cert row has an FK on the host name. Flips the agent URL to https on success. */
+    provisionTls?: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
   },
   data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
@@ -192,23 +190,19 @@ export async function handleVerifyHost(
     throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`);
   }
 
-  let tls: { certPem: string; keyPem: string } | undefined;
   if (deps.provisionTls) {
-    let provisioned: { agentUrl: string; certPem: string; keyPem: string };
+    let provisioned: { agentUrl: string };
     try {
       provisioned = await deps.provisionTls(name, data.agentUrl);
     } catch (err) {
-      await deps.repo.delete(host.id);
-      throw new Error(
-        `Failed to provision the TLS certificate: ${err instanceof Error ? err.message : err}. Host record cleaned up.`,
-      );
+      // The host stays pending so the operator can fix the agent and re-run
+      // provisioning instead of losing the enrolled keypair with the record.
+      throw new Error(err instanceof Error ? err.message : String(err));
     }
     const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
-    tls = { certPem: provisioned.certPem, keyPem: provisioned.keyPem };
     return {
       host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
       publicJwk,
-      tls,
     };
   }
 
@@ -216,6 +210,25 @@ export async function handleVerifyHost(
     host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
     publicJwk,
   };
+}
+
+/**
+ * Re-run TLS provisioning for an enrolled host: the agent regenerates its
+ * keypair, the manager re-pins the new certificate, and the agent URL ends on
+ * https. The host record and its keypair are never touched on failure.
+ */
+export async function handleRotateHostTls(
+  deps: HostHandlerDeps & {
+    provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
+  },
+  data: { hostId: number },
+): Promise<{ hostId: number; agentUrl: string }> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const provisioned = await deps.provisionTls(host.name, host.agentUrl);
+  await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+  return { hostId: host.id, agentUrl: provisioned.agentUrl };
 }
 
 // Scoped to this host's agentUrl. Never touches any other host.
