@@ -40,6 +40,7 @@ ov.conf
 .paul
 .superpowers
 agent-token
+.secrets/
 
 # Playwright
 /test-results/
