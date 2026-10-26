@@ -48,7 +48,7 @@ export const WS_MUX_SEAM_RESTRICTIONS = [
   WS_MUX_SSE_TRIPWIRE,
 ];
 
-// Endpoint auth enforcement; exemptions are inline eslint-disable directives at the exempt site, never a central allowlist.
+// Endpoint auth enforcement. Exemptions are inline eslint-disable directives at the exempt site, never a central allowlist.
 const AUTH_SEAM_NAMES = ['authMiddleware', 'requireRole', 'authenticateWsUpgrade', 'authenticateRequest', 'resolveUserFromCookie'];
 
 const endpointAuthRule = {
@@ -292,7 +292,7 @@ export default tseslint.config(
   },
   { files: ['src/lib/test/wait-for-condition.ts'], rules: { 'no-restricted-syntax': 'off' } },
 
-  // Endpoint auth enforcement. Route modules and data function files only.
+  // Endpoint auth enforcement.
   {
     files: [
       'server/routes/**/*.ts',

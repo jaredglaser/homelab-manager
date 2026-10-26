@@ -169,6 +169,7 @@ describe('docker-exec websocket route', () => {
       const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
       expect(thrown).toBeInstanceOf(Response);
       expect((thrown as Response).status).toBe(403);
+      expect(await (thrown as Response).json()).toEqual({ error: 'Insufficient permissions' });
     });
 
     it('returns an identical 401 rejection regardless of the supplied host name', async () => {
