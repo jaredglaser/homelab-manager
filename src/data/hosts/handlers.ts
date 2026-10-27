@@ -48,7 +48,7 @@ export interface HostRepo {
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateLastSweptAt(id: number, at: Date): Promise<void>;
-  updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null }): Promise<void>;
+  updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null; imageDigest?: string | null; outOfDate?: boolean }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
 
@@ -399,8 +399,23 @@ export async function handleUpdateAgent(
 
   if (!newVersion) {
     if (lastResult.healthy && currentVersion !== undefined && lastResult.version === currentVersion) {
-      // The trigger returned 202, so an update whose digest differed was started: the container was
-      // replaced even though the version string is unchanged, which happens when an image is rebuilt without a bump.
+      // An image rebuilt without a version bump keeps the version string, so the digest is what proves the swap happened.
+      if (typeof lastResult.agentImageDigest === 'string') {
+        if (lastResult.agentImageDigest !== digest) {
+          return {
+            hostId: host.id,
+            healthy: false,
+            error: 'The agent is still running its previous image, so the update was interrupted before it completed',
+            suggestions: [
+              'Check free disk space on the host, then retry the update',
+              'Run `docker ps -a | grep hlm-agent` to check container state',
+            ],
+          };
+        }
+        await deps.repo.updateStatus(host.id, 'healthy');
+        await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
+        return { hostId: host.id, healthy: true };
+      }
       return { hostId: host.id, healthy: true };
     }
     if (lastResult.healthy && preInfoUnsupported && !sawRestart) {
@@ -438,7 +453,7 @@ export async function handleUpdateAgent(
   }
 
   await deps.repo.updateStatus(host.id, 'healthy');
-  await deps.repo.updateAgentInfo(host.id, { version: newVersion });
+  await deps.repo.updateAgentInfo(host.id, { version: newVersion, imageDigest: digest, outOfDate: false });
   return { hostId: host.id, healthy: true, version: newVersion };
 }
 

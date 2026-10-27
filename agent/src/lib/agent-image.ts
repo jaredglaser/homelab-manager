@@ -100,10 +100,15 @@ export async function resolveAgentImage(
 // Resolved fresh on every /info, never cached: the manager compares this digest
 // against the registry digest of its own agent image to flag an update, and a
 // cached value would freeze the comparison at whatever the first probe saw.
-export async function resolveRunningAgentDigest(
+export interface RunningAgentReference {
+  repo: string;
+  digest: string;
+}
+
+export async function resolveRunningAgentReference(
   docker: Dockerode | null,
   containerName: string,
-): Promise<string | null> {
+): Promise<RunningAgentReference | null> {
   if (!docker) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -117,15 +122,25 @@ export async function resolveRunningAgentDigest(
         }),
       ]);
       const repoDigest = imageInfo.RepoDigests?.[0];
-      return repoDigest && repoDigest.includes('@') ? repoDigest.split('@')[1] : null;
+      if (!repoDigest || !repoDigest.includes('@')) return null;
+      const at = repoDigest.indexOf('@');
+      return { repo: repoDigest.slice(0, at), digest: repoDigest.slice(at + 1) };
     } finally {
       if (timer) clearTimeout(timer);
     }
   } catch (error) {
     console.error(
-      `Could not determine the running agent image digest from container '${containerName}':`,
+      `Could not determine the running agent image reference from container '${containerName}':`,
       error instanceof Error ? error.message : error,
     );
     return null;
   }
+}
+
+export async function resolveRunningAgentDigest(
+  docker: Dockerode | null,
+  containerName: string,
+): Promise<string | null> {
+  const reference = await resolveRunningAgentReference(docker, containerName);
+  return reference ? reference.digest : null;
 }
