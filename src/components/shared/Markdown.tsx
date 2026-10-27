@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 
 const INLINE_TOKEN = /(`[^`]+`)|(\[([^\]]+)\]\((https?:\/\/[^)\s]+)\))/g;
-const EMPHASIS_TOKEN = /(\*\*[^*]+\*\*)|(\*[^*]+\*)/g;
+// Emphasis requires a non-space character right inside each delimiter, so
+// "2 * 3 * 4" renders as literal text instead of italicizing " 3 ".
+const EMPHASIS_TOKEN = /(\*\*[^*]+\*\*)|(\*(?!\s)[^*]+?\*(?<!\s))/g;
 
 const HEADING_CLASS: Record<number, string> = {
   1: 'text-lg font-semibold mt-3 mb-1',

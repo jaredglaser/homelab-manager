@@ -53,6 +53,12 @@ describe('Markdown', () => {
     expect(screen.getByText('italic').tagName).toBe('EM');
   });
 
+  it('does not italicize asterisks surrounded by spaces', () => {
+    const { container } = render(<Markdown source={'2 * 3 * 4 = 24'} />);
+    expect(container.querySelector('em')).toBeNull();
+    expect(container.textContent).toContain('2 * 3 * 4 = 24');
+  });
+
   it('renders blockquotes and horizontal rules', () => {
     const { container } = render(<Markdown source={'> quoted\n\n---'} />);
     expect(container.querySelector('blockquote')?.textContent).toBe('quoted');
