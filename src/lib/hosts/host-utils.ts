@@ -22,8 +22,7 @@ export type HealthCheckOutcome =
       dockerVersion?: string;
       agentImage?: string | null;
       agentImageTag?: string | null;
-      agentUpdaterImageDigest?: string | null;
-      agentUpdaterImageTag?: string | null;
+      agentImageDigest?: string | null;
       infoSupported?: boolean;
     }
   | { healthy: false; reason?: AgentHealthFailureReason; error: string };
@@ -51,7 +50,6 @@ export function toHostListItem(
 }
 
 const AGENT_IMAGE_REPO = 'ghcr.io/jaredglaser/homelab-manager-agent';
-const AGENT_UPDATER_IMAGE_REPO = 'ghcr.io/jaredglaser/homelab-manager-agent-updater';
 export const DEFAULT_AGENT_IMAGE_TAG = 'latest';
 
 // Docker's tag grammar. The value lands unquoted in the generated agent .env, so a junk
@@ -71,8 +69,4 @@ export function getAgentImageTag(): string {
 
 export function getAgentImage(): string {
   return `${AGENT_IMAGE_REPO}:${getAgentImageTag()}`;
-}
-
-export function getAgentUpdaterImage(): string {
-  return `${AGENT_UPDATER_IMAGE_REPO}:${getAgentImageTag()}`;
 }

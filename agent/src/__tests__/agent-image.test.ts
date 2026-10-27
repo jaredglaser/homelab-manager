@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
-import { createAgentImageResolver, parseImageTag, resolveAgentImage, resolveUpdaterImageInfo } from '../lib/agent-image';
+import { createAgentImageResolver, parseImageTag, resolveAgentImage, resolveRunningAgentDigest } from '../lib/agent-image';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -202,53 +202,46 @@ describe('createAgentImageResolver', () => {
   });
 });
 
-describe('resolveUpdaterImageInfo', () => {
-  test('reports the sidecar image, tag, and repo digest', async () => {
+describe('resolveRunningAgentDigest', () => {
+  test('reports the repo digest of the image the agent container runs', async () => {
     const digest = 'sha256:' + 'd'.repeat(64);
     const docker = {
       getContainer: mock(() => ({
         inspect: mock(() => Promise.resolve({
-          Image: 'sha256:sidecar-image-id',
-          Config: { Image: 'ghcr.io/x/updater:latest' },
+          Image: 'sha256:agent-image-id',
+          Config: { Image: 'ghcr.io/x/agent:latest' },
         })),
       })),
       getImage: mock(() => ({
-        inspect: mock(() => Promise.resolve({ RepoDigests: ['ghcr.io/x/updater@' + digest] })),
+        inspect: mock(() => Promise.resolve({ RepoDigests: ['ghcr.io/x/agent@' + digest] })),
       })),
     };
 
-    expect(await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater')).toEqual({
-      image: 'ghcr.io/x/updater:latest',
-      imageTag: 'latest',
-      imageDigest: digest,
-    });
+    expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBe(digest);
   });
 
-  test('reports a digest-pinned image with a null tag', async () => {
-    const digest = 'sha256:' + 'd'.repeat(64);
+  test('reports null when the image carries no repo digest', async () => {
     const docker = {
       getContainer: mock(() => ({
         inspect: mock(() => Promise.resolve({
-          Image: 'sha256:sidecar-image-id',
-          Config: { Image: 'ghcr.io/x/updater@' + digest },
+          Image: 'sha256:agent-image-id',
+          Config: { Image: 'ghcr.io/x/agent:latest' },
         })),
       })),
       getImage: mock(() => ({
-        inspect: mock(() => Promise.resolve({ RepoDigests: ['ghcr.io/x/updater@' + digest] })),
+        inspect: mock(() => Promise.resolve({ RepoDigests: [] })),
       })),
     };
 
-    const result = await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater');
-    expect(result.imageTag).toBeNull();
-    expect(result.imageDigest).toBe(digest);
+    expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBeNull();
   });
 
-  test('keeps the image but a null digest when the image inspect fails', async () => {
+  test('reports null when the image inspect fails', async () => {
     const docker = {
       getContainer: mock(() => ({
         inspect: mock(() => Promise.resolve({
-          Image: 'sha256:sidecar-image-id',
-          Config: { Image: 'ghcr.io/x/updater:latest' },
+          Image: 'sha256:agent-image-id',
+          Config: { Image: 'ghcr.io/x/agent:latest' },
         })),
       })),
       getImage: mock(() => ({
@@ -256,11 +249,7 @@ describe('resolveUpdaterImageInfo', () => {
       })),
     };
 
-    expect(await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater')).toEqual({
-      image: 'ghcr.io/x/updater:latest',
-      imageTag: 'latest',
-      imageDigest: null,
-    });
+    expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBeNull();
   });
 
   test('gives up on a hung image inspect instead of leaving /info awaiting it forever', async () => {
@@ -270,8 +259,8 @@ describe('resolveUpdaterImageInfo', () => {
       const docker = {
         getContainer: () => ({
           inspect: () => Promise.resolve({
-            Image: 'sha256:sidecar-image-id',
-            Config: { Image: 'ghcr.io/x/updater:latest' },
+            Image: 'sha256:agent-image-id',
+            Config: { Image: 'ghcr.io/x/agent:latest' },
           }),
         }),
         getImage: () => ({
@@ -279,22 +268,14 @@ describe('resolveUpdaterImageInfo', () => {
         }),
       };
 
-      expect(await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater')).toEqual({
-        image: 'ghcr.io/x/updater:latest',
-        imageTag: 'latest',
-        imageDigest: null,
-      });
+      expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBeNull();
     } finally {
       globalThis.setTimeout = realSetTimeout;
     }
   });
 
   test('reports nothing on a ZFS-only host with no Docker', async () => {
-    expect(await resolveUpdaterImageInfo(null, 'hlm-agent-updater')).toEqual({
-      image: null,
-      imageTag: null,
-      imageDigest: null,
-    });
+    expect(await resolveRunningAgentDigest(null, 'hlm-agent')).toBeNull();
   });
 
   test('reports nothing when the container inspect fails', async () => {
@@ -304,10 +285,6 @@ describe('resolveUpdaterImageInfo', () => {
       })),
     };
 
-    expect(await resolveUpdaterImageInfo(docker as never, 'hlm-agent-updater')).toEqual({
-      image: null,
-      imageTag: null,
-      imageDigest: null,
-    });
+    expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBeNull();
   });
 });

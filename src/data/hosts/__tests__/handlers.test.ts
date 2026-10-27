@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
-import { getAgentImage, getAgentUpdaterImage } from '@/lib/hosts/host-utils';
+import { getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
 import {
   handleListHosts,
@@ -23,9 +23,8 @@ function mockRow(overrides?: Record<string, unknown>) {
     agentVersion: null,
     agentImage: null,
     agentImageTag: null,
-    agentUpdaterImageDigest: null,
-    agentUpdaterImageTag: null,
-    agentUpdaterOutOfDate: false,
+    agentImageDigest: null,
+    agentOutOfDate: false,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
     lastSweptAt: null,
@@ -376,20 +375,17 @@ describe('handleUpdateAgent', () => {
 
   const TEST_DIGEST = 'sha256:' + 'b'.repeat(64);
   const TEST_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent@${TEST_DIGEST}`;
-  const TEST_UPDATER_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent-updater@${TEST_DIGEST}`;
 
   function updateDeps(
     repo?: Partial<HostRepo>,
     checkHealth?: (url: string, hostName: string) => Promise<import('@/lib/hosts/host-utils').HealthCheckOutcome>,
     resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>,
-    devDashboard?: boolean,
   ) {
     return {
       ...baseDeps(repo),
       getSigner,
       checkHealth: checkHealth ?? mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })),
       resolveAgentImageDigest: resolveAgentImageDigest ?? mock(async (_imageRef: string) => TEST_DIGEST),
-      devDashboard,
     };
   }
 
@@ -413,59 +409,12 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(true);
       expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentImage());
-      expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentUpdaterImage());
+      expect(resolveAgentImageDigest).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith(
         'http://192.168.1.10:9090/agent/update',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: TEST_UPDATER_TARGET }),
-        }),
-      );
-    } finally {
-      restore();
-    }
-  });
-
-  it('still triggers the agent update with updaterTargetImage null when only the updater digest is unresolvable', async () => {
-    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
-    try {
-      let calls = 0;
-      const resolveAgentImageDigest = mock(async (_imageRef: string) => {
-        calls++;
-        return calls === 1 ? TEST_DIGEST : null;
-      });
-      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(true);
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://192.168.1.10:9090/agent/update',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: null }),
-        }),
-      );
-    } finally {
-      restore();
-    }
-  });
-
-  it('still triggers the agent update when the updater digest resolver throws', async () => {
-    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
-    try {
-      let calls = 0;
-      const resolveAgentImageDigest = mock(async (_imageRef: string) => {
-        calls++;
-        if (calls === 1) return TEST_DIGEST;
-        throw new Error('registry exploded');
-      });
-      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(true);
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://192.168.1.10:9090/agent/update',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ targetImage: TEST_TARGET, updaterTargetImage: null }),
+          body: JSON.stringify({ targetImage: TEST_TARGET }),
         }),
       );
     } finally {
@@ -528,7 +477,7 @@ describe('handleUpdateAgent', () => {
       expect(result.healthy).toBe(true);
       if (result.healthy) expect(result.version).toBe('2.0.0');
       expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
-      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0' });
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0', imageDigest: TEST_DIGEST, outOfDate: false });
     } finally {
       restore();
     }
@@ -646,6 +595,44 @@ describe('handleUpdateAgent', () => {
     }
   });
 
+  it('reports an interrupted update when the agent still runs the previous digest', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const staleDigest = 'sha256:' + 'a'.repeat(64);
+      const deps = updateDeps(undefined, mock(() =>
+        Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: staleDigest }),
+      ));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.error).toBe('The agent is still running its previous image, so the update was interrupted before it completed');
+        expect(result.suggestions).toContain('Check free disk space on the host, then retry the update');
+      }
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('records the applied digest when a rebuilt image keeps the version string', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const repo = mockRepo();
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(repo, mock(() =>
+        Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: TEST_DIGEST }),
+      ));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
   it('reports an unreadable version when the agent is healthy but reports none after the trigger', async () => {
     const timers = mockSetTimeout({ fireImmediately: true });
     const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
@@ -687,13 +674,39 @@ describe('handleUpdateAgent', () => {
     }
   });
 
+  it('reports an unconfirmed update when an info-less agent never restarts', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        // The pre-check answers without a version and /info 404s. Every poll is healthy with a version.
+        return Promise.resolve(
+          calls === 1
+            ? { healthy: true as const, infoSupported: false }
+            : { healthy: true as const, version: '1.0.0', infoSupported: false },
+        );
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.error).toBe('The agent stayed reachable throughout the update window, so its restart could not be confirmed');
+        expect(result.suggestions).toContain('Re-run the update after the current attempt settles');
+      }
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
   it('surfaces a non-202 trigger response as a failure', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'agent-updater sidecar is not reachable' }), { status: 503 })));
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'Agent updates require Docker capability, which this agent does not have.' }), { status: 503 })));
     try {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toContain('agent-updater');
+      if (!result.healthy) expect(result.error).toContain('Docker capability');
     } finally {
       restore();
     }
@@ -711,31 +724,5 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('maps a 503 trigger response to the dev message on a dev dashboard', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'Update trigger token is not configured on the agent. Regenerate the compose stack to set it.' }), { status: 503 })));
-    try {
-      const deps = updateDeps(undefined, undefined, undefined, true);
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(false);
-      if (!result.healthy) {
-        expect(result.error).toBe('The dev agent stack runs without the agent-updater container, so remote updates are unavailable in local development.');
-        expect(result.suggestions).toContain('To exercise remote updates, deploy an agent from a stack generated by the Add Host wizard');
-      }
-    } finally {
-      restore();
-    }
-  });
-
-  it('passes the agent trigger-token message through on a production dashboard', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'Update trigger token is not configured on the agent. Regenerate the compose stack to set it.' }), { status: 503 })));
-    try {
-      const deps = updateDeps(undefined, undefined, undefined, false);
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Update trigger token is not configured on the agent. Regenerate the compose stack to set it.');
-    } finally {
-      restore();
-    }
-  });
 });
 

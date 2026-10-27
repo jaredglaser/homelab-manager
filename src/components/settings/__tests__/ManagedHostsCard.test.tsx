@@ -528,7 +528,6 @@ describe('agent channel notice', () => {
   const noticeProps = {
     expectedTag: '0.1',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:0.1',
-    agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:0.1',
     mismatched: [],
     unreported: [],
   }
@@ -551,7 +550,6 @@ describe('agent channel notice', () => {
     render(<AgentChannelNotice {...noticeProps} />)
     expect(screen.getByText('Agents pinned to the 0.1 channel')).toBeTruthy()
     expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent:0.1')).toBeTruthy()
-    expect(screen.getByText('ghcr.io/jaredglaser/homelab-manager-agent-updater:0.1')).toBeTruthy()
   })
 
   it('lists each mismatched host with the image it actually runs', () => {
@@ -571,7 +569,6 @@ describe('agent channel notice', () => {
     const mismatched = [makeHost({ agentImage: 'ghcr.io/x/agent:latest', agentImageTag: 'latest' })]
     render(<AgentChannelNotice {...noticeProps} mismatched={mismatched} />)
     expect(screen.getByText('AGENT_IMAGE')).toBeTruthy()
-    expect(screen.getByText('AGENT_UPDATER_IMAGE')).toBeTruthy()
     expect(screen.getByText('docker compose up -d')).toBeTruthy()
   })
 

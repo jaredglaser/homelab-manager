@@ -9,7 +9,7 @@ import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
-import { createAgentImageResolver, resolveUpdaterImageInfo } from './lib/agent-image';
+import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
 
@@ -34,7 +34,6 @@ if (!AGENT_HOST_NAME) {
   process.exit(1);
 }
 const DOCKER_HOST = process.env.DOCKER_HOST;
-const UPDATER_TRIGGER_URL = process.env.HLM_UPDATER_URL || 'http://hlm-agent-updater:9091/trigger';
 
 let trustedPubkeyJson: string;
 if (AGENT_TRUSTED_PUBKEY_FILE) {
@@ -117,7 +116,6 @@ if (DOCKER_HOST) {
 const zfsCapabilities = await detectZfsCapabilities();
 
 const resolveAgentImage = createAgentImageResolver(docker, AGENT_CONTAINER_NAME, process.env.AGENT_IMAGE);
-const UPDATER_CONTAINER_NAME = process.env.HLM_UPDATER_CONTAINER ?? 'hlm-agent-updater';
 
 if (!docker && !zfsCapabilities.available) {
   console.error('No capabilities available. Set DOCKER_HOST for Docker support, or ensure zpool is installed for ZFS support.');
@@ -129,7 +127,7 @@ if (!docker && !zfsCapabilities.available) {
  */
 function matchRoute(request: Request, url: URL): Promise<Response> | Response | null {
   if (url.pathname === '/health' && request.method === 'GET') return handleHealth(docker, zfsCapabilities);
-  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, zfsCapabilities, resolveAgentImage, () => resolveUpdaterImageInfo(docker, UPDATER_CONTAINER_NAME));
+  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, zfsCapabilities, resolveAgentImage, () => resolveRunningAgentDigest(docker, AGENT_CONTAINER_NAME));
   if (url.pathname === '/auth/verify' && request.method === 'GET') return Response.json({ status: 'ok' });
 
   if (docker) {
@@ -162,7 +160,7 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
 
   if (url.pathname === '/agent/update' && request.method === 'POST') {
-    return handleAgentUpdate(docker, UPDATER_TRIGGER_URL, process.env.HLM_TRIGGER_TOKEN, request);
+    return handleAgentUpdate(docker, AGENT_CONTAINER_NAME, PORT, request);
   }
 
   return null;

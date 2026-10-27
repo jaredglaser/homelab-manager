@@ -3,7 +3,6 @@ import {
   toHostListItem,
   getAgentImage,
   getAgentImageTag,
-  getAgentUpdaterImage,
   normalizeAgentImageTag,
   DEFAULT_AGENT_IMAGE_TAG,
 } from '@/lib/hosts/host-utils';
@@ -19,9 +18,8 @@ describe('toHostListItem', () => {
     agentVersion: '1.0.0',
     agentImage: null,
     agentImageTag: null,
-    agentUpdaterImageDigest: null,
-    agentUpdaterImageTag: null,
-    agentUpdaterOutOfDate: false,
+    agentImageDigest: null,
+    agentOutOfDate: false,
     status: 'healthy',
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-02T00:00:00Z'),
@@ -152,18 +150,16 @@ describe('agent images', () => {
     setBuildTag(originalTag);
   });
 
-  test('defaults both images to latest when the build set no tag', () => {
+  test('defaults the image to latest when the build set no tag', () => {
     setBuildTag(undefined);
     expect(getAgentImageTag()).toBe(DEFAULT_AGENT_IMAGE_TAG);
     expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
-    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
   });
 
-  test('pins both images to the tag the build baked in', () => {
+  test('pins the image to the tag the build baked in', () => {
     setBuildTag('dev');
     expect(getAgentImageTag()).toBe('dev');
     expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');
-    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:dev');
   });
 
   test('pins to a release tag', () => {
@@ -195,11 +191,8 @@ describe('generated enrollment files carry the build tag', () => {
       hostName: 'test-host',
       agentTrustedPubkey: 'pubkey',
       agentImage: getAgentImage(),
-      agentUpdaterImage: getAgentUpdaterImage(),
-      triggerToken: 'test-trigger-token',
       capabilities: { docker: true, zfs: false },
     });
     expect(env).toContain('AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:dev\n');
-    expect(env).toContain('AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:dev\n');
   });
 });

@@ -5,8 +5,7 @@ export interface AgentInfoDetail {
   dockerVersion?: string;
   agentImage?: string | null;
   agentImageTag?: string | null;
-  agentUpdaterImageDigest?: string | null;
-  agentUpdaterImageTag?: string | null;
+  agentImageDigest?: string | null;
   infoSupported?: boolean;
 }
 
@@ -77,8 +76,7 @@ async function fetchAgentInfo(
       dockerVersion: boundedAgentField(data.capabilities?.docker?.version) ?? undefined,
       agentImage: boundedAgentField(data.agentImage),
       agentImageTag: boundedAgentField(data.agentImageTag),
-      agentUpdaterImageDigest: boundedAgentField(data.agentUpdaterImageDigest),
-      agentUpdaterImageTag: boundedAgentField(data.agentUpdaterImageTag),
+      agentImageDigest: boundedAgentField(data.agentImageDigest),
       infoSupported: true,
     };
   } catch (err) {

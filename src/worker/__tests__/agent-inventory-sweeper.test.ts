@@ -13,9 +13,8 @@ function entry(id: number): AgentInventoryEntry {
     versionSource: 'stored',
     agentImage: null,
     agentImageTag: null,
-    agentUpdaterImageDigest: null,
-    agentUpdaterImageTag: null,
-    updaterOutOfDate: false,
+    agentImageDigest: null,
+    agentOutOfDate: false,
     lastError: null,
     checkedAt: new Date().toISOString(),
   };

@@ -41,29 +41,6 @@ updates:
           - "minor"
           - "patch"
 
-  - package-ecosystem: "bun"
-    directory: "/agent-updater"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      semver-patch-days: 7
-      semver-minor-days: 14
-      semver-major-days: 30
-    ignore:
-      - dependency-name: "dockerode"
-      - dependency-name: "jose"
-      - dependency-name: "zod"
-      - dependency-name: "@types/dockerode"
-      - dependency-name: "@types/bun"
-      - dependency-name: "typescript"
-    groups:
-      agent-updater-npm-patch-minor:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -112,18 +89,3 @@ updates:
           - "minor"
           - "patch"
 
-  - package-ecosystem: "docker"
-    directory: "/agent-updater"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    ignore:
-      - dependency-name: "oven/bun"
-    groups:
-      agent-updater-docker-patch-minor:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"

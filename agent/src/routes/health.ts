@@ -1,5 +1,5 @@
 import type Dockerode from 'dockerode';
-import type { AgentImageInfo, UpdaterImageInfo } from '../lib/agent-image';
+import type { AgentImageInfo } from '../lib/agent-image';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 // CI stamps AGENT_VERSION from the release tag at image build time. Local dev
 // falls back to the short commit hash, matching what non-tag CI images report.
@@ -83,11 +83,11 @@ export async function handleInfo(
   docker: Dockerode | null,
   zfsCapabilities?: ZfsCapabilities,
   resolveImage?: () => Promise<AgentImageInfo>,
-  resolveUpdaterImage?: () => Promise<UpdaterImageInfo>
+  resolveDigest?: () => Promise<string | null>
 ): Promise<Response> {
   const { dockerCapability, zfsAvailable, isHealthy } = await checkHealthy(docker, zfsCapabilities);
   const agentImage = await resolveImage?.();
-  const updaterImage = await resolveUpdaterImage?.();
+  const agentImageDigest = await resolveDigest?.();
 
   return Response.json(
     {
@@ -95,9 +95,7 @@ export async function handleInfo(
       agentVersion: resolveAgentVersion(),
       agentImage: agentImage?.image ?? null,
       agentImageTag: agentImage?.tag ?? null,
-      agentUpdaterImage: updaterImage?.image ?? null,
-      agentUpdaterImageTag: updaterImage?.imageTag ?? null,
-      agentUpdaterImageDigest: updaterImage?.imageDigest ?? null,
+      agentImageDigest: agentImageDigest ?? null,
       capabilities: {
         docker: dockerCapability,
         zfs: zfsAvailable

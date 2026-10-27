@@ -74,7 +74,7 @@ Entries must be HTTPS-reachable because the registry token flow requires it. A m
 ### Step 2: Start the Dev Stack
 
 ```bash
-bun run setup              # Installs homelab-manager, agent, and agent-updater
+bun run setup              # Installs homelab-manager and agent
 
 # Terminal 1: Start all Docker services
 bun run dev:local:up
@@ -235,14 +235,14 @@ bun run test:coverage:all   # Run tests in both with coverage thresholds
 
 ### Coverage Requirements
 
-- Function and line minimums live in the `THRESHOLDS` object in `scripts/check-coverage.js`. That file is the single source of truth for all three packages (homelab-manager, agent, agent-updater all pipe into it), so check the values there instead of relying on a number copied into docs.
+- Function and line minimums live in the `THRESHOLDS` object in `scripts/check-coverage.js`. That file is the single source of truth for both packages (homelab-manager and agent both pipe into it), so check the values there instead of relying on a number copied into docs.
 - Enforced by `bun run test` (which pipes `--coverage` to `scripts/check-coverage.js`) and CI. Bare `bun test --isolate` does NOT enforce the thresholds.
 
 Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).
 
 ### Shared Dependency Versions
 
-The three packages (homelab-manager, agent, agent-updater) are independent Bun projects with their own lockfiles; they install separately so each Docker image build resolves exactly its own `bun.lock` (the agent and agent-updater images are built from their own directories and pinned to their own lockfiles). Dependencies in the shared set (`dockerode`, `jose`, `zod`, `@types/dockerode`, `@types/bun`, `typescript`) are versioned once, in the root `package.json`:
+The two packages (homelab-manager, agent) are independent Bun projects with their own lockfiles; they install separately so each Docker image build resolves exactly its own `bun.lock` (the agent image is built from its own directory and pinned to its own lockfile). Dependencies in the shared set (`dockerode`, `jose`, `zod`, `@types/dockerode`, `@types/bun`, `typescript`) are versioned once, in the root `package.json`:
 
 - `bun run deps:check` fails when a package's shared dep differs from root or uses a caret/tilde range. CI runs this on every PR.
 - `bun run deps:sync` copies root's versions into the other manifests and reinstalls the affected packages.

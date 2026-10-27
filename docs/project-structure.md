@@ -53,7 +53,6 @@ server/                     # Nitro WS routes outside TanStack Router (/api/mux,
 agent/                      # Agent sidecar (separate Bun package with its own lockfile)
 └── src/                    # Bun.serve entry + JWT middleware; routes/ per endpoint, lib/ helpers
 
-agent-updater/              # Manual agent-update sidecar (separate Bun package)
 
 migrations/                 # SQL migrations (hypertables, settings, stacks, deploys, auth)
 scripts/                    # check-coverage, icon/schema downloads, migrate-master-key, dev/ seeders

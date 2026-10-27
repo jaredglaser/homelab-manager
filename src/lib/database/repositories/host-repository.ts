@@ -16,11 +16,10 @@ export interface ManagedHost {
   agentVersion: string | null;
   agentImage: string | null;
   agentImageTag: string | null;
-  /** Image digest the agent-updater sidecar runs, reported by the agent's /info and persisted by the sweep. */
-  agentUpdaterImageDigest: string | null;
-  agentUpdaterImageTag: string | null;
-  /** True when the last sweep found this digest older than the manager's own updater image. */
-  agentUpdaterOutOfDate: boolean;
+  /** Image digest the agent container runs, reported by the agent's /info and persisted by the sweep. */
+  agentImageDigest: string | null;
+  /** True when the last sweep found this digest different from the manager's own agent image. */
+  agentOutOfDate: boolean;
   status: HostStatus;
   createdAt: Date;
   updatedAt: Date;
@@ -42,9 +41,8 @@ export interface UpdateAgentInfoInput {
   version?: string;
   image?: string | null;
   imageTag?: string | null;
-  updaterImageDigest?: string | null;
-  updaterImageTag?: string | null;
-  updaterOutOfDate?: boolean;
+  imageDigest?: string | null;
+  outOfDate?: boolean;
 }
 
 export interface UpdateHostInput {
@@ -62,9 +60,8 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     agentVersion: (row.agent_version as string | null | undefined) ?? null,
     agentImage: (row.agent_image as string | null | undefined) ?? null,
     agentImageTag: (row.agent_image_tag as string | null | undefined) ?? null,
-    agentUpdaterImageDigest: (row.agent_updater_image_digest as string | null | undefined) ?? null,
-    agentUpdaterImageTag: (row.agent_updater_image_tag as string | null | undefined) ?? null,
-    agentUpdaterOutOfDate: (row.agent_updater_out_of_date as boolean | null | undefined) ?? false,
+    agentImageDigest: (row.agent_image_digest as string | null | undefined) ?? null,
+    agentOutOfDate: (row.agent_out_of_date as boolean | null | undefined) ?? false,
     status: row.status as HostStatus,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
@@ -198,17 +195,13 @@ export class HostRepository {
       params.push(fields.imageTag);
       setClauses.push(`agent_image_tag = $${params.length}`);
     }
-    if (fields.updaterImageDigest !== undefined) {
-      params.push(fields.updaterImageDigest);
-      setClauses.push(`agent_updater_image_digest = $${params.length}`);
+    if (fields.imageDigest !== undefined) {
+      params.push(fields.imageDigest);
+      setClauses.push(`agent_image_digest = $${params.length}`);
     }
-    if (fields.updaterImageTag !== undefined) {
-      params.push(fields.updaterImageTag);
-      setClauses.push(`agent_updater_image_tag = $${params.length}`);
-    }
-    if (fields.updaterOutOfDate !== undefined) {
-      params.push(fields.updaterOutOfDate);
-      setClauses.push(`agent_updater_out_of_date = $${params.length}`);
+    if (fields.outOfDate !== undefined) {
+      params.push(fields.outOfDate);
+      setClauses.push(`agent_out_of_date = $${params.length}`);
     }
 
     if (setClauses.length === 0) return;
