@@ -22,6 +22,8 @@ export const sessionReadMiddleware = createMiddleware().server(async ({ next, co
  * Returns the currently authenticated user, or null if unauthenticated.
  * Used by the client-side auth hook to check session state without throwing.
  */
+// Unauthenticated by design: session bootstrap, callable without an existing session.
+// eslint-disable-next-line local/endpoint-auth
 export const getSession = createServerFn()
   .middleware([sessionReadMiddleware])
   .handler(async ({ context }): Promise<AuthUser | null> => {
