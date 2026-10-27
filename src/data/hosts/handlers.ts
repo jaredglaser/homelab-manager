@@ -237,7 +237,7 @@ export async function handleUpdateAgent(
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
     checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
     resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
-    /** Pinned TLS certificate lookup; without it, https agent URLs refuse to connect. */
+    /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
     getCaCert?: (hostname: string) => Promise<string | null>;
   },
   data: { hostId: number },

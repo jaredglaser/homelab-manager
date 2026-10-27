@@ -9,17 +9,17 @@ const AGENT_CONTAINER_NAME = 'hlm-agent';
 
 const IP_LOOKUP_TIMEOUT_MS = 3000;
 
-/** Enroll involves two openssl invocations on the agent; 30s bounds a hung agent. */
+/** Enroll involves two openssl invocations on the agent. 30s bounds a hung agent. */
 const ENROLL_TIMEOUT_MS = 30_000;
 
-/** Docker restart waits out the default 10s stop timeout; 30s leaves slack for the start and the response. */
+/** Docker restart waits out the default 10s stop timeout. 30s leaves slack for the start and the response. */
 const RESTART_TIMEOUT_MS = 30_000;
 
 /** Same cadence as handleUpdateAgent's post-update poll: 0.5s to 16s, ~31.5s total. */
 const TLS_HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
 export interface TlsProvisionResult {
-  /** https agent URL to store on the host record; flipped only after a successful https probe. */
+  /** https agent URL to store on the host record. Flipped only after a successful https probe. */
   agentUrl: string;
   certPem: string;
 }
@@ -30,9 +30,9 @@ export interface ProvisionHostTlsDeps {
   checkHealth: (url: string, hostName: string, caCertPem: string | null) => Promise<HealthCheckOutcome>;
   fetchFn?: typeof fetch;
   sleepFn?: (ms: number) => Promise<void>;
-  /** Best-effort IP resolution for the SAN; null skips the IP entry. */
+  /** Best-effort IP resolution for the SAN. Null skips the IP entry. */
   resolveIp?: (hostname: string) => Promise<string | null>;
-  /** Currently pinned cert; lets an https rotation enroll over the existing TLS channel. */
+  /** Currently pinned cert. Lets an https rotation enroll over the existing TLS channel. */
   caCertPem?: string | null;
 }
 
@@ -48,7 +48,7 @@ export async function provisionHostTls(
     throw new Error(`Agent URL must use http or https, got '${parsed.protocol}'`);
   }
   const baseUrl = agentUrl.replace(/\/+$/, '');
-  // A URL like http://[::1]:9090 carries brackets in hostname; SANs take the bare literal.
+  // A URL like http://[::1]:9090 carries brackets in hostname. SANs take the bare literal.
   const hostname = parsed.hostname.replace(/^\[(.+)\]$/, '$1');
   const fetchFn = deps.fetchFn ?? fetch;
   const sleepFn = deps.sleepFn ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));

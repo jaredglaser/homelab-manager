@@ -32,7 +32,7 @@ export interface AgentSseConnectOptions {
   path: string;
   signer: () => Promise<string>;
   signal: AbortSignal;
-  /** Pinned per-host TLS certificate (PEM); used when the agent URL is https. */
+  /** Pinned per-host TLS certificate (PEM), applied to https agent URLs. */
   caCertPem?: string | null;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetchFn?: FetchFn;

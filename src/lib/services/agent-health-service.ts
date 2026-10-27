@@ -105,7 +105,7 @@ export async function checkAgentHealth(
   timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS,
   fetchFn: typeof fetch = globalThis.fetch,
   getToken?: () => Promise<string>,
-  /** Pinned per-host TLS certificate (PEM); used when the agent URL is https. */
+  /** Pinned per-host TLS certificate (PEM), used when the agent URL is https. */
   caCertPem?: string | null,
 ): Promise<AgentHealthResult> {
   try {

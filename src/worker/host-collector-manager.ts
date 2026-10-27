@@ -40,7 +40,7 @@ interface HostEntry {
   collectors: BaseCollector[];
   /** Identity hash to detect when reconciliation needs to recreate this host. */
   identity: string;
-  /** Pinned cert the collectors were created with; a change forces recreation. */
+  /** Pinned cert the collectors were created with. A change forces recreation. */
   caCert: string | null;
   /**
    * Reference to the listener registered on the global abort signal so
@@ -238,12 +238,21 @@ export class HostCollectorManager implements AsyncDisposable {
       return;
     }
 
+    let caCertPem: string | null;
+    try {
+      caCertPem = await this.getCaCert(host.name);
+    } catch (err) {
+      console.error(
+        `[HostCollectorManager] CA cert lookup failed for ${host.name}:`,
+        err instanceof Error ? err.message : err,
+      );
+      return;
+    }
+
     const controller = new AbortController();
     if (this.globalSignal.aborted) return;
     const onGlobalAbort = () => controller.abort();
     this.globalSignal.addEventListener('abort', onGlobalAbort, { once: true });
-
-    const caCertPem = await this.getCaCert(host.name);
     const stack = new AsyncDisposableStack();
     const { collectors, runners } = this.collectorFactory(host, signer, controller, stack, caCertPem);
 

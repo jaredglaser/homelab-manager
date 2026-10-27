@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
 import { agentFetch, type AgentTlsContext } from '../agent-http';
 
-const PROBE_PATH = join(import.meta.dir, 'agent-http-loopback-probe.ts');
+const PROBE_PATH = join(import.meta.dir, '../../test/agent-http-loopback-probe.ts');
 
 describe('agentFetch', () => {
   it('pins the fixture cert against a live loopback TLS agent and rejects mismatches', async () => {

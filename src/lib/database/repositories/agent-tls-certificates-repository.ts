@@ -4,7 +4,7 @@ import type { Pool } from 'pg';
 export class AgentTlsCertificatesRepository {
   constructor(private readonly pool: Pool) {}
 
-  /** Rotation replaces the previous cert wholesale; versions never coexist. */
+  /** Rotation replaces the previous cert wholesale. Versions never coexist. */
   async createForHost(hostName: string, certPem: string): Promise<void> {
     await this.pool.query(
       `INSERT INTO agent_tls_certificates (host_name, cert_pem)

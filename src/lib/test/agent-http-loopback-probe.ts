@@ -5,9 +5,9 @@
  * (the production runtime environment the wrapper actually serves).
  */
 import { join } from 'node:path';
-import { agentFetch } from '../agent-http';
+import { agentFetch } from '../clients/agent-http';
 
-const fixtureDir = join(import.meta.dir, 'fixtures');
+const fixtureDir = join(import.meta.dir, '../clients/__tests__/fixtures');
 const fixtureCert = await Bun.file(join(fixtureDir, 'agent-tls-fixture-cert.pem')).text();
 const fixtureKeyPath = join(fixtureDir, 'agent-tls-fixture-key.pem');
 
