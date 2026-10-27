@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import Markdown from '@/components/shared/Markdown';
+import { isSafeHttpUrl } from '@/lib/url-safety';
 import { getImageChangelog } from '@/data/stacks/functions';
 import { IMAGE_CHANGELOG_QUERY_KEY } from '@/lib/constants/stacks-keys';
 import { constraintFromTag, matchesConstraint, parseVersionTag } from '@/lib/image-updates/version';
@@ -36,19 +37,29 @@ function imageWithoutTag(image: string): string {
   return colon > slash ? image.slice(0, colon) : image;
 }
 
-function StatusBadge({ summary, currentTag }: { summary: ImageUpdateSummary | null; currentTag: string | null }) {
+function StatusBadge({
+  summary,
+  currentTag,
+  image,
+}: {
+  summary: ImageUpdateSummary | null;
+  currentTag: string | null;
+  image: string;
+}) {
   let label: string;
   let className: string;
   if (summary?.error) {
     label = 'Check failed';
     className = 'text-warning bg-warning/10';
   } else if (summary?.updateAvailable === true) {
-    // Floating tags have no matching version to name; the update is a re-pull.
+    // Floating tags have no matching version to name. The update is a re-pull.
     label = summary.latestMatchingTag ? `Update available: ${summary.latestMatchingTag}` : 'Update available';
     className = 'text-success bg-success/10';
   } else if (summary === null || summary.updateAvailable === null) {
+    // A digest ref has no tag at all. A tagless ref (nginx) is Docker's
+    // implicit latest, not a digest pin.
     label = currentTag === null
-      ? 'Digest pin'
+      ? (image.includes('@') ? 'Digest pin' : 'Floating tag (implicit latest)')
       : constraintFromTag(currentTag) === null ? `Floating tag (${currentTag})` : 'No version info';
     className = 'text-muted-foreground bg-level1';
   } else {
@@ -75,7 +86,7 @@ export default function ImageUpdateDialog({
   const [view, setView] = useState<ReleaseView | null>(null);
   const effectiveView: ReleaseView = view ?? (constraint ? 'matching' : 'all');
 
-  const { data: changelog, isLoading } = useQuery({
+  const { data: changelog, isLoading, isError } = useQuery({
     queryKey: [...IMAGE_CHANGELOG_QUERY_KEY, host, stackName, container.image],
     queryFn: () => getImageChangelog({ data: { stack: stackName, host, image: container.image } }),
     enabled: open,
@@ -91,21 +102,27 @@ export default function ImageUpdateDialog({
         })
       : releases;
 
-  const targetTag = summary?.latestMatchingTag ?? summary?.latestOverallTag ?? currentTag;
-  // A floating tag's update is a re-pull of the same tag, not a move to a
-  // different version, so the footer must not name a version number.
-  const footerText = constraint === null && currentTag !== null
-    ? `Click "Update images" in the stack action bar to pull the newest ${currentTag} build of ${imageWithoutTag(container.image)}.`
-    : targetTag
-      ? `Click "Update images" in the stack action bar to update ${imageWithoutTag(container.image)} to ${targetTag}.`
-      : `Click "Update images" in the stack action bar to update ${imageWithoutTag(container.image)} to the newest published version.`;
+  // The footer names a version only when the check confirms an update exists.
+  // Otherwise it stays versionless so it cannot contradict the badge above it,
+  // and never offers the out-of-constraint latestOverallTag.
+  const imageBase = imageWithoutTag(container.image);
+  const updateAvailable = summary?.updateAvailable === true;
+  const footerText = summary?.updateAvailable === false
+    ? constraint !== null
+      ? `You're on the newest version matching your tag.`
+      : `You're on the newest published build of ${imageBase}.`
+    : constraint === null && currentTag !== null
+      ? `Click "Update images" in the stack action bar to pull the newest ${currentTag} build of ${imageBase}.`
+      : updateAvailable && summary.latestMatchingTag
+        ? `Click "Update images" in the stack action bar to update ${imageBase} to ${summary.latestMatchingTag}.`
+        : `Click "Update images" in the stack action bar to update ${imageBase} to the newest published version.`;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent className="max-w-2xl">
         <DialogTitle className="flex items-center gap-2 py-3 text-sm font-medium min-w-0">
           <span className="font-mono truncate min-w-0">{container.image}</span>
-          <StatusBadge summary={summary} currentTag={currentTag} />
+          <StatusBadge summary={summary} currentTag={currentTag} image={container.image} />
         </DialogTitle>
         <DialogBody>
           {constraint !== null && (
@@ -140,8 +157,14 @@ export default function ImageUpdateDialog({
                 </p>
               )}
             </div>
+          ) : isError ? (
+            <p className="text-sm text-warning py-4">Failed to load release notes.</p>
           ) : visibleReleases.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4">No releases published</p>
+            <p className="text-sm text-muted-foreground py-4">
+              {releases.length === 0
+                ? 'No releases published'
+                : `No releases match your tag (${currentTag}). Switch to "All releases" to view every release.`}
+            </p>
           ) : (
             <ul className="flex flex-col gap-3">
               {visibleReleases.map((release) => (
@@ -163,7 +186,7 @@ export default function ImageUpdateDialog({
                     <p className="text-sm font-medium mt-1">{release.name}</p>
                   )}
                   {release.body && <Markdown source={release.body} />}
-                  {release.url && (
+                  {release.url && isSafeHttpUrl(release.url) && (
                     <a
                       href={release.url}
                       target="_blank"

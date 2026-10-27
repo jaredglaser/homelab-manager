@@ -148,7 +148,7 @@ describe('ImageUpdateDialog', () => {
     );
   });
 
-  it('falls back to latestOverallTag then currentTag in the footer', async () => {
+  it('uses versionless copy when already up to date, never naming an out-of-constraint version', async () => {
     mockGetImageChangelog.mockImplementation(async () => changelogResult());
     renderDialog({
       summary: { ...summary, updateAvailable: false, latestMatchingTag: null, latestOverallTag: '3.0.0' },
@@ -156,7 +156,19 @@ describe('ImageUpdateDialog', () => {
     await screen.findByText('v2.9.4');
     const footer = document.querySelector('[data-slot="dialog-footer"]');
     expect(footer).not.toBeNull();
-    expect(footer?.textContent ?? '').toContain('to update example-org/mock-app to 3.0.0.');
+    expect(footer?.textContent ?? '').toContain("You're on the newest version matching your tag.");
+    expect(footer?.textContent ?? '').not.toContain('3.0.0');
+    expect(footer?.textContent ?? '').not.toContain('to update');
+  });
+
+  it('uses versionless copy for a floating tag that is already up to date', async () => {
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app:latest' },
+      summary: { ...summary, image: 'example-org/mock-app:latest', currentTag: 'latest', latestMatchingTag: null, updateAvailable: false },
+    });
+    await screen.findByText('v3.0.0');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent ?? '').toContain("You're on the newest published build of example-org/mock-app.");
   });
 
   it('shows the changelog error as a plain sentence', async () => {
@@ -172,6 +184,24 @@ describe('ImageUpdateDialog', () => {
     mockGetImageChangelog.mockImplementation(async () => changelogResult({ releases: [] }));
     renderDialog();
     expect(await screen.findByText('No releases published')).toBeDefined();
+  });
+
+  it('distinguishes the no-matching-releases state from no releases at all', async () => {
+    mockGetImageChangelog.mockImplementation(async () => changelogResult({ releases: [releases[2]] }));
+    renderDialog();
+    expect(await screen.findByText('No releases match your tag (2). Switch to "All releases" to view every release.')).toBeDefined();
+    expect(screen.queryByText('No releases published')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'All releases' }));
+    expect(screen.getByText('v3.0.0')).toBeDefined();
+  });
+
+  it('shows a failure message when the changelog query rejects', async () => {
+    mockGetImageChangelog.mockImplementation(async () => {
+      throw new Error('network down');
+    });
+    renderDialog();
+    expect(await screen.findByText('Failed to load release notes.')).toBeDefined();
+    expect(screen.queryByText('No releases published')).toBeNull();
   });
 
   it('defaults to all releases and hides the toggle for a floating tag', async () => {
@@ -210,5 +240,31 @@ describe('ImageUpdateDialog', () => {
       summary: { ...summary, error: 'registry unreachable', updateAvailable: null },
     });
     expect(await screen.findByText('Check failed')).toBeDefined();
+  });
+
+  it('labels a tagless ref as implicit latest instead of a digest pin', async () => {
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app' },
+      summary: { ...summary, image: 'example-org/mock-app', currentTag: null, latestMatchingTag: null, updateAvailable: null },
+    });
+    expect(await screen.findByText('Floating tag (implicit latest)')).toBeDefined();
+  });
+
+  it('keeps the Digest pin label for digest-only refs', async () => {
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app@sha256:0123456789abcdef' },
+      summary: { ...summary, image: 'example-org/mock-app@sha256:0123456789abcdef', currentTag: null, latestMatchingTag: null, updateAvailable: null },
+    });
+    expect(await screen.findByText('Digest pin')).toBeDefined();
+  });
+
+  it('does not render a Release notes link for a non-http url', async () => {
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({ releases: [{ ...releases[0], url: 'javascript:alert(1)' }] }),
+    );
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    expect(document.querySelector('a[href="javascript:alert(1)"]')).toBeNull();
+    expect(screen.queryByText('Release notes')).toBeNull();
   });
 });
