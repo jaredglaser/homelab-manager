@@ -34,14 +34,28 @@ describe('agentFetch', () => {
     expect((calls[0].init as RequestInitWithTls).tls).toBeUndefined();
   });
 
-  it('treats a whitespace-only cert like an absent one', async () => {
+  it('refuses to connect to an https url without a pinned cert', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fakeFetch = (url: string, init?: RequestInit) => {
       calls.push({ url, init });
       return Promise.resolve(new Response('{}'));
     };
-    await agentFetch('https://agent:9090/info', {}, { caCertPem: '   ' }, fakeFetch);
-    expect((calls[0].init as RequestInitWithTls).tls).toBeUndefined();
+    await expect(agentFetch('https://agent:9090/info', {}, { caCertPem: null }, fakeFetch)).rejects.toThrow(
+      'No pinned TLS certificate for this HTTPS agent URL: run TLS enrollment for the host, then retry',
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('treats a whitespace-only cert like an absent one on https', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fakeFetch = (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Promise.resolve(new Response('{}'));
+    };
+    await expect(agentFetch('https://agent:9090/info', {}, { caCertPem: '   ' }, fakeFetch)).rejects.toThrow(
+      'No pinned TLS certificate for this HTTPS agent URL',
+    );
+    expect(calls).toHaveLength(0);
   });
 
   it('treats an unparseable url as non-https', async () => {
