@@ -71,6 +71,10 @@ IMAGE_UPDATE_EXTRA_REGISTRIES="nas.lan:5000,registry.home.arpa"
 
 Entries must be HTTPS-reachable because the registry token flow requires it. A malformed entry does not fail startup: image update checks refuse to run and every check reports the error until the variable is fixed.
 
+#### Scheduled image update refresher
+
+A server-side refresher re-checks every stack image against its registry on a schedule and persists the result in `image_update_checks`, so the stacks panel shows update state without waiting for a live registry call. The interval comes from `IMAGE_UPDATE_REFRESH_INTERVAL_MS` in `.env` (milliseconds, default `43200000` = 12 hours). The schedule is wall-clock anchored to the newest `checked_at`, so server restarts do not reset it, and a boot with stale rows runs one catch-up check. A malformed value makes the refresher fail at startup. When a check fails, the row keeps its last known good tags and only the error columns move.
+
 ### Step 2: Start the Dev Stack
 
 ```bash

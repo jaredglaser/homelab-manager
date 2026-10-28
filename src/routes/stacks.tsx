@@ -3,6 +3,7 @@ import { createFileRoute, Outlet } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { listStacks, listManagedHostNames } from '@/data/stacks/functions'
 import { useStackStatus } from '@/hooks/useStackStatus'
+import { useImageUpdateAlerts } from '@/hooks/useImageUpdateAlerts'
 import { StackListContext, StackStatusContext } from '@/components/stacks/stacks-context'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { Spinner } from '@/components/ui/spinner';
@@ -31,6 +32,7 @@ function StacksLayout() {
   const error = stacksError ?? hostsError
 
   const { statusMap, deployVersion } = useStackStatus()
+  useImageUpdateAlerts()
 
   // Invalidate stacks list when a deploy completes (replaces 10s polling)
   useEffect(() => {

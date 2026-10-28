@@ -11,6 +11,16 @@ import { constraintFromTag, matchesConstraint, parseVersionTag } from '@/lib/ima
 import type { ImageUpdateSummary } from '@/types/image-updates';
 import type { StackContainer } from '@/types/stacks';
 
+/** Human "checked N ago" text. The injected now keeps tests deterministic. */
+export function relativeCheckedAt(iso: string, now: number = Date.now()): string {
+  const seconds = Math.round((now - new Date(iso).getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  if (seconds < 3600) return rtf.format(-Math.round(seconds / 60), 'minute');
+  if (seconds < 86400) return rtf.format(-Math.round(seconds / 3600), 'hour');
+  return rtf.format(-Math.round(seconds / 86400), 'day');
+}
+
 interface ImageUpdateDialogProps {
   open: boolean;
   onClose: () => void;
@@ -203,6 +213,9 @@ export default function ImageUpdateDialog({
         </DialogBody>
         <DialogFooter>
           <p className="text-xs text-muted-foreground mr-auto">{footerText}</p>
+          {summary?.checkedAt && (
+            <p className="text-xs text-muted-foreground">Last checked {relativeCheckedAt(summary.checkedAt)}</p>
+          )}
           <Button variant="ghost" className="text-foreground" onClick={onClose}>
             Close
           </Button>
