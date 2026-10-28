@@ -255,6 +255,19 @@ export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
     checks.equal(`${table}.${column} was removed`, present.length, 0);
   }
 
+  const imageUpdateCheckColumns = new Set(
+    await selectColumn<string>(
+      pool,
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'image_update_checks'`
+    )
+  );
+  checks.sameSet(
+    'image_update_checks carries the persisted update state columns',
+    [...imageUpdateCheckColumns],
+    ['host', 'image', 'current_tag', 'latest_matching_tag', 'latest_overall_tag', 'update_available', 'source_repo', 'error', 'last_error_at', 'etag', 'checked_at']
+  );
+
   const zfsHost = await selectRow<{ is_nullable: string }>(
     pool,
     `SELECT is_nullable FROM information_schema.columns
