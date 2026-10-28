@@ -8,10 +8,7 @@ export interface ImageUpdateChangedEvent {
 
 type ImageUpdateChangedCallback = (event: ImageUpdateChangedEvent) => void;
 
-/**
- * In-process pub/sub for update-state changes detected by the refresher.
- * The refresher is the only writer, so no LISTEN/NOTIFY round trip is needed.
- */
+/** In-process pub/sub for update-state changes detected by the refresher. */
 export class ImageUpdateBroadcastService {
   private subscribers = new Set<ImageUpdateChangedCallback>();
 

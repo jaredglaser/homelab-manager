@@ -11,10 +11,6 @@ export function updateToastMessage(image: string, latestMatchingTag: string | nu
     : `Update available for ${image}`;
 }
 
-/**
- * Live update-state alerts: toasts when the refresher detects a new update and
- * refetches the panel query so the icon recolors without a reload.
- */
 export function useImageUpdateAlerts(): void {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -31,6 +27,5 @@ export function useImageUpdateAlerts(): void {
 
   useMuxChannel(imageUpdatesChannel, {
     onData,
-    serviceErrorMessage: 'Image update alerts unavailable',
   });
 }

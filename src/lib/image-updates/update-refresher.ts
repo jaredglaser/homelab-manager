@@ -3,6 +3,7 @@ import type { ImageUpdateCheckRepository, ImageUpdateCheckRow } from '@/lib/data
 import { checkImageUpdateWithMeta } from './registry-client';
 import { groupStackContainersByImage } from './snapshot-groups';
 import { imageUpdateBroadcastService, type ImageUpdateChangedEvent } from '@/lib/stacks/image-update-broadcast-service';
+import { clearImageUpdateSummaryCache } from './image-update-service';
 
 export interface ImageUpdateRefresherDeps {
   repo: ImageUpdateCheckRepository;
@@ -16,29 +17,30 @@ export interface RefreshTickResult {
   failed: number;
 }
 
-/**
- * Clock-anchored scheduled refresher: the next tick runs one interval after
- * the newest persisted checked_at, never interval-after-restart. A runtime
- * setInterval would reset its phase on every deploy and stretch the real
- * cadence toward twice the interval when deploys are frequent.
- */
+/** Next tick runs one interval after the newest persisted checked_at, so restarts do not reset its phase. */
 export class ImageUpdateRefresher {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
+  private starting = false;
 
   constructor(private readonly deps: ImageUpdateRefresherDeps) {}
 
   /** Idempotent. Runs a catch-up tick only when rows are missing or stale, then schedules from the wall clock. */
   async start(): Promise<void> {
-    if (this.timer !== null) return;
-    const rows = await this.deps.repo.getAll();
-    const cutoff = new Date(Date.now() - this.deps.intervalMs);
-    const stale = rows.length === 0 || rows.some((row) => row.checkedAt < cutoff);
-    if (stale) {
-      await this.tickAndReschedule();
-      return;
+    if (this.timer !== null || this.starting) return;
+    this.starting = true;
+    try {
+      const rows = await this.deps.repo.getAll();
+      const cutoff = new Date(Date.now() - this.deps.intervalMs);
+      const stale = rows.length === 0 || rows.some((row) => row.checkedAt < cutoff);
+      if (stale) {
+        await this.tickAndReschedule();
+        return;
+      }
+      this.scheduleFrom(rows);
+    } finally {
+      this.starting = false;
     }
-    this.scheduleFrom(rows);
   }
 
   stop(): void {
@@ -66,16 +68,19 @@ export class ImageUpdateRefresher {
 
   private schedule(delayMs: number): void {
     this.timer = setTimeout(() => {
-      void this.tickAndReschedule();
+      this.tickAndReschedule().catch((err: unknown) => {
+        console.error('[image-updates] scheduled tick failed:', err);
+      });
     }, delayMs);
   }
 
   private async tickAndReschedule(): Promise<RefreshTickResult | null> {
     this.timer = null;
+    const anchor = Date.now();
     try {
       return await this.tick();
     } finally {
-      this.schedule(this.deps.intervalMs);
+      this.schedule(Math.max(0, anchor + this.deps.intervalMs - Date.now()));
     }
   }
 
@@ -139,6 +144,7 @@ export class ImageUpdateRefresher {
     }
 
     await this.deps.repo.deleteMissing(groups.map((group) => ({ host: group.host, image: group.image })));
+    clearImageUpdateSummaryCache();
     if (changedEvents.length > 0) {
       imageUpdateBroadcastService.publish(changedEvents);
     }

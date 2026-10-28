@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mockModule } from '@/lib/test/mock-module';
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
@@ -203,6 +203,34 @@ describe('ImageUpdateRefresher', () => {
     timers.restore();
     await waitForCondition(() => upserts.length === 2);
     refresher.stop();
+  });
+
+  it('overlapping start calls do not double-schedule', async () => {
+    const { refresher, upserts } = await buildRefresher([], [containerRow()]);
+    const first = refresher.start();
+    const second = refresher.start();
+    await Promise.all([first, second]);
+    expect(upserts).toHaveLength(1);
+    expect(timers.scheduled).toHaveLength(1);
+  });
+
+  it('a failing scheduled tick is caught and logged, not an unhandled rejection', async () => {
+    const { ImageUpdateRefresher } = await import('../update-refresher');
+    const repoMock = createRepoMock([checkRow({ checkedAt: new Date(clock - 2 * HOUR) })]);
+    const refresher = new ImageUpdateRefresher({
+      repo: repoMock.repo,
+      loadContainers: async () => {
+        throw new Error('db exploded');
+      },
+      intervalMs: INTERVAL,
+    });
+    const errSpy = spyOn(console, 'error');
+    await refresher.start();
+    timers.fire(timers.scheduled[0]);
+    timers.restore();
+    await waitForCondition(() => errSpy.mock.calls.some((call) => String(call[0]).includes('scheduled tick failed')));
+    refresher.stop();
+    errSpy.mockRestore();
   });
 
   it('start is idempotent and stop cancels the pending timer', async () => {

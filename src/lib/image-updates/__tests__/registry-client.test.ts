@@ -873,6 +873,41 @@ describe('checkImageUpdateWithMeta', () => {
     }
   });
 
+  test('an available-update verdict stores no etag so a later 304 cannot flip it', async () => {
+    const { restore } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, {
+        status: 200,
+        headers: { 'Docker-Content-Digest': 'sha256:' + 'b'.repeat(64), Etag: '"sha256:' + 'b'.repeat(64) + '"' },
+      }));
+    });
+    try {
+      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, 'sha256:' + 'a'.repeat(64));
+      expect(meta.summary.updateAvailable).toBe(true);
+      expect(meta.etag).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  test('an up-to-date verdict stores the registry etag', async () => {
+    const digest = 'sha256:' + 'a'.repeat(64);
+    const { restore } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, {
+        status: 200,
+        headers: { 'Docker-Content-Digest': digest, Etag: '"' + digest + '"' },
+      }));
+    });
+    try {
+      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, digest);
+      expect(meta.summary.updateAvailable).toBe(false);
+      expect(meta.etag).toBe('"' + digest + '"');
+    } finally {
+      restore();
+    }
+  });
+
   test('a versioned tag check returns a null etag', async () => {
     const { restore } = withFetch((url) => {
       if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));

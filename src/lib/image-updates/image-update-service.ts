@@ -4,7 +4,7 @@ import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 import { checkImageUpdateWithMeta, sourceRepoFromLabels } from './registry-client';
 import { fetchGitHubReleases } from './github-releases';
 import { groupStackContainersByImage } from './snapshot-groups';
-import { loadImageUpdateRefresherConfig, staleThresholdMs } from './refresher-config';
+import { DEFAULT_REFRESH_INTERVAL_MS, loadImageUpdateRefresherConfig, staleThresholdMs } from './refresher-config';
 import type { ImageUpdateCheckRepository, ImageUpdateCheckRow } from '@/lib/database/repositories/image-update-check-repository';
 
 const SUMMARY_CACHE_TTL_MS = 5 * 60_000;
@@ -12,6 +12,11 @@ const CHANGELOG_CACHE_TTL_MS = 60 * 60_000;
 const CACHE_MAX_ENTRIES = 300;
 
 const summaryCache = new BoundedCache<ImageUpdateSummary[]>(CACHE_MAX_ENTRIES);
+
+/** Drops every cached summary so the next read reflects freshly persisted rows. */
+export function clearImageUpdateSummaryCache(): void {
+  summaryCache.clear();
+}
 const changelogCache = new BoundedCache<ImageChangelog>(CACHE_MAX_ENTRIES);
 
 async function loadStackContainers(stack: string, host: string): Promise<DockerContainerEventUpsertRow[]> {
@@ -78,7 +83,14 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
     console.error('[image-updates] failed to read persisted update checks, falling back to a live check:', err);
   }
 
-  const freshCutoff = now.getTime() - staleThresholdMs(loadImageUpdateRefresherConfig());
+  // A malformed interval fails the refresher at startup but must not take panel reads down with it.
+  let intervalMs = DEFAULT_REFRESH_INTERVAL_MS;
+  try {
+    intervalMs = loadImageUpdateRefresherConfig().intervalMs;
+  } catch {
+    intervalMs = DEFAULT_REFRESH_INTERVAL_MS;
+  }
+  const freshCutoff = now.getTime() - staleThresholdMs({ intervalMs });
   const allFresh = groups.every((group) => {
     const row = rowsByImage.get(group.image);
     return row !== undefined && row.error === null && row.checkedAt.getTime() > freshCutoff;

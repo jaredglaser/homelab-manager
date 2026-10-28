@@ -363,9 +363,12 @@ export async function checkImageUpdateWithMeta(
       if (remote.notModified) {
         return { summary: { ...base, updateAvailable: false }, etag: storedEtag };
       }
+      const updateAvailable = remote.digest ? remote.digest !== imageDigest : null;
       return {
-        summary: { ...base, updateAvailable: remote.digest ? remote.digest !== imageDigest : null },
-        etag: remote.etag,
+        summary: { ...base, updateAvailable },
+        // A stored etag may only short-circuit to "no update": persisting one
+        // after an available verdict would let the next 304 flip it to false.
+        etag: updateAvailable === false ? remote.etag : null,
       };
     } catch (err) {
       return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };

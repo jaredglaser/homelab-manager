@@ -118,6 +118,7 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
 
 async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
   await import('../../../src/lib/server-init');
+  if (signal.aborted) return;
   const { imageUpdateBroadcastService } = await import(
     '../../../src/lib/stacks/image-update-broadcast-service'
   );

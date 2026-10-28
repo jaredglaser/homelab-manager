@@ -227,6 +227,49 @@ describe('getImageUpdateSummaries', () => {
     }
   });
 
+  test('clearImageUpdateSummaryCache forces the next read back to the source', async () => {
+    checkRepoState.rows = [persistedRow({ checkedAt: new Date('2020-01-01T00:00:00Z') })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'cache-clear' })]);
+    let call = 0;
+    const { restore } = withFetch(() => {
+      call++;
+      return Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null }));
+    });
+    try {
+      const service = await import('../image-update-service');
+      const first = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(first[0].latestMatchingTag).toBe('7.4.2');
+      expect(call).toBe(1);
+      checkRepoState.rows = [persistedRow({ checkedAt: new Date(), latestMatchingTag: '7.5.0', updateAvailable: true })];
+      const second = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(second).toEqual(first);
+      expect(call).toBe(1);
+      service.clearImageUpdateSummaryCache();
+      const third = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(third[0].latestMatchingTag).toBe('7.5.0');
+      expect(call).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a malformed interval env var does not break panel reads', async () => {
+    checkRepoState.rows = [persistedRow({ checkedAt: new Date() })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'badenv' })]);
+    process.env.IMAGE_UPDATE_REFRESH_INTERVAL_MS = 'not-a-number';
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const summaries = await getImageUpdateSummaries('badenv', 'host1');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0].updateAvailable).toBe(true);
+    } finally {
+      delete process.env.IMAGE_UPDATE_REFRESH_INTERVAL_MS;
+      restore();
+    }
+  });
+
   test('a stack with no containers returns empty summaries without registry calls', async () => {
     mockSnapshot([]);
     const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
