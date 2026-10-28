@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Stepper } from '@/components/ui/stepper'
 import { getAgentImage } from '@/lib/hosts/host-utils'
@@ -146,17 +145,12 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
             isAdding={isAdding}
             canVerify={canVerify}
             publicJwkJson={publicJwkJson}
+            error={addError}
             onAgentUrlChange={setAgentUrl}
             onVerify={handleVerify}
           />
         )}
       </div>
-
-      {addError && (
-        <Alert variant="error" className="mt-1">
-          <AlertDescription>{addError}</AlertDescription>
-        </Alert>
-      )}
 
       <div className="flex justify-between">
         <div>

@@ -26,6 +26,7 @@ export type HostCollectorFactory = (
   signer: () => Promise<string>,
   controller: AbortController,
   stack: AsyncDisposableStack,
+  caCertPem: string | null,
 ) => HostCollectorBundle;
 
 interface HostEntry {
@@ -39,6 +40,8 @@ interface HostEntry {
   collectors: BaseCollector[];
   /** Identity hash to detect when reconciliation needs to recreate this host. */
   identity: string;
+  /** Pinned cert the collectors were created with. A change forces recreation. */
+  caCert: string | null;
   /**
    * Reference to the listener registered on the global abort signal so
    * removeHost can detach it. Without this, every add/remove cycle leaks a
@@ -70,7 +73,7 @@ export function defaultHostCollectorFactory(
 ): HostCollectorFactory {
   const inventoryRepo = new DockerContainerEventRepository(db.getPool());
   const metadataRepo = new EntityMetadataRepository(db.getPool());
-  return (host, signer, controller, stack) => {
+  return (host, signer, controller, stack, caCertPem) => {
     const collectors: BaseCollector[] = [];
     const runners: Promise<void>[] = [];
     const resolved = { ...host, agentUrl: resolveAgentUrl(host.agentUrl) };
@@ -78,7 +81,7 @@ export function defaultHostCollectorFactory(
     const zfsWanted = shouldStartZfs(workerConfig, host.capabilities);
 
     if (dockerWanted) {
-      const stats = stack.use(new AgentStatsCollector(db, workerConfig, resolved, signer, controller));
+      const stats = stack.use(new AgentStatsCollector(db, workerConfig, resolved, signer, controller, undefined, caCertPem));
       collectors.push(stats);
       runners.push(stats.run());
 
@@ -90,6 +93,7 @@ export function defaultHostCollectorFactory(
           controller,
           undefined,
           metadataRepo,
+          caCertPem,
         ),
       );
       collectors.push(inventory);
@@ -97,7 +101,7 @@ export function defaultHostCollectorFactory(
     }
 
     if (zfsWanted) {
-      const zfs = stack.use(new ZFSCollector(db, workerConfig, resolved, signer, controller));
+      const zfs = stack.use(new ZFSCollector(db, workerConfig, resolved, signer, controller, undefined, caCertPem));
       collectors.push(zfs);
       runners.push(zfs.run());
     }
@@ -122,6 +126,7 @@ export class HostCollectorManager implements AsyncDisposable {
     private readonly globalSignal: AbortSignal,
     private readonly findAllHosts: () => Promise<ManagedHost[]>,
     private readonly getSigner: (hostname: string) => Promise<(() => Promise<string>) | null>,
+    private readonly getCaCert: (hostname: string) => Promise<string | null>,
     private readonly collectorFactory: HostCollectorFactory,
   ) {}
 
@@ -146,9 +151,9 @@ export class HostCollectorManager implements AsyncDisposable {
   /**
    * Synchronise the active collector set with the current `managed_hosts`
    * table contents. Adds collectors for new hosts, disposes them for
-   * removed hosts, and recreates them for hosts whose `agentUrl` or
-   * capabilities changed. Signer-resolution failures are logged and the
-   * host is skipped (matches startup behavior).
+   * removed hosts, and recreates them for hosts whose `agentUrl`,
+   * capabilities, or pinned certificate changed. Signer-resolution failures
+   * are logged and the host is skipped (matches startup behavior).
    */
   reconcile(): Promise<void> {
     const next = this.reconcileChain.then(() => this.reconcileOnce());
@@ -182,7 +187,26 @@ export class HostCollectorManager implements AsyncDisposable {
       const newIdentity = identityFor(host);
       if (!existing) {
         await this.addHost(host);
-      } else if (existing.identity !== newIdentity) {
+        continue;
+      }
+      if (existing.identity !== newIdentity) {
+        await this.removeHost(host.name);
+        await this.addHost(host);
+        continue;
+      }
+      // Collectors capture the pinned cert at creation, so a rotated
+      // certificate would otherwise leave them reconnecting with the old pin.
+      let currentCert: string | null = null;
+      try {
+        currentCert = await this.getCaCert(host.name);
+      } catch (err) {
+        console.error(
+          `[HostCollectorManager] CA cert lookup failed for ${host.name}:`,
+          err instanceof Error ? err.message : err,
+        );
+        continue;
+      }
+      if (currentCert !== existing.caCert) {
         await this.removeHost(host.name);
         await this.addHost(host);
       }
@@ -214,13 +238,23 @@ export class HostCollectorManager implements AsyncDisposable {
       return;
     }
 
+    let caCertPem: string | null;
+    try {
+      caCertPem = await this.getCaCert(host.name);
+    } catch (err) {
+      console.error(
+        `[HostCollectorManager] CA cert lookup failed for ${host.name}:`,
+        err instanceof Error ? err.message : err,
+      );
+      return;
+    }
+
     const controller = new AbortController();
     if (this.globalSignal.aborted) return;
     const onGlobalAbort = () => controller.abort();
     this.globalSignal.addEventListener('abort', onGlobalAbort, { once: true });
-
     const stack = new AsyncDisposableStack();
-    const { collectors, runners } = this.collectorFactory(host, signer, controller, stack);
+    const { collectors, runners } = this.collectorFactory(host, signer, controller, stack, caCertPem);
 
     if (collectors.length === 0) {
       console.info(`[HostCollectorManager] Factory returned no collectors for ${host.name}, skipping`);
@@ -248,6 +282,7 @@ export class HostCollectorManager implements AsyncDisposable {
       runners: wrappedRunners,
       collectors,
       identity: identityFor(host),
+      caCert: caCertPem,
       onGlobalAbort,
     });
   }

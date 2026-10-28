@@ -38,9 +38,21 @@ services:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
       AGENT_IMAGE: \${AGENT_IMAGE}
+      AGENT_CONTAINER_NAME: hlm-agent
+      TLS_CERT_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem
+      TLS_KEY_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/key.pem
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bun -e \\"fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\\""
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     networks:
       - agent-internal
       - agent-public
@@ -72,12 +84,24 @@ services:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
       AGENT_IMAGE: \${AGENT_IMAGE}
+      AGENT_CONTAINER_NAME: hlm-agent
+      TLS_CERT_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem
+      TLS_KEY_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/key.pem
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
       - /dev/zfs:/dev/zfs
     user: \${HLM_ZFS_UID}:\${HLM_ZFS_GID}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bun -e \\"fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\\""
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     labels:
       - hlm.managed=true
       - hlm.role=agent
@@ -122,6 +146,10 @@ services:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       AGENT_HOST_NAME: test-host
       AGENT_IMAGE: \${AGENT_IMAGE}
+      AGENT_CONTAINER_NAME: hlm-agent
+      TLS_CERT_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem
+      TLS_KEY_PATH: /opt/homelab-manager/stacks/hlm-agent-tls/key.pem
+      NODE_EXTRA_CA_CERTS: /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
@@ -129,6 +157,14 @@ services:
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
       - /dev/zfs:/dev/zfs
     user: \${HLM_ZFS_UID}:\${HLM_ZFS_GID}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bun -e \\"fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\\""
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     group_add:
       - \${DOCKER_GID}
     networks:

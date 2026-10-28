@@ -302,12 +302,22 @@ bun build               # Production build (runs typecheck first)
 
 ## TLS Setup (Agent Communication)
 
-Agent sidecars can optionally serve over HTTPS. This is not required for local network use; agents work over plain HTTP by default.
+The manager provisions a per-host self-signed certificate automatically: it asks
+the agent to generate a keypair (`POST /tls/enroll`), pins the returned public
+certificate as the trust anchor for that host, and rewrites the host's agent URL
+to https. The wizard-generated agent stack sets `TLS_CERT_PATH` and
+`TLS_KEY_PATH` to the certificate files under the stacks mount, and the agent
+serves HTTPS with them. Re-run TLS provisioning from the Managed Hosts card to
+rotate a certificate.
 
-For production or untrusted networks, provision a certificate from your own CA (e.g., step-ca, Let's Encrypt, or a corporate PKI):
+Before its first enrollment the agent serves plain HTTP with a warning in its
+logs (tracked by an `.enrolled` marker next to the certificate files), so the
+manager can reach it to enroll a certificate. After enrollment a missing or
+unreadable certificate or key file is fatal: the agent refuses to start.
 
-- Set `TLS_CERT_PATH` and `TLS_KEY_PATH` on the agent container to point at the certificate and private key.
-- Set `NODE_EXTRA_CA_CERTS` on the web server and worker containers to trust your internal CA.
+`HLM_TLS_HTTP_FALLBACK` (agent container): set it to `true` to serve plain HTTP
+instead of refusing to start, with a warning in the agent logs. The value must
+be exactly `true` or `false`. Anything else stops the agent at startup.
 
 ## Editor Setup (Zed)
 

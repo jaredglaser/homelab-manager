@@ -97,6 +97,7 @@ export class ZFSCollector extends BaseCollector {
   private readonly host: ManagedHost;
   private readonly signer: () => Promise<string>;
   private readonly streamConnector: StreamConnector;
+  private readonly caCertPem: string | null;
 
   constructor(
     db: DatabaseClient,
@@ -105,12 +106,14 @@ export class ZFSCollector extends BaseCollector {
     signer: () => Promise<string>,
     abortController?: AbortController,
     streamConnector?: StreamConnector,
+    caCertPem?: string | null,
   ) {
     super(db, config, abortController);
     this.host = host;
     this.signer = signer;
     this.name = `ZFSCollector[${host.name}]`;
     this.streamConnector = streamConnector ?? connectAgentSseStream;
+    this.caCertPem = caCertPem ?? null;
   }
 
   protected async collect(): Promise<void> {
@@ -121,6 +124,7 @@ export class ZFSCollector extends BaseCollector {
       path: '/zfs/stats/stream',
       signer: this.signer,
       signal: this.signal,
+      caCertPem: this.caCertPem,
     });
 
     this.resetBackoff();

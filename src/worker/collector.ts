@@ -110,6 +110,16 @@ async function main() {
       const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
       const keyring = await loadMasterKeyring();
       const keypairs = new AgentKeypairsRepository(db.getPool(), keyring);
+      const { AgentTlsCertificatesRepository } = await import('@/lib/database/repositories/agent-tls-certificates-repository');
+      const tlsCerts = new AgentTlsCertificatesRepository(db.getPool());
+      const getCaCert = async (hostname: string): Promise<string | null> => {
+        try {
+          return await tlsCerts.getCertForHost(hostname);
+        } catch (err) {
+          console.error(`[Worker] TLS cert lookup failed for ${hostname}:`, err instanceof Error ? err.message : err);
+          return null;
+        }
+      };
       const getSigner = async (hostname: string): Promise<(() => Promise<string>) | null> => {
         const privateKey = await keypairs.getPrivateKeyForHost(hostname);
         if (!privateKey) return null;
@@ -125,6 +135,7 @@ async function main() {
           shutdownController.signal,
           () => hostRepo.findAll(),
           getSigner,
+          getCaCert,
           defaultHostCollectorFactory(db, workerConfig),
         ),
       );
@@ -191,7 +202,8 @@ async function main() {
                 resolveAgentImageDigest,
                 checkHealth: async (url, hostName) => {
                   const signer = await getSigner(hostName);
-                  return checkAgentHealth(url, undefined, fetch, signer ?? undefined);
+                  const caCertPem = await getCaCert(hostName);
+                  return checkAgentHealth(url, undefined, fetch, signer ?? undefined, caCertPem);
                 },
               }),
             notifySweep: async (at) => {

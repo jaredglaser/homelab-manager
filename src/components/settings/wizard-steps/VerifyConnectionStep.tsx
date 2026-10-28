@@ -11,6 +11,7 @@ interface VerifyConnectionStepProps {
   isAdding: boolean
   canVerify: boolean
   publicJwkJson: string | null
+  error: string | null
   onAgentUrlChange: (value: string) => void
   onVerify: () => void
 }
@@ -20,6 +21,7 @@ export default function VerifyConnectionStep({
   isAdding,
   canVerify,
   publicJwkJson,
+  error,
   onAgentUrlChange,
   onVerify,
 }: VerifyConnectionStepProps) {
@@ -59,6 +61,18 @@ export default function VerifyConnectionStep({
               {publicJwkJson}
             </pre>
             <CopyButton text={publicJwkJson} label="public key" />
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {error && (
+        <Alert variant="error" className="mt-2">
+          <AlertDescription className="w-full">
+            <p className="text-sm mb-2">{error}</p>
+            <Button size="sm" variant="outline" onClick={onVerify} disabled={isAdding} data-testid="rerun-provisioning">
+              {isAdding ? <Spinner className="size-3.5" /> : <Plus size={14} />}
+              Re-run provisioning
+            </Button>
           </AlertDescription>
         </Alert>
       )}

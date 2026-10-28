@@ -38,6 +38,7 @@ import {
   assertRowCountsPreserved,
   assertSchema,
   assertServiceKeyBackfill,
+  assertAgentTlsCertificates,
   assertServiceKeyUnification,
   assertTierColumnCoverage,
   assertWeightedRollup,
@@ -89,6 +90,7 @@ async function runFresh(): Promise<void> {
     await assertSchema(pool, checks);
     await assertAggregateRegistry(pool, checks);
     await assertTierColumnCoverage(pool, checks);
+    await assertAgentTlsCertificates(pool, checks);
     checks.report();
   } finally {
     await pool.end();
@@ -171,6 +173,7 @@ async function runUpgrade(): Promise<void> {
       'utf-8'
     );
     await assertServiceKeyUnification(pool, checks, unifySql);
+    await assertAgentTlsCertificates(pool, checks);
     checks.report();
   } finally {
     await pool.end();

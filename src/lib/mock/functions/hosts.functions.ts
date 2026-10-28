@@ -106,6 +106,14 @@ export async function rotateHostKeypair(_data: {
   return { hostId: _data.hostId, publicJwk: { ...MOCK_PUBLIC_JWK, x: 'rotated-key-x' } };
 }
 
+/** Intentionally stateless: returns success without mutating mockHosts. */
+export async function rotateHostTls(_data: {
+  hostId: number;
+}): Promise<{ hostId: number; agentUrl: string }> {
+  const host = mockHosts.find((h) => h.id === _data.hostId);
+  return { hostId: _data.hostId, agentUrl: host ? host.agentUrl.replace(/^http:/, 'https:') : 'https://mock-host:9090' };
+}
+
 /** Demo inventory: a mixed-status set so the overview shows online, offline, and unknown rows. */
 export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
   return [

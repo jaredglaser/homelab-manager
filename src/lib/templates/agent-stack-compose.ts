@@ -105,8 +105,30 @@ function buildSocketProxy(): Record<string, unknown> {
   };
 }
 
+const AGENT_STACKS_DIR = '/opt/homelab-manager/stacks';
+// Flat, host-independent directory: the agent writes cert.pem and key.pem here
+// and the manager targets the same fixed paths, so a renamed host cannot
+// desync the two sides.
+const TLS_DIR_NAME = 'hlm-agent-tls';
+
+export function hostTlsDir(): string {
+  return `${AGENT_STACKS_DIR}/${TLS_DIR_NAME}`;
+}
+
+export function hostTlsCertPath(): string {
+  return `${hostTlsDir()}/cert.pem`;
+}
+
+export function hostTlsKeyPath(): string {
+  return `${hostTlsDir()}/key.pem`;
+}
+
+const HEALTH_CHECK_RETRIES = 3;
+
 function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const { docker, zfs } = config.capabilities;
+  const tlsCertPath = hostTlsCertPath();
+  const tlsKeyPath = hostTlsKeyPath();
 
   const environment: Record<string, string> = {
     AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
@@ -114,6 +136,12 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_HOST_NAME: config.hostName,
     // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.
     AGENT_IMAGE: '${AGENT_IMAGE}',
+    // Contractual: the manager restarts the agent over /containers/hlm-agent/restart.
+    AGENT_CONTAINER_NAME: 'hlm-agent',
+    TLS_CERT_PATH: tlsCertPath,
+    TLS_KEY_PATH: tlsKeyPath,
+    // Only the compose healthcheck below consumes this. Without it Bun fetch rejects the self-signed cert.
+    NODE_EXTRA_CA_CERTS: tlsCertPath,
   };
 
   if (docker) {
@@ -146,6 +174,17 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
 
   agent['volumes'] = volumes;
 
+  agent['healthcheck'] = {
+    test: [
+      'CMD-SHELL',
+      `bun -e "fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"`,
+    ],
+    interval: '30s',
+    timeout: '5s',
+    start_period: '15s',
+    retries: HEALTH_CHECK_RETRIES,
+  };
+
   if (docker && zfs) {
     agent['group_add'] = ['${DOCKER_GID}'];
   }
@@ -159,3 +198,4 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
 
   return agent;
 }
+

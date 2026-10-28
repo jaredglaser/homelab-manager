@@ -408,6 +408,15 @@ New versions are cut automatically: release-please keeps a standing release PR f
 - Verify the agent is running on the target host: `curl http://<agent-ip>:9090/health`
 - Re-enroll the host via the wizard if the keypair is missing (e.g., after a fresh database).
 
+**Agent TLS recovery: the manager lost its pinned certificate**
+
+If the manager's per-host certificate record is lost (for example, a database restored without it), the manager can no longer verify the agent's self-signed certificate, and re-running provisioning over the existing https URL fails. Recover manually:
+
+1. SSH into the agent host and remove the certificate files and the enrollment marker: `rm /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem /opt/homelab-manager/stacks/hlm-agent-tls/key.pem /opt/homelab-manager/stacks/hlm-agent-tls/.enrolled`. With the marker gone the agent treats the missing certificates as a first boot and serves plain HTTP with a warning in its logs.
+2. In Settings → Managed Hosts, edit the host and set its agent URL back to `http://<agent-ip>:9090` (an https URL cannot reach an agent serving plain HTTP), then use **Rotate TLS** (or re-run **Verify Connection** in the Add Host wizard). Provisioning enrolls a fresh certificate, restarts the agent, verifies HTTPS, and flips the URL back to https.
+
+If you cannot SSH in, add `HLM_TLS_HTTP_FALLBACK=true` to the agent service environment (a `docker-compose.override.yml` is fine) and run `docker compose up -d` instead of step 1. The agent then serves plain HTTP regardless of the marker. Remove the override and run `docker compose up -d` again afterwards so the agent refuses to serve without a certificate in the future.
+
 **ZFS host shows no pools**
 - The agent needs the host's `zpool`/`zfs` binaries and `/dev/zfs` mounted into its container (the wizard-generated stack includes these). Check the agent logs for "ZFS capability: disabled".
 

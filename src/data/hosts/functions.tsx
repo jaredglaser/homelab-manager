@@ -1,12 +1,12 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, updateAgentSchema } from '@/data/hosts/schemas';
+import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, rotateHostTlsSchema, updateAgentSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleVerifyHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair,
+  handleUpdateHost, handleVerifyHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair, handleRotateHostTls,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
@@ -32,6 +32,14 @@ async function loadKeypairsRepo(): Promise<import('@/lib/database/repositories/a
   return new AgentKeypairsRepository(dbClient.getPool(), keyring);
 }
 
+async function loadTlsCertsRepo(): Promise<import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { AgentTlsCertificatesRepository } = await import('@/lib/database/repositories/agent-tls-certificates-repository');
+  const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  return new AgentTlsCertificatesRepository(dbClient.getPool());
+}
+
 /**
  * Build a checkHealth function that probes the unauthenticated /health endpoint
  * for liveness, then pulls version detail from the authenticated /info endpoint
@@ -40,15 +48,25 @@ async function loadKeypairsRepo(): Promise<import('@/lib/database/repositories/a
  */
 async function buildCheckHealth(
   keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
+  tlsCerts?: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository,
 ): Promise<(url: string, hostName: string) => Promise<import('@/lib/services/agent-health-service').AgentHealthResult>> {
   const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
   const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
-  return (url, hostName) =>
-    checkAgentHealth(url, undefined, fetch, async () => {
+  return async (url, hostName) => {
+    let caCertPem: string | null = null;
+    if (tlsCerts) {
+      try {
+        caCertPem = await tlsCerts.getCertForHost(hostName);
+      } catch (err) {
+        console.error(`[hosts] TLS cert lookup failed for ${hostName}:`, err instanceof Error ? err.message : err);
+      }
+    }
+    return checkAgentHealth(url, undefined, fetch, async () => {
       const privateKey = await keypairs.getPrivateKeyForHost(hostName);
       if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
       return signAgentJwt(privateKey, hostName);
-    });
+    }, caCertPem);
+  };
 }
 
 /**
@@ -59,7 +77,14 @@ async function buildProbeCheckHealth(): Promise<
   (url: string, hostName: string) => Promise<import('@/lib/services/agent-health-service').AgentHealthResult>
 > {
   try {
-    return await buildCheckHealth(await loadKeypairsRepo());
+    const keypairs = await loadKeypairsRepo();
+    let tlsCerts: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository | undefined;
+    try {
+      tlsCerts = await loadTlsCertsRepo();
+    } catch {
+      tlsCerts = undefined;
+    }
+    return await buildCheckHealth(keypairs, tlsCerts);
   } catch (err) {
     console.info(
       '[hosts] Agent keypairs unavailable, probing liveness without version detail:',
@@ -80,6 +105,33 @@ function makeKeypairsDep(
   };
 }
 
+/** Pinned cert lets an https rotation enroll over its existing TLS channel. */
+function makeProvisionTls(
+  keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
+  tlsCerts: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository,
+): (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }> {
+  return async (hostName, agentUrl) => {
+    const { provisionHostTls } = await import('@/lib/services/agent-provisioning-service');
+    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+    const privateKey = await keypairs.getPrivateKeyForHost(hostName);
+    if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
+    let caCertPem: string | null = null;
+    try {
+      caCertPem = await tlsCerts.getCertForHost(hostName);
+    } catch (err) {
+      console.error(`[hosts] TLS cert lookup failed for ${hostName}:`, err instanceof Error ? err.message : err);
+    }
+    return provisionHostTls(hostName, agentUrl, {
+      getSigner: () => signAgentJwt(privateKey, hostName),
+      storeCert: (name, certPem) => tlsCerts.createForHost(name, certPem),
+      checkHealth: (url, probeHostName, pin) =>
+        checkAgentHealth(url, undefined, fetch, () => signAgentJwt(privateKey, probeHostName), pin),
+      caCertPem,
+    });
+  };
+}
+
 export const verifyHost = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(verifyHostSchema)
@@ -87,9 +139,11 @@ export const verifyHost = createServerFn()
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
+    const tlsCerts = await loadTlsCertsRepo();
     return handleVerifyHost({
       ...baseDeps,
       keypairs: makeKeypairsDep(keypairs),
+      provisionTls: makeProvisionTls(keypairs, tlsCerts),
     }, data);
   });
 
@@ -173,6 +227,20 @@ export const rotateHostKeypair = createServerFn()
     return handleRotateHostKeypair({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
   });
 
+export const rotateHostTls = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(rotateHostTlsSchema)
+  .handler(async ({ data, context }): Promise<{ hostId: number; agentUrl: string }> => {
+    requireRole('admin')(context.user);
+    const baseDeps = await loadDeps();
+    const keypairs = await loadKeypairsRepo();
+    const tlsCerts = await loadTlsCertsRepo();
+    return handleRotateHostTls({
+      ...baseDeps,
+      provisionTls: makeProvisionTls(keypairs, tlsCerts),
+    }, data);
+  });
+
 export const updateAgent = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(updateAgentSchema)
@@ -180,6 +248,7 @@ export const updateAgent = createServerFn()
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
+    const tlsCerts = await loadTlsCertsRepo();
     const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
     return handleUpdateAgent({
       ...baseDeps,
@@ -188,7 +257,15 @@ export const updateAgent = createServerFn()
         if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
         return () => signAgentJwt(privateKey, hostname);
       },
-      checkHealth: await buildCheckHealth(keypairs),
+      checkHealth: await buildCheckHealth(keypairs, tlsCerts),
+      getCaCert: async (hostname) => {
+        try {
+          return await tlsCerts.getCertForHost(hostname);
+        } catch (err) {
+          console.error(`[hosts] TLS cert lookup failed for ${hostname}:`, err instanceof Error ? err.message : err);
+          return null;
+        }
+      },
     }, data);
   });
 
