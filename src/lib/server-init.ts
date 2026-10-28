@@ -4,9 +4,12 @@ import { settingsBroadcastService } from '@/lib/settings/settings-broadcast-serv
 import { stackStatusBroadcastService } from '@/lib/stacks/stack-status-broadcast-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployWatchdog } from '@/lib/deploy/deploy-watchdog';
+import type { ImageUpdateRefresher } from '@/lib/image-updates/update-refresher';
+import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 
 let initialized = false;
 const deployWatchdog = new DeployWatchdog();
+let imageUpdateRefresher: ImageUpdateRefresher | null = null;
 
 async function startDeployRecovery(): Promise<void> {
   const { databaseConnectionManager: dbm } = await import('@/lib/clients/database-client');
@@ -71,6 +74,35 @@ async function startGitTokenHashBackfill(): Promise<void> {
   });
 }
 
+async function startImageUpdateRefresher(): Promise<void> {
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DockerContainerEventRepository } = await import(
+    '@/lib/database/repositories/docker-container-event-repository'
+  );
+  const { ImageUpdateCheckRepository } = await import(
+    '@/lib/database/repositories/image-update-check-repository'
+  );
+  const { ImageUpdateRefresher } = await import('@/lib/image-updates/update-refresher');
+  const { loadImageUpdateRefresherConfig } = await import('@/lib/image-updates/refresher-config');
+
+  const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  const pool = dbClient.getPool();
+  const eventRepo = new DockerContainerEventRepository(pool);
+  const checkRepo = new ImageUpdateCheckRepository(pool);
+  const loadContainers = async (): Promise<DockerContainerEventUpsertRow[]> => {
+    const rows = await eventRepo.getCurrentSnapshot();
+    return rows.filter((row): row is DockerContainerEventUpsertRow => row.eventType === 'upsert');
+  };
+
+  const refresher = new ImageUpdateRefresher({
+    repo: checkRepo,
+    loadContainers,
+    intervalMs: loadImageUpdateRefresherConfig().intervalMs,
+  });
+  imageUpdateRefresher = refresher;
+  await refresher.start();
+}
+
 /**
  * Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy
  * recovery, the stats rollup backfill, and the git token hash backfill.
@@ -89,6 +121,7 @@ export function initServer(): void {
 
     try {
       deployWatchdog.stop();
+      imageUpdateRefresher?.stop();
       await statsPollService.stop();
       await settingsBroadcastService.stop();
       await stackStatusBroadcastService.stop();
@@ -115,6 +148,10 @@ export function initServer(): void {
 
   startGitTokenHashBackfill().catch((err) => {
     console.error('[Server] Git token hash backfill failed:', err);
+  });
+
+  startImageUpdateRefresher().catch((err) => {
+    console.error('[Server] Image update refresher startup failed:', err);
   });
 
   console.info('[Server] Shutdown handlers registered');
