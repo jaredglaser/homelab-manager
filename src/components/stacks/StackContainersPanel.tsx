@@ -1,19 +1,22 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { HardDrive, Play, RotateCcw, RotateCw, ScrollText, Square, Terminal, X } from 'lucide-react';
-import { useMutation } from '@tanstack/react-query';
+import { CircleArrowUp, HardDrive, Play, RotateCcw, RotateCw, ScrollText, Square, Terminal, X } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import type { StackContainer } from '@/types/stacks';
 import type { ContainerMount, ContainerPort } from '@/types/docker-inventory';
-import { controlStack } from '@/data/stacks/functions';
+import type { ImageUpdateSummary } from '@/types/image-updates';
+import { controlStack, getImageUpdateInfo } from '@/data/stacks/functions';
+import { IMAGE_UPDATE_INFO_QUERY_KEY } from '@/lib/constants/stacks-keys';
 import { dedupeWildcardPorts, formatMountSource, formatPortMapping } from '@/components/docker/ContainerPortsMounts';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ShellSelect from '@/components/docker/ShellSelect';
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog';
+import ImageUpdateDialog from '@/components/stacks/ImageUpdateDialog';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
 
 interface StackContainersPanelProps {
@@ -37,6 +40,20 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
   const [modalState, setModalState] = useState<{ container: StackContainer; view: ModalView } | null>(null);
   const [activeKey, setActiveKey] = useState<ActiveKey | null>(null);
   const [recreateConfirmOpen, setRecreateConfirmOpen] = useState(false);
+  const [updateDialogContainer, setUpdateDialogContainer] = useState<StackContainer | null>(null);
+
+  const { data: updateSummaries } = useQuery({
+    queryKey: [...IMAGE_UPDATE_INFO_QUERY_KEY, host, stackName],
+    queryFn: () => getImageUpdateInfo({ data: { stack: stackName, host } }),
+    enabled: containers.length > 0,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const updateInfoByImage = useMemo(
+    () => new Map((updateSummaries ?? []).map((summary) => [summary.image, summary])),
+    [updateSummaries],
+  );
 
   const controlMutation = useMutation({
     mutationFn: ({ action, target }: { action: ControlAction; target: ControlTarget }) => {
@@ -130,15 +147,21 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
               <span className="opacity-30 text-xs truncate hidden sm:block">{container.image}</span>
               <ContainerPortsMountsInline ports={container.ports} mounts={container.mounts} />
 
-              {container.service && (
-                <ServiceControls
-                  service={container.service}
-                  isPending={controlMutation.isPending}
-                  trigger={trigger}
-                  onOpenLogs={() => setModalState({ container, view: 'logs' })}
-                  onOpenTerminal={() => setModalState({ container, view: 'terminal' })}
+              <div className="ml-auto flex items-center gap-0.5">
+                <UpdateInfoButton
+                  summary={updateInfoByImage.get(container.image)}
+                  onOpen={() => setUpdateDialogContainer(container)}
                 />
-              )}
+                {container.service && (
+                  <ServiceControls
+                    service={container.service}
+                    isPending={controlMutation.isPending}
+                    trigger={trigger}
+                    onOpenLogs={() => setModalState({ container, view: 'logs' })}
+                    onOpenTerminal={() => setModalState({ container, view: 'terminal' })}
+                  />
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -162,6 +185,17 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           </div>
         </DialogContent>
       </Dialog>
+
+      {updateDialogContainer && (
+        <ImageUpdateDialog
+          open
+          onClose={() => setUpdateDialogContainer(null)}
+          stackName={stackName}
+          host={host}
+          container={updateDialogContainer}
+          summary={updateInfoByImage.get(updateDialogContainer.image) ?? null}
+        />
+      )}
 
       <UnsavedChangesDialog
         open={recreateConfirmOpen}
@@ -267,6 +301,43 @@ function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[];
   );
 }
 
+function UpdateInfoButton({
+  summary,
+  onOpen,
+}: {
+  summary: ImageUpdateSummary | undefined;
+  onOpen: () => void;
+}) {
+  const updateAvailable = summary?.updateAvailable === true;
+  const label = summary?.error
+    ? 'Update check failed'
+    : updateAvailable
+      ? summary.latestMatchingTag
+        ? `Update available: ${summary.latestMatchingTag}`
+        : 'Update available'
+      : 'Image versions';
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onOpen}
+              aria-label={label}
+              className={updateAvailable ? 'text-success' : undefined}
+            />
+          }
+        >
+          <CircleArrowUp size={13} />
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function ServiceControls({
   service,
   isPending,
@@ -282,7 +353,7 @@ function ServiceControls({
 }) {
   return (
     <TooltipProvider>
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5">
         <Tooltip>
           <TooltipTrigger
             render={

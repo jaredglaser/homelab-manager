@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
+import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 import { mockModule } from '@/lib/test/mock-module';
 
 mock.module('@/components/ui/tooltip', () => ({
@@ -14,6 +15,21 @@ mock.module('@/components/ui/tooltip', () => ({
 
 const mockControlStack = mock(async () => {});
 
+const mockGetImageUpdateInfo = mock(
+  async (_opts: { data: { stack: string; host: string } }) => [] as ImageUpdateSummary[],
+);
+
+const mockGetImageChangelog = mock(
+  async (
+    _opts: { data: { stack: string; host: string; image: string } },
+  ): Promise<ImageChangelog> => ({
+    image: '',
+    sourceRepo: null,
+    releases: [],
+    error: null,
+  }),
+);
+
 const mockToastSuccess = mock((_message: string) => {});
 const mockToastError = mock((_message: string) => {});
 
@@ -23,6 +39,8 @@ mockModule<typeof import('sonner')>('sonner', (real) => ({ ...real,
 
 mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   controlStack: mockControlStack,
+  getImageUpdateInfo: mockGetImageUpdateInfo,
+  getImageChangelog: mockGetImageChangelog,
 }));
 
 mock.module('@/components/docker/ContainerLogViewer', () => ({
@@ -82,6 +100,15 @@ describe('StackContainersPanel', () => {
     mockToastSuccess.mockClear();
     mockToastError.mockClear();
     mockOnRecreate.mockClear();
+    mockGetImageUpdateInfo.mockClear();
+    mockGetImageChangelog.mockClear();
+    mockGetImageUpdateInfo.mockImplementation(async () => []);
+    mockGetImageChangelog.mockImplementation(async () => ({
+      image: '',
+      sourceRepo: null,
+      releases: [],
+      error: null,
+    }));
   });
 
   it('renders container names and statuses', () => {
@@ -410,5 +437,104 @@ describe('StackContainersPanel', () => {
   it('renders nothing extra when a container has no ports and no mounts', () => {
     renderPanel();
     expect(screen.queryByLabelText(/mounts/i)).toBeNull();
+  });
+
+  it('renders an image versions button per container and highlights update-available ones', async () => {
+    mockGetImageUpdateInfo.mockImplementation(async () => [
+      {
+        image: 'plexinc/pms-docker',
+        currentTag: null,
+        latestMatchingTag: null,
+        latestOverallTag: null,
+        updateAvailable: null,
+        sourceRepo: null,
+        error: null,
+      },
+      {
+        image: 'postgres:16',
+        currentTag: '16',
+        latestMatchingTag: '16.9.0',
+        latestOverallTag: '18.1.0',
+        updateAvailable: true,
+        sourceRepo: null,
+        error: null,
+      },
+    ]);
+    renderPanel();
+
+    const plexBtn = await screen.findByRole('button', { name: 'Image versions' });
+    expect(plexBtn.className).not.toContain('text-success');
+
+    const pgBtn = screen.getByRole('button', { name: 'Update available: 16.9.0' });
+    expect(pgBtn.className).toContain('text-success');
+  });
+
+  it('labels the button Update check failed when the summary carries an error', async () => {
+    mockGetImageUpdateInfo.mockImplementation(async () => [
+      {
+        image: 'plexinc/pms-docker',
+        currentTag: null,
+        latestMatchingTag: null,
+        latestOverallTag: null,
+        updateAvailable: null,
+        sourceRepo: null,
+        error: 'registry unreachable',
+      },
+    ]);
+    renderPanel();
+    expect(await screen.findByRole('button', { name: 'Update check failed' })).toBeDefined();
+  });
+
+  it('opens the image update dialog for the clicked container', async () => {
+    mockGetImageUpdateInfo.mockImplementation(async () => [
+      {
+        image: 'postgres:16',
+        currentTag: '16',
+        latestMatchingTag: '16.9.0',
+        latestOverallTag: '18.1.0',
+        updateAvailable: true,
+        sourceRepo: null,
+        error: null,
+      },
+    ]);
+    mockGetImageChangelog.mockImplementation(async () => ({
+      image: 'postgres:16',
+      sourceRepo: null,
+      releases: [
+        {
+          tagName: '16.9.0',
+          name: null,
+          publishedAt: null,
+          url: null,
+          body: '### Notes',
+          prerelease: false,
+        },
+      ],
+      error: null,
+    }));
+    renderPanel();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Update available: 16.9.0' }));
+
+    const dialog = await screen.findByText('Notes');
+    expect(dialog.tagName).toBe('H3');
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDefined();
+  });
+
+  it('does not highlight the update button when the check failed', async () => {
+    mockGetImageUpdateInfo.mockImplementation(async () => [
+      {
+        image: 'plexinc/pms-docker',
+        currentTag: null,
+        latestMatchingTag: null,
+        latestOverallTag: null,
+        updateAvailable: null,
+        sourceRepo: null,
+        error: 'registry unreachable',
+      },
+    ]);
+    renderPanel();
+    const btn = await screen.findByRole('button', { name: 'Update check failed' });
+    expect(btn.className).not.toContain('text-success');
   });
 });
