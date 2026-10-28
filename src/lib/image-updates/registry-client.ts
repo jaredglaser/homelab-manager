@@ -241,39 +241,64 @@ export async function listRegistryTags(
   return endpoints.hubRepo ? fetchDockerHubTags(repo, deadline) : fetchV2Tags(registry, repo, endpoints.base, deadline);
 }
 
+export interface RemoteManifestCheck {
+  digest: string | null;
+  etag: string | null;
+  notModified: boolean;
+}
+
 /**
- * Current manifest digest a registry serves for one tag, from the
- * `Docker-Content-Digest` header of a HEAD request. null when the tag no
- * longer exists. This is what a floating tag (`latest`) is compared against:
- * a digest mismatch means the tag moved since the local image was pulled.
+ * Current manifest state a registry serves for one tag, from a conditional
+ * HEAD request. digest comes from the Docker-Content-Digest header (null when
+ * the tag no longer exists). This is what a floating tag (`latest`) is
+ * compared against: a digest mismatch means the tag moved since the local
+ * image was pulled. When ifNoneMatch carries the ETag from a previous check,
+ * a 304 means the manifest is unchanged and no digest is returned.
  */
-export async function fetchRemoteManifestDigest(registry: string, repo: string, tag: string): Promise<string | null> {
+export async function checkRemoteManifest(
+  registry: string,
+  repo: string,
+  tag: string,
+  ifNoneMatch: string | null = null,
+): Promise<RemoteManifestCheck> {
   const endpoints = registryEndpoints(registry);
   if (endpoints.hubRepo) {
     // Hub's API has no manifest HEAD. The registry endpoint serves it with the same token flow.
-    return headManifestDigest(DOCKER_HUB_REGISTRY, registry, repo, tag);
+    return headManifest(registry, DOCKER_HUB_REGISTRY, repo, tag, ifNoneMatch);
   }
-  return headManifestDigest(endpoints.base, registry, repo, tag);
+  return headManifest(registry, endpoints.base, repo, tag, ifNoneMatch);
 }
 
-async function headManifestDigest(base: string, registry: string, repo: string, tag: string): Promise<string | null> {
+async function headManifest(
+  registry: string,
+  base: string,
+  repo: string,
+  tag: string,
+  ifNoneMatch: string | null,
+): Promise<RemoteManifestCheck> {
   const token = await getPullToken(registry, repo, base);
   const headers: Record<string, string> = { Accept: MANIFEST_ACCEPT_HEADER };
   if (token) headers.Authorization = 'Bearer ' + token;
+  if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch;
   const response = await fetch(base + '/v2/' + repo + '/manifests/' + encodeURIComponent(tag), {
     method: 'HEAD',
     headers,
     redirect: 'error',
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  if (response.status === 404) return null;
+  if (response.status === 304) return { digest: null, etag: ifNoneMatch, notModified: true };
+  if (response.status === 404) return { digest: null, etag: null, notModified: false };
   if (!response.ok) {
     console.error('[image-updates] registry ' + registry + ' returned ' + response.status + ' for ' + repo + ':' + tag);
     throw new RegistryCheckError(
       'Registry ' + registry + ' failed to read the digest for ' + repo + ':' + tag + ', so the update state is unknown.',
     );
   }
-  return response.headers.get('docker-content-digest');
+  return {
+    digest: response.headers.get('docker-content-digest'),
+    etag: response.headers.get('etag'),
+    notModified: false,
+  };
 }
 
 const MANIFEST_ACCEPT_HEADER = [
@@ -283,11 +308,18 @@ const MANIFEST_ACCEPT_HEADER = [
   'application/vnd.docker.distribution.manifest.v2+json',
 ].join(', ');
 
-export async function checkImageUpdate(
+export interface ImageUpdateCheckMeta {
+  summary: ImageUpdateSummary;
+  /** ETag from the registry manifest check, for the next conditional request. Versioned-tag checks never touch manifests. */
+  etag: string | null;
+}
+
+export async function checkImageUpdateWithMeta(
   image: string,
   labels: Record<string, string>,
   imageDigest: string | null = null,
-): Promise<ImageUpdateSummary> {
+  storedEtag: string | null = null,
+): Promise<ImageUpdateCheckMeta> {
   const base: ImageUpdateSummary = {
     image,
     currentTag: null,
@@ -302,17 +334,20 @@ export async function checkImageUpdate(
   try {
     ref = parseImageRef(image);
   } catch (err) {
-    return { ...base, error: err instanceof Error ? err.message : String(err) };
+    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
   }
   base.currentTag = ref.tag;
-  if (!ref.tag) return base;
+  if (!ref.tag) return { summary: base, etag: null };
 
   if (!isRegistryAllowed(ref.registry)) {
     return {
-      ...base,
-      error:
-        'Registry ' + ref.registry + ' is not on the allowed registries list. ' +
-        'Add it to IMAGE_UPDATE_EXTRA_REGISTRIES to check updates for its images.',
+      summary: {
+        ...base,
+        error:
+          'Registry ' + ref.registry + ' is not on the allowed registries list. ' +
+          'Add it to IMAGE_UPDATE_EXTRA_REGISTRIES to check updates for its images.',
+      },
+      etag: null,
     };
   }
 
@@ -322,12 +357,18 @@ export async function checkImageUpdate(
     // moved manifest digest, not a newer version number. Without the local
     // digest (locally built image, or pre-039 inventory row) the check is
     // inconclusive rather than "up to date".
-    if (!imageDigest) return base;
+    if (!imageDigest) return { summary: base, etag: storedEtag };
     try {
-      const remoteDigest = await fetchRemoteManifestDigest(ref.registry, ref.repo, ref.tag);
-      return { ...base, updateAvailable: remoteDigest ? remoteDigest !== imageDigest : null };
+      const remote = await checkRemoteManifest(ref.registry, ref.repo, ref.tag, storedEtag);
+      if (remote.notModified) {
+        return { summary: { ...base, updateAvailable: false }, etag: storedEtag };
+      }
+      return {
+        summary: { ...base, updateAvailable: remote.digest ? remote.digest !== imageDigest : null },
+        etag: remote.etag,
+      };
     } catch (err) {
-      return { ...base, error: err instanceof Error ? err.message : String(err) };
+      return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
     }
   }
 
@@ -335,23 +376,34 @@ export async function checkImageUpdate(
   try {
     tags = await listRegistryTags(ref.registry, ref.repo);
   } catch (err) {
-    return { ...base, error: err instanceof Error ? err.message : String(err) };
+    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
   }
 
   const latestMatching = newestTagMatchingConstraint(tags, constraint);
   const latestOverall = newestVersionTag(tags);
   const current = parseVersionTag(ref.tag);
-  if (!current) return base;
+  if (!current) return { summary: base, etag: null };
   // No tag matching the constraint means there is nothing to update to, not
   // that the check is inconclusive.
   const updateAvailable = latestMatching ? compareVersions(latestMatching, current) > 0 : false;
 
   return {
-    ...base,
-    latestMatchingTag: latestMatching?.raw ?? null,
-    latestOverallTag: latestOverall?.raw ?? null,
-    updateAvailable,
+    summary: {
+      ...base,
+      latestMatchingTag: latestMatching?.raw ?? null,
+      latestOverallTag: latestOverall?.raw ?? null,
+      updateAvailable,
+    },
+    etag: null,
   };
+}
+
+export async function checkImageUpdate(
+  image: string,
+  labels: Record<string, string>,
+  imageDigest: string | null = null,
+): Promise<ImageUpdateSummary> {
+  return (await checkImageUpdateWithMeta(image, labels, imageDigest)).summary;
 }
 
 /** GitHub `owner/repo` from the OCI source label, github.com only. */

@@ -1,8 +1,11 @@
 import type { DockerContainerEventRow, DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 import { BoundedCache } from '@/lib/bounded-cache';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
-import { checkImageUpdate, sourceRepoFromLabels } from './registry-client';
+import { checkImageUpdateWithMeta, sourceRepoFromLabels } from './registry-client';
 import { fetchGitHubReleases } from './github-releases';
+import { groupStackContainersByImage } from './snapshot-groups';
+import { loadImageUpdateRefresherConfig, staleThresholdMs } from './refresher-config';
+import type { ImageUpdateCheckRepository, ImageUpdateCheckRow } from '@/lib/database/repositories/image-update-check-repository';
 
 const SUMMARY_CACHE_TTL_MS = 5 * 60_000;
 const CHANGELOG_CACHE_TTL_MS = 60 * 60_000;
@@ -27,35 +30,102 @@ async function loadStackContainers(stack: string, host: string): Promise<DockerC
   );
 }
 
+async function loadCheckRepository(): Promise<ImageUpdateCheckRepository> {
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { ImageUpdateCheckRepository } = await import(
+    '@/lib/database/repositories/image-update-check-repository'
+  );
+  const config = loadDatabaseConfig();
+  const client = await databaseConnectionManager.getClient(config);
+  return new ImageUpdateCheckRepository(client.getPool());
+}
+
+function rowToSummary(row: ImageUpdateCheckRow): ImageUpdateSummary {
+  return {
+    image: row.image,
+    currentTag: row.currentTag,
+    latestMatchingTag: row.latestMatchingTag,
+    latestOverallTag: row.latestOverallTag,
+    updateAvailable: row.updateAvailable,
+    sourceRepo: row.sourceRepo,
+    error: row.error,
+    checkedAt: row.checkedAt.toISOString(),
+  };
+}
+
 export async function getImageUpdateSummaries(stack: string, host: string): Promise<ImageUpdateSummary[]> {
   const cacheKey = host + '/' + stack;
   const cached = summaryCache.get(cacheKey);
   if (cached) return cached;
 
   const containers = await loadStackContainers(stack, host);
-  const byImage = new Map<string, { labels: Record<string, string>; imageDigest: string | null }>();
-  for (const container of containers) {
-    const existing = byImage.get(container.image);
-    if (!existing) {
-      byImage.set(container.image, { labels: container.labels, imageDigest: container.imageDigest });
-    } else {
-      // Prefer the container whose labels carry the source repo, and the first
-      // non-null digest seen (pre-039 rows carry null).
-      if (!sourceRepoFromLabels(existing.labels) && sourceRepoFromLabels(container.labels)) {
-        existing.labels = container.labels;
-      }
-      if (!existing.imageDigest && container.imageDigest) {
-        existing.imageDigest = container.imageDigest;
-      }
-    }
+  const groups = groupStackContainersByImage(containers);
+  if (groups.length === 0) {
+    const empty: ImageUpdateSummary[] = [];
+    summaryCache.set(cacheKey, empty, SUMMARY_CACHE_TTL_MS);
+    return empty;
   }
 
-  const summaries = await Promise.all(
-    [...byImage.entries()].map(([image, info]) => checkImageUpdate(image, info.labels, info.imageDigest)),
+  const now = new Date();
+  const checkRepo = await loadCheckRepository();
+  // Persisted rows are the fast path. A read failure falls through to the live check.
+  let rowsByImage = new Map<string, ImageUpdateCheckRow>();
+  try {
+    const rows = await checkRepo.getByHost(host);
+    rowsByImage = new Map(rows.map((row) => [row.image, row]));
+  } catch (err) {
+    console.error('[image-updates] failed to read persisted update checks, falling back to a live check:', err);
+  }
+
+  const freshCutoff = now.getTime() - staleThresholdMs(loadImageUpdateRefresherConfig());
+  const allFresh = groups.every((group) => {
+    const row = rowsByImage.get(group.image);
+    return row !== undefined && row.error === null && row.checkedAt.getTime() > freshCutoff;
+  });
+
+  if (allFresh) {
+    const summaries = groups.map((group) => rowToSummary(rowsByImage.get(group.image)!));
+    summaries.sort((a, b) => a.image.localeCompare(b.image));
+    summaryCache.set(cacheKey, summaries, SUMMARY_CACHE_TTL_MS);
+    return summaries;
+  }
+
+  const results = await Promise.all(
+    groups.map((group) =>
+      checkImageUpdateWithMeta(group.image, group.labels, group.imageDigest, rowsByImage.get(group.image)?.etag ?? null),
+    ),
   );
-  // Stable ordering: Map iteration is insertion order, which follows the
-  // snapshot's arbitrary container order.
+  const summaries = results.map((result) => ({
+    ...result.summary,
+    checkedAt: now.toISOString(),
+  }));
   summaries.sort((a, b) => a.image.localeCompare(b.image));
+
+  // Write-through is best effort. A failed persist must not break the read.
+  try {
+    for (let i = 0; i < results.length; i++) {
+      const { summary, etag } = results[i];
+      if (summary.error !== null) {
+        await checkRepo.upsertFailure(host, summary.image, summary.error, now);
+      } else {
+        await checkRepo.upsertSuccess({
+          host,
+          image: summary.image,
+          currentTag: summary.currentTag,
+          latestMatchingTag: summary.latestMatchingTag,
+          latestOverallTag: summary.latestOverallTag,
+          updateAvailable: summary.updateAvailable,
+          sourceRepo: summary.sourceRepo,
+          etag,
+          checkedAt: now,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[image-updates] failed to persist update checks:', err);
+  }
+
   // Failures stay uncached: caching would pin a registry outage's error in the panel for the full TTL.
   if (summaries.every((summary) => summary.error === null)) {
     summaryCache.set(cacheKey, summaries, SUMMARY_CACHE_TTL_MS);

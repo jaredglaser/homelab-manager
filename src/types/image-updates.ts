@@ -28,6 +28,8 @@ export interface ImageUpdateSummary {
   sourceRepo: string | null;
   /** Why the registry check failed, when it did. */
   error: string | null;
+  /** When this state was produced: the persisted row's checked_at, or the moment of a live check. Absent only from legacy callers. */
+  checkedAt?: string | null;
 }
 
 /** One GitHub release for an image's source repository. */

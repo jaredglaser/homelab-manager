@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { checkImageUpdate, fetchRemoteManifestDigest, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, sourceRepoFromLabels } from '../registry-client';
+import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, sourceRepoFromLabels } from '../registry-client';
 import { HUB_PROBE, hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
@@ -569,7 +569,7 @@ describe('checkImageUpdate', () => {
   });
 });
 
-describe('fetchRemoteManifestDigest', () => {
+describe('checkRemoteManifest', () => {
   test('returns the Docker-Content-Digest of a HEAD request', async () => {
     const { restore, fetchMock } = withFetch((url) => {
       const target = String(url);
@@ -581,21 +581,59 @@ describe('fetchRemoteManifestDigest', () => {
       }));
     });
     try {
-      const digest = await fetchRemoteManifestDigest('ghcr.io', 'owner/app', 'latest');
-      expect(digest).toBe('sha256:' + 'c'.repeat(64));
+      const check = await checkRemoteManifest('ghcr.io', 'owner/app', 'latest');
+      expect(check.digest).toBe('sha256:' + 'c'.repeat(64));
+      expect(check.notModified).toBe(false);
       expect(fetchMock.mock.calls[1][1]?.method).toBe('HEAD');
     } finally {
       restore();
     }
   });
 
-  test('a vanished tag returns null', async () => {
+  test('sends If-None-Match and reports notModified on a 304', async () => {
+    const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const { restore, fetchMock } = withFetch((url, init) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      expect((init?.headers as Record<string, string>)['If-None-Match']).toBe(etag);
+      return Promise.resolve(new Response(null, { status: 304 }));
+    });
+    try {
+      const check = await checkRemoteManifest('ghcr.io', 'owner/app', 'latest', etag);
+      expect(check.notModified).toBe(true);
+      expect(check.digest).toBeNull();
+      expect(check.etag).toBe(etag);
+      expect(fetchMock.mock.calls[1][1]?.method).toBe('HEAD');
+    } finally {
+      restore();
+    }
+  });
+
+  test('returns the ETag header on a 200', async () => {
+    const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const { restore } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, {
+        status: 200,
+        headers: { 'Docker-Content-Digest': 'sha256:' + 'c'.repeat(64), Etag: etag },
+      }));
+    });
+    try {
+      const check = await checkRemoteManifest('ghcr.io', 'owner/app', 'latest');
+      expect(check.etag).toBe(etag);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a vanished tag returns a null digest', async () => {
     const { restore } = withFetch((url) => {
       if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
       return Promise.resolve(new Response(null, { status: 404 }));
     });
     try {
-      expect(await fetchRemoteManifestDigest('ghcr.io', 'owner/app', 'latest')).toBeNull();
+      const check = await checkRemoteManifest('ghcr.io', 'owner/app', 'latest');
+      expect(check.digest).toBeNull();
+      expect(check.notModified).toBe(false);
     } finally {
       restore();
     }
@@ -605,7 +643,8 @@ describe('fetchRemoteManifestDigest', () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
     hubTokenFlow(fetchMock, 'sha256:' + 'd'.repeat(64));
     try {
-      expect(await fetchRemoteManifestDigest('docker.io', 'library/redis', 'latest')).toBe('sha256:' + 'd'.repeat(64));
+      const check = await checkRemoteManifest('docker.io', 'library/redis', 'latest');
+      expect(check.digest).toBe('sha256:' + 'd'.repeat(64));
       const targets = fetchMock.mock.calls.map((call) => String(call[0]));
       expect(targets[0]).toBe(HUB_PROBE);
       expect(targets[1]).toContain('https://auth.docker.io/token');
@@ -628,7 +667,7 @@ describe('fetchRemoteManifestDigest', () => {
       return Promise.resolve(jsonResponse({}));
     });
     try {
-      await expect(fetchRemoteManifestDigest('docker.io', 'library/other', 'latest')).rejects.toThrow(
+      await expect(checkRemoteManifest('docker.io', 'library/other', 'latest')).rejects.toThrow(
         'Registry docker.io pointed its token endpoint at an unexpected host, so the update check stopped for safety.',
       );
       expect(fetchMock.mock.calls.length).toBe(1);
@@ -747,8 +786,8 @@ describe('getPullToken cache', () => {
       return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'f'.repeat(64) } }));
     });
     try {
-      await fetchRemoteManifestDigest('ghcr.io', 'owner/expmargin', 'latest');
-      await fetchRemoteManifestDigest('ghcr.io', 'owner/expmargin', 'latest');
+      await checkRemoteManifest('ghcr.io', 'owner/expmargin', 'latest');
+      await checkRemoteManifest('ghcr.io', 'owner/expmargin', 'latest');
       expect(tokenRequests).toBe(2);
     } finally {
       restore();
@@ -772,8 +811,8 @@ describe('getPullToken cache', () => {
       return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'f'.repeat(64) } }));
     });
     try {
-      await fetchRemoteManifestDigest('ghcr.io', 'owner/shortexp', 'latest');
-      await fetchRemoteManifestDigest('ghcr.io', 'owner/shortexp', 'latest');
+      await checkRemoteManifest('ghcr.io', 'owner/shortexp', 'latest');
+      await checkRemoteManifest('ghcr.io', 'owner/shortexp', 'latest');
       expect(tokenRequests).toBe(2);
     } finally {
       restore();
@@ -797,8 +836,8 @@ describe('getPullToken cache', () => {
       return Promise.resolve(new Response(null, { status: 200, headers: { 'Docker-Content-Digest': 'sha256:' + 'f'.repeat(64) } }));
     });
     try {
-      await fetchRemoteManifestDigest('ghcr.io', 'owner/longexp', 'latest');
-      await fetchRemoteManifestDigest('ghcr.io', 'owner/longexp', 'latest');
+      await checkRemoteManifest('ghcr.io', 'owner/longexp', 'latest');
+      await checkRemoteManifest('ghcr.io', 'owner/longexp', 'latest');
       expect(tokenRequests).toBe(1);
     } finally {
       restore();
@@ -809,5 +848,42 @@ describe('getPullToken cache', () => {
 describe('RegistryCheckError', () => {
   test('is an Error subclass', () => {
     expect(new RegistryCheckError('x')).toBeInstanceOf(Error);
+  });
+});
+describe('checkImageUpdateWithMeta', () => {
+  test('an unparseable ref lands in error with a null etag', async () => {
+    const meta = await checkImageUpdateWithMeta('redis:', {}, null);
+    expect(meta.summary.error).not.toBeNull();
+    expect(meta.etag).toBeNull();
+  });
+
+  test('a 304 on the stored etag reports no update and keeps the etag', async () => {
+    const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const { restore, fetchMock } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, { status: 304 }));
+    });
+    try {
+      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, 'sha256:' + 'a'.repeat(64), etag);
+      expect(meta.summary.updateAvailable).toBe(false);
+      expect(meta.etag).toBe(etag);
+      expect(fetchMock.mock.calls[1][1]?.method).toBe('HEAD');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a versioned tag check returns a null etag', async () => {
+    const { restore } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(jsonResponse({ tags: ['1.0', '1.0.1'] }));
+    });
+    try {
+      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:1.0', {}, null);
+      expect(meta.summary.updateAvailable).toBe(true);
+      expect(meta.etag).toBeNull();
+    } finally {
+      restore();
+    }
   });
 });
