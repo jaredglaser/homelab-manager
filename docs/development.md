@@ -186,7 +186,8 @@ bun run dev:local:logs:worker
 bun run dev:local:up           # Start all services
 bun run dev:local:down         # Stop all services
 bun run dev:local:restart      # Recreate containers (picks up .env changes)
-bun run dev:local:rebuild      # Full rebuild (no cache) and restart
+bun run dev:local:rebuild      # Rebuild images (layer cache, pulls base image updates) and restart
+bun run dev:local:rebuild:fresh # Rebuild + reset the node_modules volume (run after bun.lock changes)
 bun run dev:local:wipe         # Stop and delete all volumes (fresh database)
 bun run dev:local:logs         # Tail all service logs
 bun run dev:local:logs:worker  # Worker logs only
