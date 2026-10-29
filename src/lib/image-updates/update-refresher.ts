@@ -1,6 +1,6 @@
 import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 import type { ImageUpdateCheckRepository, ImageUpdateCheckRow } from '@/lib/database/repositories/image-update-check-repository';
-import { checkImageUpdateWithMeta } from './registry-client';
+import { checkAndPersistImage } from './check-run';
 import { groupStackContainersByImage } from './snapshot-groups';
 import { imageUpdateBroadcastService, type ImageUpdateChangedEvent } from '@/lib/stacks/image-update-broadcast-service';
 import { clearImageUpdateSummaryCache } from './image-update-service';
@@ -97,49 +97,22 @@ export class ImageUpdateRefresher {
     const changedEvents: ImageUpdateChangedEvent[] = [];
 
     for (const group of groups) {
-      const prior = byKey.get(group.host + '/' + group.image);
-      try {
-        const { summary, etag } = await checkImageUpdateWithMeta(
-          group.image,
-          group.labels,
-          group.imageDigest,
-          prior?.etag ?? null,
-        );
-        if (summary.error !== null) {
-          failed++;
-          await this.deps.repo.upsertFailure(group.host, group.image, summary.error, now);
-          continue;
-        }
+      const prior = byKey.get(group.host + '/' + group.image) ?? null;
+      const outcome = await checkAndPersistImage(group, prior, this.deps.repo, now);
+      if (outcome.summary.error !== null) {
+        failed++;
+      } else {
         checked++;
-        await this.deps.repo.upsertSuccess({
+      }
+      if (outcome.changed) {
+        changed++;
+        changedEvents.push({
+          stack: group.stack,
           host: group.host,
           image: group.image,
-          currentTag: summary.currentTag,
-          latestMatchingTag: summary.latestMatchingTag,
-          latestOverallTag: summary.latestOverallTag,
-          updateAvailable: summary.updateAvailable,
-          sourceRepo: summary.sourceRepo,
-          etag,
-          checkedAt: now,
+          updateAvailable: outcome.summary.updateAvailable,
+          latestMatchingTag: outcome.summary.latestMatchingTag,
         });
-        if (prior && (prior.updateAvailable !== summary.updateAvailable || prior.latestMatchingTag !== summary.latestMatchingTag)) {
-          changed++;
-          changedEvents.push({
-            stack: group.stack,
-            host: group.host,
-            image: group.image,
-            updateAvailable: summary.updateAvailable,
-            latestMatchingTag: summary.latestMatchingTag,
-          });
-        }
-      } catch (err) {
-        failed++;
-        await this.deps.repo.upsertFailure(
-          group.host,
-          group.image,
-          err instanceof Error ? err.message : String(err),
-          now,
-        );
       }
     }
 

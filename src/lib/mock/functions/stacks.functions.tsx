@@ -10,6 +10,7 @@ import type {
   StackDriftResolutionResult,
 } from '@/types/stacks';
 import type { ImageChangelog, ImageRelease, ImageUpdateSummary } from '@/types/image-updates';
+import type { ManualCheckResult } from '@/lib/image-updates/manual-check';
 import { constraintFromTag, parseVersionTag } from '@/lib/image-updates/version';
 import { generateStackStatusEntry } from '@/lib/mock/generators/stacks';
 import { stackStatusUpdates } from '@/lib/mock/live-updates';
@@ -555,6 +556,15 @@ export async function getImageUpdateInfo(opts: {
 }): Promise<ImageUpdateSummary[]> {
   const images = [...new Set(imagesFromCompose(opts.data.stack))];
   return images.map(buildUpdateSummary);
+}
+
+export async function checkImageUpdates(opts: {
+  data: { stack: string; host: string; image?: string };
+}): Promise<ManualCheckResult> {
+  const all = [...new Set(imagesFromCompose(opts.data.stack))];
+  const target = opts.data.image === undefined ? all : all.filter((image) => image === opts.data.image);
+  const summaries = target.map(buildUpdateSummary);
+  return { summaries, checked: summaries.length, changed: 0, failed: 0 };
 }
 
 const MOCK_CHANGELOG_BODY = [

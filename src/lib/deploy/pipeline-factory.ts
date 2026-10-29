@@ -48,6 +48,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
 
   const { createStackRepoWriter } = await import('@/lib/deploy/stack-repo-writer');
   const stackRepoWriter = createStackRepoWriter();
+  const { schedulePostUpdateCheck } = await import('@/lib/image-updates/manual-check');
 
   const pipeline = new DeployPipeline({
     deployRepo,
@@ -65,6 +66,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     },
     stackRepoWriter,
     secretResolver: new StackSecretsResolver(stackSecrets),
+    onUpdateSuccess: schedulePostUpdateCheck,
     tokenResolver: async (host) => {
       const privateKey = await agentKeypairs.getPrivateKeyForHost(host.name);
       if (!privateKey) {

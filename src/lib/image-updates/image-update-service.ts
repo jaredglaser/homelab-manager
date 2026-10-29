@@ -19,7 +19,7 @@ export function clearImageUpdateSummaryCache(): void {
 }
 const changelogCache = new BoundedCache<ImageChangelog>(CACHE_MAX_ENTRIES);
 
-async function loadStackContainers(stack: string, host: string): Promise<DockerContainerEventUpsertRow[]> {
+export async function loadStackContainers(stack: string, host: string): Promise<DockerContainerEventUpsertRow[]> {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { DockerContainerEventRepository } = await import(
@@ -35,7 +35,7 @@ async function loadStackContainers(stack: string, host: string): Promise<DockerC
   );
 }
 
-async function loadCheckRepository(): Promise<ImageUpdateCheckRepository> {
+export async function loadCheckRepository(): Promise<ImageUpdateCheckRepository> {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { ImageUpdateCheckRepository } = await import(

@@ -1300,6 +1300,62 @@ describe('DeployPipeline', () => {
         errSpy.mockRestore();
       }
     });
+
+    it('schedules a post-update check after a successful update dispatch', async () => {
+      const onUpdateSuccess = mock();
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
+        onUpdateSuccess,
+      });
+
+      await pipeline.execute(testUpdateRequest);
+      await drainDetached();
+      expect(onUpdateSuccess).toHaveBeenCalledTimes(1);
+      expect(onUpdateSuccess).toHaveBeenCalledWith('plex', 'homeserver');
+    });
+
+    it('does not schedule a post-update check when the update fails', async () => {
+      const onUpdateSuccess = mock();
+      agentClientFactory = mock().mockReturnValue(createMockAgentClient(false));
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
+        onUpdateSuccess,
+      });
+
+      await pipeline.execute(testUpdateRequest);
+      await drainDetached();
+      expect(onUpdateSuccess).not.toHaveBeenCalled();
+    });
+
+    it('does not schedule a post-update check for deploy actions', async () => {
+      const onUpdateSuccess = mock();
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
+        onUpdateSuccess,
+      });
+
+      await pipeline.execute({ ...testUpdateRequest, action: 'deploy' });
+      await drainDetached();
+      expect(onUpdateSuccess).not.toHaveBeenCalled();
+    });
   });
 
   describe('dispatch exhaustiveness', () => {

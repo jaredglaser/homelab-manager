@@ -44,6 +44,7 @@ mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', 
     scanErrors: [],
   hostAnomalies: [],
   })),
+  checkImageUpdates: mock(() => Promise.resolve({ summaries: [], checked: 0, changed: 0, failed: 0 })),
 }));
 
 const detail: StackDetail = {

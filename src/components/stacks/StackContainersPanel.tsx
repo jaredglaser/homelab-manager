@@ -4,12 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { CircleArrowUp, HardDrive, Play, RotateCcw, RotateCw, ScrollText, Square, Terminal, X } from 'lucide-react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { CircleArrowUp, HardDrive, Play, RefreshCw, RotateCcw, RotateCw, ScrollText, Square, Terminal, X } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { StackContainer } from '@/types/stacks';
 import type { ContainerMount, ContainerPort } from '@/types/docker-inventory';
 import type { ImageUpdateSummary } from '@/types/image-updates';
-import { controlStack, getImageUpdateInfo } from '@/data/stacks/functions';
+import { checkImageUpdates, controlStack, getImageUpdateInfo } from '@/data/stacks/functions';
 import { IMAGE_UPDATE_INFO_QUERY_KEY } from '@/lib/constants/stacks-keys';
 import { dedupeWildcardPorts, formatMountSource, formatPortMapping } from '@/components/docker/ContainerPortsMounts';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
@@ -74,6 +74,28 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
     },
   });
 
+  // Per-stack manual re-check: runs the same check-and-persist path as the
+  // scheduled refresher for every image in the stack, then invalidates the
+  // panel query so the badges and dialog carry the fresh verdict.
+  const queryClient = useQueryClient();
+  const checkMutation = useMutation({
+    mutationFn: () => checkImageUpdates({ data: { stack: stackName, host } }),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: [...IMAGE_UPDATE_INFO_QUERY_KEY, host, stackName] });
+      if (result.failed > 0) {
+        toast.warning(`Checked ${result.checked} image${result.checked === 1 ? '' : 's'}, ${result.failed} failed. Failed images keep their last known state.`);
+      } else if (result.changed > 0) {
+        toast.success(`Update state changed for ${result.changed} image${result.changed === 1 ? '' : 's'}.`);
+      } else {
+        toast.success(`Checked ${result.checked} image${result.checked === 1 ? '' : 's'}; all up to date.`);
+      }
+    },
+    onError: (err) => {
+      console.error(`[StackContainersPanel] check updates failed for ${host}/${stackName}:`, err);
+      toast.error(`Failed to check updates for ${host}/${stackName}: ${err instanceof Error ? err.message : String(err)}`);
+    },
+  });
+
   function trigger(action: ControlAction, target: ControlTarget) {
     const key = target.scope === 'stack' ? `stack:${action}` : `svc:${target.service}-${action}`;
     setActiveKey(key);
@@ -123,6 +145,16 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         >
           {isDeploying ? <Spinner className="size-3 text-current" /> : <RotateCw size={13} />}
           Recreate
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={checkMutation.isPending || containers.length === 0}
+          onClick={() => checkMutation.mutate()}
+          aria-label="Check updates"
+        >
+          {checkMutation.isPending ? <Spinner className="size-3 text-current" /> : <RefreshCw size={13} />}
+          Check updates
         </Button>
       </div>
 
