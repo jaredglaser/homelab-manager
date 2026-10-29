@@ -42,4 +42,13 @@ describe('BoundedCache', () => {
     expect(cache.get('b')).toBeUndefined();
     expect(cache.get('a')).toBe('va2');
   });
+
+  test('clear drops every entry', () => {
+    const cache = new BoundedCache(10);
+    cache.set('a', 'va', 60_000);
+    cache.set('b', 'vb', 60_000);
+    cache.clear();
+    expect(cache.get('a')).toBeUndefined();
+    expect(cache.get('b')).toBeUndefined();
+  });
 });

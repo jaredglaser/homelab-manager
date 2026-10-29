@@ -268,3 +268,40 @@ describe('ImageUpdateDialog', () => {
     expect(screen.queryByText('Release notes')).toBeNull();
   });
 });
+
+describe('checked-at subtext', () => {
+  it('renders Last checked with a relative timestamp when the summary carries one', async () => {
+    const withCheckedAt: ImageUpdateSummary = {
+      ...summary,
+      checkedAt: new Date(Date.now() - 2 * 3600_000).toISOString(),
+    };
+    renderDialog({ summary: withCheckedAt });
+    await screen.findByText((_, node) => (node?.textContent ?? '').startsWith('Last checked 2 hours ago'));
+  });
+
+  it('renders no Last checked line without a timestamp', async () => {
+    renderDialog({ summary: { ...summary, checkedAt: null } });
+    await screen.findByText('v2.9.4');
+    expect(screen.queryByText(/Last checked/)).toBeNull();
+  });
+});
+
+describe('relativeCheckedAt', () => {
+  const now = Date.parse('2026-01-03T12:00:00Z');
+
+  it('says just now under a minute', async () => {
+    const { relativeCheckedAt } = await import('@/components/stacks/ImageUpdateDialog');
+    expect(relativeCheckedAt(new Date(now - 30_000).toISOString(), now)).toBe('just now');
+  });
+
+  it('formats minutes and hours', async () => {
+    const { relativeCheckedAt } = await import('@/components/stacks/ImageUpdateDialog');
+    expect(relativeCheckedAt(new Date(now - 5 * 60_000).toISOString(), now)).toBe('5 minutes ago');
+    expect(relativeCheckedAt(new Date(now - 3 * 3600_000).toISOString(), now)).toBe('3 hours ago');
+  });
+
+  it('formats days beyond a day', async () => {
+    const { relativeCheckedAt } = await import('@/components/stacks/ImageUpdateDialog');
+    expect(relativeCheckedAt(new Date(now - 3 * 86400_000).toISOString(), now)).toBe('3 days ago');
+  });
+});

@@ -202,6 +202,7 @@ export const EXPECTED_TABLES = [
   'docker_stats',
   'entity_metadata',
   'git_tokens',
+  'image_update_checks',
   'managed_hosts',
   'migrations',
   'proxmox_stats',

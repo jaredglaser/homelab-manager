@@ -10,6 +10,7 @@ const INVENTORY_TOPIC = 'inventory';
 const SETTINGS_TOPIC = 'settings';
 const STACK_STATUS_TOPIC = 'stack-status';
 const AGENT_INVENTORY_TOPIC = 'agent-inventory';
+const IMAGE_UPDATES_TOPIC = 'image-updates';
 export const MAX_PENDING_FRAMES = 64;
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
@@ -111,6 +112,19 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
   const { toStackStatusWireMessage } = await import('../../../src/lib/channels/stack-status');
   const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
+  });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
+async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  if (signal.aborted) return;
+  const { imageUpdateBroadcastService } = await import(
+    '../../../src/lib/stacks/image-update-broadcast-service'
+  );
+  const { toImageUpdateWireMessage } = await import('../../../src/lib/channels/image-updates');
+  const unsubscribe = imageUpdateBroadcastService.subscribe((event) => {
+    emit({ topic, kind: 'data', payload: toImageUpdateWireMessage(event) });
   });
   signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
@@ -392,6 +406,9 @@ export const defaultTopicAdapter: TopicAdapter = (topic, emit, signal) => {
   }
   if (topic === AGENT_INVENTORY_TOPIC) {
     return agentInventoryAdapter(topic, emit, signal);
+  }
+  if (topic === IMAGE_UPDATES_TOPIC) {
+    return imageUpdatesAdapter(topic, emit, signal);
   }
   if (topic.startsWith(LOGS_TOPIC_PREFIX)) {
     return logsAdapter(topic, emit, signal);
