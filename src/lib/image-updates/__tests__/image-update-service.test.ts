@@ -1,7 +1,56 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, beforeEach } from 'bun:test';
 import { mockModule } from '@/lib/test/mock-module';
 import { hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
+import type { ImageUpdateCheckRow } from '@/lib/database/repositories/image-update-check-repository';
+
+const checkRepoState: {
+  rows: ImageUpdateCheckRow[];
+  successes: number;
+  failures: number;
+  readError: boolean;
+  writeError: boolean;
+} = { rows: [], successes: 0, failures: 0, readError: false, writeError: false };
+
+mockModule<typeof import('@/lib/database/repositories/image-update-check-repository')>(
+  '@/lib/database/repositories/image-update-check-repository',
+  (real) => ({
+    ...real,
+    ImageUpdateCheckRepository: class {
+      async getAll() {
+        return checkRepoState.rows;
+      }
+      async getByHost() {
+        if (checkRepoState.readError) throw new Error('db down');
+        return checkRepoState.rows;
+      }
+      async upsertSuccess() {
+        if (checkRepoState.writeError) throw new Error('write failed');
+        checkRepoState.successes++;
+      }
+      async upsertFailure() {
+        checkRepoState.failures++;
+      }
+    },
+  }),
+);
+
+function persistedRow(overrides: Partial<ImageUpdateCheckRow> = {}): ImageUpdateCheckRow {
+  return {
+    host: 'host1',
+    image: 'redis:7',
+    currentTag: '7',
+    latestMatchingTag: '7.4.1',
+    latestOverallTag: '8.0.0',
+    updateAvailable: true,
+    sourceRepo: null,
+    error: null,
+    lastErrorAt: null,
+    etag: null,
+    checkedAt: new Date('2026-01-02T00:00:00Z'),
+    ...overrides,
+  };
+}
 
 function containerRow(overrides: Partial<DockerContainerEventUpsertRow>): DockerContainerEventUpsertRow {
   return {
@@ -50,6 +99,14 @@ function mockSnapshot(rows: DockerContainerEventUpsertRow[]): void {
 }
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
+
+beforeEach(() => {
+  checkRepoState.rows = [];
+  checkRepoState.successes = 0;
+  checkRepoState.failures = 0;
+  checkRepoState.readError = false;
+  checkRepoState.writeError = false;
+});
 
 describe('getImageUpdateSummaries', () => {
   test('checks each distinct image once and sorts summaries by image', async () => {
@@ -147,6 +204,148 @@ describe('getImageUpdateSummaries', () => {
       const { getImageUpdateSummaries } = await import('../image-update-service');
       const [summary] = await getImageUpdateSummaries('labels', 'host1');
       expect(summary.sourceRepo).toBe('o/r');
+    } finally {
+      restore();
+    }
+  });
+
+  test('fresh persisted rows are served without registry calls', async () => {
+    const checkedAt = new Date(Date.now() - 3600_000);
+    checkRepoState.rows = [persistedRow({ checkedAt })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'freshrows' })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const summaries = await getImageUpdateSummaries('freshrows', 'host1');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0].updateAvailable).toBe(true);
+      expect(summaries[0].latestMatchingTag).toBe('7.4.1');
+      expect(summaries[0].checkedAt).toBe(checkedAt.toISOString());
+    } finally {
+      restore();
+    }
+  });
+
+  test('clearImageUpdateSummaryCache forces the next read back to the source', async () => {
+    checkRepoState.rows = [persistedRow({ checkedAt: new Date('2020-01-01T00:00:00Z') })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'cache-clear' })]);
+    let call = 0;
+    const { restore } = withFetch(() => {
+      call++;
+      return Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null }));
+    });
+    try {
+      const service = await import('../image-update-service');
+      const first = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(first[0].latestMatchingTag).toBe('7.4.2');
+      expect(call).toBe(1);
+      checkRepoState.rows = [persistedRow({ checkedAt: new Date(), latestMatchingTag: '7.5.0', updateAvailable: true })];
+      const second = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(second).toEqual(first);
+      expect(call).toBe(1);
+      service.clearImageUpdateSummaryCache();
+      const third = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(third[0].latestMatchingTag).toBe('7.5.0');
+      expect(call).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a malformed interval env var does not break panel reads', async () => {
+    checkRepoState.rows = [persistedRow({ checkedAt: new Date() })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'badenv' })]);
+    process.env.IMAGE_UPDATE_REFRESH_INTERVAL_MS = 'not-a-number';
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const summaries = await getImageUpdateSummaries('badenv', 'host1');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0].updateAvailable).toBe(true);
+    } finally {
+      delete process.env.IMAGE_UPDATE_REFRESH_INTERVAL_MS;
+      restore();
+    }
+  });
+
+  test('a stack with no containers returns empty summaries without registry calls', async () => {
+    mockSnapshot([]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      expect(await getImageUpdateSummaries('emptystack', 'host1')).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('stale rows trigger a live check that writes through', async () => {
+    checkRepoState.rows = [persistedRow({ checkedAt: new Date('2020-01-01T00:00:00Z') })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'stalerows' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('stalerows', 'host1');
+      expect(fetchMock).toHaveBeenCalled();
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.latestMatchingTag).toBe('7.4.2');
+      expect(summary.checkedAt).not.toBe('2020-01-01T00:00:00.000Z');
+      expect(checkRepoState.successes).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an errored row is treated as stale so the check retries', async () => {
+    checkRepoState.rows = [persistedRow({ error: 'Docker Hub returned 503', checkedAt: new Date() })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'errorrows' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('errorrows', 'host1');
+      expect(fetchMock).toHaveBeenCalled();
+      expect(summary.error).toBeNull();
+      expect(checkRepoState.successes).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a failed persisted-row read falls back to the live check', async () => {
+    checkRepoState.readError = true;
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'readfail' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('readfail', 'host1');
+      expect(fetchMock).toHaveBeenCalled();
+      expect(summary.updateAvailable).toBe(true);
+      expect(checkRepoState.successes).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a failed write-through does not break the read', async () => {
+    checkRepoState.writeError = true;
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'writefail' })]);
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('writefail', 'host1');
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.checkedAt).not.toBeNull();
     } finally {
       restore();
     }

@@ -27,6 +27,8 @@ export interface ManagedHostsCardProps {
   onRotateKeypair: (hostId: number) => void
   keypairRotating: boolean
   keypairJwkJson: string | null
+  onRotateTls: (hostId: number) => void
+  rotatingTlsHostIds: Set<number>
 }
 
 export interface AgentChannelBuckets {
@@ -139,6 +141,8 @@ export function ManagedHostsCardView({
   onRotateKeypair,
   keypairRotating,
   keypairJwkJson,
+  onRotateTls,
+  rotatingTlsHostIds,
 }: Readonly<ManagedHostsCardProps>) {
   const [removeTarget, setRemoveTarget] = useState<HostListItem | null>(null)
   const [editTarget, setEditTarget] = useState<HostListItem | null>(null)
@@ -193,10 +197,12 @@ export function ManagedHostsCardView({
                 expectedImageTag={agentImageTag}
                 isChecking={checkingHostIds.has(host.id)}
                 isRemoving={isRemoving}
+                isRotatingTls={rotatingTlsHostIds.has(host.id)}
                 onHealthCheck={() => onHealthCheck(host.id)}
                 onEdit={() => setEditTarget(host)}
                 onRemove={() => setRemoveTarget(host)}
                 onKeypair={() => setKeypairTarget(host)}
+                onRotateTls={() => onRotateTls(host.id)}
               />
             ))}
           </div>

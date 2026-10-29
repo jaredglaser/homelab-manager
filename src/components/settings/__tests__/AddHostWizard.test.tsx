@@ -258,6 +258,26 @@ describe('AddHostWizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.queryByTestId('pubkey-display')).toBeNull()
     })
+
+    it('shows the provisioning error with a re-run provisioning action on failure', () => {
+      render(<AddHostWizard {...makeProps({ addError: 'TLS provisioning failed: the agent did not become healthy over HTTPS.' })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+      expect(screen.getByText(/TLS provisioning failed/)).toBeDefined()
+    })
+
+    it('does not show the re-run action when verification succeeded', () => {
+      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
+      render(<AddHostWizard {...makeProps({ verifyResult: { publicJwk } })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.queryByTestId('rerun-provisioning')).toBeNull()
+    })
   })
 
   describe('compose generation', () => {
@@ -271,13 +291,22 @@ describe('AddHostWizard', () => {
   })
 
   describe('error display', () => {
-    it('shows error alert when addError is set', () => {
+    it('shows the error with a re-run action on the verify step when addError is set', () => {
       render(<AddHostWizard {...makeProps({ addError: 'Connection refused' })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText('Connection refused')).toBeDefined()
+      expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
 
-    it('does not show alert when addError is null', () => {
+    it('does not show an error alert when addError is null', () => {
       render(<AddHostWizard {...makeProps({ addError: null })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.queryByRole('alert')).toBeNull()
     })
   })

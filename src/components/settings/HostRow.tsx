@@ -1,4 +1,4 @@
-import { RefreshCw, Trash2, Server, Pencil, KeyRound } from 'lucide-react'
+import { RefreshCw, Trash2, Server, Pencil, KeyRound, ShieldCheck } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -23,10 +23,12 @@ interface HostRowProps {
   expectedImageTag: string
   isChecking: boolean
   isRemoving: boolean
+  isRotatingTls: boolean
   onHealthCheck: () => void
   onEdit: () => void
   onRemove: () => void
   onKeypair: () => void
+  onRotateTls: () => void
 }
 
 export function agentTagTooltip(host: HostListItem, expectedImageTag: string): string {
@@ -86,8 +88,8 @@ function HostAction({ label, ariaLabel, disabled, onClick, className, children }
   )
 }
 
-export default function HostRow({ host, expectedImageTag, isChecking, isRemoving, onHealthCheck, onEdit, onRemove, onKeypair }: HostRowProps) {
-  const busy = isChecking || isRemoving
+export default function HostRow({ host, expectedImageTag, isChecking, isRemoving, isRotatingTls, onHealthCheck, onEdit, onRemove, onKeypair, onRotateTls }: HostRowProps) {
+  const busy = isChecking || isRemoving || isRotatingTls
   return (
     <div className="flex items-center gap-3 py-2 border-b border-border last:border-0">
       <Server size={16} className="text-muted-foreground shrink-0" />
@@ -123,6 +125,9 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
         </HostAction>
         <HostAction label="Agent keypair" ariaLabel="agent keypair" disabled={busy} onClick={onKeypair}>
           <KeyRound size={14} />
+        </HostAction>
+        <HostAction label="Rotate TLS" ariaLabel="rotate TLS" disabled={busy} onClick={onRotateTls}>
+          {isRotatingTls ? <Spinner className="size-3.5" /> : <ShieldCheck size={14} />}
         </HostAction>
         <HostAction
           label="Remove host"

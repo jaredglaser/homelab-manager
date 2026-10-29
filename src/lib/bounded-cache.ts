@@ -22,6 +22,10 @@ export class BoundedCache<T> {
     return entry.value;
   }
 
+  clear(): void {
+    this.entries.clear();
+  }
+
   set(key: string, value: T, ttlMs: number): void {
     this.entries.delete(key);
     this.entries.set(key, { value, expiresAt: Date.now() + ttlMs });

@@ -9,6 +9,7 @@ export const INVENTORY_TOPIC = 'inventory';
 export const SETTINGS_TOPIC = 'settings';
 export const STACK_STATUS_TOPIC = 'stack-status';
 export const AGENT_INVENTORY_TOPIC = 'agent-inventory';
+export const IMAGE_UPDATES_TOPIC = 'image-updates';
 
 export const MAX_SESSION_TOPICS = 250;
 export const MAX_SUB_BATCH = 30;

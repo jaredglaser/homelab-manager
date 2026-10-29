@@ -1,4 +1,5 @@
 import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
+import { agentFetch } from '@/lib/clients/agent-http';
 
 export interface AgentInfoDetail {
   version?: string;
@@ -45,7 +46,8 @@ async function fetchAgentInfo(
   agentUrl: string,
   timeoutMs: number,
   fetchFn: typeof fetch,
-  getToken: () => Promise<string>
+  getToken: () => Promise<string>,
+  caCertPem?: string | null,
 ): Promise<AgentInfoDetail> {
   let token: string;
   try {
@@ -55,11 +57,11 @@ async function fetchAgentInfo(
   }
 
   try {
-    const response = await fetchFn(`${agentUrl}/info`, {
+    const response = await agentFetch(`${agentUrl}/info`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'manual',
-    });
+    }, { caCertPem }, fetchFn);
     if (response.status === 404) {
       console.info(
         `[agent-health] ${agentUrl} has no /info endpoint; agent predates authenticated version reporting`
@@ -102,13 +104,15 @@ export async function checkAgentHealth(
   agentUrl: string,
   timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS,
   fetchFn: typeof fetch = globalThis.fetch,
-  getToken?: () => Promise<string>
+  getToken?: () => Promise<string>,
+  /** Pinned per-host TLS certificate (PEM), used when the agent URL is https. */
+  caCertPem?: string | null,
 ): Promise<AgentHealthResult> {
   try {
-    const response = await fetchFn(`${agentUrl}/health`, {
+    const response = await agentFetch(`${agentUrl}/health`, {
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'manual',
-    });
+    }, { caCertPem }, fetchFn);
 
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
       return { healthy: false, reason: 'unreachable', error: 'Agent URL returned an unexpected redirect' };
@@ -135,7 +139,7 @@ export async function checkAgentHealth(
     }
 
     const info = getToken
-      ? await fetchAgentInfo(agentUrl, timeoutMs, fetchFn, getToken)
+      ? await fetchAgentInfo(agentUrl, timeoutMs, fetchFn, getToken, caCertPem)
       : {};
 
     return { healthy: true, ...info };

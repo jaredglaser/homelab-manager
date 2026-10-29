@@ -2,6 +2,7 @@ import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-r
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
+import { agentFetch } from '@/lib/clients/agent-http';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
@@ -43,6 +44,7 @@ export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
   findAll(): Promise<ManagedHost[]>;
   create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  findByName(name: string): Promise<ManagedHost | null>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateLastSweptAt(id: number, at: Date): Promise<void>;
@@ -167,22 +169,45 @@ export async function handleRotateHostKeypair(
  * health check passes.
  */
 export async function handleVerifyHost(
-  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  deps: HostHandlerDeps & {
+    keypairs: KeypairsDep;
+    /** Must run after repo.create: the cert row has an FK on the host name. Flips the agent URL to https on success. */
+    provisionTls?: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
+  },
   data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
   const name = data.name.trim();
-  const host = await deps.repo.create({
+  // The wizard re-runs verifyHost after a failed attempt, and the pending row
+  // from that attempt blocks a second create on the unique host name.
+  const existing = await deps.repo.findByName(name);
+  const host = existing ?? (await deps.repo.create({
     name,
     agentUrl: data.agentUrl,
     capabilities: data.capabilities,
-  });
+  }));
 
   let publicJwk;
   try {
     ({ publicJwk } = await deps.keypairs.createForHost(name));
   } catch (err) {
-    await deps.repo.delete(host.id);
-    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`);
+    if (!existing) await deps.repo.delete(host.id);
+    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
+  }
+
+  if (deps.provisionTls) {
+    let provisioned: { agentUrl: string };
+    try {
+      provisioned = await deps.provisionTls(name, data.agentUrl);
+    } catch (err) {
+      // The host stays pending so the operator can fix the agent and re-run
+      // provisioning instead of losing the enrolled keypair with the record.
+      throw new Error(err instanceof Error ? err.message : String(err));
+    }
+    const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+    return {
+      host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
+      publicJwk,
+    };
   }
 
   return {
@@ -191,12 +216,29 @@ export async function handleVerifyHost(
   };
 }
 
+/** Re-runs TLS provisioning for an enrolled host. Failure leaves the host record and its enrolled keypair untouched. */
+export async function handleRotateHostTls(
+  deps: HostHandlerDeps & {
+    provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
+  },
+  data: { hostId: number },
+): Promise<{ hostId: number; agentUrl: string }> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const provisioned = await deps.provisionTls(host.name, host.agentUrl);
+  await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+  return { hostId: host.id, agentUrl: provisioned.agentUrl };
+}
+
 // Scoped to this host's agentUrl. Never touches any other host.
 export async function handleUpdateAgent(
   deps: HostHandlerDeps & {
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
     checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
     resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+    /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
+    getCaCert?: (hostname: string) => Promise<string | null>;
   },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
@@ -269,12 +311,12 @@ export async function handleUpdateAgent(
   let triggerResponse: Response;
   try {
     const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
-    triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
+    triggerResponse = await agentFetch(`${agentBaseUrl}/agent/update`, {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetImage }),
       redirect: 'manual',
-    });
+    }, { caCertPem: deps.getCaCert ? await deps.getCaCert(host.name) : null });
   } catch (err) {
     return {
       hostId: host.id,

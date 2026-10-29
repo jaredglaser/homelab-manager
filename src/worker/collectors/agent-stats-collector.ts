@@ -61,6 +61,7 @@ export class AgentStatsCollector extends BaseCollector {
   private readonly host: ManagedHost;
   private readonly signer: () => Promise<string>;
   private readonly streamConnector: StreamConnector;
+  private readonly caCertPem: string | null;
   private readonly entityMetadataRepository: EntityMetadataRepository;
   private readonly knownContainers = new Set<string>();
   private pendingRows: NewDockerStat[] = [];
@@ -72,12 +73,14 @@ export class AgentStatsCollector extends BaseCollector {
     signer: () => Promise<string>,
     abortController?: AbortController,
     streamConnector?: StreamConnector,
+    caCertPem?: string | null,
   ) {
     super(db, config, abortController);
     this.host = host;
     this.signer = signer;
     this.name = `AgentStatsCollector[${host.name}]`;
     this.streamConnector = streamConnector ?? connectAgentSseStream;
+    this.caCertPem = caCertPem ?? null;
     this.entityMetadataRepository = new EntityMetadataRepository(db.getPool());
   }
 
@@ -147,6 +150,7 @@ export class AgentStatsCollector extends BaseCollector {
       path: '/stats/stream',
       signer: this.signer,
       signal: this.signal,
+      caCertPem: this.caCertPem,
     });
 
     this.resetBackoff();

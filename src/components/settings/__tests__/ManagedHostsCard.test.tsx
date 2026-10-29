@@ -37,6 +37,8 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     onRotateKeypair: mock(() => {}),
     keypairRotating: false,
     keypairJwkJson: null,
+    onRotateTls: mock(() => {}),
+    rotatingTlsHostIds: new Set<number>(),
     ...overrides,
   }
 }
@@ -358,11 +360,16 @@ describe('ManagedHostsCard', () => {
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('shows add error when addError is set', () => {
+    it('shows add error with a re-run action on the verify step when addError is set', () => {
       render(
         <ManagedHostsCardView {...makeProps({ addError: 'Agent health check failed' })} />
       )
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText('Agent health check failed')).toBeDefined()
+      expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
 
     it('does not show error when addError is null', () => {
