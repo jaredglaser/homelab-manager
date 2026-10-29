@@ -47,7 +47,6 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
     queryFn: () => getImageUpdateInfo({ data: { stack: stackName, host } }),
     enabled: containers.length > 0,
     staleTime: 60_000,
-    refetchOnWindowFocus: false,
   });
 
   const updateInfoByImage = useMemo(
