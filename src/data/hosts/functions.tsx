@@ -82,7 +82,7 @@ function makeKeypairsDep(
 
 export const verifyHost = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(verifyHostSchema)
+  .validator(verifyHostSchema)
   .handler(async ({ data, context }): Promise<AddHostResult> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
@@ -95,7 +95,7 @@ export const verifyHost = createServerFn()
 
 export const removeHost = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(removeHostSchema)
+  .validator(removeHostSchema)
   .handler(async ({ data, context }): Promise<{ success: boolean }> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
@@ -138,7 +138,7 @@ export const listAgentsInventory = createServerFn()
 
 export const checkHostHealth = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(checkHostHealthSchema)
+  .validator(checkHostHealthSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
     return handleCheckHostHealth({ ...baseDeps, checkHealth: await buildProbeCheckHealth() }, data);
@@ -146,7 +146,7 @@ export const checkHostHealth = createServerFn()
 
 export const updateHost = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(updateHostSchema)
+  .validator(updateHostSchema)
   .handler(async ({ data, context }): Promise<HostListItem> => {
     requireRole('admin')(context.user);
     const deps = await loadDeps();
@@ -155,7 +155,7 @@ export const updateHost = createServerFn()
 
 export const getHostPublicJwk = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(getHostPublicJwkSchema)
+  .validator(getHostPublicJwkSchema)
   .handler(async ({ data, context }): Promise<{ publicJwk: import('jose').JWK }> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
@@ -165,7 +165,7 @@ export const getHostPublicJwk = createServerFn()
 
 export const rotateHostKeypair = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(rotateHostKeypairSchema)
+  .validator(rotateHostKeypairSchema)
   .handler(async ({ data, context }): Promise<{ hostId: number; publicJwk: import('jose').JWK }> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
@@ -175,7 +175,7 @@ export const rotateHostKeypair = createServerFn()
 
 export const updateAgent = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(updateAgentSchema)
+  .validator(updateAgentSchema)
   .handler(async ({ data, context }): Promise<HostOperationResult> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();

@@ -42,7 +42,7 @@ export const listStacks = createServerFn()
  */
 export const getStackDetail = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(getStackDetailSchema)
+  .validator(getStackDetailSchema)
   .handler(async ({ data }): Promise<StackDetail | null> => {
     const { getStackDetailByName } = await import('@/lib/stacks/stack-service');
     return getStackDetailByName(data.stackName);
@@ -56,7 +56,7 @@ export const getStackDetail = createServerFn()
  */
 export const triggerDeploy = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(triggerDeploySchema)
+  .validator(triggerDeploySchema)
   .handler(async ({ data, context }): Promise<{ deployId: number; status: DeployStatus; logs: string }> => {
     requireRole('admin', 'operator')(context.user);
     const { triggerStackDeploy } = await import('@/lib/stacks/stack-service');
@@ -66,7 +66,7 @@ export const triggerDeploy = createServerFn({ method: 'POST' })
 /** Approves a pending deploy via the pipeline's resumePending path. */
 export const resumeDeploy = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(resumeDeploySchema)
+  .validator(resumeDeploySchema)
   .handler(async ({ data, context }): Promise<{ deployId: number; status: DeployStatus; logs: string }> => {
     requireRole('admin', 'operator')(context.user);
     const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
@@ -76,7 +76,7 @@ export const resumeDeploy = createServerFn({ method: 'POST' })
 /** Rejects a pending deploy, marking it failed with a "Manually rejected" log. */
 export const rejectDeploy = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(rejectDeploySchema)
+  .validator(rejectDeploySchema)
   .handler(async ({ data, context }): Promise<{ deployId: number }> => {
     requireRole('admin', 'operator')(context.user);
     const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
@@ -101,7 +101,7 @@ export const scanDrift = createServerFn({ method: 'GET' })
  */
 export const resolveDrift = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(resolveDriftSchema)
+  .validator(resolveDriftSchema)
   .handler(async ({ data, context }): Promise<StackDriftResolutionResult> => {
     requireRole('admin', 'operator')(context.user);
     const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
@@ -113,7 +113,7 @@ export const resolveDrift = createServerFn({ method: 'POST' })
  */
 export const getDeployHistory = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(getDeployHistorySchema)
+  .validator(getDeployHistorySchema)
   .handler(async ({ data }): Promise<StackDeployRecord[]> => {
     const { getStackDeployHistory } = await import('@/lib/stacks/stack-service');
     return getStackDeployHistory(data.stackName, data.limit);
@@ -126,7 +126,7 @@ export const getDeployHistory = createServerFn()
  */
 export const saveComposeFile = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(saveComposeFileSchema)
+  .validator(saveComposeFileSchema)
   .handler(async ({ data, context }): Promise<{ commitSha: string; warnings?: string[] }> => {
     requireRole('admin', 'operator')(context.user);
     const { saveStackComposeFile } = await import('@/lib/stacks/stack-service');
@@ -168,7 +168,7 @@ const stackVariableValuesSchema = z.object({
  */
 export const getStackVariableValues = createServerFn({ method: 'GET' })
   .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(stackVariableValuesSchema)
+  .validator(stackVariableValuesSchema)
   .handler(async ({ context, data }): Promise<Record<string, string>> => {
     requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
@@ -187,7 +187,7 @@ const setVariableValueSchema = z.object({
  */
 export const setVariableValue = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(setVariableValueSchema)
+  .validator(setVariableValueSchema)
   .handler(async ({ context, data }): Promise<void> => {
     requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
@@ -205,7 +205,7 @@ const deleteVariableSchema = z.object({
  */
 export const deleteVariable = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(deleteVariableSchema)
+  .validator(deleteVariableSchema)
   .handler(async ({ context, data }): Promise<void> => {
     requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
@@ -234,7 +234,7 @@ const createStackSchema = z.object({
  */
 export const createStack = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(createStackSchema)
+  .validator(createStackSchema)
   .handler(async ({ data, context }): Promise<{ commitSha: string }> => {
     requireRole('admin', 'operator')(context.user);
     const { createStackInRepo } = await import('@/lib/stacks/stack-service');
@@ -254,7 +254,7 @@ const deleteStackSchema = z.object({
  */
 export const deleteStack = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(deleteStackSchema)
+  .validator(deleteStackSchema)
   .handler(async ({ data, context }): Promise<
     | { status: 'removed'; commitSha: string }
     | { status: 'teardown-pending'; deployId: number }
@@ -275,7 +275,7 @@ const updateStackSettingsSchema = z.object({
  */
 export const updateStackSettings = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(updateStackSettingsSchema)
+  .validator(updateStackSettingsSchema)
   .handler(async ({ data, context }): Promise<{ commitSha: string }> => {
     requireRole('admin', 'operator')(context.user);
     const { loadGitConfig } = await import('@/lib/config/git-config');
@@ -301,7 +301,7 @@ const ensureVariablesExistSchema = z.object({
  */
 export const ensureVariablesExist = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, stackSecretsMiddleware])
-  .inputValidator(ensureVariablesExistSchema)
+  .validator(ensureVariablesExistSchema)
   .handler(async ({ context, data }): Promise<void> => {
     requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
@@ -313,7 +313,7 @@ export const ensureVariablesExist = createServerFn({ method: 'POST' })
 
 export const getImageUpdateInfo = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(getImageUpdateInfoSchema)
+  .validator(getImageUpdateInfoSchema)
   .handler(async ({ data }): Promise<ImageUpdateSummary[]> => {
     const { getImageUpdateSummaries } = await import('@/lib/image-updates/image-update-service');
     return getImageUpdateSummaries(data.stack, data.host);
@@ -321,7 +321,7 @@ export const getImageUpdateInfo = createServerFn()
 
 export const getImageChangelog = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(getImageChangelogSchema)
+  .validator(getImageChangelogSchema)
   .handler(async ({ data }): Promise<ImageChangelog> => {
     const { getImageChangelog } = await import('@/lib/image-updates/image-update-service');
     return getImageChangelog(data.stack, data.host, data.image);
@@ -333,7 +333,7 @@ export const getImageChangelog = createServerFn()
  */
 export const controlStack = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(controlStackSchema)
+  .validator(controlStackSchema)
   .handler(async ({ data, context }): Promise<void> => {
     requireRole('admin', 'operator')(context.user);
     const { controlStackForHost } = await import('@/lib/stacks/stack-service');

@@ -74,7 +74,7 @@ export const listSessions = createServerFn()
  */
 export const revokeSession = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(z.object({ sessionId: z.string() }))
+  .validator(z.object({ sessionId: z.string() }))
   .handler(async ({ data, context }): Promise<void> => {
     requireRole('admin')(context.user);
 
@@ -94,7 +94,7 @@ export const revokeSession = createServerFn()
  */
 export const revokeAllUserSessions = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(z.object({ userId: z.number() }))
+  .validator(z.object({ userId: z.number() }))
   .handler(async ({ data, context }): Promise<void> => {
     requireRole('admin')(context.user);
 

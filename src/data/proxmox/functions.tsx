@@ -10,7 +10,7 @@ import { getHistoricalProxmoxStatsSchema } from '@/data/proxmox/schemas';
  */
 export const getHistoricalProxmoxStats = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(getHistoricalProxmoxStatsSchema)
+  .validator(getHistoricalProxmoxStatsSchema)
   .handler(async ({ context, data }): Promise<ProxmoxStatsRow[]> => {
     try {
       const { StatsRepository } = await import(
