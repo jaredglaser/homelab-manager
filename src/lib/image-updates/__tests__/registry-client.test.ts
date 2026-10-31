@@ -297,8 +297,62 @@ describe('checkImageUpdate', () => {
     try {
       const upToDate = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': 'v7.4.1' });
       expect(upToDate.updateAvailable).toBe(false);
+      expect(upToDate.versionSource).toBe('label');
       const outdated = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': 'v7.0.0' });
       expect(outdated.updateAvailable).toBe(true);
+      expect(outdated.versionSource).toBe('label');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a label disagreeing with a major-only pin keeps the verdict but marks the version unknown', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': '6.9.0' });
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.versionSource).toBe('tag');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a label disagreeing with a patch-pinned tag falls back to the tag-derived version', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7.4.1-alpine', { 'org.opencontainers.image.version': '6.9.0' });
+      expect(summary.updateAvailable).toBe(false);
+      expect(summary.versionSource).toBe('tag');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a build-metadata label is trusted', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': '7.4.1+build.5' });
+      expect(summary.updateAvailable).toBe(false);
+      expect(summary.versionSource).toBe('label');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a label disagreeing with a pinned minor falls back to the tag', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7.4-alpine', { 'org.opencontainers.image.version': '7.9.0' });
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.versionSource).toBe('tag');
     } finally {
       restore();
     }

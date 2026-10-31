@@ -2,10 +2,11 @@ import { parseImageRef } from './image-ref';
 import {
   compareVersions,
   constraintFromTag,
-  newestTagMatchingConstraint,
-  newestVersionTag,
-  parseVersionTag,
+  matchesConstraint,
+  normalizeVersion,
+  resolveRunningVersion,
 } from './version';
+import type { ParsedVersionTag } from './version';
 import { BoundedCache } from '@/lib/bounded-cache';
 import type { ImageUpdateSummary } from '@/types/image-updates';
 
@@ -390,13 +391,24 @@ export async function checkImageUpdateWithMeta(
     return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
   }
 
-  const latestMatching = newestTagMatchingConstraint(tags, constraint);
-  const latestOverall = newestVersionTag(tags);
+  let latestMatching: ParsedVersionTag | null = null;
+  let latestOverall: ParsedVersionTag | null = null;
+  for (const tag of tags) {
+    const candidate = normalizeVersion(tag);
+    if (!candidate) continue;
+    if (!latestOverall || compareVersions(candidate, latestOverall) > 0) latestOverall = candidate;
+    if (matchesConstraint(candidate, constraint) && (!latestMatching || compareVersions(candidate, latestMatching) > 0)) latestMatching = candidate;
+  }
+
   // A constraint tag like `2-alpine` parses as 2.0.0, so tag-order comparison
-  // alone flags the version the container already runs. The image's own
-  // version label is the truth about what is running; fall back to the tag
-  // when the image declares none.
-  const current = parseVersionTag(currentVersionFromLabels(labels) ?? '') ?? parseVersionTag(ref.tag);
+  // alone flags the version the container already runs. The image's declared
+  // version is used when it agrees with the axes the tag pins; otherwise the
+  // tag guess stands and versionSource records the uncertainty.
+  const { current, versionSource } = resolveRunningVersion(
+    constraint,
+    normalizeVersion(currentVersionFromLabels(labels) ?? ''),
+    normalizeVersion(ref.tag),
+  );
   if (!current) return { summary: base, etag: null };
   // No tag matching the constraint means there is nothing to update to, not
   // that the check is inconclusive.
@@ -408,6 +420,7 @@ export async function checkImageUpdateWithMeta(
       latestMatchingTag: latestMatching?.raw ?? null,
       latestOverallTag: latestOverall?.raw ?? null,
       updateAvailable,
+      versionSource,
     },
     etag: null,
   };

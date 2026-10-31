@@ -28,6 +28,8 @@ export interface ImageUpdateSummary {
   sourceRepo: string | null;
   /** Version the image declares about itself via `org.opencontainers.image.version`, leading `v` stripped. Absent when the label is missing or the summary predates the field. */
   currentVersion?: string | null;
+  /** Where the compared running version came from: the image's version label, or a guess from the tag name. Absent for floating/digest paths and legacy callers. */
+  versionSource?: 'label' | 'tag' | null;
   /** Why the registry check failed, when it did. */
   error: string | null;
   /** When this state was produced: the persisted row's checked_at, or the moment of a live check. Absent only from legacy callers. */

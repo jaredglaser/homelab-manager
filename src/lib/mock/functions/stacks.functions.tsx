@@ -11,7 +11,7 @@ import type {
 } from '@/types/stacks';
 import type { ImageChangelog, ImageRelease, ImageUpdateSummary } from '@/types/image-updates';
 import type { ManualCheckResult } from '@/lib/image-updates/manual-check';
-import { constraintFromTag, parseVersionTag } from '@/lib/image-updates/version';
+import { constraintFromTag, normalizeVersion } from '@/lib/image-updates/version';
 import { generateStackStatusEntry } from '@/lib/mock/generators/stacks';
 import { stackStatusUpdates } from '@/lib/mock/live-updates';
 
@@ -511,7 +511,7 @@ const MOCK_SOURCE_REPOS: Record<string, string> = {
 
 function buildUpdateSummary(image: string): ImageUpdateSummary {
   const currentTag = tagOfImage(image);
-  const parsed = currentTag !== null ? parseVersionTag(currentTag) : null;
+  const parsed = currentTag !== null ? normalizeVersion(currentTag) : null;
   const constraint = currentTag !== null ? constraintFromTag(currentTag) : null;
   if (parsed === null || constraint === null) {
     // nginx:latest simulates a moved registry digest. Other floating tags stay

@@ -10,7 +10,7 @@ import Markdown from '@/components/shared/Markdown';
 import { isSafeHttpUrl } from '@/lib/url-safety';
 import { checkImageUpdates, getImageChangelog } from '@/data/stacks/functions';
 import { IMAGE_CHANGELOG_QUERY_KEY, IMAGE_UPDATE_INFO_QUERY_KEY } from '@/lib/constants/stacks-keys';
-import { constraintFromTag, matchesConstraint, parseVersionTag } from '@/lib/image-updates/version';
+import { constraintFromTag, matchesConstraint, normalizeVersion } from '@/lib/image-updates/version';
 import type { ImageUpdateSummary } from '@/types/image-updates';
 import type { StackContainer } from '@/types/stacks';
 
@@ -132,14 +132,15 @@ export default function ImageUpdateDialog({
   });
 
   const releases = changelog?.releases ?? [];
-  // Docker variant suffixes (-alpine, -slim) distinguish image builds, not upstream
-  // releases: GitHub tags never carry them, so the release filter matches on version only.
+  // The Docker variant selects an image build, so it cannot match upstream
+  // release tags; dropped from BOTH sides (some repos publish v2.11.7-alpine
+  // release tags, others v2.11.7).
   const releaseConstraint = constraint !== null ? { ...constraint, variant: null } : null;
   const visibleReleases =
     releaseConstraint !== null && effectiveView === 'matching'
       ? releases.filter((release) => {
-          const parsed = parseVersionTag(release.tagName);
-          return parsed !== null && matchesConstraint(parsed, releaseConstraint);
+          const parsed = normalizeVersion(release.tagName);
+          return parsed !== null && matchesConstraint({ ...parsed, variant: null }, releaseConstraint);
         })
       : releases;
 

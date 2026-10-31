@@ -3,61 +3,83 @@ import {
   compareVersions,
   constraintFromTag,
   matchesConstraint,
-  newestTagMatchingConstraint,
-  newestVersionTag,
-  parseVersionTag,
+  normalizeVersion,
+  resolveRunningVersion,
 } from '../version';
 
-describe('parseVersionTag', () => {
-  test('parses major-only tags', () => {
-    expect(parseVersionTag('2')).toEqual({
-      major: 2, minor: null, patch: null, prerelease: null, variant: null, raw: '2',
-    });
-  });
+describe('normalizeVersion', () => {
+  // real-world tags → the common comparison schema
+  const table: Array<[string, { major: number; minor: number | null; patch: number | null; prerelease: string | null; variant: string | null } | null]> = [
+    ['2', { major: 2, minor: null, patch: null, prerelease: null, variant: null }],
+    ['2-alpine', { major: 2, minor: null, patch: null, prerelease: null, variant: 'alpine' }],
+    ['2.11.7-alpine', { major: 2, minor: 11, patch: 7, prerelease: null, variant: 'alpine' }],
+    ['v2.11.7', { major: 2, minor: 11, patch: 7, prerelease: null, variant: null }],
+    ['V3', { major: 3, minor: null, patch: null, prerelease: null, variant: null }],
+    ['2.11.7+build.5', { major: 2, minor: 11, patch: 7, prerelease: null, variant: null }],
+    ['1.2.3-rc.1+build', { major: 1, minor: 2, patch: 3, prerelease: 'rc.1', variant: null }],
+    ['2024.11.0', { major: 2024, minor: 11, patch: 0, prerelease: null, variant: null }],
+    ['24.04', { major: 24, minor: 4, patch: null, prerelease: null, variant: null }],
+    ['7.4', { major: 7, minor: 4, patch: null, prerelease: null, variant: null }],
+    ['7', { major: 7, minor: null, patch: null, prerelease: null, variant: null }],
+    ['1.0.0-rc.1', { major: 1, minor: 0, patch: 0, prerelease: 'rc.1', variant: null }],
+    ['1.0.0-beta2', { major: 1, minor: 0, patch: 0, prerelease: 'beta2', variant: null }],
+    ['1.0.0-rc.1-alpine', { major: 1, minor: 0, patch: 0, prerelease: 'rc.1', variant: 'alpine' }],
+    ['1.0.0-rc.1-slim-bookworm', { major: 1, minor: 0, patch: 0, prerelease: 'rc.1', variant: 'slim-bookworm' }],
+    ['1.0.0-rc.1-foo', { major: 1, minor: 0, patch: 0, prerelease: 'rc.1-foo', variant: null }],
+    ['2.11.7-slim-bookworm', { major: 2, minor: 11, patch: 7, prerelease: null, variant: 'slim-bookworm' }],
+    ['2.11.7-alpine3.20', { major: 2, minor: 11, patch: 7, prerelease: null, variant: 'alpine3.20' }],
+    ['latest', null],
+    ['main', null],
+    ['stable', null],
+    ['edge', null],
+    ['nightly', null],
+    ['amd64', null],
+    ['vault', null],
+    ['sha256-abc', null],
+    ['sha256:' + 'a'.repeat(64), null],
+    ['1.2.3.4', null],
+    ['1.0.0-rc.1!', null],
+    ['', null],
+  ];
 
-  test('parses major.minor and major.minor.patch', () => {
-    expect(parseVersionTag('7.4')?.minor).toBe(4);
-    expect(parseVersionTag('7.4')?.patch).toBeNull();
-    expect(parseVersionTag('7.4.1')?.patch).toBe(1);
-  });
-
-  test('strips a leading v only when a digit follows', () => {
-    expect(parseVersionTag('v2.1.0')?.major).toBe(2);
-    expect(parseVersionTag('V3')?.major).toBe(3);
-    expect(parseVersionTag('vault')).toBeNull();
-  });
-
-  test('splits variant suffixes from prereleases', () => {
-    expect(parseVersionTag('7-alpine')?.variant).toBe('alpine');
-    expect(parseVersionTag('2-bookworm')?.variant).toBe('bookworm');
-    expect(parseVersionTag('1.0.0-rc.1')?.prerelease).toBe('rc.1');
-    expect(parseVersionTag('1.0.0-beta2')?.prerelease).toBe('beta2');
-  });
-
-  test('floating and non-numeric tags return null', () => {
-    for (const tag of ['latest', 'main', 'stable', 'edge', 'nightly', 'amd64', 'sha256-abc', '']) {
-      expect(parseVersionTag(tag)).toBeNull();
+  test('translates the common conventions into one schema', () => {
+    for (const [raw, expected] of table) {
+      const parsed = normalizeVersion(raw);
+      if (expected === null) {
+        expect(parsed).toBeNull();
+        continue;
+      }
+      expect(parsed?.major).toBe(expected.major);
+      expect(parsed?.minor).toBe(expected.minor);
+      expect(parsed?.patch).toBe(expected.patch);
+      expect(parsed?.prerelease).toBe(expected.prerelease);
+      expect(parsed?.variant).toBe(expected.variant);
+      expect(parsed?.raw).toBe(raw);
     }
   });
 
-  test('digest refs return null', () => {
-    expect(parseVersionTag('sha256:' + 'a'.repeat(64))).toBeNull();
-  });
-
-  test('more than three numeric parts return null', () => {
-    expect(parseVersionTag('1.2.3.4')).toBeNull();
+  test('pads the core for comparison', () => {
+    expect(normalizeVersion('2')?.semver.version).toBe('2.0.0');
+    expect(normalizeVersion('7.4')?.semver.version).toBe('7.4.0');
+    expect(normalizeVersion('1.0.0-rc.1')?.semver.version).toBe('1.0.0-rc.1');
   });
 });
 
 describe('constraintFromTag', () => {
   test('major-only tag constrains the major only', () => {
-    expect(constraintFromTag('2')).toEqual({ major: 2, minor: null, patch: null, variant: null, allowPrerelease: false });
+    const c = constraintFromTag('2')!;
+    expect(c.major).toBe(2);
+    expect(c.minor).toBeNull();
+    expect(c.patch).toBeNull();
+    expect(c.variant).toBeNull();
+    expect(c.allowPrerelease).toBe(false);
   });
 
   test('pinned fields carry into the constraint', () => {
-    expect(constraintFromTag('7.4')).toEqual({ major: 7, minor: 4, patch: null, variant: null, allowPrerelease: false });
-    expect(constraintFromTag('7.4.1')).toEqual({ major: 7, minor: 4, patch: 1, variant: null, allowPrerelease: false });
-    expect(constraintFromTag('7-alpine')).toEqual({ major: 7, minor: null, patch: null, variant: 'alpine', allowPrerelease: false });
+    expect(constraintFromTag('7.4')?.minor).toBe(4);
+    expect(constraintFromTag('7.4')?.patch).toBeNull();
+    expect(constraintFromTag('7.4.1')?.patch).toBe(1);
+    expect(constraintFromTag('7-alpine')?.variant).toBe('alpine');
   });
 
   test('a prerelease running tag allows prerelease candidates', () => {
@@ -71,7 +93,7 @@ describe('constraintFromTag', () => {
 });
 
 describe('matchesConstraint', () => {
-  const v = (tag: string) => parseVersionTag(tag)!;
+  const v = (tag: string) => normalizeVersion(tag)!;
 
   test('major constraint accepts newer minors and patches', () => {
     const c = constraintFromTag('2')!;
@@ -106,15 +128,42 @@ describe('matchesConstraint', () => {
     expect(matchesConstraint(v('8.1.0'), c)).toBe(true);
   });
 
-  test('a prerelease running tag matches both prereleases and finals', () => {
+  test('a prerelease running tag matches both prereleases and finals in its range', () => {
     const c = constraintFromTag('8.1.0-rc.1')!;
     expect(matchesConstraint(v('8.1.0-rc.2'), c)).toBe(true);
     expect(matchesConstraint(v('8.1.0'), c)).toBe(true);
   });
+
+  test('a prerelease running tag on a major-only pin admits prereleases inside the major', () => {
+    const c = constraintFromTag('2-rc.1')!;
+    expect(matchesConstraint(v('2.0.0-rc.2'), c)).toBe(true);
+    expect(matchesConstraint(v('2.5.0-beta'), c)).toBe(true);
+    expect(matchesConstraint(v('3.0.0-rc.1'), c)).toBe(false);
+    expect(matchesConstraint(v('1.9.0'), c)).toBe(false);
+  });
+
+  test('a prerelease running tag on a minor pin admits prereleases inside the minor', () => {
+    const c = constraintFromTag('2.1-rc.1')!;
+    expect(matchesConstraint(v('2.1.0-rc.2'), c)).toBe(true);
+    expect(matchesConstraint(v('2.1.5-rc.1'), c)).toBe(true);
+    expect(matchesConstraint(v('2.2.0-rc.1'), c)).toBe(false);
+  });
+
+  test('a prerelease running tag on a patch pin admits only that patch', () => {
+    const c = constraintFromTag('2.3.1-rc.1')!;
+    expect(matchesConstraint(v('2.3.1-rc.2'), c)).toBe(true);
+    expect(matchesConstraint(v('2.3.1'), c)).toBe(true);
+    expect(matchesConstraint(v('2.3.2-rc.1'), c)).toBe(false);
+  });
+
+  test('a candidate with a variant fails a variant-less constraint', () => {
+    const c = constraintFromTag('2.3')!;
+    expect(matchesConstraint(v('2.3.9-alpine'), c)).toBe(false);
+  });
 });
 
 describe('compareVersions', () => {
-  const v = (tag: string) => parseVersionTag(tag)!;
+  const v = (tag: string) => normalizeVersion(tag)!;
 
   test('numeric fields compare numerically', () => {
     expect(compareVersions(v('2.10.0'), v('2.9.9'))).toBeGreaterThan(0);
@@ -127,31 +176,51 @@ describe('compareVersions', () => {
     expect(compareVersions(v('1.0.0-rc.2'), v('1.0.0-rc.1'))).toBeGreaterThan(0);
     expect(compareVersions(v('1.0.0-alpha'), v('1.0.0-beta'))).toBeLessThan(0);
   });
-});
 
-describe('newestVersionTag', () => {
-  test('picks the highest version and ignores non-version tags', () => {
-    expect(newestVersionTag(['latest', '7.4.1', '7', '7.10'])?.raw).toBe('7.10');
-    expect(newestVersionTag(['7.10', '8.0.0-rc.1'])?.raw).toBe('8.0.0-rc.1');
-  });
-
-  test('returns null when nothing parses', () => {
-    expect(newestVersionTag(['latest', 'main'])).toBeNull();
+  test('build metadata is ignored for precedence', () => {
+    expect(compareVersions(v('2.11.7+build.5'), v('2.11.7'))).toBe(0);
   });
 });
 
-describe('newestTagMatchingConstraint', () => {
-  test('a :2 pin finds the newest 2.x, never 3.x', () => {
-    const tags = ['2', '2.0.0', '2.9.4', '3.0.0', 'latest'];
-    expect(newestTagMatchingConstraint(tags, constraintFromTag('2')!)?.raw).toBe('2.9.4');
+describe('resolveRunningVersion', () => {
+  const v = (tag: string) => normalizeVersion(tag)!;
+
+  test('a label agreeing with the pinned axes is trusted', () => {
+    const c = constraintFromTag('2-alpine')!;
+    const result = resolveRunningVersion(c, v('v2.11.7'), v('2-alpine'));
+    expect(result.current?.raw).toBe('v2.11.7');
+    expect(result.versionSource).toBe('label');
   });
 
-  test('variant constraint stays within the variant', () => {
-    const tags = ['7-alpine', '7.4.1-alpine', '7.4.1', '8-alpine'];
-    expect(newestTagMatchingConstraint(tags, constraintFromTag('7-alpine')!)?.raw).toBe('7.4.1-alpine');
+  test('a label disagreeing with the pinned major is distrusted', () => {
+    const c = constraintFromTag('2-alpine')!;
+    const result = resolveRunningVersion(c, v('2024.11.0'), v('2-alpine'));
+    expect(result.current?.raw).toBe('2-alpine');
+    expect(result.versionSource).toBe('tag');
   });
 
-  test('returns null when no tag matches', () => {
-    expect(newestTagMatchingConstraint(['3.0.0'], constraintFromTag('2')!)).toBeNull();
+  test('a label disagreeing with a pinned minor is distrusted', () => {
+    const c = constraintFromTag('7.4-alpine')!;
+    const result = resolveRunningVersion(c, v('7.9.0'), v('7.4-alpine'));
+    expect(result.versionSource).toBe('tag');
+  });
+
+  test('a label agreeing on the pinned minor is trusted', () => {
+    const c = constraintFromTag('7.4-alpine')!;
+    const result = resolveRunningVersion(c, v('7.4.1'), v('7.4-alpine'));
+    expect(result.versionSource).toBe('label');
+  });
+
+  test('a null label falls back to the tag', () => {
+    const c = constraintFromTag('2-alpine')!;
+    const result = resolveRunningVersion(c, null, v('2-alpine'));
+    expect(result.versionSource).toBe('tag');
+  });
+
+  test('no usable source yields null', () => {
+    const c = constraintFromTag('2-alpine')!;
+    const result = resolveRunningVersion(c, null, null);
+    expect(result.current).toBeNull();
+    expect(result.versionSource).toBeNull();
   });
 });
