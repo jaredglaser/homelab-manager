@@ -3,7 +3,8 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFormContext } from 'react-hook-form';
 import type { StackDetail, StackDeployRecord, DeployStatus } from '@/types/stacks';
-import { DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys';
+import type { ImageUpdateSummary } from '@/types/image-updates';
+import { DEPLOY_HISTORY_QUERY_KEY, IMAGE_UPDATE_INFO_QUERY_KEY } from '@/lib/constants/stacks-keys';
 import { mockModule } from '@/lib/test/mock-module';
 
 // Router hooks are the only things StackEditorForm needs from the router; stub
@@ -106,6 +107,10 @@ const mockScanDrift = mock(() => Promise.resolve({
   hostAnomalies: [],
 }));
 const mockGetDeployHistory = mock((_args: unknown): Promise<StackDeployRecord[]> => Promise.resolve([]));
+const mockCheckImageUpdates = mock(
+  (_args: unknown): Promise<{ summaries: ImageUpdateSummary[]; checked: number; changed: number; failed: number }> =>
+    Promise.resolve({ summaries: [], checked: 0, changed: 0, failed: 0 }),
+);
 const realFns = await import('@/data/stacks/functions');
 mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   ...realFns,
@@ -117,6 +122,7 @@ mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', 
   resumeDeploy: mockResumeDeploy,
   rejectDeploy: mockRejectDeploy,
   scanDrift: mockScanDrift,
+  checkImageUpdates: mockCheckImageUpdates,
 }));
 
 const detail: StackDetail = {
@@ -166,6 +172,8 @@ describe('StackEditorForm', () => {
     mockCanWrite = true;
     mockScanDrift.mockClear();
     mockGetDeployHistory.mockClear();
+    mockCheckImageUpdates.mockClear();
+    mockCheckImageUpdates.mockImplementation(() => Promise.resolve({ summaries: [], checked: 0, changed: 0, failed: 0 }));
     mockGetDeployHistory.mockImplementation(() => Promise.resolve([]));
   });
 
@@ -384,6 +392,84 @@ describe('StackEditorForm', () => {
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Update anyway' })); });
     await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+  });
+
+  it('runs a pre-update check before dispatching the update', async () => {
+    await renderForm();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1));
+    const firstCall = (mockCheckImageUpdates.mock.calls as unknown as { data: Record<string, unknown> }[][])[0][0];
+    expect(firstCall.data.stack).toBe('web');
+    expect(firstCall.data.host).toBe('host1');
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+  });
+
+  it('aborts the update without a deploy row when the check reports failures', async () => {
+    mockCheckImageUpdates.mockImplementation(() =>
+      Promise.resolve({ summaries: [], checked: 2, changed: 0, failed: 2 }));
+    await renderForm();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1));
+    expect(mockShowToast.mock.calls[0][0]).toContain("Couldn't verify the latest version for 2 images");
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+  });
+
+  it('aborts the update when the pre-update check request rejects', async () => {
+    mockCheckImageUpdates.mockImplementation(() => Promise.reject(new Error('network down')));
+    await renderForm();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1));
+    const message = mockShowToast.mock.calls[0][0];
+    expect(message).toContain('Update check failed');
+    expect(message).toContain('network down');
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+  });
+
+  it('asks for a confirming click when the check finds the verdict moved', async () => {
+    mockCheckImageUpdates.mockImplementation(() => Promise.resolve({
+      summaries: [{ image: 'nginx:1', currentTag: '1', latestMatchingTag: '1.26', latestOverallTag: '1.26', updateAvailable: true, sourceRepo: null, error: null }],
+      checked: 1,
+      changed: 1,
+      failed: 0,
+    }));
+    const { queryClient } = await renderForm();
+    act(() => {
+      queryClient.setQueryData<ImageUpdateSummary[]>([...IMAGE_UPDATE_INFO_QUERY_KEY, 'host1', 'web'], [
+        { image: 'nginx:1', currentTag: '1', latestMatchingTag: null, latestOverallTag: null, updateAvailable: false, sourceRepo: null, error: null },
+      ]);
+    });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1));
+    const message = mockShowToast.mock.calls[0][0];
+    expect(message).toContain('Image update targets changed since the last check');
+    expect(message).toContain('click Update images again');
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+
+    // The panel query was invalidated with fresh data; the confirming click
+    // dispatches without re-running the check.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches without a confirming click when the check matches the panel data', async () => {
+    mockCheckImageUpdates.mockImplementation(() => Promise.resolve({
+      summaries: [{ image: 'nginx:1', currentTag: '1', latestMatchingTag: '1.26', latestOverallTag: '1.26', updateAvailable: true, sourceRepo: null, error: null }],
+      checked: 1,
+      changed: 0,
+      failed: 0,
+    }));
+    const { queryClient } = await renderForm();
+    act(() => {
+      queryClient.setQueryData<ImageUpdateSummary[]>([...IMAGE_UPDATE_INFO_QUERY_KEY, 'host1', 'web'], [
+        { image: 'nginx:1', currentTag: '1', latestMatchingTag: '1.26', latestOverallTag: '1.26', updateAvailable: true, sourceRepo: null, error: null },
+      ]);
+    });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1);
+    const staleToasts = mockShowToast.mock.calls.filter((call) => String(call[0]).includes('Image update targets changed'));
+    expect(staleToasts).toHaveLength(0);
   });
 
   it('drops a confirmed update when a deploy became active while the warning was open', async () => {

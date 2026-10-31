@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import Markdown from '@/components/shared/Markdown';
 import { isSafeHttpUrl } from '@/lib/url-safety';
-import { getImageChangelog } from '@/data/stacks/functions';
-import { IMAGE_CHANGELOG_QUERY_KEY } from '@/lib/constants/stacks-keys';
+import { checkImageUpdates, getImageChangelog } from '@/data/stacks/functions';
+import { IMAGE_CHANGELOG_QUERY_KEY, IMAGE_UPDATE_INFO_QUERY_KEY } from '@/lib/constants/stacks-keys';
 import { constraintFromTag, matchesConstraint, parseVersionTag } from '@/lib/image-updates/version';
 import type { ImageUpdateSummary } from '@/types/image-updates';
 import type { StackContainer } from '@/types/stacks';
@@ -101,6 +102,24 @@ export default function ImageUpdateDialog({
     queryFn: () => getImageChangelog({ data: { stack: stackName, host, image: container.image } }),
     enabled: open,
     refetchOnWindowFocus: false,
+  });
+
+  // Per-image re-check: runs the same check-and-persist path as the scheduled
+  // refresher, then invalidates the panel query so this summary prop (and every
+  // other client's panel) carries the fresh verdict.
+  const queryClient = useQueryClient();
+  const recheckMutation = useMutation({
+    mutationFn: () =>
+      checkImageUpdates({ data: { stack: stackName, host, image: container.image } }),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: [...IMAGE_UPDATE_INFO_QUERY_KEY, host, stackName] });
+      if (result.failed > 0) {
+        toast.warning(`Registry check failed for ${container.image}. The panel keeps the last known state.`);
+      }
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : String(err));
+    },
   });
 
   const releases = changelog?.releases ?? [];
@@ -216,6 +235,15 @@ export default function ImageUpdateDialog({
           {summary?.checkedAt && (
             <p className="text-xs text-muted-foreground">Last checked {relativeCheckedAt(summary.checkedAt)}</p>
           )}
+          <Button
+            variant="ghost"
+            className="text-foreground"
+            disabled={recheckMutation.isPending}
+            onClick={() => recheckMutation.mutate()}
+          >
+            {recheckMutation.isPending ? <Spinner className="size-3" /> : null}
+            Re-check
+          </Button>
           <Button variant="ghost" className="text-foreground" onClick={onClose}>
             Close
           </Button>

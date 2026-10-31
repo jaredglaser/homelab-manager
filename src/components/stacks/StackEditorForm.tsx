@@ -19,6 +19,7 @@ import {
   resumeDeploy,
   rejectDeploy,
   scanDrift,
+  checkImageUpdates,
 } from '@/data/stacks/functions'
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
@@ -29,8 +30,9 @@ import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
 import StackDriftWarning from '@/components/stacks/StackDriftWarning'
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
-import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY, STACK_DRIFT_QUERY_KEY, IMAGE_UPDATE_INFO_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import type { StackDetail, StackDeployRecord } from '@/types/stacks'
+import type { ImageUpdateSummary } from '@/types/image-updates'
 import type { StackFormValues } from '@/components/stacks/stack-form'
 
 type Panel = 'compose' | 'secrets' | 'containers' | 'deploys'
@@ -100,6 +102,9 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [pendingConfirmAction, setPendingConfirmAction] = useState<ConfirmableDeployAction | null>(null)
   const lastConfirmActionRef = useRef<ConfirmableDeployAction>({ action: 'deploy' })
+  // Set when a pre-update check finds the verdict moved; the confirming click
+  // consumes it to dispatch instead of re-running the check.
+  const skipUpdateCheckRef = useRef(false)
 
   const form = useForm<StackFormValues>({
     defaultValues: { compose: detail.composeContent, secrets: {} },
@@ -207,6 +212,46 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   })
   const isDeploying = deployMutation.isPending || activeDeploy !== null
 
+  // The gate aborts the update when the check fails (no deploy row) and asks
+  // for a confirming second click when the verdict differs from what the panel
+  // showed; the ref routes that confirming click straight to dispatch.
+  const updateCheckMutation = useMutation({
+    mutationFn: () => checkImageUpdates({ data: { stack: stackName, host: detail.host } }),
+    onSuccess: (result) => {
+      if (result.failed > 0) {
+        showToast(`Couldn't verify the latest version for ${result.failed} image${result.failed === 1 ? '' : 's'}; the update was not started. Try again in a moment.`, 'error')
+        return
+      }
+      const previous = queryClient.getQueryData<ImageUpdateSummary[]>([...IMAGE_UPDATE_INFO_QUERY_KEY, detail.host, stackName])
+      const stale = previous !== undefined && result.summaries.some((fresh) => {
+        const old = previous.find((summary) => summary.image === fresh.image)
+        return old !== undefined && (old.updateAvailable !== fresh.updateAvailable || old.latestMatchingTag !== fresh.latestMatchingTag)
+      })
+      if (stale) {
+        skipUpdateCheckRef.current = true
+        void queryClient.invalidateQueries({ queryKey: [...IMAGE_UPDATE_INFO_QUERY_KEY, detail.host, stackName] })
+        showToast('Image update targets changed since the last check. The panel now shows fresh data; click Update images again to confirm.', 'info')
+        return
+      }
+      deployMutation.mutate({ action: 'update' })
+    },
+    onError: (err) => {
+      showToast(`Update check failed: ${err instanceof Error ? err.message : String(err)}. The update was not started.`, 'error')
+    },
+  })
+
+  // The confirming click after a stale verdict re-enters here; the ref routes
+  // it straight to dispatch so the check does not run a second time.
+  function runUpdateCheckGate() {
+    if (updateCheckMutation.isPending) return
+    if (skipUpdateCheckRef.current) {
+      skipUpdateCheckRef.current = false
+      deployMutation.mutate({ action: 'update' })
+      return
+    }
+    updateCheckMutation.mutate()
+  }
+
   // Deploy, update, and recreate all use the git-committed compose and the saved
   // secrets, so unsaved editor edits would silently ship the previous version.
   function triggerDeployOrUpdate(action: 'deploy' | 'update', forceRecreate?: boolean) {
@@ -218,6 +263,10 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     const secretsDirtyNow = Object.values(form.formState.dirtyFields.secrets ?? {}).some(Boolean)
     if (composeDirtyNow || secretsDirtyNow) {
       setPendingConfirmAction({ action, forceRecreate })
+      return
+    }
+    if (action === 'update') {
+      runUpdateCheckGate()
       return
     }
     deployMutation.mutate({ action, forceRecreate })
@@ -236,7 +285,13 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   }
 
   function confirmPendingAction() {
-    if (pendingConfirmAction && !isDeploying) deployMutation.mutate(pendingConfirmAction)
+    if (pendingConfirmAction && !isDeploying) {
+      if (pendingConfirmAction.action === 'update') {
+        runUpdateCheckGate()
+      } else {
+        deployMutation.mutate(pendingConfirmAction)
+      }
+    }
     setPendingConfirmAction(null)
   }
 

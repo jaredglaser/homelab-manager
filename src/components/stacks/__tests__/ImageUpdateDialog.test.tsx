@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
@@ -15,9 +15,29 @@ const mockGetImageChangelog = mock(
   }),
 );
 
+const mockCheckImageUpdates = mock(
+  async (
+    _opts: { data: { stack: string; host: string; image?: string } },
+  ): Promise<{ summaries: ImageUpdateSummary[]; checked: number; changed: number; failed: number }> => ({
+    summaries: [],
+    checked: 0,
+    changed: 0,
+    failed: 0,
+  }),
+);
+
+const mockToastSuccess = mock((_message: string) => {});
+const mockToastError = mock((_message: string) => {});
+const mockToastWarning = mock((_message: string) => {});
+
+mockModule<typeof import('sonner')>('sonner', (real) => ({ ...real, 
+  toast: { success: mockToastSuccess, error: mockToastError, warning: mockToastWarning },
+}));
+
 mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({
   ...real,
   getImageChangelog: mockGetImageChangelog,
+  checkImageUpdates: mockCheckImageUpdates,
 }));
 
 const { default: ImageUpdateDialog } = await import('@/components/stacks/ImageUpdateDialog');
@@ -105,6 +125,10 @@ function renderDialog(props?: {
 describe('ImageUpdateDialog', () => {
   beforeEach(() => {
     mockGetImageChangelog.mockImplementation(async () => changelogResult());
+    mockCheckImageUpdates.mockClear();
+    mockToastSuccess.mockClear();
+    mockToastError.mockClear();
+    mockToastWarning.mockClear();
   });
 
   it('renders releases filtered to the running tag constraint by default', async () => {
@@ -266,6 +290,67 @@ describe('ImageUpdateDialog', () => {
     await screen.findByText('v2.9.4');
     expect(document.querySelector('a[href="javascript:alert(1)"]')).toBeNull();
     expect(screen.queryByText('Release notes')).toBeNull();
+  });
+
+  it('renders the Re-check button in the footer next to Last checked and Close', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    expect(screen.getByRole('button', { name: 'Re-check' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDefined();
+  });
+
+  it('calls checkImageUpdates for this image when Re-check is clicked and stays open', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1));
+    const firstCall = (mockCheckImageUpdates.mock.calls as unknown as { data: Record<string, unknown> }[][])[0][0];
+    expect(firstCall.data.stack).toBe('myapp');
+    expect(firstCall.data.host).toBe('server1');
+    expect(firstCall.data.image).toBe('example-org/mock-app:2');
+    // The re-check must not dismiss the dialog; the user stays on the release list.
+    expect(screen.getByRole('button', { name: 'Re-check' })).toBeDefined();
+    expect(mockToastWarning).not.toHaveBeenCalled();
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it('shows a warning toast when the re-check reports failed images', async () => {
+    mockCheckImageUpdates.mockImplementation(async () => ({
+      summaries: [],
+      checked: 1,
+      changed: 0,
+      failed: 1,
+    }));
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => expect(mockToastWarning).toHaveBeenCalledTimes(1));
+    expect(mockToastWarning.mock.calls[0][0]).toContain('Registry check failed for example-org/mock-app:2');
+  });
+
+  it('shows an error toast when the re-check request fails', async () => {
+    mockCheckImageUpdates.mockRejectedValueOnce(new Error('network down'));
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
+    expect(mockToastError.mock.calls[0][0]).toContain('network down');
+  });
+
+  it('disables the Re-check button while a check is pending', async () => {
+    let resolveCheck!: () => void;
+    mockCheckImageUpdates.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveCheck = () => resolve({ summaries: [], checked: 1, changed: 0, failed: 0 });
+      }),
+    );
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Re-check' })).toHaveProperty('disabled', true);
+    });
+    resolveCheck();
   });
 });
 
