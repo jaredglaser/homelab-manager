@@ -313,6 +313,8 @@ export interface ImageUpdateCheckMeta {
   summary: ImageUpdateSummary;
   /** ETag from the registry manifest check, for the next conditional request. Versioned-tag checks never touch manifests. */
   etag: string | null;
+  /** The manifest digest the etag was returned for; null whenever etag is null. The pair is atomic. */
+  digest: string | null;
 }
 
 /** Running version from the OCI version label, leading `v` stripped for display. null when the image declares none. */
@@ -322,11 +324,39 @@ export function currentVersionFromLabels(labels: Record<string, string>): string
   return version.replace(/^v(?=\d)/i, '');
 }
 
+/**
+ * Declared-version fields for a summary, derived without any registry call:
+ * the OCI version label plus where the compared version came from. Used by
+ * every path that builds a summary from persisted rows or a failed check, so
+ * the derived fields agree with the live check's verdict inputs.
+ */
+export function declaredVersionFields(image: string, labels: Record<string, string>): {
+  currentVersion: string | null;
+  versionSource: 'label' | 'tag' | null;
+} {
+  const currentVersion = currentVersionFromLabels(labels);
+  try {
+    const ref = parseImageRef(image);
+    const tag = ref.tag;
+    const constraint = tag ? constraintFromTag(tag) : null;
+    if (!constraint || !tag) return { currentVersion, versionSource: null };
+    const { versionSource } = resolveRunningVersion(
+      constraint,
+      normalizeVersion(currentVersion ?? ''),
+      normalizeVersion(tag),
+    );
+    return { currentVersion, versionSource };
+  } catch {
+    return { currentVersion, versionSource: null };
+  }
+}
+
 export async function checkImageUpdateWithMeta(
   image: string,
   labels: Record<string, string>,
   imageDigest: string | null = null,
   storedEtag: string | null = null,
+  storedDigest: string | null = null,
 ): Promise<ImageUpdateCheckMeta> {
   const base: ImageUpdateSummary = {
     image,
@@ -343,10 +373,10 @@ export async function checkImageUpdateWithMeta(
   try {
     ref = parseImageRef(image);
   } catch (err) {
-    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
+    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null, digest: null };
   }
   base.currentTag = ref.tag;
-  if (!ref.tag) return { summary: base, etag: null };
+  if (!ref.tag) return { summary: base, etag: null, digest: null };
 
   if (!isRegistryAllowed(ref.registry)) {
     return {
@@ -357,6 +387,7 @@ export async function checkImageUpdateWithMeta(
           'Add it to IMAGE_UPDATE_EXTRA_REGISTRIES to check updates for its images.',
       },
       etag: null,
+      digest: null,
     };
   }
 
@@ -366,11 +397,15 @@ export async function checkImageUpdateWithMeta(
     // moved manifest digest, not a newer version number. Without the local
     // digest (locally built image, or pre-039 inventory row) the check is
     // inconclusive rather than "up to date".
-    if (!imageDigest) return { summary: base, etag: storedEtag };
+    if (!imageDigest) return { summary: base, etag: storedEtag, digest: storedDigest };
+    // The stored etag only vouches for the manifest it was returned for; when
+    // the containers have since moved to a different digest (recreate, pull,
+    // downgrade under the same tag), a 304 would wrongly report "no update".
+    const etagUsable = storedEtag !== null && storedDigest !== null && storedDigest === imageDigest;
     try {
-      const remote = await checkRemoteManifest(ref.registry, ref.repo, ref.tag, storedEtag);
+      const remote = await checkRemoteManifest(ref.registry, ref.repo, ref.tag, etagUsable ? storedEtag : null);
       if (remote.notModified) {
-        return { summary: { ...base, updateAvailable: false }, etag: storedEtag };
+        return { summary: { ...base, updateAvailable: false }, etag: storedEtag, digest: storedDigest };
       }
       const updateAvailable = remote.digest ? remote.digest !== imageDigest : null;
       return {
@@ -378,9 +413,10 @@ export async function checkImageUpdateWithMeta(
         // A stored etag may only short-circuit to "no update": persisting one
         // after an available verdict would let the next 304 flip it to false.
         etag: updateAvailable === false ? remote.etag : null,
+        digest: updateAvailable === false ? remote.digest : null,
       };
     } catch (err) {
-      return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
+      return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null, digest: null };
     }
   }
 
@@ -388,7 +424,7 @@ export async function checkImageUpdateWithMeta(
   try {
     tags = await listRegistryTags(ref.registry, ref.repo);
   } catch (err) {
-    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
+    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null, digest: null };
   }
 
   let latestMatching: ParsedVersionTag | null = null;
@@ -409,7 +445,7 @@ export async function checkImageUpdateWithMeta(
     normalizeVersion(currentVersionFromLabels(labels) ?? ''),
     normalizeVersion(ref.tag),
   );
-  if (!current) return { summary: base, etag: null };
+  if (!current) return { summary: base, etag: null, digest: null };
   // No tag matching the constraint means there is nothing to update to, not
   // that the check is inconclusive.
   const updateAvailable = latestMatching ? compareVersions(latestMatching, current) > 0 : false;
@@ -423,6 +459,7 @@ export async function checkImageUpdateWithMeta(
       versionSource,
     },
     etag: null,
+    digest: null,
   };
 }
 

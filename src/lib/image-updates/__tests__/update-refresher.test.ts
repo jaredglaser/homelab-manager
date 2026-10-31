@@ -30,7 +30,9 @@ function containerRow(overrides: Partial<DockerContainerEventUpsertRow> = {}): D
 function checkRow(overrides: Partial<ImageUpdateCheckRow> = {}): ImageUpdateCheckRow {
   return {
     host: 'host1',
+    stack: 'web',
     image: 'redis:7',
+    manifestDigest: null,
     currentTag: '7',
     latestMatchingTag: null,
     latestOverallTag: null,
@@ -46,10 +48,12 @@ function checkRow(overrides: Partial<ImageUpdateCheckRow> = {}): ImageUpdateChec
 
 interface UpsertSuccessCall {
   host: string;
+  stack: string;
   image: string;
   updateAvailable: boolean | null;
   latestMatchingTag: string | null;
   etag: string | null;
+  manifestDigest: string | null;
   checkedAt: Date;
 }
 
@@ -64,17 +68,19 @@ interface CheckResult {
     error: string | null;
   };
   etag: string | null;
+  digest: string | null;
 }
 
 const registryState: { results: Map<string, CheckResult>; calls: string[] } = { results: new Map(), calls: [] };
 
 mockModule<typeof import('@/lib/image-updates/registry-client')>('@/lib/image-updates/registry-client', (real) => ({
   ...real,
-  checkImageUpdateWithMeta: async (image: string, _labels: Record<string, string>, _digest: string | null, storedEtag: string | null) => {
-    registryState.calls.push(image + '|' + (storedEtag ?? ''));
+  checkImageUpdateWithMeta: async (image: string, _labels: Record<string, string>, _digest: string | null, storedEtag: string | null, storedDigest: string | null) => {
+    registryState.calls.push(image + '|' + (storedEtag ?? '') + '|' + (storedDigest ?? ''));
     return registryState.results.get(image) ?? {
       summary: { image, currentTag: '7', latestMatchingTag: null, latestOverallTag: null, updateAvailable: false, sourceRepo: null, error: null },
       etag: null,
+      digest: null,
     };
   },
 }));
@@ -97,20 +103,20 @@ mockModule<typeof import('@/lib/stacks/image-update-broadcast-service')>(
 function createRepoMock(initialRows: ImageUpdateCheckRow[]) {
   let rows = initialRows;
   const upserts: UpsertSuccessCall[] = [];
-  const failures: Array<{ host: string; image: string; error: string }> = [];
-  const deletions: Array<Array<{ host: string; image: string }>> = [];
+  const failures: Array<{ host: string; stack: string; image: string; error: string }> = [];
+  const deletions: Array<Array<{ host: string; stack: string; image: string }>> = [];
   const repo = {
     getAll: async () => rows,
-    getByHost: async () => rows,
+    getByStack: async () => rows,
     upsertSuccess: async (check: UpsertSuccessCall) => {
       upserts.push(check);
-      rows = rows.filter((r) => !(r.host === check.host && r.image === check.image));
+      rows = rows.filter((r) => !(r.host === check.host && r.stack === check.stack && r.image === check.image));
       rows.push({ ...check, error: null, lastErrorAt: null, checkedAt: check.checkedAt } as ImageUpdateCheckRow);
     },
-    upsertFailure: async (host: string, image: string, error: string) => {
-      failures.push({ host, image, error });
+    upsertFailure: async (host: string, stack: string, image: string, error: string) => {
+      failures.push({ host, stack, image, error });
     },
-    deleteMissing: async (keep: Array<{ host: string; image: string }>) => {
+    deleteMissing: async (keep: Array<{ host: string; stack: string; image: string }>) => {
       deletions.push(keep);
     },
     isRefreshDue: async () => rows.length === 0,
@@ -155,6 +161,7 @@ describe('ImageUpdateRefresher', () => {
     registryState.results.set('redis:7', {
       summary: { image: 'redis:7', currentTag: '7', latestMatchingTag: '7.4.2', latestOverallTag: null, updateAvailable: true, sourceRepo: null, error: null },
       etag: '"etag-1"',
+      digest: null,
     });
     const { refresher, upserts } = await buildRefresher(
       [checkRow({ checkedAt: new Date(clock - 13 * HOUR) })],
@@ -191,6 +198,7 @@ describe('ImageUpdateRefresher', () => {
     registryState.results.set('redis:7', {
       summary: { image: 'redis:7', currentTag: '7', latestMatchingTag: null, latestOverallTag: null, updateAvailable: false, sourceRepo: null, error: null },
       etag: null,
+      digest: null,
     });
     const { refresher, upserts } = await buildRefresher(
       [checkRow({ checkedAt: new Date(clock - 13 * HOUR) })],
@@ -243,10 +251,11 @@ describe('ImageUpdateRefresher', () => {
     expect(timers.pending).toHaveLength(0);
   });
 
-  it('tick checks each distinct (host, image) once and sweeps rows missing from the snapshot', async () => {
+  it('tick checks each distinct (host, stack, image) once and sweeps rows missing from the snapshot', async () => {
     registryState.results.set('redis:7', {
       summary: { image: 'redis:7', currentTag: '7', latestMatchingTag: null, latestOverallTag: null, updateAvailable: false, sourceRepo: null, error: null },
       etag: '"e1"',
+      digest: null,
     });
     const { refresher, upserts, deletions } = await buildRefresher(
       [checkRow(), checkRow({ host: 'host2', image: 'ghost:1' })],
@@ -259,14 +268,48 @@ describe('ImageUpdateRefresher', () => {
     const result = await refresher.tick();
 
     expect(result).toEqual({ checked: 2, changed: 0, failed: 0 });
-    expect(registryState.calls).toEqual(['redis:7|', 'traefik:v3.1|']);
+    expect(registryState.calls).toEqual(['redis:7||', 'traefik:v3.1||']);
     expect(upserts).toHaveLength(2);
     expect(deletions).toEqual([
       [
-        { host: 'host1', image: 'redis:7' },
-        { host: 'host2', image: 'traefik:v3.1' },
+        { host: 'host1', stack: 'web', image: 'redis:7' },
+        { host: 'host2', stack: 'edge', image: 'traefik:v3.1' },
       ],
     ]);
+  });
+
+  it('an empty container snapshot skips the tick and leaves persisted rows untouched', async () => {
+    registryState.results.set('redis:7', {
+      summary: { image: 'redis:7', currentTag: '7', latestMatchingTag: null, latestOverallTag: null, updateAvailable: false, sourceRepo: null, error: null },
+      etag: null,
+      digest: null,
+    });
+    const { refresher, upserts, deletions } = await buildRefresher([checkRow()], []);
+    const result = await refresher.tick();
+
+    expect(result).toEqual({ checked: 0, changed: 0, failed: 0 });
+    expect(upserts).toHaveLength(0);
+    expect(deletions).toHaveLength(0);
+  });
+
+  it('two stacks sharing an image ref get their own rows and their own changed events', async () => {
+    registryState.results.set('redis:7', {
+      summary: { image: 'redis:7', currentTag: '7', latestMatchingTag: '7.4.2', latestOverallTag: '8.0.0', updateAvailable: true, sourceRepo: null, error: null },
+      etag: null,
+      digest: null,
+    });
+    const { refresher, upserts } = await buildRefresher(
+      [checkRow({ updateAvailable: false }), checkRow({ stack: 'api', updateAvailable: false })],
+      [
+        containerRow({ containerId: 'a', composeProject: 'web' }),
+        containerRow({ containerId: 'b', composeProject: 'api' }),
+      ],
+    );
+    const result = await refresher.tick();
+
+    expect(result).toEqual({ checked: 2, changed: 2, failed: 0 });
+    expect(upserts).toHaveLength(2);
+    expect(upserts.map((upsert) => upsert.stack)).toEqual(['web', 'api']);
   });
 
   it('tick sends the stored etag on the next check', async () => {
@@ -275,13 +318,14 @@ describe('ImageUpdateRefresher', () => {
       [containerRow({ image: 'myapp:latest', imageDigest: 'sha256:' + 'a'.repeat(64) })],
     );
     await refresher.tick();
-    expect(registryState.calls).toEqual(['myapp:latest|"stored-etag"']);
+    expect(registryState.calls).toEqual(['myapp:latest|"stored-etag"|']);
   });
 
   it('tick publishes a change event when the update state moves', async () => {
     registryState.results.set('redis:7', {
       summary: { image: 'redis:7', currentTag: '7', latestMatchingTag: '7.4.2', latestOverallTag: null, updateAvailable: true, sourceRepo: null, error: null },
       etag: null,
+      digest: null,
     });
     const { refresher } = await buildRefresher([checkRow({ updateAvailable: false, latestMatchingTag: null })], [containerRow()]);
     const result = await refresher.tick();
@@ -297,6 +341,7 @@ describe('ImageUpdateRefresher', () => {
     registryState.results.set('redis:7', {
       summary: { image: 'redis:7', currentTag: '7', latestMatchingTag: '7.4.2', latestOverallTag: null, updateAvailable: true, sourceRepo: null, error: null },
       etag: null,
+      digest: null,
     });
     const { refresher } = await buildRefresher([], [containerRow()]);
     await refresher.tick();
@@ -307,6 +352,7 @@ describe('ImageUpdateRefresher', () => {
     registryState.results.set('redis:7', {
       summary: { image: 'redis:7', currentTag: '7', latestMatchingTag: null, latestOverallTag: null, updateAvailable: null, sourceRepo: null, error: 'Docker Hub returned 503 for library/redis' },
       etag: null,
+      digest: null,
     });
     const { refresher, upserts, failures } = await buildRefresher([checkRow()], [containerRow()]);
     const result = await refresher.tick();

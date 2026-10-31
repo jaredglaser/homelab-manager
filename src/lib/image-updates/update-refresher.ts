@@ -87,8 +87,15 @@ export class ImageUpdateRefresher {
   private async runTick(): Promise<RefreshTickResult> {
     const containers = await this.deps.loadContainers();
     const groups = groupStackContainersByImage(containers);
+    // An empty snapshot is far more likely an ingestion failure (agent down,
+    // snapshot read glitch) than a truthful "no compose containers exist";
+    // deleteMissing([]) would wipe every row including etags.
+    if (groups.length === 0) {
+      console.error('[image-updates] container snapshot has no compose containers; skipping the refresh and keep-list cleanup');
+      return { checked: 0, changed: 0, failed: 0 };
+    }
     const rows = await this.deps.repo.getAll();
-    const byKey = new Map(rows.map((row) => [row.host + '/' + row.image, row]));
+    const byKey = new Map(rows.map((row) => [row.host + '/' + row.stack + '/' + row.image, row]));
     const now = new Date();
 
     let checked = 0;
@@ -97,7 +104,7 @@ export class ImageUpdateRefresher {
     const changedEvents: ImageUpdateChangedEvent[] = [];
 
     for (const group of groups) {
-      const prior = byKey.get(group.host + '/' + group.image) ?? null;
+      const prior = byKey.get(group.host + '/' + group.stack + '/' + group.image) ?? null;
       const outcome = await checkAndPersistImage(group, prior, this.deps.repo, now);
       if (outcome.summary.error !== null) {
         failed++;
@@ -116,7 +123,7 @@ export class ImageUpdateRefresher {
       }
     }
 
-    await this.deps.repo.deleteMissing(groups.map((group) => ({ host: group.host, image: group.image })));
+    await this.deps.repo.deleteMissing(groups.map((group) => ({ host: group.host, stack: group.stack, image: group.image })));
     clearImageUpdateSummaryCache();
     if (changedEvents.length > 0) {
       imageUpdateBroadcastService.publish(changedEvents);

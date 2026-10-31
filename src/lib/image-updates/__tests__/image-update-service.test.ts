@@ -20,7 +20,7 @@ mockModule<typeof import('@/lib/database/repositories/image-update-check-reposit
       async getAll() {
         return checkRepoState.rows;
       }
-      async getByHost() {
+      async getByStack(_host: string, _stack: string) {
         if (checkRepoState.readError) throw new Error('db down');
         return checkRepoState.rows;
       }
@@ -38,6 +38,8 @@ mockModule<typeof import('@/lib/database/repositories/image-update-check-reposit
 function persistedRow(overrides: Partial<ImageUpdateCheckRow> = {}): ImageUpdateCheckRow {
   return {
     host: 'host1',
+    stack: 'web',
+    manifestDigest: null,
     image: 'redis:7',
     currentTag: '7',
     latestMatchingTag: '7.4.1',

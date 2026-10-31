@@ -1,7 +1,7 @@
 import type { DockerContainerEventRow, DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 import { BoundedCache } from '@/lib/bounded-cache';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
-import { checkImageUpdateWithMeta, currentVersionFromLabels, RELEASE_REPO_LABEL, resolveReleaseRepo } from './registry-client';
+import { checkImageUpdateWithMeta, declaredVersionFields, RELEASE_REPO_LABEL, resolveReleaseRepo } from './registry-client';
 import { fetchGitHubReleases } from './github-releases';
 import { groupStackContainersByImage } from './snapshot-groups';
 import { DEFAULT_REFRESH_INTERVAL_MS, loadImageUpdateRefresherConfig, staleThresholdMs } from './refresher-config';
@@ -77,7 +77,7 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
   // Persisted rows are the fast path. A read failure falls through to the live check.
   let rowsByImage = new Map<string, ImageUpdateCheckRow>();
   try {
-    const rows = await checkRepo.getByHost(host);
+    const rows = await checkRepo.getByStack(host, stack);
     rowsByImage = new Map(rows.map((row) => [row.image, row]));
   } catch (err) {
     console.error('[image-updates] failed to read persisted update checks, falling back to a live check:', err);
@@ -97,11 +97,12 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
   });
 
   if (allFresh) {
-    // currentVersion lives in the container labels, not the persisted row, so
-    // the persisted fast path re-derives it from the snapshot.
+    // currentVersion and versionSource live in the container labels, not the
+    // persisted row, so the persisted fast path re-derives them from the
+    // snapshot with the same rule the live check used.
     const summaries = groups.flatMap((group) => {
       const row = rowsByImage.get(group.image);
-      return row ? [{ ...rowToSummary(row), currentVersion: currentVersionFromLabels(group.labels) }] : [];
+      return row ? [{ ...rowToSummary(row), ...declaredVersionFields(group.image, group.labels) }] : [];
     });
     summaries.sort((a, b) => a.image.localeCompare(b.image));
     summaryCache.set(cacheKey, summaries, SUMMARY_CACHE_TTL_MS);
@@ -110,7 +111,13 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
 
   const results = await Promise.all(
     groups.map((group) =>
-      checkImageUpdateWithMeta(group.image, group.labels, group.imageDigest, rowsByImage.get(group.image)?.etag ?? null),
+      checkImageUpdateWithMeta(
+        group.image,
+        group.labels,
+        group.imageDigest,
+        rowsByImage.get(group.image)?.etag ?? null,
+        rowsByImage.get(group.image)?.manifestDigest ?? null,
+      ),
     ),
   );
   const summaries = results.map((result) => ({
@@ -122,12 +129,13 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
   // Write-through is best effort. A failed persist must not break the read.
   try {
     for (let i = 0; i < results.length; i++) {
-      const { summary, etag } = results[i];
+      const { summary, etag, digest } = results[i];
       if (summary.error !== null) {
-        await checkRepo.upsertFailure(host, summary.image, summary.error, now);
+        await checkRepo.upsertFailure(host, stack, summary.image, summary.error, now);
       } else {
         await checkRepo.upsertSuccess({
           host,
+          stack,
           image: summary.image,
           currentTag: summary.currentTag,
           latestMatchingTag: summary.latestMatchingTag,
@@ -135,6 +143,7 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
           updateAvailable: summary.updateAvailable,
           sourceRepo: summary.sourceRepo,
           etag,
+          manifestDigest: digest,
           checkedAt: now,
         });
       }

@@ -39,7 +39,7 @@ async function performCheck(stack: string, host: string, image?: string): Promis
   const target = image === undefined ? groups : groups.filter((group) => group.image === image);
 
   const repo = await loadCheckRepository();
-  const rows = await repo.getByHost(host);
+  const rows = await repo.getByStack(host, stack);
   const rowsByImage = new Map(rows.map((row) => [row.image, row]));
   const now = new Date();
 

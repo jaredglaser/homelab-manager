@@ -31,7 +31,9 @@ function containerRow(overrides: Partial<DockerContainerEventUpsertRow> = {}): D
 function checkRow(overrides: Partial<ImageUpdateCheckRow> = {}): ImageUpdateCheckRow {
   return {
     host: 'host1',
+    stack: 'web',
     image: 'redis:7',
+    manifestDigest: null,
     currentTag: '7',
     latestMatchingTag: null,
     latestOverallTag: null,
@@ -82,27 +84,29 @@ mockModule<typeof import('@/lib/stacks/image-update-broadcast-service')>(
 
 interface UpsertSuccessCall {
   host: string;
+  stack: string;
   image: string;
   updateAvailable: boolean | null;
   latestMatchingTag: string | null;
   etag: string | null;
+  manifestDigest: string | null;
   checkedAt: Date;
 }
 
 function createRepoMock(initialRows: ImageUpdateCheckRow[]) {
   let rows = initialRows;
   const upserts: UpsertSuccessCall[] = [];
-  const failures: Array<{ host: string; image: string; error: string }> = [];
+  const failures: Array<{ host: string; stack: string; image: string; error: string }> = [];
   const repo = {
     getAll: async () => rows,
-    getByHost: async (host: string) => rows.filter((r) => r.host === host),
+    getByStack: async (host: string, stack: string) => rows.filter((r) => r.host === host && r.stack === stack),
     upsertSuccess: async (check: UpsertSuccessCall) => {
       upserts.push(check);
-      rows = rows.filter((r) => !(r.host === check.host && r.image === check.image));
+      rows = rows.filter((r) => !(r.host === check.host && r.stack === check.stack && r.image === check.image));
       rows.push({ ...check, error: null, lastErrorAt: null, checkedAt: check.checkedAt } as ImageUpdateCheckRow);
     },
-    upsertFailure: async (host: string, image: string, error: string) => {
-      failures.push({ host, image, error });
+    upsertFailure: async (host: string, stack: string, image: string, error: string) => {
+      failures.push({ host, stack, image, error });
     },
     deleteMissing: async () => {},
     isRefreshDue: async () => rows.length === 0,
@@ -245,7 +249,7 @@ describe('runManualImageUpdateCheck', () => {
 
     expect(result.failed).toBe(1);
     expect(result.checked).toBe(0);
-    expect(repoMock.failures).toEqual([{ host: 'host1', image: 'redis:7', error: 'registry down' }]);
+    expect(repoMock.failures).toEqual([{ host: 'host1', stack: 'web', image: 'redis:7', error: 'registry down' }]);
     expect(publishLog).toHaveLength(0);
   });
 

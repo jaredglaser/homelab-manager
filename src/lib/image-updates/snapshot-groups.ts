@@ -10,15 +10,15 @@ export interface StackImageGroup {
 }
 
 /**
- * One entry per distinct (host, image). When several containers share an
- * image ref, the labels that carry a source repo win and the first non-null
+ * One entry per distinct (host, stack, image). When several containers share
+ * an image ref, the labels that carry a source repo win and the first non-null
  * digest is kept (pre-039 inventory rows carry null).
  */
 export function groupStackContainersByImage(rows: DockerContainerEventUpsertRow[]): StackImageGroup[] {
   const byKey = new Map<string, StackImageGroup>();
   for (const row of rows) {
     if (row.composeProject === null) continue;
-    const key = row.host + '/' + row.image;
+    const key = row.host + '/' + row.composeProject + '/' + row.image;
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, {

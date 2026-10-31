@@ -52,6 +52,25 @@ export async function seed(pool: Pool): Promise<void> {
   await seedProxmoxSupporting(pool);
   await seedEntityMetadata(pool);
   await seedServiceKeyUnification(pool);
+  await seedImageUpdateChecks(pool);
+}
+
+/**
+ * Pre-043 image_update_checks rows (the table has no stack column yet at seed
+ * time). The plex image runs in the media stack and the web image in the app
+ * stack (both seeded by seedServiceKeyUnification), so migration 043 expands
+ * each row per running stack; the ghost image runs nowhere and must be dropped.
+ */
+async function seedImageUpdateChecks(pool: Pool): Promise<void> {
+  await pool.query(
+    `INSERT INTO image_update_checks
+       (host, image, current_tag, latest_matching_tag, latest_overall_tag, update_available, source_repo, error, last_error_at, etag, checked_at)
+     VALUES
+       ($1, $2, '1.0.0', '1.0.1', '2.0.0', true, 'example/plex', NULL, NULL, '"etag-plex"', now()),
+       ($1, $3, '2.0.0', NULL, NULL, false, NULL, NULL, NULL, NULL, now()),
+       ($1, $4, NULL, NULL, NULL, NULL, NULL, 'registry unreachable', now(), NULL, now())`,
+    [DOCKER_HOST, UNIFY_COMPOSE.image, UNIFY_REPLICA.image, 'ghcr.io/example/ghost:9.9.9']
+  );
 }
 
 async function seedDockerActive(pool: Pool): Promise<void> {

@@ -4,6 +4,7 @@ import { settingsBroadcastService } from '@/lib/settings/settings-broadcast-serv
 import { stackStatusBroadcastService } from '@/lib/stacks/stack-status-broadcast-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployWatchdog } from '@/lib/deploy/deploy-watchdog';
+import { retry } from '@/lib/utils/backoff';
 import type { ImageUpdateRefresher } from '@/lib/image-updates/update-refresher';
 import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 
@@ -94,13 +95,27 @@ async function startImageUpdateRefresher(): Promise<void> {
     return rows.filter((row): row is DockerContainerEventUpsertRow => row.eventType === 'upsert');
   };
 
-  const refresher = new ImageUpdateRefresher({
-    repo: checkRepo,
-    loadContainers,
-    intervalMs: loadImageUpdateRefresherConfig().intervalMs,
-  });
+  const refresher = await retry(
+    async () => {
+      const r = new ImageUpdateRefresher({
+        repo: checkRepo,
+        loadContainers,
+        intervalMs: loadImageUpdateRefresherConfig().intervalMs,
+      });
+      await r.start();
+      return r;
+    },
+    {
+      maxAttempts: Infinity,
+      isRetryable: () => true,
+      baseMs: 2_000,
+      capMs: 60_000,
+      onRetry: (err, attempt, delayMs) => {
+        console.error(`[Server] Image update refresher startup failed (attempt ${attempt}), retrying in ${delayMs}ms:`, err);
+      },
+    },
+  );
   imageUpdateRefresher = refresher;
-  await refresher.start();
 }
 
 /**
