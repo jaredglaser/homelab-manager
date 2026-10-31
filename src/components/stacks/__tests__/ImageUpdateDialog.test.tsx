@@ -157,6 +157,55 @@ describe('ImageUpdateDialog', () => {
     expect(screen.queryByText('v3.0.0')).toBeNull();
   });
 
+  it('expands only the newest release by default and expands older ones on click', async () => {
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({
+        releases: [
+          { tagName: 'v2.9.4', name: null, publishedAt: '2026-09-01T12:00:00Z', url: null, body: 'newest release body', prerelease: false },
+          { tagName: 'v2.9.0', name: null, publishedAt: null, url: null, body: 'older release body', prerelease: false },
+        ],
+      }),
+    );
+    renderDialog();
+    expect(await screen.findByText('newest release body')).toBeDefined();
+    expect(screen.queryByText('older release body')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'v2.9.0' }));
+    expect(screen.getByText('older release body')).toBeDefined();
+  });
+
+  it('renders the dialog wide enough for long release notes', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    const content = document.querySelector('[data-slot="dialog-content"]');
+    expect(content?.className).toContain('max-w-5xl');
+  });
+
+  it('lays the footer out as a three-column grid that stacks labels above side-by-side buttons when narrow', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.className).toContain('grid-cols-2');
+    expect(footer?.className).toContain('sm:grid-cols-[1fr_auto_auto]');
+    const first = footer?.firstElementChild;
+    expect(first?.tagName).toBe('P');
+    expect(first?.className).toContain('col-span-2');
+    expect(first?.className).toContain('sm:col-start-1');
+    const recheck = screen.getByRole('button', { name: 'Re-check' });
+    expect(recheck.className).toContain('row-start-3');
+    expect(recheck.className).toContain('sm:row-span-2');
+    const close = screen.getByRole('button', { name: 'Close' });
+    expect(close.className).toContain('col-start-2');
+    expect(close.className).toContain('sm:col-start-3');
+  });
+
+  it('keeps hyphenated image tokens unbreakable in the footer', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    const tokens = Array.from(footer?.querySelectorAll('span.whitespace-nowrap') ?? []).map((span) => span.textContent);
+    expect(tokens).toEqual(['example-org/mock-app', '2.9.4']);
+  });
+
   it('renders release dates, markdown bodies, and release note links', async () => {
     renderDialog();
     await screen.findByText('v2.9.4');
@@ -172,6 +221,12 @@ describe('ImageUpdateDialog', () => {
     renderDialog();
     await screen.findByText('v2.9.4');
     expect(screen.getByText('Update available: 2.9.4')).toBeDefined();
+  });
+
+  it('shows a Current badge with the version the image declares about itself', async () => {
+    renderDialog({ summary: { ...summary, currentVersion: '2.9.4' } });
+    await screen.findByText('v2.9.4');
+    expect(screen.getByText('Current: 2.9.4')).toBeDefined();
   });
 
   it('pins the exact footer sentence', async () => {
