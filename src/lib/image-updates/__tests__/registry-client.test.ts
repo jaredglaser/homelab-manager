@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, currentVersionFromLabels, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, resolveReleaseRepo, sourceRepoFromLabels } from '../registry-client';
+import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, currentVersionFromLabels, declaredVersionFields, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, resolveReleaseRepo, sourceRepoFromLabels } from '../registry-client';
 import { HUB_PROBE, hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
@@ -978,6 +978,24 @@ describe('RegistryCheckError', () => {
     expect(new RegistryCheckError('x')).toBeInstanceOf(Error);
   });
 });
+describe('declaredVersionFields', () => {
+  const cases: Array<[string, Record<string, string>, string | null, 'label' | 'tag' | null]> = [
+    ['caddy:2-alpine', { 'org.opencontainers.image.version': 'v2.11.7' }, '2.11.7', 'label'],
+    ['caddy:2-alpine', { 'org.opencontainers.image.version': '2.11.7+build.5' }, '2.11.7+build.5', 'label'],
+    ['caddy:2-alpine', { 'org.opencontainers.image.version': '2024.11.0' }, '2024.11.0', 'tag'],
+    ['caddy:2-alpine', {}, null, 'tag'],
+    ['caddy:2.11.7-alpine', { 'org.opencontainers.image.version': '2.9.0' }, '2.9.0', 'tag'],
+    ['example/app:latest', {}, null, null],
+    ['example/app@sha256:' + 'a'.repeat(64), { 'org.opencontainers.image.version': '1.0.0' }, '1.0.0', null],
+  ];
+
+  for (const [image, labels, currentVersion, versionSource] of cases) {
+    test(`derives ${JSON.stringify(versionSource)} for ${image} with ${JSON.stringify(labels)}`, () => {
+      expect(declaredVersionFields(image, labels)).toEqual({ currentVersion, versionSource });
+    });
+  }
+});
+
 describe('checkImageUpdateWithMeta', () => {
   test('an unparseable ref lands in error with a null etag', async () => {
     const meta = await checkImageUpdateWithMeta('redis:', {}, null);
@@ -985,17 +1003,68 @@ describe('checkImageUpdateWithMeta', () => {
     expect(meta.etag).toBeNull();
   });
 
-  test('a 304 on the stored etag reports no update and keeps the etag', async () => {
+  test('a 304 on the stored etag reports no update and keeps the pair when the digest matches', async () => {
     const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const digest = 'sha256:' + 'a'.repeat(64);
     const { restore, fetchMock } = withFetch((url) => {
       if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
       return Promise.resolve(new Response(null, { status: 304 }));
     });
     try {
-      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, 'sha256:' + 'a'.repeat(64), etag);
+      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, digest, etag, digest);
       expect(meta.summary.updateAvailable).toBe(false);
       expect(meta.etag).toBe(etag);
+      expect(meta.digest).toBe(digest);
       expect(fetchMock.mock.calls[1][1]?.method).toBe('HEAD');
+      expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({ 'If-None-Match': etag });
+    } finally {
+      restore();
+    }
+  });
+
+  test('a 304 is not honored when the stored digest no longer matches the containers', async () => {
+    const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const { restore, fetchMock } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, {
+        status: 200,
+        headers: { 'Docker-Content-Digest': 'sha256:' + 'b'.repeat(64), Etag: '"fresh"' },
+      }));
+    });
+    try {
+      const meta = await checkImageUpdateWithMeta(
+        'ghcr.io/owner/app:latest',
+        {},
+        'sha256:' + 'a'.repeat(64),
+        etag,
+        'sha256:' + 'f'.repeat(64),
+      );
+      expect(meta.summary.updateAvailable).toBe(true);
+      expect(meta.etag).toBeNull();
+      expect(meta.digest).toBeNull();
+      const head = fetchMock.mock.calls[1];
+      expect(head[1]?.method).toBe('HEAD');
+      expect((head[1]?.headers as Record<string, string>)['If-None-Match']).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test('a stored etag without a digest does a full HEAD once', async () => {
+    const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const { restore, fetchMock } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, {
+        status: 200,
+        headers: { 'Docker-Content-Digest': 'sha256:' + 'a'.repeat(64), Etag: '"fresh"' },
+      }));
+    });
+    try {
+      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, 'sha256:' + 'a'.repeat(64), etag, null);
+      expect(meta.summary.updateAvailable).toBe(false);
+      expect(meta.etag).toBe('"fresh"');
+      expect(meta.digest).toBe('sha256:' + 'a'.repeat(64));
+      expect((fetchMock.mock.calls[1][1]?.headers as Record<string, string>)['If-None-Match']).toBeUndefined();
     } finally {
       restore();
     }

@@ -397,7 +397,12 @@ export async function checkImageUpdateWithMeta(
     // moved manifest digest, not a newer version number. Without the local
     // digest (locally built image, or pre-039 inventory row) the check is
     // inconclusive rather than "up to date".
-    if (!imageDigest) return { summary: base, etag: storedEtag, digest: storedDigest };
+    if (!imageDigest) {
+      // The pair is atomic: an etag without the digest it vouched for (a row
+      // migrated by 043) is unusable and is dropped rather than re-persisted.
+      const pairUsable = storedEtag !== null && storedDigest !== null;
+      return { summary: base, etag: pairUsable ? storedEtag : null, digest: pairUsable ? storedDigest : null };
+    }
     // The stored etag only vouches for the manifest it was returned for; when
     // the containers have since moved to a different digest (recreate, pull,
     // downgrade under the same tag), a 304 would wrongly report "no update".
@@ -408,12 +413,13 @@ export async function checkImageUpdateWithMeta(
         return { summary: { ...base, updateAvailable: false }, etag: storedEtag, digest: storedDigest };
       }
       const updateAvailable = remote.digest ? remote.digest !== imageDigest : null;
+      // The pair is atomic: a registry that sends a digest without an ETag (or
+      // vice versa) gives us nothing the next conditional request can use.
+      const pairStorable = updateAvailable === false && remote.etag !== null && remote.digest !== null;
       return {
         summary: { ...base, updateAvailable },
-        // A stored etag may only short-circuit to "no update": persisting one
-        // after an available verdict would let the next 304 flip it to false.
-        etag: updateAvailable === false ? remote.etag : null,
-        digest: updateAvailable === false ? remote.digest : null,
+        etag: pairStorable ? remote.etag : null,
+        digest: pairStorable ? remote.digest : null,
       };
     } catch (err) {
       return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null, digest: null };

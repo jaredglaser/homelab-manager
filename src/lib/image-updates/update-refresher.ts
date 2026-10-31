@@ -34,7 +34,12 @@ export class ImageUpdateRefresher {
       const cutoff = new Date(Date.now() - this.deps.intervalMs);
       const stale = rows.length === 0 || rows.some((row) => row.checkedAt < cutoff);
       if (stale) {
-        await this.tickAndReschedule();
+        // A failed catch-up tick has already armed the next timer; swallowing
+        // the error keeps this start attempt successful so the startup retry
+        // does not construct a second refresher alongside the live one.
+        await this.tickAndReschedule().catch((err: unknown) => {
+          console.error('[image-updates] catch-up tick failed; the scheduled tick will retry:', err);
+        });
         return;
       }
       this.scheduleFrom(rows);
