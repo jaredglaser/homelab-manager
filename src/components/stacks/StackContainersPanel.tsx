@@ -83,16 +83,16 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: [...IMAGE_UPDATE_INFO_QUERY_KEY, host, stackName] });
       if (result.failed > 0) {
-        toast.warning(`Checked ${result.checked} image${result.checked === 1 ? '' : 's'}, ${result.failed} failed. Failed images keep their last known state.`);
+        toast.warning(`Checked ${result.checked} image${result.checked === 1 ? '' : 's'}. ${result.failed} failed and ${result.failed === 1 ? 'keeps its' : 'keep their'} last known state.`);
       } else if (result.changed > 0) {
-        toast.success(`Update state changed for ${result.changed} image${result.changed === 1 ? '' : 's'}.`);
+        toast.success(`Update availability changed for ${result.changed} image${result.changed === 1 ? '' : 's'}.`);
       } else {
-        toast.success(`Checked ${result.checked} image${result.checked === 1 ? '' : 's'}; all up to date.`);
+        toast.success(`Checked ${result.checked} image${result.checked === 1 ? '' : 's'}. ${result.checked === 1 ? 'It is' : 'All are'} up to date.`);
       }
     },
     onError: (err) => {
       console.error(`[StackContainersPanel] check updates failed for ${host}/${stackName}:`, err);
-      toast.error(`Failed to check updates for ${host}/${stackName}: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Failed to check for updates on ${host}/${stackName}: ${err instanceof Error ? err.message : String(err)}`);
     },
   });
 
@@ -151,10 +151,10 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           variant="outline"
           disabled={checkMutation.isPending || containers.length === 0}
           onClick={() => checkMutation.mutate()}
-          aria-label="Check updates"
+          aria-label="Check for updates"
         >
           {checkMutation.isPending ? <Spinner className="size-3 text-current" /> : <RefreshCw size={13} />}
-          Check updates
+          Check for updates
         </Button>
       </div>
 
