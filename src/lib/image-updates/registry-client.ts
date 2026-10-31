@@ -413,8 +413,60 @@ export async function checkImageUpdate(
 export function sourceRepoFromLabels(labels: Record<string, string>): string | null {
   const source = labels['org.opencontainers.image.source'];
   if (!source) return null;
-  const match = source.match(/^https:\/\/github\.com\/([^/]+)\/([^/#?]+)/);
-  if (!match) return null;
-  const repo = match[2].replace(/\.git$/, '');
-  return match[1] + '/' + repo;
+  return parseRepoUrl(source)?.repo ?? null;
+}
+
+/** Container label that overrides where release notes are fetched from. Value is a full repository URL. */
+export const RELEASE_REPO_LABEL = 'homelab-manager.release-repo';
+
+/** Hosts whose release API the changelog can read. A second provider means adding its host and path grammar here. */
+const SUPPORTED_RELEASE_HOSTS = new Set(['github.com']);
+
+function parseRepoUrl(value: string): { host: string; repo: string | null } | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:') return null;
+  const segments = url.pathname.split('/').filter(Boolean);
+  const repo = SUPPORTED_RELEASE_HOSTS.has(url.host) && segments.length >= 2
+    ? segments[0] + '/' + segments[1].replace(/\.git$/, '')
+    : null;
+  return { host: url.host, repo };
+}
+
+export type ReleaseRepoResolution =
+  | { kind: 'resolved'; repo: string; from: 'override' | 'source' }
+  | { kind: 'unsupported-host'; host: string; from: 'override' | 'source' }
+  | { kind: 'invalid-url'; raw: string; from: 'override' | 'source' }
+  | { kind: 'missing' };
+
+/**
+ * Where release notes come from, preferring the override label. A broken
+ * override reports its own failure rather than falling back to the source
+ * label, so the operator sees the fix for the value they set.
+ */
+export function resolveReleaseRepo(labels: Record<string, string>): ReleaseRepoResolution {
+  const override = labels[RELEASE_REPO_LABEL];
+  if (override) {
+    const parsed = parseRepoUrl(override);
+    if (parsed === null) return { kind: 'invalid-url', raw: override, from: 'override' };
+    if (parsed.repo === null) {
+      return SUPPORTED_RELEASE_HOSTS.has(parsed.host)
+        ? { kind: 'invalid-url', raw: override, from: 'override' }
+        : { kind: 'unsupported-host', host: parsed.host, from: 'override' };
+    }
+    return { kind: 'resolved', repo: parsed.repo, from: 'override' };
+  }
+  const source = labels['org.opencontainers.image.source'];
+  if (source) {
+    const parsed = parseRepoUrl(source);
+    if (parsed?.repo) return { kind: 'resolved', repo: parsed.repo, from: 'source' };
+    if (parsed && !SUPPORTED_RELEASE_HOSTS.has(parsed.host)) {
+      return { kind: 'unsupported-host', host: parsed.host, from: 'source' };
+    }
+  }
+  return { kind: 'missing' };
 }

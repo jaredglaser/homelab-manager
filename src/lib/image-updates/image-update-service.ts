@@ -1,7 +1,7 @@
 import type { DockerContainerEventRow, DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 import { BoundedCache } from '@/lib/bounded-cache';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
-import { checkImageUpdateWithMeta, sourceRepoFromLabels } from './registry-client';
+import { checkImageUpdateWithMeta, RELEASE_REPO_LABEL, resolveReleaseRepo } from './registry-client';
 import { fetchGitHubReleases } from './github-releases';
 import { groupStackContainersByImage } from './snapshot-groups';
 import { DEFAULT_REFRESH_INTERVAL_MS, loadImageUpdateRefresherConfig, staleThresholdMs } from './refresher-config';
@@ -152,23 +152,56 @@ export async function getImageChangelog(stack: string, host: string, image: stri
 
   const containers = await loadStackContainers(stack, host);
   const labels =
-    containers.find((c) => c.image === image && sourceRepoFromLabels(c.labels))?.labels
+    containers.find((c) => c.image === image && resolveReleaseRepo(c.labels).kind !== 'missing')?.labels
     ?? containers.find((c) => c.image === image)?.labels
     ?? {};
-  const sourceRepo = sourceRepoFromLabels(labels);
+  const resolved = resolveReleaseRepo(labels);
 
-  const changelog: ImageChangelog = { image, sourceRepo, releases: [], error: null };
-  if (!sourceRepo) {
-    changelog.error = 'No GitHub source repository found for this image.';
-  } else {
-    try {
-      changelog.releases = await fetchGitHubReleases(sourceRepo);
-    } catch (err) {
-      changelog.error = err instanceof Error ? err.message : String(err);
+  const changelog: ImageChangelog = {
+    image,
+    sourceRepo: resolved.kind === 'resolved' ? resolved.repo : null,
+    releases: [],
+    error: null,
+  };
+  switch (resolved.kind) {
+    case 'resolved': {
+      try {
+        changelog.releases = await fetchGitHubReleases(
+          resolved.repo,
+          resolved.from === 'override'
+            ? 'github.com/' + resolved.repo + ' is set in the "' + RELEASE_REPO_LABEL + '" label, but GitHub has no such public repository. Check the label value.'
+            : undefined,
+        );
+      } catch (err) {
+        changelog.error = err instanceof Error ? err.message : String(err);
+      }
+      if (changelog.error === null && changelog.releases.length === 0) {
+        changelog.emptyStateMessage = resolved.from === 'override'
+          ? 'GitHub publishes no releases at github.com/' + resolved.repo + ', the repository set in the "' + RELEASE_REPO_LABEL + '" label. Check the label value.'
+          : 'No releases published at github.com/' + resolved.repo + ", the repository this image's source label points to." +
+            ' If releases live in another repository, add the "' + RELEASE_REPO_LABEL + ': https://github.com/owner/repo" label to the service in your compose file and recreate the stack.';
+      }
+      break;
     }
+    case 'invalid-url':
+      changelog.error =
+        'The "' + RELEASE_REPO_LABEL + '" label is set to "' + resolved.raw + '", which is not a full repository URL. Use a URL like https://github.com/owner/repo.';
+      break;
+    case 'unsupported-host':
+      changelog.error = resolved.from === 'override'
+        ? 'The "' + RELEASE_REPO_LABEL + '" label points at ' + resolved.host + ', but release notes are only fetched from GitHub right now.'
+        : "This image's source label points at " + resolved.host + ', but release notes are only fetched from GitHub right now.';
+      break;
+    case 'missing':
+      changelog.error =
+        'No release repository is set for this image. Add the "' + RELEASE_REPO_LABEL + ': https://github.com/owner/repo" label to the service in your compose file and recreate the stack to see its release notes.';
+      break;
   }
-  // Failures stay uncached: caching would pin a rate-limit error in the dialog for the full hour.
-  if (changelog.error === null) {
+  // Failures and empty results stay uncached: a cached error pins a rate-limit
+  // outage in the dialog for the full hour, and a cached empty result would
+  // keep showing fix-it instructions after the operator has already added the
+  // label the message asks for.
+  if (changelog.error === null && changelog.releases.length > 0) {
     changelogCache.set(cacheKey, changelog, CHANGELOG_CACHE_TTL_MS);
   }
   return changelog;

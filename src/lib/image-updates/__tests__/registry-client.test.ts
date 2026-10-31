@@ -1,8 +1,44 @@
 import { describe, expect, test } from 'bun:test';
-import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, sourceRepoFromLabels } from '../registry-client';
+import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, resolveReleaseRepo, sourceRepoFromLabels } from '../registry-client';
 import { HUB_PROBE, hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
+const OVERRIDE_LABEL = 'homelab-manager.release-repo';
+
+describe('resolveReleaseRepo', () => {
+  test('resolves an override URL over the source label', () => {
+    expect(resolveReleaseRepo({ [SOURCE_LABEL]: 'https://github.com/o/r', [OVERRIDE_LABEL]: 'https://github.com/upstream/project' }))
+      .toEqual({ kind: 'resolved', repo: 'upstream/project', from: 'override' });
+  });
+
+  test('resolves the source label when no override is set', () => {
+    expect(resolveReleaseRepo({ [SOURCE_LABEL]: 'https://github.com/o/r' })).toEqual({ kind: 'resolved', repo: 'o/r', from: 'source' });
+  });
+
+  test('a bare owner/repo override is not a URL and reports invalid-url', () => {
+    expect(resolveReleaseRepo({ [OVERRIDE_LABEL]: 'caddyserver/caddy' })).toEqual({ kind: 'invalid-url', raw: 'caddyserver/caddy', from: 'override' });
+  });
+
+  test('an override URL on an unsupported host reports the host', () => {
+    expect(resolveReleaseRepo({ [OVERRIDE_LABEL]: 'https://gitlab.com/o/r' })).toEqual({ kind: 'unsupported-host', host: 'gitlab.com', from: 'override' });
+  });
+
+  test('an incomplete github URL override reports invalid-url', () => {
+    expect(resolveReleaseRepo({ [OVERRIDE_LABEL]: 'https://github.com/o' })).toEqual({ kind: 'invalid-url', raw: 'https://github.com/o', from: 'override' });
+  });
+
+  test('a source label on an unsupported host reports the host instead of pretending no repo is set', () => {
+    expect(resolveReleaseRepo({ [SOURCE_LABEL]: 'https://gitlab.com/o/r' })).toEqual({ kind: 'unsupported-host', host: 'gitlab.com', from: 'source' });
+  });
+
+  test('a broken override does not fall back to the source label', () => {
+    expect(resolveReleaseRepo({ [SOURCE_LABEL]: 'https://github.com/o/r', [OVERRIDE_LABEL]: 'broken' })).toEqual({ kind: 'invalid-url', raw: 'broken', from: 'override' });
+  });
+
+  test('no labels resolves missing', () => {
+    expect(resolveReleaseRepo({})).toEqual({ kind: 'missing' });
+  });
+});
 
 describe('sourceRepoFromLabels', () => {
   test('extracts owner/repo from a github.com source label', () => {

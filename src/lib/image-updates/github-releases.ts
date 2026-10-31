@@ -22,7 +22,10 @@ interface GitHubRelease {
  * Anonymous GitHub API calls are rate limited to 60/hour per IP, so callers
  * cache aggressively.
  */
-export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRelease[]> {
+export async function fetchGitHubReleases(
+  sourceRepo: string,
+  notFoundMessage = 'No releases are published at github.com/' + sourceRepo + ', so there are no release notes to show.',
+): Promise<ImageRelease[]> {
   const [owner, repo, ...rest] = sourceRepo.split('/');
   if (!owner || !repo || rest.length > 0) {
     throw new ChangelogError(
@@ -43,7 +46,7 @@ export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRele
     });
 
     if (response.status === 404) {
-      throw new ChangelogError('No releases are published at github.com/' + sourceRepo + ', so there are no release notes to show.');
+      throw new ChangelogError(notFoundMessage);
     }
     if (response.status === 403 || response.status === 429) {
       throw new ChangelogError('GitHub API rate limit reached. Try again later.');

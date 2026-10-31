@@ -50,6 +50,8 @@ export interface ImageChangelog {
   image: string;
   sourceRepo: string | null;
   releases: ImageRelease[];
-  /** Why releases could not be fetched, when sourceRepo is missing or the API call failed. */
+  /** Why releases could not be fetched, when sourceRepo is missing or invalid or the API call failed. */
   error: string | null;
+  /** Why the release list is empty despite a successful fetch (e.g. the source repo publishes no releases), with the fix where one exists. */
+  emptyStateMessage?: string | null;
 }

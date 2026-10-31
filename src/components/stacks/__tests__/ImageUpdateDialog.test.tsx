@@ -145,6 +145,18 @@ describe('ImageUpdateDialog', () => {
     expect(screen.getByText('v3.0.0')).toBeDefined();
   });
 
+  it('matches upstream release tags that lack the running tag\'s Docker variant suffix', async () => {
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({ releases: [releases[0], releases[2]] }),
+    );
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app:2-alpine' },
+      summary: { ...summary, image: 'example-org/mock-app:2-alpine', currentTag: '2-alpine', latestMatchingTag: '2.9.4-alpine' },
+    });
+    expect(await screen.findByText('v2.9.4')).toBeDefined();
+    expect(screen.queryByText('v3.0.0')).toBeNull();
+  });
+
   it('renders release dates, markdown bodies, and release note links', async () => {
     renderDialog();
     await screen.findByText('v2.9.4');
@@ -204,8 +216,18 @@ describe('ImageUpdateDialog', () => {
     expect(screen.queryByText('v2.9.4')).toBeNull();
   });
 
-  it('says No releases published when the changelog is empty without error', async () => {
-    mockGetImageChangelog.mockImplementation(async () => changelogResult({ releases: [] }));
+  it('renders the server-provided empty-state message when the changelog is empty without error', async () => {
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({ releases: [], emptyStateMessage: 'No releases published at github.com/example-org/mock-app, the repository this image\'s source label points to. If releases live in another repository, add the "homelab-manager.release-repo: https://github.com/owner/repo" label to the service in your compose file and recreate the stack.' }),
+    );
+    renderDialog();
+    expect(await screen.findByText(
+      'No releases published at github.com/example-org/mock-app, the repository this image\'s source label points to. If releases live in another repository, add the "homelab-manager.release-repo: https://github.com/owner/repo" label to the service in your compose file and recreate the stack.',
+    )).toBeDefined();
+  });
+
+  it('falls back to a bare empty message when the changelog carries no empty-state message', async () => {
+    mockGetImageChangelog.mockImplementation(async () => changelogResult({ releases: [], sourceRepo: null }));
     renderDialog();
     expect(await screen.findByText('No releases published')).toBeDefined();
   });

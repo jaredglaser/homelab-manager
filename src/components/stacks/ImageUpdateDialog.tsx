@@ -123,11 +123,14 @@ export default function ImageUpdateDialog({
   });
 
   const releases = changelog?.releases ?? [];
+  // Docker variant suffixes (-alpine, -slim) distinguish image builds, not upstream
+  // releases: GitHub tags never carry them, so the release filter matches on version only.
+  const releaseConstraint = constraint !== null ? { ...constraint, variant: null } : null;
   const visibleReleases =
-    constraint !== null && effectiveView === 'matching'
+    releaseConstraint !== null && effectiveView === 'matching'
       ? releases.filter((release) => {
           const parsed = parseVersionTag(release.tagName);
-          return parsed !== null && matchesConstraint(parsed, constraint);
+          return parsed !== null && matchesConstraint(parsed, releaseConstraint);
         })
       : releases;
 
@@ -191,7 +194,7 @@ export default function ImageUpdateDialog({
           ) : visibleReleases.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">
               {releases.length === 0
-                ? 'No releases published'
+                ? (changelog?.emptyStateMessage ?? 'No releases published')
                 : `No releases match your tag (${currentTag}). Switch to "All releases" to view every release.`}
             </p>
           ) : (

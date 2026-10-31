@@ -152,6 +152,15 @@ describe('fetchGitHubReleases', () => {
     }
   });
 
+  test('a custom 404 message replaces the default', async () => {
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 404)));
+    try {
+      await expect(fetchGitHubReleases('o/r', 'custom 404 copy')).rejects.toThrow(new ChangelogError('custom 404 copy'));
+    } finally {
+      restore();
+    }
+  });
+
   test('rate limit surfaces a retry-later message', async () => {
     const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 403)));
     try {

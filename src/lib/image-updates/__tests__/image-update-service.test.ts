@@ -99,6 +99,7 @@ function mockSnapshot(rows: DockerContainerEventUpsertRow[]): void {
 }
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
+const RELEASE_REPO_LABEL = 'homelab-manager.release-repo';
 
 beforeEach(() => {
   checkRepoState.rows = [];
@@ -382,7 +383,9 @@ describe('getImageChangelog', () => {
       const { getImageChangelog } = await import('../image-update-service');
       const changelog = await getImageChangelog('changelog-no-repo', 'host1', 'app:1.0');
       expect(changelog.sourceRepo).toBeNull();
-      expect(changelog.error).toBe('No GitHub source repository found for this image.');
+      expect(changelog.error).toBe(
+        'No release repository is set for this image. Add the "homelab-manager.release-repo: https://github.com/owner/repo" label to the service in your compose file and recreate the stack to see its release notes.',
+      );
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       restore();
@@ -397,6 +400,120 @@ describe('getImageChangelog', () => {
       const changelog = await getImageChangelog('changelog-error', 'host1', 'app:1.0');
       expect(changelog.releases).toEqual([]);
       expect(changelog.error).toBe('No releases are published at github.com/o/r, so there are no release notes to show.');
+    } finally {
+      restore();
+    }
+  });
+
+  test('the override label wins over the OCI source label', async () => {
+    mockSnapshot([containerRow({
+      image: 'app:1.0',
+      labels: { [SOURCE_LABEL]: 'https://github.com/o/r', [RELEASE_REPO_LABEL]: 'https://github.com/upstream/project' },
+      composeProject: 'changelog-override',
+    })]);
+    const { restore, fetchMock } = withFetch((url) => {
+      expect(String(url)).toContain('api.github.com/repos/upstream/project/releases');
+      return Promise.resolve(jsonResponse([
+        { tag_name: 'v1.0.0', published_at: '2026-02-01T00:00:00Z', body: 'notes', draft: false },
+      ]));
+    });
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-override', 'host1', 'app:1.0');
+      expect(changelog.sourceRepo).toBe('upstream/project');
+      expect(changelog.releases[0].tagName).toBe('v1.0.0');
+      expect(changelog.error).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an unparseable override label explains how to fix it without fetching', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [RELEASE_REPO_LABEL]: 'not-a-repo' }, composeProject: 'changelog-bad-override' })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-bad-override', 'host1', 'app:1.0');
+      expect(changelog.sourceRepo).toBeNull();
+      expect(changelog.error).toBe(
+        'The "homelab-manager.release-repo" label is set to "not-a-repo", which is not a full repository URL. Use a URL like https://github.com/owner/repo.',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('an override URL on an unsupported host names the limitation', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [RELEASE_REPO_LABEL]: 'https://gitlab.com/o/r' }, composeProject: 'changelog-override-host' })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-override-host', 'host1', 'app:1.0');
+      expect(changelog.error).toBe(
+        'The "homelab-manager.release-repo" label points at gitlab.com, but release notes are only fetched from GitHub right now.',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('an override label pointing at an unknown repo names the label in the error', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [RELEASE_REPO_LABEL]: 'https://github.com/o/missing' }, composeProject: 'changelog-override-404' })]);
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 404)));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-override-404', 'host1', 'app:1.0');
+      expect(changelog.error).toBe(
+        'github.com/o/missing is set in the "homelab-manager.release-repo" label, but GitHub has no such public repository. Check the label value.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('an override repo with no releases explains the empty result', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [RELEASE_REPO_LABEL]: 'https://github.com/o/empty' }, composeProject: 'changelog-override-empty' })]);
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-override-empty', 'host1', 'app:1.0');
+      expect(changelog.error).toBeNull();
+      expect(changelog.releases).toEqual([]);
+      expect(changelog.emptyStateMessage).toBe(
+        'GitHub publishes no releases at github.com/o/empty, the repository set in the "homelab-manager.release-repo" label. Check the label value.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a source-label repo with no releases points at the override label', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [SOURCE_LABEL]: 'https://github.com/o/r' }, composeProject: 'changelog-source-empty' })]);
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-source-empty', 'host1', 'app:1.0');
+      expect(changelog.error).toBeNull();
+      expect(changelog.emptyStateMessage).toBe(
+        "No releases published at github.com/o/r, the repository this image's source label points to." +
+        ' If releases live in another repository, add the "homelab-manager.release-repo: https://github.com/owner/repo" label to the service in your compose file and recreate the stack.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('an empty changelog is not cached so a later label fix takes effect', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [SOURCE_LABEL]: 'https://github.com/o/r' }, composeProject: 'changelog-empty-nocache' })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      await getImageChangelog('changelog-empty-nocache', 'host1', 'app:1.0');
+      await getImageChangelog('changelog-empty-nocache', 'host1', 'app:1.0');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
       restore();
     }
