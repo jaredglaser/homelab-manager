@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.3.0](https://github.com/jaredglaser/homelab-manager/compare/v0.2.4...v0.3.0) (2026-10-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agents:** the deployable agent-updater sidecar workspace and its environment variables are removed. Agent image update detection and apply move into the manager; migration 040 replaces the `agent_updater_*` columns with `agent_image_digest` / `agent_out_of_date`.
+
+### Features
+
+* **agents:** dev-specific message when the update trigger is unavailable ([#576](https://github.com/jaredglaser/homelab-manager/issues/576)) ([71bdd9b](https://github.com/jaredglaser/homelab-manager/commit/71bdd9bee9977dcd9cb1029a581841aa7829da80))
+* **agents:** manager-driven agent updates without the agent-updater sidecar ([#580](https://github.com/jaredglaser/homelab-manager/issues/580)) ([c709748](https://github.com/jaredglaser/homelab-manager/commit/c709748a170848247611ed1ac9071218f0b80234))
+* **hosts:** agent-generated TLS enrollment ([#582](https://github.com/jaredglaser/homelab-manager/issues/582)) ([6054d9b](https://github.com/jaredglaser/homelab-manager/commit/6054d9b0e807b7679c63f954dbed2f6e8eb61601))
+* **image-updates:** server-side scheduled refresher with persisted update state ([#587](https://github.com/jaredglaser/homelab-manager/issues/587)) ([3b78c82](https://github.com/jaredglaser/homelab-manager/commit/3b78c8298b0bab32123a1fa93f061280f9e469d4))
+* **inventory:** persist container image digests ([#572](https://github.com/jaredglaser/homelab-manager/issues/572)) ([c2e09fb](https://github.com/jaredglaser/homelab-manager/commit/c2e09fb9488adb637bb3b728dc37322254d43768))
+* **stacks:** registry update checks for stack images ([#573](https://github.com/jaredglaser/homelab-manager/issues/573)) ([b9be47a](https://github.com/jaredglaser/homelab-manager/commit/b9be47a622259611b2cdcfbf910276eb0413de16))
+* **stacks:** update info icon and release notes dialog ([#574](https://github.com/jaredglaser/homelab-manager/issues/574)) ([884dfd4](https://github.com/jaredglaser/homelab-manager/commit/884dfd430b1ff5a48c99dfed081bd9b6e76d8026))
+
+
+### Bug Fixes
+
+* **agent:** drop zero-sentinel docker stats frames ([#577](https://github.com/jaredglaser/homelab-manager/issues/577)) ([a02bfb0](https://github.com/jaredglaser/homelab-manager/commit/a02bfb005cb53db2072dfa8d45237bc0a15dc2f7))
+* **auth:** authenticate docker-exec WebSocket upgrade and enforce endpoint auth via lint ([#579](https://github.com/jaredglaser/homelab-manager/issues/579)) ([62045d1](https://github.com/jaredglaser/homelab-manager/commit/62045d1bedff672253ea91eb7bd9527145534140))
+* **docker:** exclude secrets and local-only paths from the build context ([#578](https://github.com/jaredglaser/homelab-manager/issues/578)) ([50d09c5](https://github.com/jaredglaser/homelab-manager/commit/50d09c5654796dfe0919b5e24ded56c697e7c8f0))
+* **mux:** mark stream-fed queries fetch-less with skipToken ([#558](https://github.com/jaredglaser/homelab-manager/issues/558)) ([b8baa35](https://github.com/jaredglaser/homelab-manager/commit/b8baa35738e65a2fa733226463cc577a4c9f2788))
+
+
+### Performance Improvements
+
+* **test:** run test:all across parallel bun test shards ([#590](https://github.com/jaredglaser/homelab-manager/issues/590)) ([ef275c9](https://github.com/jaredglaser/homelab-manager/commit/ef275c92a300da5864be2edac0bb540d9b77080f))
+* **ui:** pause modal content while the dialog exit transition runs ([#557](https://github.com/jaredglaser/homelab-manager/issues/557)) ([ed2f359](https://github.com/jaredglaser/homelab-manager/commit/ed2f3598d58c33c9b8bbd90997c1c02d5a9b7f92))
+
 ## [0.2.4](https://github.com/jaredglaser/homelab-manager/compare/v0.2.3...v0.2.4) (2026-10-16)
 
 
