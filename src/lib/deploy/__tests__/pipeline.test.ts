@@ -1317,7 +1317,49 @@ describe('DeployPipeline', () => {
       await pipeline.execute(testUpdateRequest);
       await drainDetached();
       expect(onUpdateSuccess).toHaveBeenCalledTimes(1);
-      expect(onUpdateSuccess).toHaveBeenCalledWith('plex', 'homeserver');
+      expect(onUpdateSuccess).toHaveBeenCalledWith('plex', 'homeserver', expect.any(Number));
+    });
+
+    it('fires onDeploySuccess for deploy and teardown actions but not for updates', async () => {
+      const onDeploySuccess = mock();
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
+        onDeploySuccess,
+      });
+
+      await pipeline.execute({ ...testUpdateRequest, action: 'deploy' });
+      await drainDetached();
+      expect(onDeploySuccess).toHaveBeenCalledTimes(1);
+      expect(onDeploySuccess).toHaveBeenCalledWith('plex', 'homeserver');
+
+      await pipeline.execute(testUpdateRequest);
+      await drainDetached();
+      expect(onDeploySuccess).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not fire onDeploySuccess when the deploy fails', async () => {
+      const onDeploySuccess = mock();
+      agentClientFactory = mock().mockReturnValue(createMockAgentClient(false));
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
+        onDeploySuccess,
+      });
+
+      await pipeline.execute({ ...testUpdateRequest, action: 'deploy' });
+      await drainDetached();
+      expect(onDeploySuccess).not.toHaveBeenCalled();
     });
 
     it('does not schedule a post-update check when the update fails', async () => {

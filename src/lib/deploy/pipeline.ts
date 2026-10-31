@@ -32,7 +32,9 @@ interface PipelineDeps {
    *  Tests inject a collector so terminal-state assertions can await completions. */
   runDetached?: (fn: () => Promise<void>) => void;
   /** Fires after a successful update dispatch so panel update state converges. Tests record the call. */
-  onUpdateSuccess?: (stack: string, host: string) => void;
+  onUpdateSuccess?: (stack: string, host: string, completedAt: number) => void;
+  /** Fires after a successful deploy or teardown so cached update summaries cannot outlive the container set. */
+  onDeploySuccess?: (stack: string, host: string) => void;
 }
 
 /**
@@ -48,6 +50,7 @@ export class DeployPipeline {
   private readonly stackRepoWriter: StackRepoWriter;
   private readonly runDetached: PipelineDeps['runDetached'];
   private readonly onUpdateSuccess: PipelineDeps['onUpdateSuccess'];
+  private readonly onDeploySuccess: PipelineDeps['onDeploySuccess'];
 
   constructor(deps: PipelineDeps) {
     this.deployRepo = deps.deployRepo;
@@ -58,6 +61,7 @@ export class DeployPipeline {
     this.stackRepoWriter = deps.stackRepoWriter;
     this.runDetached = deps.runDetached;
     this.onUpdateSuccess = deps.onUpdateSuccess;
+    this.onDeploySuccess = deps.onDeploySuccess;
   }
 
   /**
@@ -541,9 +545,16 @@ export class DeployPipeline {
     const treatAsSuccess = finalStatus === 'succeeded';
     if (treatAsSuccess && request.action === 'update' && this.onUpdateSuccess !== undefined) {
       try {
-        this.onUpdateSuccess(request.stack, host.name);
+        this.onUpdateSuccess(request.stack, host.name, Date.now());
       } catch (err) {
         console.error(`[Pipeline] Failed to schedule the post-update check for "${request.stack}" on "${host.name}":`, err);
+      }
+    }
+    if (treatAsSuccess && (request.action === 'deploy' || request.action === 'teardown') && this.onDeploySuccess !== undefined) {
+      try {
+        this.onDeploySuccess(request.stack, host.name);
+      } catch (err) {
+        console.error(`[Pipeline] Failed to invalidate cached update state for "${request.stack}" on "${host.name}":`, err);
       }
     }
     if (treatAsSuccess && request.postSuccess === 'removeFromManifest') {

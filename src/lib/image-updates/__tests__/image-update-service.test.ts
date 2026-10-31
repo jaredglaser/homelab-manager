@@ -305,7 +305,7 @@ describe('getImageUpdateSummaries', () => {
     }
   });
 
-  test('an errored row is treated as stale so the check retries', async () => {
+  test('an errored row with last-good tags is served from persistence within the freshness window', async () => {
     checkRepoState.rows = [persistedRow({ error: 'Docker Hub returned 503', checkedAt: new Date() })];
     mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'errorrows' })]);
     const { restore, fetchMock } = withFetch(() =>
@@ -314,9 +314,58 @@ describe('getImageUpdateSummaries', () => {
     try {
       const { getImageUpdateSummaries } = await import('../image-update-service');
       const [summary] = await getImageUpdateSummaries('errorrows', 'host1');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(summary.error).toBe('Docker Hub returned 503');
+      expect(summary.latestMatchingTag).toBe('7.4.1');
+      expect(checkRepoState.successes).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an errored row without last-good tags still live-checks', async () => {
+    checkRepoState.rows = [{
+      ...persistedRow({ error: 'Docker Hub returned 503', checkedAt: new Date() }),
+      currentTag: null,
+      latestMatchingTag: null,
+      latestOverallTag: null,
+      updateAvailable: null,
+    }];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'errornull' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('errornull', 'host1');
       expect(fetchMock).toHaveBeenCalled();
       expect(summary.error).toBeNull();
       expect(checkRepoState.successes).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a mixed stack live-checks only the unserveable images and merges the results', async () => {
+    checkRepoState.rows = [
+      persistedRow({ image: 'redis:7', error: 'Docker Hub returned 503', checkedAt: new Date() }),
+      persistedRow({ image: 'traefik:v3.1', checkedAt: new Date() }),
+    ];
+    mockSnapshot([
+      containerRow({ image: 'redis:7', composeProject: 'mixed' }),
+      containerRow({ image: 'traefik:v3.1', composeProject: 'mixed' }),
+      containerRow({ image: 'nginx:1', composeProject: 'mixed' }),
+    ]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '1' }, { name: '1.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const summaries = await getImageUpdateSummaries('mixed', 'host1');
+      expect(summaries.map((summary) => summary.image)).toEqual(['nginx:1', 'redis:7', 'traefik:v3.1']);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(checkRepoState.successes).toBe(1);
+      expect(checkRepoState.failures).toBe(0);
     } finally {
       restore();
     }

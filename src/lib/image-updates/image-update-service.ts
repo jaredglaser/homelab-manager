@@ -17,6 +17,11 @@ const summaryCache = new BoundedCache<ImageUpdateSummary[]>(CACHE_MAX_ENTRIES);
 export function clearImageUpdateSummaryCache(): void {
   summaryCache.clear();
 }
+
+/** Drops one stack's cached summary; a no-op when nothing is cached. */
+export function invalidateImageUpdateSummaryCache(host: string, stack: string): void {
+  summaryCache.delete(host + '/' + stack);
+}
 const changelogCache = new BoundedCache<ImageChangelog>(CACHE_MAX_ENTRIES);
 
 export async function loadStackContainers(stack: string, host: string): Promise<DockerContainerEventUpsertRow[]> {
@@ -91,26 +96,28 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
     intervalMs = DEFAULT_REFRESH_INTERVAL_MS;
   }
   const freshCutoff = now.getTime() - staleThresholdMs({ intervalMs });
-  const allFresh = groups.every((group) => {
+  // Per-group classification: an errored row keeps its last good tags, so it
+  // stays serveable within the freshness window instead of forcing live
+  // registry checks for the whole stack. A first-ever failure (NULL tags)
+  // has nothing to serve and still live-checks.
+  const serveable = (row: ImageUpdateCheckRow | undefined) =>
+    row !== undefined && row.checkedAt.getTime() > freshCutoff && (row.error === null || row.currentTag !== null);
+  const persistedGroups = groups.filter((group) => serveable(rowsByImage.get(group.image)));
+  const liveGroups = groups.filter((group) => !serveable(rowsByImage.get(group.image)));
+
+  const persistedSummaries = persistedGroups.flatMap((group) => {
     const row = rowsByImage.get(group.image);
-    return row !== undefined && row.error === null && row.checkedAt.getTime() > freshCutoff;
+    return row ? [{ ...rowToSummary(row), ...declaredVersionFields(group.image, group.labels) }] : [];
   });
 
-  if (allFresh) {
-    // currentVersion and versionSource live in the container labels, not the
-    // persisted row, so the persisted fast path re-derives them from the
-    // snapshot with the same rule the live check used.
-    const summaries = groups.flatMap((group) => {
-      const row = rowsByImage.get(group.image);
-      return row ? [{ ...rowToSummary(row), ...declaredVersionFields(group.image, group.labels) }] : [];
-    });
-    summaries.sort((a, b) => a.image.localeCompare(b.image));
-    summaryCache.set(cacheKey, summaries, SUMMARY_CACHE_TTL_MS);
-    return summaries;
+  if (liveGroups.length === 0) {
+    persistedSummaries.sort((a, b) => a.image.localeCompare(b.image));
+    summaryCache.set(cacheKey, persistedSummaries, SUMMARY_CACHE_TTL_MS);
+    return persistedSummaries;
   }
 
   const results = await Promise.all(
-    groups.map((group) =>
+    liveGroups.map((group) =>
       checkImageUpdateWithMeta(
         group.image,
         group.labels,
@@ -120,10 +127,11 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
       ),
     ),
   );
-  const summaries = results.map((result) => ({
+  const liveSummaries = results.map((result) => ({
     ...result.summary,
     checkedAt: now.toISOString(),
   }));
+  const summaries = [...persistedSummaries, ...liveSummaries];
   summaries.sort((a, b) => a.image.localeCompare(b.image));
 
   // Write-through is best effort. A failed persist must not break the read.
@@ -152,8 +160,9 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
     console.error('[image-updates] failed to persist update checks:', err);
   }
 
-  // Failures stay uncached: caching would pin a registry outage's error in the panel for the full TTL.
-  if (summaries.every((summary) => summary.error === null)) {
+  // A live failure stays uncached: caching would pin a registry outage's error
+  // in the panel for the full TTL. Served last-good rows are cacheable.
+  if (liveSummaries.every((summary) => summary.error === null)) {
     summaryCache.set(cacheKey, summaries, SUMMARY_CACHE_TTL_MS);
   }
   return summaries;

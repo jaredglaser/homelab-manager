@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mockModule } from '@/lib/test/mock-module';
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
+import type { DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
 import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 import type { ImageUpdateCheckRepository, ImageUpdateCheckRow } from '@/lib/database/repositories/image-update-check-repository';
@@ -270,8 +271,11 @@ describe('runManualImageUpdateCheck', () => {
   });
 });
 
-describe('schedulePostUpdateCheck', () => {
+describe('PostUpdateWatcher', () => {
   let timers: TimerMock;
+  let nowMs: number;
+  let eventHandler: ((event: DockerInventoryBroadcastEvent) => void) | null = null;
+  const invalidated: Array<[string, string]> = [];
   const realNow = Date.now;
 
   beforeEach(() => {
@@ -281,7 +285,10 @@ describe('schedulePostUpdateCheck', () => {
     summaryCacheCleared = 0;
     containerRows = [];
     repoMock = createRepoMock([]);
-    Date.now = () => Date.parse('2026-01-03T00:00:00Z');
+    nowMs = Date.parse('2026-01-03T00:00:00Z');
+    Date.now = () => nowMs;
+    eventHandler = null;
+    invalidated.length = 0;
     timers = mockSetTimeout();
   });
 
@@ -290,39 +297,125 @@ describe('schedulePostUpdateCheck', () => {
     timers.restore();
   });
 
-  it('runs a stack-wide check after the delay', async () => {
-    containerRows = [containerRow({ image: 'redis:7' })];
-    const { schedulePostUpdateCheck } = await import('../manual-check');
-    schedulePostUpdateCheck('web', 'host1', 5_000);
+  async function buildWatcher() {
+    const { PostUpdateWatcher } = await import('../post-update-watcher');
+    return new PostUpdateWatcher({
+      loadSnapshot: async () => {
+        if (stackLoaderOverride) return stackLoaderOverride();
+        return containerRows;
+      },
+      runCheck: async (stack: string, host: string) => {
+        const { runManualImageUpdateCheck } = await import('../manual-check');
+        return runManualImageUpdateCheck(stack, host);
+      },
+      subscribe: (callback: (event: DockerInventoryBroadcastEvent) => void) => {
+        eventHandler = callback;
+        return () => {};
+      },
+      invalidate: (host: string, stack: string) => {
+        invalidated.push([host, stack]);
+      },
+      now: () => nowMs,
+    });
+  }
+
+  function notifyUpsert(): void {
+    eventHandler?.({
+      type: 'upsert',
+      container: {
+        host: 'host1',
+        containerId: 'abc123',
+        name: 'app',
+        image: 'redis:7',
+        imageDigest: null,
+        state: 'running' as const,
+        composeProject: 'web',
+        serviceKey: 'web-app',
+        startedAt: null,
+        finishedAt: null,
+        exitCode: null,
+        labels: {},
+        ports: [],
+        mounts: [],
+        updatedAt: new Date(nowMs),
+      },
+    } as DockerInventoryBroadcastEvent);
+  }
+
+  it('runs the check once the snapshot reflects the update', async () => {
+    containerRows = [containerRow({ at: new Date(nowMs) })];
+    const watcher = await buildWatcher();
+    watcher.arm('web', 'host1', nowMs);
 
     expect(timers.delays).toEqual([5_000]);
     expect(registryState.calls).toHaveLength(0);
+    nowMs += 5_000;
     timers.fire(timers.scheduled[0]);
     timers.restore();
     await waitForCondition(() => registryState.calls.length === 1);
     expect(registryState.calls).toEqual(['redis:7|']);
   });
 
-  it('uses the default 5s delay when none is given', async () => {
-    const { schedulePostUpdateCheck } = await import('../manual-check');
-    schedulePostUpdateCheck('web', 'host1');
-    expect(timers.delays).toEqual([5_000]);
+  it('defers while the snapshot is stale and gives up without checking at the deadline', async () => {
+    containerRows = [containerRow()];
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const watcher = await buildWatcher();
+    watcher.arm('web', 'host1', nowMs);
+
+    nowMs += 5_000;
+    timers.fire(timers.scheduled[0]);
+    // The next poll is scheduled at the end of the async test; settle the chain
+    // without the mock (setImmediate is not captured) before asserting on it.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(timers.delays).toContain(10_000);
+    expect(registryState.calls).toHaveLength(0);
+
+    nowMs += 3 * 60_000;
+    timers.fire(timers.scheduled[1]);
+    timers.restore();
+    await waitForCondition(() => errSpy.mock.calls.some((call) => String(call[0]).includes('skipping the post-update check')));
+    expect(registryState.calls).toHaveLength(0);
+    expect(watcher.pending()).toBe(0);
+    errSpy.mockRestore();
   });
 
-  it('logs and swallows a rejected post-update check', async () => {
-    const { schedulePostUpdateCheck } = await import('../manual-check');
-    stackLoaderOverride = async () => {
-      throw new Error('snapshot gone');
-    };
-    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+  it('a NOTIFY upsert triggers an early converged check and invalidates the summary cache', async () => {
+    containerRows = [containerRow({ at: new Date(nowMs) })];
+    const watcher = await buildWatcher();
+    watcher.arm('web', 'host1', nowMs);
 
-    schedulePostUpdateCheck('web', 'host1', 1_000);
+    notifyUpsert();
+    expect(timers.delays).toContain(2_000);
+    const debounce = timers.scheduled[timers.delays.indexOf(2_000)];
+    nowMs += 2_000;
+    timers.fire(debounce);
+    timers.restore();
+    await waitForCondition(() => registryState.calls.length === 1);
+    expect(invalidated).toContainEqual(['host1', 'web']);
+  });
+
+  it('a scheduled check chains after a pre-update in-flight run instead of joining it', async () => {
+    let releaseSnapshot: (() => void) | null = null;
+    containerRows = [containerRow()];
+    stackLoaderOverride = () => new Promise((resolve) => {
+      releaseSnapshot = () => resolve(containerRows);
+    });
+    const getRelease = () => releaseSnapshot;
+    const watcher = await buildWatcher();
+    const { runManualImageUpdateCheck } = await import('../manual-check');
+    const first = runManualImageUpdateCheck('web', 'host1');
+    // The pre-update run reads the stale snapshot and completes with its own registry call.
+    getRelease()?.();
+    await first;
+    expect(registryState.calls).toEqual(['redis:7|']);
+
+    watcher.arm('web', 'host1', nowMs);
+    containerRows = [containerRow({ at: new Date(nowMs) })];
+    stackLoaderOverride = null;
+    nowMs += 5_000;
     timers.fire(timers.scheduled[0]);
     timers.restore();
-    await waitForCondition(() => errSpy.mock.calls.some((call) => String(call[0]).includes('post-update check failed')));
-
-    expect(errSpy.mock.calls.some((call) => String(call[0]).includes('post-update check failed'))).toBe(true);
-    errSpy.mockRestore();
-    stackLoaderOverride = null;
+    await waitForCondition(() => registryState.calls.length === 2);
+    expect(registryState.calls).toEqual(['redis:7|', 'redis:7|']);
   });
 });

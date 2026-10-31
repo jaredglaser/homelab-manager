@@ -48,7 +48,8 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
 
   const { createStackRepoWriter } = await import('@/lib/deploy/stack-repo-writer');
   const stackRepoWriter = createStackRepoWriter();
-  const { schedulePostUpdateCheck } = await import('@/lib/image-updates/manual-check');
+  const { postUpdateWatcher } = await import('@/lib/image-updates/post-update-watcher');
+  const { clearImageUpdateSummaryCache } = await import('@/lib/image-updates/image-update-service');
 
   const pipeline = new DeployPipeline({
     deployRepo,
@@ -66,7 +67,8 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     },
     stackRepoWriter,
     secretResolver: new StackSecretsResolver(stackSecrets),
-    onUpdateSuccess: schedulePostUpdateCheck,
+    onUpdateSuccess: (stack, host, completedAt) => postUpdateWatcher.arm(stack, host, completedAt),
+    onDeploySuccess: () => clearImageUpdateSummaryCache(),
     tokenResolver: async (host) => {
       const privateKey = await agentKeypairs.getPrivateKeyForHost(host.name);
       if (!privateKey) {
