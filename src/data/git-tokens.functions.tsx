@@ -13,7 +13,7 @@ import { hashGitToken } from '@/lib/git/git-token-auth';
 /** Creates a git token. The raw token is returned once and never stored in plaintext. */
 export const createGitToken = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(z.object({ label: z.string().min(1).max(100) }))
+  .validator(z.object({ label: z.string().min(1).max(100) }))
   .handler(async ({ data, context }): Promise<{ token: string }> => {
     requireRole('admin')(context.user);
 
@@ -56,7 +56,7 @@ export const listGitTokens = createServerFn()
  */
 export const revokeGitToken = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(z.object({ tokenId: z.number() }))
+  .validator(z.object({ tokenId: z.number() }))
   .handler(async ({ data, context }): Promise<void> => {
     requireRole('admin')(context.user);
 

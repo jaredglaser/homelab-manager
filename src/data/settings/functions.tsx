@@ -6,7 +6,7 @@ import { updateSettingSchema } from '@/data/settings/schemas';
 
 export const updateSetting = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(updateSettingSchema)
+  .validator(updateSettingSchema)
   .handler(async ({ context, data }): Promise<void> => {
     requireRole('admin', 'operator')(context.user);
     const { SettingsRepository } = await import(
