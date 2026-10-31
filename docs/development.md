@@ -233,9 +233,18 @@ bun run test:agent          # Run agent tests
 bun run test:coverage:agent # Agent tests with coverage thresholds
 
 # Combined
-bun run test:all            # Run tests in both
+bun run test:all            # Run both packages' tests in parallel shards
 bun run test:coverage:all   # Run tests in both with coverage thresholds
 ```
+
+`bun test --isolate` executes test files one at a time, so `bun run test:all` shards the
+suite across concurrent `bun test --isolate` child processes instead (`scripts/test-parallel.ts`).
+Files are discovered with `git ls-files --cached --others --exclude-standard` filtered through
+bun's test-name patterns, so untracked new test files are included and gitignored trees are not.
+Pass substring filters (`bun run test:all -- src/lib`) to shrink the set, or `--shards=N` to
+override the shard count (defaults to CPU count, capped at 12). Failing shards print the tail of
+their output; full per-shard logs land in `.tmp/test-parallel/`. Coverage runs stay
+single-process because Bun cannot merge V8 coverage tables across processes.
 
 ### Coverage Requirements
 
