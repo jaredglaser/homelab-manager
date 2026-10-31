@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, CircleHelp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Spinner } from '@/components/ui/spinner';
 import Markdown from '@/components/shared/Markdown';
 import { isSafeHttpUrl } from '@/lib/url-safety';
@@ -50,15 +51,7 @@ function imageWithoutTag(image: string): string {
   return colon > slash ? image.slice(0, colon) : image;
 }
 
-function StatusBadge({
-  summary,
-  currentTag,
-  image,
-}: {
-  summary: ImageUpdateSummary | null;
-  currentTag: string | null;
-  image: string;
-}) {
+function StatusBadge({ summary, currentTag, image }: { summary: ImageUpdateSummary | null; currentTag: string | null; image: string }) {
   let label: string;
   let className: string;
   if (summary?.error) {
@@ -81,10 +74,26 @@ function StatusBadge({
   }
   return (
     <>
-      {summary?.currentVersion && (
+      {summary?.currentVersion && summary.versionSource !== 'tag' && (
         <span className="text-xs font-normal rounded px-1.5 py-0.5 shrink-0 text-muted-foreground bg-level1">
           Current: {summary.currentVersion}
         </span>
+      )}
+      {summary?.versionSource === 'tag' && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger
+              render={<span tabIndex={0} aria-label="Why the version is unknown" className="text-xs font-normal rounded px-1.5 py-0.5 shrink-0 text-warning bg-warning/10 inline-flex items-center gap-1 cursor-help" />}
+            >
+              Version unknown
+              <CircleHelp size={12} className="shrink-0" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-xs">
+              This image doesn't say which version it is. The check guessed from the tag name, so it may show an update you
+              already have. Nothing is broken. Pinning a full version tag, like 2.11.7, makes this exact.
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
       <span className={`text-xs font-normal rounded px-1.5 py-0.5 shrink-0 ${className}`}>
         {label}
@@ -152,15 +161,21 @@ export default function ImageUpdateDialog({
   // Hyphenated tokens (image names, tags like 2.11.7-alpine) must not split at
   // the hyphen when the footer wraps, so each one renders as an unbreakable span.
   const unbreakable = (value: string): ReactNode => <span className="whitespace-nowrap">{value}</span>;
-  const footerText: ReactNode = summary?.updateAvailable === false
-    ? constraint !== null
-      ? `You're on the newest version matching your tag.`
-      : <>You're on the newest published build of {unbreakable(imageBase)}.</>
-    : constraint === null && currentTag !== null
-      ? <>Click "Update images" in the stack action bar to pull the newest {unbreakable(currentTag)} build of {unbreakable(imageBase)}.</>
-      : updateAvailable && summary.latestMatchingTag
-        ? <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to {unbreakable(summary.latestMatchingTag)}.</>
-        : <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to the newest published version.</>;
+  const footerText: ReactNode = summary === null || summary.updateAvailable === null
+    ? currentTag === null
+      ? <>The registry check can't compare versions for a digest pin. "Update images" re-pulls the newest published build of {unbreakable(imageBase)}.</>
+      : summary?.error
+        ? <>The last registry check failed, so this panel can't tell whether an update exists. Use "Re-check" to try again; "Update images" re-pulls the image either way.</>
+        : <>The registry check hasn't finished comparing versions yet. "Update images" re-pulls the newest published build of {unbreakable(imageBase)}.</>
+    : summary.updateAvailable === false
+      ? constraint !== null
+        ? `You're on the newest version matching your tag.`
+        : <>You're on the newest published build of {unbreakable(imageBase)}.</>
+      : constraint === null && currentTag !== null
+        ? <>Click "Update images" in the stack action bar to pull the newest {unbreakable(currentTag)} build of {unbreakable(imageBase)}.</>
+        : updateAvailable && summary.latestMatchingTag
+          ? <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to {unbreakable(summary.latestMatchingTag)}.</>
+          : <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to the newest published version.</>;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
@@ -267,9 +282,9 @@ export default function ImageUpdateDialog({
             {recheckMutation.isPending ? <Spinner className="size-3" /> : null}
             Re-check
           </Button>
-          {summary?.checkedAt && (
-            <p className="col-span-2 text-xs text-muted-foreground sm:col-span-1 sm:col-start-1 sm:row-start-2">Last checked {relativeCheckedAt(summary.checkedAt)}</p>
-          )}
+          <p className="col-span-2 text-xs text-muted-foreground sm:col-span-1 sm:col-start-1 sm:row-start-2">
+            {summary?.checkedAt ? `Last checked ${relativeCheckedAt(summary.checkedAt)}` : 'Not checked yet'}
+          </p>
           <Button variant="ghost" className="col-start-2 row-start-3 text-foreground sm:col-start-3 sm:row-start-1 sm:row-span-2" onClick={onClose}>
             Close
           </Button>

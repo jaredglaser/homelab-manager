@@ -452,6 +452,53 @@ describe('StackEditorForm', () => {
     expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1);
   });
 
+  it('re-runs the check when the confirming click comes after the confirmation window', async () => {
+    mockCheckImageUpdates.mockImplementation(() => Promise.resolve({
+      summaries: [{ image: 'nginx:1', currentTag: '1', latestMatchingTag: '1.26', latestOverallTag: '1.26', updateAvailable: true, sourceRepo: null, error: null }],
+      checked: 1,
+      changed: 1,
+      failed: 0,
+    }));
+    const { queryClient } = await renderForm();
+    act(() => {
+      queryClient.setQueryData<ImageUpdateSummary[]>([...IMAGE_UPDATE_INFO_QUERY_KEY, 'host1', 'web'], [
+        { image: 'nginx:1', currentTag: '1', latestMatchingTag: null, latestOverallTag: null, updateAvailable: false, sourceRepo: null, error: null },
+      ]);
+    });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1));
+
+    const realNow = Date.now;
+    Date.now = () => realNow() + 31_000;
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    Date.now = realNow;
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(2));
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+  });
+
+  it('clears the stale-verdict confirmation when a deploy action runs in between', async () => {
+    mockCheckImageUpdates.mockImplementation(() => Promise.resolve({
+      summaries: [{ image: 'nginx:1', currentTag: '1', latestMatchingTag: '1.26', latestOverallTag: '1.26', updateAvailable: true, sourceRepo: null, error: null }],
+      checked: 1,
+      changed: 1,
+      failed: 0,
+    }));
+    const { queryClient } = await renderForm();
+    act(() => {
+      queryClient.setQueryData<ImageUpdateSummary[]>([...IMAGE_UPDATE_INFO_QUERY_KEY, 'host1', 'web'], [
+        { image: 'nginx:1', currentTag: '1', latestMatchingTag: null, latestOverallTag: null, updateAvailable: false, sourceRepo: null, error: null },
+      ]);
+    });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1));
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
+    await waitFor(() => expect((mockTriggerDeploy.mock.calls[0][0] as { data: { action: string } }).data.action).toBe('deploy'));
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(2));
+  });
+
   it('dispatches without a confirming click when the check matches the panel data', async () => {
     mockCheckImageUpdates.mockImplementation(() => Promise.resolve({
       summaries: [{ image: 'nginx:1', currentTag: '1', latestMatchingTag: '1.26', latestOverallTag: '1.26', updateAvailable: true, sourceRepo: null, error: null }],

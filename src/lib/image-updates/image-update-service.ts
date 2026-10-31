@@ -169,16 +169,17 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
 }
 
 export async function getImageChangelog(stack: string, host: string, image: string): Promise<ImageChangelog> {
-  const cacheKey = host + '/' + stack + '|' + image;
-  const cached = changelogCache.get(cacheKey);
-  if (cached) return cached;
-
   const containers = await loadStackContainers(stack, host);
   const labels =
     containers.find((c) => c.image === image && resolveReleaseRepo(c.labels).kind !== 'missing')?.labels
     ?? containers.find((c) => c.image === image)?.labels
     ?? {};
   const resolved = resolveReleaseRepo(labels);
+  // The resolved repo is part of the key: changing the override label must
+  // not serve the old repo's releases from the cache.
+  const cacheKey = host + '/' + stack + '|' + image + '|' + (resolved.kind === 'resolved' ? resolved.repo : '-');
+  const cached = changelogCache.get(cacheKey);
+  if (cached) return cached;
 
   const changelog: ImageChangelog = {
     image,

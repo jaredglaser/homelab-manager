@@ -451,7 +451,7 @@ describe('getImageChangelog', () => {
       const { getImageChangelog } = await import('../image-update-service');
       const changelog = await getImageChangelog('changelog-error', 'host1', 'app:1.0');
       expect(changelog.releases).toEqual([]);
-      expect(changelog.error).toBe('No releases are published at github.com/o/r, so there are no release notes to show.');
+      expect(changelog.error).toBe('No public releases are visible at github.com/o/r, so there are no release notes to show. A private repository looks the same from the outside; if the repository exists, publishing releases or making it public fixes this.');
     } finally {
       restore();
     }

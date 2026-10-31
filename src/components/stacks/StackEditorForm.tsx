@@ -91,6 +91,9 @@ function TabDirtyDot() {
  * route so switching stacks starts a clean form. A tab dot marks per-tab unsaved
  * state and `useBlocker` warns before navigation that would drop in-memory edits.
  */
+/** How long a stale-verdict confirmation stays valid for the confirming click. */
+const SKIP_UPDATE_CHECK_TTL_MS = 30_000
+
 export default function StackEditorForm({ stackName, detail }: Readonly<StackEditorFormProps>) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -102,9 +105,11 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [pendingConfirmAction, setPendingConfirmAction] = useState<ConfirmableDeployAction | null>(null)
   const lastConfirmActionRef = useRef<ConfirmableDeployAction>({ action: 'deploy' })
-  // Set when a pre-update check finds the verdict moved; the confirming click
-  // consumes it to dispatch instead of re-running the check.
-  const skipUpdateCheckRef = useRef(false)
+  // Set (with a timestamp) when a pre-update check finds the verdict moved; the
+  // confirming click consumes it to dispatch instead of re-running the check.
+  // Timestamped so an abandoned confirmation cannot silently dispatch a much
+  // later update against data the user never confirmed.
+  const skipUpdateCheckRef = useRef<number | null>(null)
 
   const form = useForm<StackFormValues>({
     defaultValues: { compose: detail.composeContent, secrets: {} },
@@ -228,7 +233,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         return old !== undefined && (old.updateAvailable !== fresh.updateAvailable || old.latestMatchingTag !== fresh.latestMatchingTag)
       })
       if (stale) {
-        skipUpdateCheckRef.current = true
+        skipUpdateCheckRef.current = Date.now()
         void queryClient.invalidateQueries({ queryKey: [...IMAGE_UPDATE_INFO_QUERY_KEY, detail.host, stackName] })
         showToast('Image update targets changed since the last check. The panel now shows fresh data; click Update images again to confirm.', 'info')
         return
@@ -240,12 +245,14 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     },
   })
 
-  // The confirming click after a stale verdict re-enters here; the ref routes
-  // it straight to dispatch so the check does not run a second time.
+  // The confirming click after a stale verdict re-enters here; a fresh stamp
+  // routes it straight to dispatch so the check does not run a second time.
+  // An expired stamp falls through to a fresh check.
   function runUpdateCheckGate() {
     if (updateCheckMutation.isPending) return
-    if (skipUpdateCheckRef.current) {
-      skipUpdateCheckRef.current = false
+    const skipAt = skipUpdateCheckRef.current
+    skipUpdateCheckRef.current = null
+    if (skipAt !== null && Date.now() - skipAt < SKIP_UPDATE_CHECK_TTL_MS) {
       deployMutation.mutate({ action: 'update' })
       return
     }
@@ -256,6 +263,9 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   // secrets, so unsaved editor edits would silently ship the previous version.
   function triggerDeployOrUpdate(action: 'deploy' | 'update', forceRecreate?: boolean) {
     if (isDeploying) return
+    // A deploy/recreate/teardown replaces the world a stale-verdict confirmation
+    // described, so the confirmation no longer counts.
+    if (action !== 'update') skipUpdateCheckRef.current = null
     // Read dirtiness live at click time (same per-field signal as the compose
     // "Unsaved changes" label and the tab dots) so the guard never lags a render
     // or disagrees with what the user sees.
@@ -523,7 +533,10 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         <UnsavedChangesDialog
           open={pendingConfirmAction !== null}
           onConfirm={confirmPendingAction}
-          onCancel={() => setPendingConfirmAction(null)}
+          onCancel={() => {
+            setPendingConfirmAction(null)
+            skipUpdateCheckRef.current = null
+          }}
           title={confirmDialogCopy.title}
           description={confirmDialogCopy.description}
           confirmLabel={confirmDialogCopy.confirmLabel}

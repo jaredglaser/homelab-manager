@@ -237,10 +237,59 @@ describe('ImageUpdateDialog', () => {
     expect(screen.getByText('Update available: 2.9.4')).toBeDefined();
   });
 
-  it('shows a Current badge with the version the image declares about itself', async () => {
+  it('shows a Current badge with the version the image declares', async () => {
     renderDialog({ summary: { ...summary, currentVersion: '2.9.4' } });
     await screen.findByText('v2.9.4');
     expect(screen.getByText('Current: 2.9.4')).toBeDefined();
+  });
+
+  it('shows the Version-unknown badge with the plain-language tooltip when the version was guessed', async () => {
+    renderDialog({ summary: { ...summary, versionSource: 'tag', currentVersion: null } });
+    await screen.findByText('v2.9.4');
+    expect(screen.getByText('Version unknown')).toBeDefined();
+    expect(screen.queryByText(/Current:/)).toBeNull();
+    const trigger = screen.getByLabelText('Why the version is unknown');
+    expect(trigger.className).toContain('text-warning');
+    fireEvent.focus(trigger);
+    expect(await screen.findByText(/This image doesn't say which version it is/)).toBeDefined();
+  });
+
+  it('keeps the muted Current badge when the version came from the label', async () => {
+    renderDialog({ summary: { ...summary, versionSource: 'label', currentVersion: '2.9.4' } });
+    await screen.findByText('v2.9.4');
+    expect(screen.getByText('Current: 2.9.4')).toBeDefined();
+    expect(screen.queryByText('Version unknown')).toBeNull();
+  });
+
+  it('says the check failed to compare versions instead of inviting an update', async () => {
+    renderDialog({ summary: { ...summary, error: 'registry down', updateAvailable: null } });
+    await screen.findByText('Check failed');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The last registry check failed, so this panel can't tell whether an update exists.");
+    expect(footer?.textContent).not.toContain('to the newest published version');
+  });
+
+  it('says the digest pin cannot be compared instead of inviting an update', async () => {
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app@sha256:' + 'a'.repeat(64) },
+      summary: { ...summary, image: 'example-org/mock-app@sha256:' + 'a'.repeat(64), currentTag: null, updateAvailable: null },
+    });
+    await screen.findByText('Digest pin');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The registry check can't compare versions for a digest pin.");
+  });
+
+  it('says the check has not finished comparing instead of inviting an update while loading', async () => {
+    renderDialog({ summary: null });
+    await screen.findByText('No version info');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The registry check hasn't finished comparing versions yet.");
+  });
+
+  it('renders Not checked yet when the summary has no timestamp', async () => {
+    renderDialog({ summary: { ...summary, checkedAt: null } });
+    await screen.findByText('v2.9.4');
+    expect(screen.getByText('Not checked yet')).toBeDefined();
   });
 
   it('pins the exact footer sentence', async () => {
