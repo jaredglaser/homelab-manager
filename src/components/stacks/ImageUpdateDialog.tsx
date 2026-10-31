@@ -161,21 +161,24 @@ export default function ImageUpdateDialog({
   // Hyphenated tokens (image names, tags like 2.11.7-alpine) must not split at
   // the hyphen when the footer wraps, so each one renders as an unbreakable span.
   const unbreakable = (value: string): ReactNode => <span className="whitespace-nowrap">{value}</span>;
-  const footerText: ReactNode = summary === null || summary.updateAvailable === null
-    ? currentTag === null
-      ? <>The registry check can't compare versions for a digest pin. "Update images" re-pulls the newest published build of {unbreakable(imageBase)}.</>
-      : summary?.error
-        ? <>The last registry check failed, so this panel can't tell whether an update exists. Use "Re-check" to try again; "Update images" re-pulls the image either way.</>
+  // The error check is hoisted above the verdict branches: a served errored row
+  // keeps its last-good verdict, and a footer naming an update under a Check
+  // failed badge would contradict it.
+  const footerText: ReactNode = summary !== null && summary.error
+    ? <>The last registry check failed, so this panel can't tell whether an update exists. Use "Re-check" to try again; "Update images" re-pulls the image either way.</>
+    : summary === null || summary.updateAvailable === null
+      ? container.image.includes('@')
+        ? <>The registry check can't compare versions for a digest pin. "Update images" re-pulls the newest published build of {unbreakable(imageBase)}.</>
         : <>The registry check hasn't finished comparing versions yet. "Update images" re-pulls the newest published build of {unbreakable(imageBase)}.</>
-    : summary.updateAvailable === false
-      ? constraint !== null
-        ? `You're on the newest version matching your tag.`
-        : <>You're on the newest published build of {unbreakable(imageBase)}.</>
-      : constraint === null && currentTag !== null
-        ? <>Click "Update images" in the stack action bar to pull the newest {unbreakable(currentTag)} build of {unbreakable(imageBase)}.</>
-        : updateAvailable && summary.latestMatchingTag
-          ? <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to {unbreakable(summary.latestMatchingTag)}.</>
-          : <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to the newest published version.</>;
+      : summary.updateAvailable === false
+        ? constraint !== null
+          ? `You're on the newest version matching your tag.`
+          : <>You're on the newest published build of {unbreakable(imageBase)}.</>
+        : constraint === null && currentTag !== null
+          ? <>Click "Update images" in the stack action bar to pull the newest {unbreakable(currentTag)} build of {unbreakable(imageBase)}.</>
+          : updateAvailable && summary.latestMatchingTag
+            ? <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to {unbreakable(summary.latestMatchingTag)}.</>
+            : <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to the newest published version.</>;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>

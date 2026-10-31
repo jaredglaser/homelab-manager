@@ -269,6 +269,14 @@ describe('ImageUpdateDialog', () => {
     expect(footer?.textContent).not.toContain('to the newest published version');
   });
 
+  it('says the check failed even when a last-good verdict is retained', async () => {
+    renderDialog({ summary: { ...summary, error: 'registry down', updateAvailable: true, latestMatchingTag: '2.9.4' } });
+    await screen.findByText('Check failed');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The last registry check failed, so this panel can't tell whether an update exists.");
+    expect(footer?.textContent).not.toContain('to update example-org/mock-app to 2.9.4');
+  });
+
   it('says the digest pin cannot be compared instead of inviting an update', async () => {
     renderDialog({
       container: { ...container, image: 'example-org/mock-app@sha256:' + 'a'.repeat(64) },
@@ -277,6 +285,17 @@ describe('ImageUpdateDialog', () => {
     await screen.findByText('Digest pin');
     const footer = document.querySelector('[data-slot="dialog-footer"]');
     expect(footer?.textContent).toContain("The registry check can't compare versions for a digest pin.");
+  });
+
+  it('gives a tagless implicit-latest ref the not-finished copy instead of the digest copy', async () => {
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app' },
+      summary: { ...summary, image: 'example-org/mock-app', currentTag: null, updateAvailable: null },
+    });
+    await screen.findByText('Floating tag (implicit latest)');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The registry check hasn't finished comparing versions yet.");
+    expect(footer?.textContent).not.toContain('digest pin');
   });
 
   it('says the check has not finished comparing instead of inviting an update while loading', async () => {
