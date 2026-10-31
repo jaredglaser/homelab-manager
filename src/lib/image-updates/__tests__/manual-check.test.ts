@@ -201,7 +201,7 @@ describe('runManualImageUpdateCheck', () => {
     expect(first).toBe(second);
   });
 
-  it('concurrent checks with different image scopes run independently', async () => {
+  it('a different-image caller chains after the in-flight run instead of joining it', async () => {
     containerRows = [
       containerRow({ image: 'redis:7' }),
       containerRow({ image: 'app:1', containerId: 'def456', name: 'web' }),
@@ -210,6 +210,29 @@ describe('runManualImageUpdateCheck', () => {
     await Promise.all([run('web', 'host1', 'redis:7'), run('web', 'host1', 'app:1')]);
 
     expect(registryState.calls).toHaveLength(2);
+  });
+
+  it('a single-image caller joining a stack-wide run gets scoped results', async () => {
+    let releaseSnapshot: (() => void) | null = null;
+    containerRows = [
+      containerRow({ image: 'redis:7' }),
+      containerRow({ image: 'app:1', containerId: 'def456', name: 'web' }),
+    ];
+    stackLoaderOverride = () => new Promise((resolve) => {
+      releaseSnapshot = () => resolve(containerRows);
+    });
+    const getRelease = () => releaseSnapshot;
+    const run = await buildManualCheck();
+    const stackWide = run('web', 'host1');
+    const single = run('web', 'host1', 'redis:7');
+    getRelease()?.();
+    const [wideResult, singleResult] = await Promise.all([stackWide, single]);
+    stackLoaderOverride = null;
+
+    expect(wideResult.summaries).toHaveLength(2);
+    expect(singleResult.summaries.map((summary) => summary.image)).toEqual(['redis:7']);
+    expect(singleResult.checked).toBe(1);
+    expect(singleResult.failed).toBe(0);
   });
 
   it('publishes a changed event when the verdict flips against the prior row', async () => {
@@ -404,18 +427,33 @@ describe('PostUpdateWatcher', () => {
     const watcher = await buildWatcher();
     const { runManualImageUpdateCheck } = await import('../manual-check');
     const first = runManualImageUpdateCheck('web', 'host1');
-    // The pre-update run reads the stale snapshot and completes with its own registry call.
-    getRelease()?.();
-    await first;
-    expect(registryState.calls).toEqual(['redis:7|']);
-
     watcher.arm('web', 'host1', nowMs);
+
     containerRows = [containerRow({ at: new Date(nowMs) })];
     stackLoaderOverride = null;
     nowMs += 5_000;
     timers.fire(timers.scheduled[0]);
+    // The watcher converged and chained behind the pre-update run; releasing
+    // the snapshot lets that run finish so the fresh one can start.
+    await new Promise((resolve) => setImmediate(resolve));
+    getRelease()?.();
     timers.restore();
     await waitForCondition(() => registryState.calls.length === 2);
+    await first;
     expect(registryState.calls).toEqual(['redis:7|', 'redis:7|']);
+  });
+
+  it('re-arming replaces the waiter and runs the check once', async () => {
+    containerRows = [containerRow({ at: new Date(nowMs) })];
+    const watcher = await buildWatcher();
+    watcher.arm('web', 'host1', nowMs - 60_000);
+    watcher.arm('web', 'host1', nowMs);
+    expect(watcher.pending()).toBe(1);
+
+    nowMs += 5_000;
+    timers.fire(timers.scheduled[0]);
+    timers.restore();
+    await waitForCondition(() => registryState.calls.length === 1);
+    expect(registryState.calls).toEqual(['redis:7|']);
   });
 });

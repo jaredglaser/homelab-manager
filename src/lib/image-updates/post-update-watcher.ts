@@ -117,9 +117,7 @@ export class PostUpdateWatcher {
 
   private async testDue(): Promise<void> {
     const due = Array.from(this.waiters.values()).filter((waiter) => waiter.nextTestAt <= this.deps.now());
-    for (const waiter of due) {
-      await this.test(waiter);
-    }
+    await Promise.all(due.map((waiter) => this.test(waiter)));
     this.schedulePoll();
   }
 
@@ -129,6 +127,9 @@ export class PostUpdateWatcher {
     let converged = false;
     try {
       const rows = await this.deps.loadSnapshot(waiter.stack, waiter.host);
+      // A re-arm during the read replaces the waiter: the stale read must not
+      // delete the new waiter's gate or run its check against the old deadline.
+      if (this.waiters.get(key) !== waiter) return;
       const latest = rows.reduce((max, row) => Math.max(max, row.at.getTime()), 0);
       converged = latest >= waiter.completedAt - CLOCK_SKEW_MS;
     } catch (err) {
