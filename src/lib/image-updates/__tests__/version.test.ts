@@ -28,6 +28,18 @@ describe('normalizeVersion', () => {
     ['1.0.0-rc.1-foo', { major: 1, minor: 0, patch: 0, prerelease: 'rc.1-foo', variant: null }],
     ['2.11.7-slim-bookworm', { major: 2, minor: 11, patch: 7, prerelease: null, variant: 'slim-bookworm' }],
     ['2.11.7-alpine3.20', { major: 2, minor: 11, patch: 7, prerelease: null, variant: 'alpine3.20' }],
+    ['v2', { major: 2, minor: null, patch: null, prerelease: null, variant: null }],
+    ['1.0.0-alpha-beta', { major: 1, minor: 0, patch: 0, prerelease: 'alpha-beta', variant: null }],
+    ['1.0.0-0', { major: 1, minor: 0, patch: 0, prerelease: null, variant: '0' }],
+    ['2.01', { major: 2, minor: 1, patch: null, prerelease: null, variant: null }],
+    ['01.2.3', { major: 1, minor: 2, patch: 3, prerelease: null, variant: null }],
+    ['10.0.0-rc.1-x64', { major: 10, minor: 0, patch: 0, prerelease: 'rc.1', variant: 'x64' }],
+    ['2.11.7-ALPINE', { major: 2, minor: 11, patch: 7, prerelease: null, variant: 'ALPINE' }],
+    ['V2.11.7-rc.1', { major: 2, minor: 11, patch: 7, prerelease: 'rc.1', variant: null }],
+    ['2.11.7-alpine ', { major: 2, minor: 11, patch: 7, prerelease: null, variant: 'alpine' }],
+    ['2.11.7 alpine', null],
+    ['1.0.0-rc..1', null],
+    ['1.0.0-rc.01', null],
     ['latest', null],
     ['main', null],
     ['stable', null],
@@ -222,5 +234,18 @@ describe('resolveRunningVersion', () => {
     const result = resolveRunningVersion(c, null, null);
     expect(result.current).toBeNull();
     expect(result.versionSource).toBeNull();
+  });
+
+  test('a final label on a prerelease running tag is distrusted so rc updates stay visible', () => {
+    const c = constraintFromTag('2.3.1-rc.1')!;
+    const result = resolveRunningVersion(c, v('2.3.1'), v('2.3.1-rc.1'));
+    expect(result.current?.raw).toBe('2.3.1-rc.1');
+    expect(result.versionSource).toBe('tag');
+  });
+
+  test('a prerelease label on a stable running tag is distrusted', () => {
+    const c = constraintFromTag('2.3.1')!;
+    const result = resolveRunningVersion(c, v('2.3.1-rc.1'), v('2.3.1'));
+    expect(result.versionSource).toBe('tag');
   });
 });

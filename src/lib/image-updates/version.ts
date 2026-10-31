@@ -34,7 +34,7 @@ const PRERELEASE_PREFIX = /^(alpha|beta|rc|pre|preview|dev|canary|nightly|next|t
 const VARIANT_VOCABULARY = new Set([
   'alpine', 'slim', 'bookworm', 'bullseye', 'buster', 'stretch', 'trixie',
   'jammy', 'noble', 'focal',
-  'arm64', 'armv7', 'armhf', 'aarch64', 'amd64', 'arm', 'x86_64', '386',
+  'arm64', 'armv7', 'armhf', 'aarch64', 'amd64', 'arm', 'x86_64', 'x64', '386',
   'riscv64', 'ppc64le', 's390x',
 ]);
 const VARIANT_PATTERNS = [/^alpine3\.\d+$/];
@@ -145,10 +145,14 @@ export function resolveRunningVersion(
   labelVersion: ParsedVersionTag | null,
   tagFallback: ParsedVersionTag | null,
 ): { current: ParsedVersionTag | null; versionSource: 'label' | 'tag' | null } {
+  // A label whose prerelease state disagrees with the running tag describes a
+  // different build line (a final label on an rc tag or vice versa); trusting
+  // it would hide prerelease-to-prerelease updates.
   const trusted = labelVersion !== null
     && labelVersion.major === constraint.major
     && (constraint.minor === null || labelVersion.minor === constraint.minor)
-    && (constraint.patch === null || labelVersion.patch === constraint.patch);
+    && (constraint.patch === null || labelVersion.patch === constraint.patch)
+    && (labelVersion.prerelease === null) !== constraint.allowPrerelease;
   if (trusted) return { current: labelVersion, versionSource: 'label' };
   return { current: tagFallback, versionSource: tagFallback ? 'tag' : null };
 }

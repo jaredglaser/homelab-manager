@@ -145,7 +145,7 @@ describe('ImageUpdateDialog', () => {
     expect(screen.getByText('v3.0.0')).toBeDefined();
   });
 
-  it('matches upstream release tags that lack the running tag\'s Docker variant suffix', async () => {
+  it('matches upstream release tags that lack the running tag variant suffix', async () => {
     mockGetImageChangelog.mockImplementation(async () =>
       changelogResult({ releases: [releases[0], releases[2]] }),
     );
@@ -155,6 +155,20 @@ describe('ImageUpdateDialog', () => {
     });
     expect(await screen.findByText('v2.9.4')).toBeDefined();
     expect(screen.queryByText('v3.0.0')).toBeNull();
+  });
+
+  it('matches release tags that carry a variant, whatever variant it is', async () => {
+    const variantRelease = { tagName: 'v2.9.4-alpine', name: null, publishedAt: null, url: null, body: null, prerelease: false };
+    const otherVariantRelease = { ...variantRelease, tagName: 'v2.9.4-bookworm' };
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({ releases: [variantRelease, otherVariantRelease] }),
+    );
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app:2-alpine' },
+      summary: { ...summary, image: 'example-org/mock-app:2-alpine', currentTag: '2-alpine', latestMatchingTag: '2.9.4-alpine' },
+    });
+    expect(await screen.findByText('v2.9.4-alpine')).toBeDefined();
+    expect(screen.getByText('v2.9.4-bookworm')).toBeDefined();
   });
 
   it('expands only the newest release by default and expands older ones on click', async () => {
