@@ -213,7 +213,7 @@ describe('getImageUpdateSummaries', () => {
   test('fresh persisted rows are served without registry calls', async () => {
     const checkedAt = new Date(Date.now() - 3600_000);
     checkRepoState.rows = [persistedRow({ checkedAt })];
-    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'freshrows' })]);
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'freshrows', labels: { 'org.opencontainers.image.version': 'v7.4.1' } })]);
     const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
     try {
       const { getImageUpdateSummaries } = await import('../image-update-service');
@@ -222,6 +222,7 @@ describe('getImageUpdateSummaries', () => {
       expect(summaries).toHaveLength(1);
       expect(summaries[0].updateAvailable).toBe(true);
       expect(summaries[0].latestMatchingTag).toBe('7.4.1');
+      expect(summaries[0].currentVersion).toBe('7.4.1');
       expect(summaries[0].checkedAt).toBe(checkedAt.toISOString());
     } finally {
       restore();

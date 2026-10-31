@@ -26,6 +26,8 @@ export interface ImageUpdateSummary {
   updateAvailable: boolean | null;
   /** `owner/repo` on GitHub that releases are pulled from, when the image carries an `org.opencontainers.image.source` label pointing at github.com. */
   sourceRepo: string | null;
+  /** Version the image declares about itself via `org.opencontainers.image.version`, leading `v` stripped. Absent when the label is missing or the summary predates the field. */
+  currentVersion?: string | null;
   /** Why the registry check failed, when it did. */
   error: string | null;
   /** When this state was produced: the persisted row's checked_at, or the moment of a live check. Absent only from legacy callers. */

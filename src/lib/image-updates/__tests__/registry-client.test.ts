@@ -1,9 +1,21 @@
 import { describe, expect, test } from 'bun:test';
-import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, resolveReleaseRepo, sourceRepoFromLabels } from '../registry-client';
+import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, currentVersionFromLabels, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, resolveReleaseRepo, sourceRepoFromLabels } from '../registry-client';
 import { HUB_PROBE, hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
 const OVERRIDE_LABEL = 'homelab-manager.release-repo';
+
+describe('currentVersionFromLabels', () => {
+  test('strips a leading v from the OCI version label', () => {
+    expect(currentVersionFromLabels({ 'org.opencontainers.image.version': 'v2.11.7' })).toBe('2.11.7');
+    expect(currentVersionFromLabels({ 'org.opencontainers.image.version': '2.11.7' })).toBe('2.11.7');
+  });
+
+  test('passes through non-version values and returns null when absent', () => {
+    expect(currentVersionFromLabels({ 'org.opencontainers.image.version': '2026.10.30' })).toBe('2026.10.30');
+    expect(currentVersionFromLabels({})).toBeNull();
+  });
+});
 
 describe('resolveReleaseRepo', () => {
   test('resolves an override URL over the source label', () => {
@@ -273,6 +285,32 @@ describe('checkImageUpdate', () => {
       const summary = await checkImageUpdate('redis:7-alpine', {});
       expect(summary.updateAvailable).toBe(true);
       expect(summary.latestMatchingTag).toBe('7.4.1-alpine');
+    } finally {
+      restore();
+    }
+  });
+
+  test('the image-declared version beats the constraint tag when judging updates', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const upToDate = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': 'v7.4.1' });
+      expect(upToDate.updateAvailable).toBe(false);
+      const outdated = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': 'v7.0.0' });
+      expect(outdated.updateAvailable).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a non-numeric version label falls back to the running tag for the comparison', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': 'latest' });
+      expect(summary.updateAvailable).toBe(true);
     } finally {
       restore();
     }

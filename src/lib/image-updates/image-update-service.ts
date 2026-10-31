@@ -1,7 +1,7 @@
 import type { DockerContainerEventRow, DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 import { BoundedCache } from '@/lib/bounded-cache';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
-import { checkImageUpdateWithMeta, RELEASE_REPO_LABEL, resolveReleaseRepo } from './registry-client';
+import { checkImageUpdateWithMeta, currentVersionFromLabels, RELEASE_REPO_LABEL, resolveReleaseRepo } from './registry-client';
 import { fetchGitHubReleases } from './github-releases';
 import { groupStackContainersByImage } from './snapshot-groups';
 import { DEFAULT_REFRESH_INTERVAL_MS, loadImageUpdateRefresherConfig, staleThresholdMs } from './refresher-config';
@@ -97,7 +97,12 @@ export async function getImageUpdateSummaries(stack: string, host: string): Prom
   });
 
   if (allFresh) {
-    const summaries = groups.map((group) => rowToSummary(rowsByImage.get(group.image)!));
+    // currentVersion lives in the container labels, not the persisted row, so
+    // the persisted fast path re-derives it from the snapshot.
+    const summaries = groups.flatMap((group) => {
+      const row = rowsByImage.get(group.image);
+      return row ? [{ ...rowToSummary(row), currentVersion: currentVersionFromLabels(group.labels) }] : [];
+    });
     summaries.sort((a, b) => a.image.localeCompare(b.image));
     summaryCache.set(cacheKey, summaries, SUMMARY_CACHE_TTL_MS);
     return summaries;

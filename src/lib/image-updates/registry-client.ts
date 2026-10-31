@@ -314,6 +314,13 @@ export interface ImageUpdateCheckMeta {
   etag: string | null;
 }
 
+/** Running version from the OCI version label, leading `v` stripped for display. null when the image declares none. */
+export function currentVersionFromLabels(labels: Record<string, string>): string | null {
+  const version = labels['org.opencontainers.image.version'];
+  if (!version) return null;
+  return version.replace(/^v(?=\d)/i, '');
+}
+
 export async function checkImageUpdateWithMeta(
   image: string,
   labels: Record<string, string>,
@@ -327,6 +334,7 @@ export async function checkImageUpdateWithMeta(
     latestOverallTag: null,
     updateAvailable: null,
     sourceRepo: sourceRepoFromLabels(labels),
+    currentVersion: currentVersionFromLabels(labels),
     error: null,
   };
 
@@ -384,7 +392,11 @@ export async function checkImageUpdateWithMeta(
 
   const latestMatching = newestTagMatchingConstraint(tags, constraint);
   const latestOverall = newestVersionTag(tags);
-  const current = parseVersionTag(ref.tag);
+  // A constraint tag like `2-alpine` parses as 2.0.0, so tag-order comparison
+  // alone flags the version the container already runs. The image's own
+  // version label is the truth about what is running; fall back to the tag
+  // when the image declares none.
+  const current = parseVersionTag(currentVersionFromLabels(labels) ?? '') ?? parseVersionTag(ref.tag);
   if (!current) return { summary: base, etag: null };
   // No tag matching the constraint means there is nothing to update to, not
   // that the check is inconclusive.
