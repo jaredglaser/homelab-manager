@@ -6,6 +6,11 @@
 #   bun dev                 # Run web app locally (separate terminal)
 #   bun run dev:local:down  # Stop services
 
+# Pinned so every worktree shares one compose project; otherwise each worktree's
+# directory name becomes the project and the hardcoded container_name values
+# collide across worktrees.
+name: homelab-manager
+
 x-postgres-env: &postgres-env
   POSTGRES_HOST: postgres
   POSTGRES_PORT: 5432

@@ -186,7 +186,8 @@ bun run dev:local:logs:worker
 bun run dev:local:up           # Start all services
 bun run dev:local:down         # Stop all services
 bun run dev:local:restart      # Recreate containers (picks up .env changes)
-bun run dev:local:rebuild      # Full rebuild (no cache) and restart
+bun run dev:local:rebuild      # Rebuild images (layer cache, pulls base image updates) and restart
+bun run dev:local:rebuild:fresh # Rebuild + reset the node_modules volume (run after bun.lock changes)
 bun run dev:local:wipe         # Stop and delete all volumes (fresh database)
 bun run dev:local:logs         # Tail all service logs
 bun run dev:local:logs:worker  # Worker logs only
@@ -233,9 +234,18 @@ bun run test:agent          # Run agent tests
 bun run test:coverage:agent # Agent tests with coverage thresholds
 
 # Combined
-bun run test:all            # Run tests in both
+bun run test:all            # Run both packages' tests in parallel shards
 bun run test:coverage:all   # Run tests in both with coverage thresholds
 ```
+
+`bun test --isolate` executes test files one at a time, so `bun run test:all` shards the
+suite across concurrent `bun test --isolate` child processes instead (`scripts/test-parallel.ts`).
+Files are discovered with `git ls-files --cached --others --exclude-standard` filtered through
+bun's test-name patterns, so untracked new test files are included and gitignored trees are not.
+Pass substring filters (`bun run test:all -- src/lib`) to shrink the set, or `--shards=N` to
+override the shard count (defaults to CPU count, capped at 12). Failing shards print the tail of
+their output; full per-shard logs land in `.tmp/test-parallel/`. Coverage runs stay
+single-process because Bun cannot merge V8 coverage tables across processes.
 
 ### Coverage Requirements
 
