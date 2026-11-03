@@ -123,6 +123,16 @@ async function runUpgrade(): Promise<void> {
       []
     );
 
+    // A branch that already contains the workflow's base SHA (a merged-in main
+    // update) yields an empty diff, and the seed is written against the schema
+    // just before the newest migration, so running it post-migration would
+    // violate that migration's own constraints.
+    if (added.length === 0 && removed.length === 0) {
+      console.info('[upgrade] base already applies every head migration, nothing to upgrade');
+      checks.report();
+      return;
+    }
+
     const baseRunner = baseRoot ? await loadBaseRunner(baseRoot) : runMigrations;
     await baseRunner(asDatabaseClient(pool));
     const ledgerBefore = await appliedMigrations(pool);
