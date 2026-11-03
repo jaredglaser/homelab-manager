@@ -1286,7 +1286,7 @@ export async function assertImageUpdateCheckExpansion(pool: Pool, checks: Checks
       // The plex row survived expansion into the media stack with its verdict, etag, and error history intact.
       `media|${UNIFY_COMPOSE.image}|1.0.0|1.0.1|true|example/plex|"etag-plex"|null`,
       // The web row survived expansion into the app stack.
-      `app|${UNIFY_REPLICA.image}|2.0.0||false||null|null`,
+      `app|${UNIFY_REPLICA.image}|2.0.0|null|false|null|null|null`,
     ]
   );
 

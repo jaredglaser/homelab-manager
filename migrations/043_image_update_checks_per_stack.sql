@@ -7,10 +7,27 @@
 -- Rows whose image no longer runs in any compose stack are dropped; the
 -- refresher re-checks them within one interval (cost: one extra HEAD for a
 -- floating tag, one live check for tag verdicts).
+--
+-- The expansion builds a fresh table instead of ALTERing in place: while the
+-- old (host, image) primary key exists, a row expanding into two stacks would
+-- collide with its own source row.
 
-ALTER TABLE image_update_checks
-  ADD COLUMN IF NOT EXISTS stack TEXT,
-  ADD COLUMN IF NOT EXISTS manifest_digest TEXT;
+CREATE TABLE image_update_checks_new (
+  host TEXT NOT NULL,
+  stack TEXT NOT NULL,
+  image TEXT NOT NULL,
+  current_tag TEXT,
+  latest_matching_tag TEXT,
+  latest_overall_tag TEXT,
+  update_available BOOLEAN,
+  source_repo TEXT,
+  error TEXT,
+  last_error_at TIMESTAMPTZ,
+  etag TEXT,
+  manifest_digest TEXT,
+  checked_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (host, stack, image)
+);
 
 WITH snapshot AS (
   SELECT DISTINCT ON (host, container_id)
@@ -25,25 +42,21 @@ live AS (
     AND compose_project IS NOT NULL
     AND image IS NOT NULL
 )
-INSERT INTO image_update_checks (
-  host, image, stack,
+INSERT INTO image_update_checks_new (
+  host, stack, image,
   current_tag, latest_matching_tag, latest_overall_tag,
   update_available, source_repo, error, last_error_at,
   etag, checked_at, manifest_digest
 )
 SELECT
-  old.host, old.image, live.stack,
+  old.host, live.stack, old.image,
   old.current_tag, old.latest_matching_tag, old.latest_overall_tag,
   old.update_available, old.source_repo, old.error, old.last_error_at,
   old.etag, old.checked_at,
   NULL
 FROM image_update_checks old
 JOIN live
-  ON live.host = old.host AND live.image = old.image
-WHERE old.stack IS NULL;
+  ON live.host = old.host AND live.image = old.image;
 
-DELETE FROM image_update_checks WHERE stack IS NULL;
-
-ALTER TABLE image_update_checks ALTER COLUMN stack SET NOT NULL;
-ALTER TABLE image_update_checks DROP CONSTRAINT image_update_checks_pkey;
-ALTER TABLE image_update_checks ADD PRIMARY KEY (host, stack, image);
+DROP TABLE image_update_checks;
+ALTER TABLE image_update_checks_new RENAME TO image_update_checks;
