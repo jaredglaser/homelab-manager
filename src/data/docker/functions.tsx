@@ -16,7 +16,7 @@ import {
  */
 export const getHistoricalDockerStats = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(getHistoricalDockerStatsSchema)
+  .validator(getHistoricalDockerStatsSchema)
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
       const { StatsRepository } = await import(
@@ -56,7 +56,7 @@ export const getDockerEntityIcons = createServerFn()
 
 export const getContainerHistory = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(getContainerHistorySchema)
+  .validator(getContainerHistorySchema)
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
       const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
@@ -99,7 +99,7 @@ export const getContainerHistory = createServerFn()
  */
 export const controlContainer = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(controlContainerSchema)
+  .validator(controlContainerSchema)
   .handler(async ({ context, data }): Promise<void> => {
     requireRole('admin', 'operator')(context.user);
     const { HostRepository } = await import('@/lib/database/repositories/host-repository');
@@ -132,7 +132,7 @@ export const controlContainer = createServerFn({ method: 'POST' })
 
 export const updateContainerIcon = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(updateContainerIconSchema)
+  .validator(updateContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
     const { EntityMetadataRepository } = await import(
       '@/lib/database/repositories/entity-metadata-repository'
@@ -144,7 +144,7 @@ export const updateContainerIcon = createServerFn()
 
 export const clearContainerIcon = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(clearContainerIconSchema)
+  .validator(clearContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
     const { EntityMetadataRepository } = await import(
       '@/lib/database/repositories/entity-metadata-repository'

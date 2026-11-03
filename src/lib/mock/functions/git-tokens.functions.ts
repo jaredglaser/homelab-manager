@@ -40,7 +40,7 @@ export async function listGitTokens(): Promise<MockGitToken[]> {
   return [...mockGitTokens];
 }
 
-// Mirrors the real endpoint's `inputValidator` so a rejected label surfaces the same ZodError.
+// Mirrors the real endpoint's `validator` so a rejected label surfaces the same ZodError.
 const createGitTokenInput = z.object({ label: z.string().min(1).max(100) });
 
 export async function createGitToken(opts?: {
