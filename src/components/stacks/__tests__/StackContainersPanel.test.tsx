@@ -30,17 +30,30 @@ const mockGetImageChangelog = mock(
   }),
 );
 
+const mockCheckImageUpdates = mock(
+  async (
+    _opts: { data: { stack: string; host: string; image?: string } },
+  ): Promise<{ summaries: ImageUpdateSummary[]; checked: number; changed: number; failed: number }> => ({
+    summaries: [],
+    checked: 0,
+    changed: 0,
+    failed: 0,
+  }),
+);
+
 const mockToastSuccess = mock((_message: string) => {});
 const mockToastError = mock((_message: string) => {});
+const mockToastWarning = mock((_message: string) => {});
 
 mockModule<typeof import('sonner')>('sonner', (real) => ({ ...real, 
-  toast: { success: mockToastSuccess, error: mockToastError },
+  toast: { success: mockToastSuccess, error: mockToastError, warning: mockToastWarning },
 }));
 
 mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   controlStack: mockControlStack,
   getImageUpdateInfo: mockGetImageUpdateInfo,
   getImageChangelog: mockGetImageChangelog,
+  checkImageUpdates: mockCheckImageUpdates,
 }));
 
 mock.module('@/components/docker/ContainerLogViewer', () => ({
@@ -102,6 +115,8 @@ describe('StackContainersPanel', () => {
     mockOnRecreate.mockClear();
     mockGetImageUpdateInfo.mockClear();
     mockGetImageChangelog.mockClear();
+    mockCheckImageUpdates.mockClear();
+    mockToastWarning.mockClear();
     mockGetImageUpdateInfo.mockImplementation(async () => []);
     mockGetImageChangelog.mockImplementation(async () => ({
       image: '',
@@ -536,5 +551,113 @@ describe('StackContainersPanel', () => {
     renderPanel();
     const btn = await screen.findByRole('button', { name: 'Update check failed' });
     expect(btn.className).not.toContain('text-success');
+  });
+
+  it('renders the Check for updates button next to Recreate', () => {
+    renderPanel();
+    expect(screen.getByRole('button', { name: 'Check for updates' })).toBeDefined();
+  });
+
+  it('disables the Check for updates button when the stack has no containers', () => {
+    renderPanel({ ...defaultProps, containers: [] });
+    expect(screen.getByRole('button', { name: 'Check for updates' })).toHaveProperty('disabled', true);
+  });
+
+  it('calls checkImageUpdates for the stack and reports an all-clear toast', async () => {
+    mockCheckImageUpdates.mockImplementation(async () => ({
+      summaries: [],
+      checked: 2,
+      changed: 0,
+      failed: 0,
+    }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1));
+    const firstCall = (mockCheckImageUpdates.mock.calls as unknown as { data: Record<string, unknown> }[][])[0][0];
+    expect(firstCall.data.stack).toBe('plex');
+    expect(firstCall.data.host).toBe('server1');
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('Checked 2 images. All are up to date.'));
+  });
+
+  it('reports singular grammar for a one-image all-clear', async () => {
+    mockCheckImageUpdates.mockImplementation(async () => ({
+      summaries: [],
+      checked: 1,
+      changed: 0,
+      failed: 0,
+    }));
+    renderPanel({ ...defaultProps, containers: [mockContainers[0]] });
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledWith('Checked 1 image. It is up to date.'));
+  });
+
+  it('shows a warning toast when some images fail the check and keeps last known state', async () => {
+    mockCheckImageUpdates.mockImplementation(async () => ({
+      summaries: [],
+      checked: 2,
+      changed: 0,
+      failed: 1,
+    }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => expect(mockToastWarning).toHaveBeenCalledTimes(1));
+    const message = mockToastWarning.mock.calls[0][0];
+    expect(message).toContain('Checked 2 images. 1 failed');
+    expect(message).toContain('keeps its last known state');
+    expect(mockToastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('reports plural failure grammar for multiple failed images', async () => {
+    mockCheckImageUpdates.mockImplementation(async () => ({
+      summaries: [],
+      checked: 3,
+      changed: 0,
+      failed: 2,
+    }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => expect(mockToastWarning).toHaveBeenCalledTimes(1));
+    const message = mockToastWarning.mock.calls[0][0];
+    expect(message).toContain('Checked 3 images. 2 failed');
+    expect(message).toContain('keep their last known state');
+  });
+
+  it('reports changed verdicts in the success toast after a check', async () => {
+    mockCheckImageUpdates.mockImplementation(async () => ({
+      summaries: [],
+      checked: 2,
+      changed: 1,
+      failed: 0,
+    }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalledTimes(1));
+    const message = mockToastSuccess.mock.calls[0][0];
+    expect(message).toContain('changed for 1 image');
+  });
+
+  it('shows an error toast when the check request fails', async () => {
+    mockCheckImageUpdates.mockRejectedValueOnce(new Error('network down'));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
+    const message = mockToastError.mock.calls[0][0];
+    expect(message).toContain('Failed to check for updates');
+    expect(message).toContain('network down');
+  });
+
+  it('disables the Check for updates button while a check is pending', async () => {
+    let resolveCheck!: () => void;
+    mockCheckImageUpdates.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveCheck = () => resolve({ summaries: [], checked: 2, changed: 0, failed: 0 });
+      }),
+    );
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Check for updates' })).toHaveProperty('disabled', true);
+    });
+    resolveCheck();
   });
 });

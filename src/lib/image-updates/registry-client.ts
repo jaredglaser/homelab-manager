@@ -2,10 +2,11 @@ import { parseImageRef } from './image-ref';
 import {
   compareVersions,
   constraintFromTag,
-  newestTagMatchingConstraint,
-  newestVersionTag,
-  parseVersionTag,
+  matchesConstraint,
+  normalizeVersion,
+  resolveRunningVersion,
 } from './version';
+import type { ParsedVersionTag } from './version';
 import { BoundedCache } from '@/lib/bounded-cache';
 import type { ImageUpdateSummary } from '@/types/image-updates';
 
@@ -312,6 +313,42 @@ export interface ImageUpdateCheckMeta {
   summary: ImageUpdateSummary;
   /** ETag from the registry manifest check, for the next conditional request. Versioned-tag checks never touch manifests. */
   etag: string | null;
+  /** The manifest digest the etag was returned for; null whenever etag is null. The pair is atomic. */
+  digest: string | null;
+}
+
+/** Running version from the OCI version label, leading `v` stripped for display. null when the image declares none. */
+export function currentVersionFromLabels(labels: Record<string, string>): string | null {
+  const version = labels['org.opencontainers.image.version'];
+  if (!version) return null;
+  return version.replace(/^v(?=\d)/i, '');
+}
+
+/**
+ * Declared-version fields for a summary, derived without any registry call:
+ * the OCI version label plus where the compared version came from. Used by
+ * every path that builds a summary from persisted rows or a failed check, so
+ * the derived fields agree with the live check's verdict inputs.
+ */
+export function declaredVersionFields(image: string, labels: Record<string, string>): {
+  currentVersion: string | null;
+  versionSource: 'label' | 'tag' | null;
+} {
+  const currentVersion = currentVersionFromLabels(labels);
+  try {
+    const ref = parseImageRef(image);
+    const tag = ref.tag;
+    const constraint = tag ? constraintFromTag(tag) : null;
+    if (!constraint || !tag) return { currentVersion, versionSource: null };
+    const { versionSource } = resolveRunningVersion(
+      constraint,
+      normalizeVersion(currentVersion ?? ''),
+      normalizeVersion(tag),
+    );
+    return { currentVersion, versionSource };
+  } catch {
+    return { currentVersion, versionSource: null };
+  }
 }
 
 export async function checkImageUpdateWithMeta(
@@ -319,6 +356,7 @@ export async function checkImageUpdateWithMeta(
   labels: Record<string, string>,
   imageDigest: string | null = null,
   storedEtag: string | null = null,
+  storedDigest: string | null = null,
 ): Promise<ImageUpdateCheckMeta> {
   const base: ImageUpdateSummary = {
     image,
@@ -327,6 +365,7 @@ export async function checkImageUpdateWithMeta(
     latestOverallTag: null,
     updateAvailable: null,
     sourceRepo: sourceRepoFromLabels(labels),
+    currentVersion: currentVersionFromLabels(labels),
     error: null,
   };
 
@@ -334,10 +373,10 @@ export async function checkImageUpdateWithMeta(
   try {
     ref = parseImageRef(image);
   } catch (err) {
-    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
+    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null, digest: null };
   }
   base.currentTag = ref.tag;
-  if (!ref.tag) return { summary: base, etag: null };
+  if (!ref.tag) return { summary: base, etag: null, digest: null };
 
   if (!isRegistryAllowed(ref.registry)) {
     return {
@@ -348,6 +387,7 @@ export async function checkImageUpdateWithMeta(
           'Add it to IMAGE_UPDATE_EXTRA_REGISTRIES to check updates for its images.',
       },
       etag: null,
+      digest: null,
     };
   }
 
@@ -357,21 +397,32 @@ export async function checkImageUpdateWithMeta(
     // moved manifest digest, not a newer version number. Without the local
     // digest (locally built image, or pre-039 inventory row) the check is
     // inconclusive rather than "up to date".
-    if (!imageDigest) return { summary: base, etag: storedEtag };
+    if (!imageDigest) {
+      // The pair is atomic: an etag without the digest it vouched for (a row
+      // migrated by 043) is unusable and is dropped rather than re-persisted.
+      const pairUsable = storedEtag !== null && storedDigest !== null;
+      return { summary: base, etag: pairUsable ? storedEtag : null, digest: pairUsable ? storedDigest : null };
+    }
+    // The stored etag only vouches for the manifest it was returned for; when
+    // the containers have since moved to a different digest (recreate, pull,
+    // downgrade under the same tag), a 304 would wrongly report "no update".
+    const etagUsable = storedEtag !== null && storedDigest !== null && storedDigest === imageDigest;
     try {
-      const remote = await checkRemoteManifest(ref.registry, ref.repo, ref.tag, storedEtag);
+      const remote = await checkRemoteManifest(ref.registry, ref.repo, ref.tag, etagUsable ? storedEtag : null);
       if (remote.notModified) {
-        return { summary: { ...base, updateAvailable: false }, etag: storedEtag };
+        return { summary: { ...base, updateAvailable: false }, etag: storedEtag, digest: storedDigest };
       }
       const updateAvailable = remote.digest ? remote.digest !== imageDigest : null;
+      // The pair is atomic: a registry that sends a digest without an ETag (or
+      // vice versa) gives us nothing the next conditional request can use.
+      const pairStorable = updateAvailable === false && remote.etag !== null && remote.digest !== null;
       return {
         summary: { ...base, updateAvailable },
-        // A stored etag may only short-circuit to "no update": persisting one
-        // after an available verdict would let the next 304 flip it to false.
-        etag: updateAvailable === false ? remote.etag : null,
+        etag: pairStorable ? remote.etag : null,
+        digest: pairStorable ? remote.digest : null,
       };
     } catch (err) {
-      return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
+      return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null, digest: null };
     }
   }
 
@@ -379,13 +430,28 @@ export async function checkImageUpdateWithMeta(
   try {
     tags = await listRegistryTags(ref.registry, ref.repo);
   } catch (err) {
-    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null };
+    return { summary: { ...base, error: err instanceof Error ? err.message : String(err) }, etag: null, digest: null };
   }
 
-  const latestMatching = newestTagMatchingConstraint(tags, constraint);
-  const latestOverall = newestVersionTag(tags);
-  const current = parseVersionTag(ref.tag);
-  if (!current) return { summary: base, etag: null };
+  let latestMatching: ParsedVersionTag | null = null;
+  let latestOverall: ParsedVersionTag | null = null;
+  for (const tag of tags) {
+    const candidate = normalizeVersion(tag);
+    if (!candidate) continue;
+    if (!latestOverall || compareVersions(candidate, latestOverall) > 0) latestOverall = candidate;
+    if (matchesConstraint(candidate, constraint) && (!latestMatching || compareVersions(candidate, latestMatching) > 0)) latestMatching = candidate;
+  }
+
+  // A constraint tag like `2-alpine` parses as 2.0.0, so tag-order comparison
+  // alone flags the version the container already runs. The image's declared
+  // version is used when it agrees with the axes the tag pins; otherwise the
+  // tag guess stands and versionSource records the uncertainty.
+  const { current, versionSource } = resolveRunningVersion(
+    constraint,
+    normalizeVersion(currentVersionFromLabels(labels) ?? ''),
+    normalizeVersion(ref.tag),
+  );
+  if (!current) return { summary: base, etag: null, digest: null };
   // No tag matching the constraint means there is nothing to update to, not
   // that the check is inconclusive.
   const updateAvailable = latestMatching ? compareVersions(latestMatching, current) > 0 : false;
@@ -396,8 +462,10 @@ export async function checkImageUpdateWithMeta(
       latestMatchingTag: latestMatching?.raw ?? null,
       latestOverallTag: latestOverall?.raw ?? null,
       updateAvailable,
+      versionSource,
     },
     etag: null,
+    digest: null,
   };
 }
 
@@ -413,8 +481,60 @@ export async function checkImageUpdate(
 export function sourceRepoFromLabels(labels: Record<string, string>): string | null {
   const source = labels['org.opencontainers.image.source'];
   if (!source) return null;
-  const match = source.match(/^https:\/\/github\.com\/([^/]+)\/([^/#?]+)/);
-  if (!match) return null;
-  const repo = match[2].replace(/\.git$/, '');
-  return match[1] + '/' + repo;
+  return parseRepoUrl(source)?.repo ?? null;
+}
+
+/** Container label that overrides where release notes are fetched from. Value is a full repository URL. */
+export const RELEASE_REPO_LABEL = 'homelab-manager.release-repo';
+
+/** Hosts whose release API the changelog can read. A second provider means adding its host and path grammar here. */
+const SUPPORTED_RELEASE_HOSTS = new Set(['github.com']);
+
+function parseRepoUrl(value: string): { host: string; repo: string | null } | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:') return null;
+  const segments = url.pathname.split('/').filter(Boolean);
+  const repo = SUPPORTED_RELEASE_HOSTS.has(url.host) && segments.length >= 2
+    ? segments[0] + '/' + segments[1].replace(/\.git$/, '')
+    : null;
+  return { host: url.host, repo };
+}
+
+export type ReleaseRepoResolution =
+  | { kind: 'resolved'; repo: string; from: 'override' | 'source' }
+  | { kind: 'unsupported-host'; host: string; from: 'override' | 'source' }
+  | { kind: 'invalid-url'; raw: string; from: 'override' | 'source' }
+  | { kind: 'missing' };
+
+/**
+ * Where release notes come from, preferring the override label. A broken
+ * override reports its own failure rather than falling back to the source
+ * label, so the operator sees the fix for the value they set.
+ */
+export function resolveReleaseRepo(labels: Record<string, string>): ReleaseRepoResolution {
+  const override = labels[RELEASE_REPO_LABEL];
+  if (override) {
+    const parsed = parseRepoUrl(override);
+    if (parsed === null) return { kind: 'invalid-url', raw: override, from: 'override' };
+    if (parsed.repo === null) {
+      return SUPPORTED_RELEASE_HOSTS.has(parsed.host)
+        ? { kind: 'invalid-url', raw: override, from: 'override' }
+        : { kind: 'unsupported-host', host: parsed.host, from: 'override' };
+    }
+    return { kind: 'resolved', repo: parsed.repo, from: 'override' };
+  }
+  const source = labels['org.opencontainers.image.source'];
+  if (source) {
+    const parsed = parseRepoUrl(source);
+    if (parsed?.repo) return { kind: 'resolved', repo: parsed.repo, from: 'source' };
+    if (parsed && !SUPPORTED_RELEASE_HOSTS.has(parsed.host)) {
+      return { kind: 'unsupported-host', host: parsed.host, from: 'source' };
+    }
+  }
+  return { kind: 'missing' };
 }

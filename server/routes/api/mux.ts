@@ -394,28 +394,24 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
   };
 }
 
+export const STATIC_TOPIC_ADAPTERS: Record<string, TopicAdapter> = {
+  [INVENTORY_TOPIC]: inventoryAdapter,
+  [SETTINGS_TOPIC]: settingsAdapter,
+  [STACK_STATUS_TOPIC]: stackStatusAdapter,
+  [AGENT_INVENTORY_TOPIC]: agentInventoryAdapter,
+  [IMAGE_UPDATES_TOPIC]: imageUpdatesAdapter,
+};
+
+const PREFIX_TOPIC_ADAPTERS = [
+  { prefix: LOGS_TOPIC_PREFIX, adapter: logsAdapter },
+  { prefix: STATS_TOPIC_PREFIX, adapter: statsAdapter },
+] as const;
+
 export const defaultTopicAdapter: TopicAdapter = (topic, emit, signal) => {
-  if (topic === INVENTORY_TOPIC) {
-    return inventoryAdapter(topic, emit, signal);
-  }
-  if (topic === SETTINGS_TOPIC) {
-    return settingsAdapter(topic, emit, signal);
-  }
-  if (topic === STACK_STATUS_TOPIC) {
-    return stackStatusAdapter(topic, emit, signal);
-  }
-  if (topic === AGENT_INVENTORY_TOPIC) {
-    return agentInventoryAdapter(topic, emit, signal);
-  }
-  if (topic === IMAGE_UPDATES_TOPIC) {
-    return imageUpdatesAdapter(topic, emit, signal);
-  }
-  if (topic.startsWith(LOGS_TOPIC_PREFIX)) {
-    return logsAdapter(topic, emit, signal);
-  }
-  if (topic.startsWith(STATS_TOPIC_PREFIX)) {
-    return statsAdapter(topic, emit, signal);
-  }
+  const staticAdapter = STATIC_TOPIC_ADAPTERS[topic];
+  if (staticAdapter) return staticAdapter(topic, emit, signal);
+  const prefixAdapter = PREFIX_TOPIC_ADAPTERS.find(({ prefix }) => topic.startsWith(prefix));
+  if (prefixAdapter) return prefixAdapter.adapter(topic, emit, signal);
   emit({ topic, kind: 'error', payload: { message: `Unsupported topic: ${topic}`, gone: true } });
 };
 

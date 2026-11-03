@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
+  IMAGE_UPDATES_TOPIC,
   INVENTORY_TOPIC,
   MAX_SUB_BATCH,
   isValidTopic,
@@ -54,8 +55,9 @@ describe('lookupTopicSpec', () => {
     expect(lookupTopicSpec('stats:proxmox')).toEqual({ class: 'bulk' });
   });
 
-  it('tags inventory as control and logs as bulk', () => {
+  it('tags inventory and image-updates as control and logs as bulk', () => {
     expect(lookupTopicSpec(INVENTORY_TOPIC)).toEqual({ class: 'control' });
+    expect(lookupTopicSpec(IMAGE_UPDATES_TOPIC)).toEqual({ class: 'control' });
     expect(lookupTopicSpec('logs:server1/abc123')).toEqual({ class: 'bulk' });
   });
 
@@ -74,14 +76,10 @@ describe('isValidTopic', () => {
     expect(isValidTopic('stats:proxmox')).toBe(true);
   });
 
-  it('accepts the settings and stack-status control topics', () => {
+  it('accepts the settings, stack-status, and image-updates control topics', () => {
     expect(isValidTopic('settings')).toBe(true);
     expect(isValidTopic('stack-status')).toBe(true);
-  });
-
-  it('accepts the settings and stack-status control topics', () => {
-    expect(isValidTopic('settings')).toBe(true);
-    expect(isValidTopic('stack-status')).toBe(true);
+    expect(isValidTopic(IMAGE_UPDATES_TOPIC)).toBe(true);
   });
 
   it('rejects unknown channels and non-strings', () => {

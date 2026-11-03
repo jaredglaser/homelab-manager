@@ -145,8 +145,85 @@ describe('fetchGitHubReleases', () => {
     const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 404)));
     try {
       await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
-        new ChangelogError('No releases are published at github.com/o/r, so there are no release notes to show.'),
+        new ChangelogError('No public releases are visible at github.com/o/r, so there are no release notes to show. A private repository looks the same from the outside; if the repository exists, publishing releases or making it public fixes this.'),
       );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a custom 404 message replaces the default', async () => {
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 404)));
+    try {
+      await expect(fetchGitHubReleases('o/r', 'custom 404 copy')).rejects.toThrow(new ChangelogError('custom 404 copy'));
+    } finally {
+      restore();
+    }
+  });
+
+  test('a timeout surfaces the retry-later copy', async () => {
+    const { restore } = withFetch(() => Promise.reject(new DOMException('The operation was aborted', 'TimeoutError')));
+    try {
+      await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
+        new ChangelogError('GitHub took too long to answer, so release notes are unavailable right now. Try again in a moment.'),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a network failure surfaces the check-your-network copy', async () => {
+    const { restore } = withFetch(() => Promise.reject(new TypeError('Failed to fetch')));
+    try {
+      await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
+        new ChangelogError('Could not reach GitHub to fetch release notes. Check your network and try again.'),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a malformed body surfaces the unexpected-response copy', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response('<html>not json</html>', { status: 200 })));
+    try {
+      await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
+        new ChangelogError('GitHub returned an unexpected response, so release notes are unavailable right now.'),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a redirect off api.github.com is refused', async () => {
+    const evil = {
+      status: 200,
+      ok: true,
+      url: 'https://evil.example/repos/o/r/releases',
+      headers: new Headers(),
+      json: async () => [],
+    } as unknown as Response;
+    const { restore } = withFetch(() => Promise.resolve(evil));
+    try {
+      await expect(fetchGitHubReleases('o/r')).rejects.toThrow(
+        new ChangelogError('GitHub redirected release notes to another server, so they were not fetched.'),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a same-host redirect (renamed repo) succeeds', async () => {
+    const redirected = {
+      status: 200,
+      ok: true,
+      url: 'https://api.github.com/repos/o/r2/releases?per_page=50',
+      headers: new Headers(),
+      json: async () => [RELEASE],
+    } as unknown as Response;
+    const { restore } = withFetch(() => Promise.resolve(redirected));
+    try {
+      const releases = await fetchGitHubReleases('o/r');
+      expect(releases).toHaveLength(1);
     } finally {
       restore();
     }

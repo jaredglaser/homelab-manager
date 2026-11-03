@@ -23,8 +23,10 @@ import {
   resolveDriftSchema,
   getImageUpdateInfoSchema,
   getImageChangelogSchema,
+  manualImageUpdateCheckSchema,
 } from '@/data/stacks/schemas';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
+import type { ManualCheckResult } from '@/lib/image-updates/manual-check';
 
 /**
  * List all stacks from the manifest with their current sync status.
@@ -325,6 +327,15 @@ export const getImageChangelog = createServerFn()
   .handler(async ({ data }): Promise<ImageChangelog> => {
     const { getImageChangelog } = await import('@/lib/image-updates/image-update-service');
     return getImageChangelog(data.stack, data.host, data.image);
+  });
+
+/** Re-check a stack's (or one image's) update state on demand and persist the verdict. */
+export const checkImageUpdates = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
+  .inputValidator(manualImageUpdateCheckSchema)
+  .handler(async ({ data }): Promise<ManualCheckResult> => {
+    const { runManualImageUpdateCheck } = await import('@/lib/image-updates/manual-check');
+    return runManualImageUpdateCheck(data.stack, data.host, data.image);
   });
 
 /**

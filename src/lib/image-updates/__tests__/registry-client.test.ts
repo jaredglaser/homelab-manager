@@ -1,8 +1,56 @@
 import { describe, expect, test } from 'bun:test';
-import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, sourceRepoFromLabels } from '../registry-client';
+import { checkImageUpdate, checkImageUpdateWithMeta, checkRemoteManifest, currentVersionFromLabels, declaredVersionFields, isRegistryAllowed, listRegistryTags, parseExtraRegistries, RegistryCheckError, resolveReleaseRepo, sourceRepoFromLabels } from '../registry-client';
 import { HUB_PROBE, hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 const SOURCE_LABEL = 'org.opencontainers.image.source';
+const OVERRIDE_LABEL = 'homelab-manager.release-repo';
+
+describe('currentVersionFromLabels', () => {
+  test('strips a leading v from the OCI version label', () => {
+    expect(currentVersionFromLabels({ 'org.opencontainers.image.version': 'v2.11.7' })).toBe('2.11.7');
+    expect(currentVersionFromLabels({ 'org.opencontainers.image.version': '2.11.7' })).toBe('2.11.7');
+  });
+
+  test('passes through non-version values and returns null when absent', () => {
+    expect(currentVersionFromLabels({ 'org.opencontainers.image.version': '2026.10.30' })).toBe('2026.10.30');
+    expect(currentVersionFromLabels({})).toBeNull();
+  });
+});
+
+describe('resolveReleaseRepo', () => {
+  test('resolves an override URL over the source label', () => {
+    expect(resolveReleaseRepo({ [SOURCE_LABEL]: 'https://github.com/o/r', [OVERRIDE_LABEL]: 'https://github.com/upstream/project' }))
+      .toEqual({ kind: 'resolved', repo: 'upstream/project', from: 'override' });
+  });
+
+  test('resolves the source label when no override is set', () => {
+    expect(resolveReleaseRepo({ [SOURCE_LABEL]: 'https://github.com/o/r' })).toEqual({ kind: 'resolved', repo: 'o/r', from: 'source' });
+  });
+
+  test('a bare owner/repo override is not a URL and reports invalid-url', () => {
+    expect(resolveReleaseRepo({ [OVERRIDE_LABEL]: 'caddyserver/caddy' })).toEqual({ kind: 'invalid-url', raw: 'caddyserver/caddy', from: 'override' });
+  });
+
+  test('an override URL on an unsupported host reports the host', () => {
+    expect(resolveReleaseRepo({ [OVERRIDE_LABEL]: 'https://gitlab.com/o/r' })).toEqual({ kind: 'unsupported-host', host: 'gitlab.com', from: 'override' });
+  });
+
+  test('an incomplete github URL override reports invalid-url', () => {
+    expect(resolveReleaseRepo({ [OVERRIDE_LABEL]: 'https://github.com/o' })).toEqual({ kind: 'invalid-url', raw: 'https://github.com/o', from: 'override' });
+  });
+
+  test('a source label on an unsupported host reports the host instead of pretending no repo is set', () => {
+    expect(resolveReleaseRepo({ [SOURCE_LABEL]: 'https://gitlab.com/o/r' })).toEqual({ kind: 'unsupported-host', host: 'gitlab.com', from: 'source' });
+  });
+
+  test('a broken override does not fall back to the source label', () => {
+    expect(resolveReleaseRepo({ [SOURCE_LABEL]: 'https://github.com/o/r', [OVERRIDE_LABEL]: 'broken' })).toEqual({ kind: 'invalid-url', raw: 'broken', from: 'override' });
+  });
+
+  test('no labels resolves missing', () => {
+    expect(resolveReleaseRepo({})).toEqual({ kind: 'missing' });
+  });
+});
 
 describe('sourceRepoFromLabels', () => {
   test('extracts owner/repo from a github.com source label', () => {
@@ -237,6 +285,86 @@ describe('checkImageUpdate', () => {
       const summary = await checkImageUpdate('redis:7-alpine', {});
       expect(summary.updateAvailable).toBe(true);
       expect(summary.latestMatchingTag).toBe('7.4.1-alpine');
+    } finally {
+      restore();
+    }
+  });
+
+  test('the image-declared version beats the constraint tag when judging updates', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const upToDate = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': 'v7.4.1' });
+      expect(upToDate.updateAvailable).toBe(false);
+      expect(upToDate.versionSource).toBe('label');
+      const outdated = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': 'v7.0.0' });
+      expect(outdated.updateAvailable).toBe(true);
+      expect(outdated.versionSource).toBe('label');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a label disagreeing with a major-only pin keeps the verdict but marks the version unknown', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': '6.9.0' });
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.versionSource).toBe('tag');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a label disagreeing with a patch-pinned tag falls back to the tag-derived version', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7.4.1-alpine', { 'org.opencontainers.image.version': '6.9.0' });
+      expect(summary.updateAvailable).toBe(false);
+      expect(summary.versionSource).toBe('tag');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a build-metadata label is trusted', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': '7.4.1+build.5' });
+      expect(summary.updateAvailable).toBe(false);
+      expect(summary.versionSource).toBe('label');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a label disagreeing with a pinned minor falls back to the tag', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7.4-alpine', { 'org.opencontainers.image.version': '7.9.0' });
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.versionSource).toBe('tag');
+    } finally {
+      restore();
+    }
+  });
+
+  test('a non-numeric version label falls back to the running tag for the comparison', async () => {
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7.4.1-alpine' }, { name: '7.4.1' }], next: null })),
+    );
+    try {
+      const summary = await checkImageUpdate('redis:7-alpine', { 'org.opencontainers.image.version': 'latest' });
+      expect(summary.updateAvailable).toBe(true);
     } finally {
       restore();
     }
@@ -850,6 +978,24 @@ describe('RegistryCheckError', () => {
     expect(new RegistryCheckError('x')).toBeInstanceOf(Error);
   });
 });
+describe('declaredVersionFields', () => {
+  const cases: Array<[string, Record<string, string>, string | null, 'label' | 'tag' | null]> = [
+    ['caddy:2-alpine', { 'org.opencontainers.image.version': 'v2.11.7' }, '2.11.7', 'label'],
+    ['caddy:2-alpine', { 'org.opencontainers.image.version': '2.11.7+build.5' }, '2.11.7+build.5', 'label'],
+    ['caddy:2-alpine', { 'org.opencontainers.image.version': '2024.11.0' }, '2024.11.0', 'tag'],
+    ['caddy:2-alpine', {}, null, 'tag'],
+    ['caddy:2.11.7-alpine', { 'org.opencontainers.image.version': '2.9.0' }, '2.9.0', 'tag'],
+    ['example/app:latest', {}, null, null],
+    ['example/app@sha256:' + 'a'.repeat(64), { 'org.opencontainers.image.version': '1.0.0' }, '1.0.0', null],
+  ];
+
+  for (const [image, labels, currentVersion, versionSource] of cases) {
+    test(`derives ${JSON.stringify(versionSource)} for ${image} with ${JSON.stringify(labels)}`, () => {
+      expect(declaredVersionFields(image, labels)).toEqual({ currentVersion, versionSource });
+    });
+  }
+});
+
 describe('checkImageUpdateWithMeta', () => {
   test('an unparseable ref lands in error with a null etag', async () => {
     const meta = await checkImageUpdateWithMeta('redis:', {}, null);
@@ -857,17 +1003,68 @@ describe('checkImageUpdateWithMeta', () => {
     expect(meta.etag).toBeNull();
   });
 
-  test('a 304 on the stored etag reports no update and keeps the etag', async () => {
+  test('a 304 on the stored etag reports no update and keeps the pair when the digest matches', async () => {
     const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const digest = 'sha256:' + 'a'.repeat(64);
     const { restore, fetchMock } = withFetch((url) => {
       if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
       return Promise.resolve(new Response(null, { status: 304 }));
     });
     try {
-      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, 'sha256:' + 'a'.repeat(64), etag);
+      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, digest, etag, digest);
       expect(meta.summary.updateAvailable).toBe(false);
       expect(meta.etag).toBe(etag);
+      expect(meta.digest).toBe(digest);
       expect(fetchMock.mock.calls[1][1]?.method).toBe('HEAD');
+      expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({ 'If-None-Match': etag });
+    } finally {
+      restore();
+    }
+  });
+
+  test('a 304 is not honored when the stored digest no longer matches the containers', async () => {
+    const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const { restore, fetchMock } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, {
+        status: 200,
+        headers: { 'Docker-Content-Digest': 'sha256:' + 'b'.repeat(64), Etag: '"fresh"' },
+      }));
+    });
+    try {
+      const meta = await checkImageUpdateWithMeta(
+        'ghcr.io/owner/app:latest',
+        {},
+        'sha256:' + 'a'.repeat(64),
+        etag,
+        'sha256:' + 'f'.repeat(64),
+      );
+      expect(meta.summary.updateAvailable).toBe(true);
+      expect(meta.etag).toBeNull();
+      expect(meta.digest).toBeNull();
+      const head = fetchMock.mock.calls[1];
+      expect(head[1]?.method).toBe('HEAD');
+      expect((head[1]?.headers as Record<string, string>)['If-None-Match']).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test('a stored etag without a digest does a full HEAD once', async () => {
+    const etag = '"sha256:' + 'c'.repeat(64) + '"';
+    const { restore, fetchMock } = withFetch((url) => {
+      if (String(url) === 'https://ghcr.io/v2/') return Promise.resolve(new Response(null, { status: 200 }));
+      return Promise.resolve(new Response(null, {
+        status: 200,
+        headers: { 'Docker-Content-Digest': 'sha256:' + 'a'.repeat(64), Etag: '"fresh"' },
+      }));
+    });
+    try {
+      const meta = await checkImageUpdateWithMeta('ghcr.io/owner/app:latest', {}, 'sha256:' + 'a'.repeat(64), etag, null);
+      expect(meta.summary.updateAvailable).toBe(false);
+      expect(meta.etag).toBe('"fresh"');
+      expect(meta.digest).toBe('sha256:' + 'a'.repeat(64));
+      expect((fetchMock.mock.calls[1][1]?.headers as Record<string, string>)['If-None-Match']).toBeUndefined();
     } finally {
       restore();
     }

@@ -39,6 +39,7 @@ import {
   assertSchema,
   assertServiceKeyBackfill,
   assertAgentTlsCertificates,
+  assertImageUpdateCheckExpansion,
   assertServiceKeyUnification,
   assertTierColumnCoverage,
   assertWeightedRollup,
@@ -174,6 +175,7 @@ async function runUpgrade(): Promise<void> {
     );
     await assertServiceKeyUnification(pool, checks, unifySql);
     await assertAgentTlsCertificates(pool, checks);
+    await assertImageUpdateCheckExpansion(pool, checks);
     checks.report();
   } finally {
     await pool.end();
