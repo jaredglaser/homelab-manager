@@ -47,7 +47,7 @@ import {
 } from './assertions';
 import { Checks } from './checks';
 import { createPool, recreateDatabase, waitForDatabase } from './db';
-import { seed } from './seed';
+import { seed, seedImageUpdateChecks } from './seed';
 
 type MigrationRunner = (db: DatabaseClient) => Promise<void>;
 
@@ -129,6 +129,15 @@ async function runUpgrade(): Promise<void> {
     checks.sameSet('base revision applied its own migrations', ledgerBefore, baseFiles);
 
     await seed(pool);
+    // Pre-043-shaped image_update_checks rows only exist when the base ran 042
+    // without 043: an older base has no table to seed and a newer one already
+    // carries the per-stack shape the seed insert cannot fill.
+    const baseHasExpandableImageUpdateChecks =
+      baseFiles.includes('042_image_update_checks.sql') &&
+      !baseFiles.includes('043_image_update_checks_per_stack.sql');
+    if (baseHasExpandableImageUpdateChecks) {
+      await seedImageUpdateChecks(pool);
+    }
     const before = await captureRowCounts(pool);
     console.info(`[upgrade] seeded ${Object.values(before).reduce((a, b) => a + b, 0)} rows`);
 
@@ -175,7 +184,9 @@ async function runUpgrade(): Promise<void> {
     );
     await assertServiceKeyUnification(pool, checks, unifySql);
     await assertAgentTlsCertificates(pool, checks);
-    await assertImageUpdateCheckExpansion(pool, checks);
+    if (baseHasExpandableImageUpdateChecks) {
+      await assertImageUpdateCheckExpansion(pool, checks);
+    }
     checks.report();
   } finally {
     await pool.end();

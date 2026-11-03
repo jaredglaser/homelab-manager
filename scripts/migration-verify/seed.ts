@@ -52,7 +52,6 @@ export async function seed(pool: Pool): Promise<void> {
   await seedProxmoxSupporting(pool);
   await seedEntityMetadata(pool);
   await seedServiceKeyUnification(pool);
-  await seedImageUpdateChecks(pool);
 }
 
 /**
@@ -61,7 +60,7 @@ export async function seed(pool: Pool): Promise<void> {
  * stack (both seeded by seedServiceKeyUnification), so migration 043 expands
  * each row per running stack; the ghost image runs nowhere and must be dropped.
  */
-async function seedImageUpdateChecks(pool: Pool): Promise<void> {
+export async function seedImageUpdateChecks(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO image_update_checks
        (host, image, current_tag, latest_matching_tag, latest_overall_tag, update_available, source_repo, error, last_error_at, etag, checked_at)
