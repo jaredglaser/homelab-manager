@@ -83,6 +83,7 @@ const registry: Record<string, ServerFnMock> = {
   controlStack: fn(stacksFns.controlStack),
   getImageUpdateInfo: fn(stacksFns.getImageUpdateInfo),
   getImageChangelog: fn(stacksFns.getImageChangelog),
+  checkImageUpdates: fn(stacksFns.checkImageUpdates),
 
   // Auth
   getSession: fn(authFns.getSession),

@@ -58,6 +58,12 @@ export const getImageChangelogSchema = z.object({
   image: z.string().min(1),
 });
 
+export const manualImageUpdateCheckSchema = z.object({
+  stack: stackNameField,
+  host: z.string().min(1),
+  image: z.string().min(1).optional(),
+});
+
 export const controlStackSchema = z.discriminatedUnion('scope', [
   z.object({
     stack: stackNameField,

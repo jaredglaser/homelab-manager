@@ -10,7 +10,8 @@ import type {
   StackDriftResolutionResult,
 } from '@/types/stacks';
 import type { ImageChangelog, ImageRelease, ImageUpdateSummary } from '@/types/image-updates';
-import { constraintFromTag, parseVersionTag } from '@/lib/image-updates/version';
+import type { ManualCheckResult } from '@/lib/image-updates/manual-check';
+import { constraintFromTag, normalizeVersion } from '@/lib/image-updates/version';
 import { generateStackStatusEntry } from '@/lib/mock/generators/stacks';
 import { stackStatusUpdates } from '@/lib/mock/live-updates';
 
@@ -508,10 +509,16 @@ const MOCK_SOURCE_REPOS: Record<string, string> = {
   'pihole/pihole:2025.08.0': 'pi-hole/pi-hole',
 };
 
+const mockPriorVerdicts = new Map<string, boolean | null>();
+
 function buildUpdateSummary(image: string): ImageUpdateSummary {
   const currentTag = tagOfImage(image);
-  const parsed = currentTag !== null ? parseVersionTag(currentTag) : null;
+  const parsed = currentTag !== null ? normalizeVersion(currentTag) : null;
   const constraint = currentTag !== null ? constraintFromTag(currentTag) : null;
+  // pihole's calendar tag has no version label in the mock, so the demo
+  // exercises the Version-unknown badge; the second check flips its verdict
+  // so the stale-verdict confirm flow is reachable.
+  const flipped = image === 'pihole/pihole:2025.08.0' && mockPriorVerdicts.has(image);
   if (parsed === null || constraint === null) {
     // nginx:latest simulates a moved registry digest. Other floating tags stay
     // inconclusive (locally built, no digest in inventory).
@@ -523,10 +530,14 @@ function buildUpdateSummary(image: string): ImageUpdateSummary {
       latestOverallTag: '1.29.3',
       updateAvailable: floatingUpdate ? true : null,
       sourceRepo: MOCK_SOURCE_REPOS[image] ?? null,
+      currentVersion: null,
+      versionSource: null,
+      checkedAt: new Date().toISOString(),
       error: null,
     };
   }
-  if (parsed.patch !== null) {
+  if (parsed.patch !== null && !flipped) {
+    const versionSource = image === 'pihole/pihole:2025.08.0' ? 'tag' as const : 'label' as const;
     return {
       image,
       currentTag,
@@ -534,11 +545,16 @@ function buildUpdateSummary(image: string): ImageUpdateSummary {
       latestOverallTag: currentTag,
       updateAvailable: false,
       sourceRepo: MOCK_SOURCE_REPOS[image] ?? null,
+      currentVersion: versionSource === 'label' ? currentTag : null,
+      versionSource,
+      checkedAt: new Date().toISOString(),
       error: null,
     };
   }
   const newer = parsed.minor === null ? `${parsed.major}.9.4` : `${parsed.major}.${parsed.minor}.9`;
   const latestMatchingTag = parsed.raw.startsWith('v') ? `v${newer}` : newer;
+  // pihole exercises the Version-unknown badge: no declared version, guessed from the tag.
+  const versionSource = image === 'pihole/pihole:2025.08.0' ? 'tag' as const : 'label' as const;
   return {
     image,
     currentTag,
@@ -546,6 +562,9 @@ function buildUpdateSummary(image: string): ImageUpdateSummary {
     latestOverallTag: latestMatchingTag,
     updateAvailable: true,
     sourceRepo: MOCK_SOURCE_REPOS[image] ?? null,
+    currentVersion: versionSource === 'label' ? currentTag : null,
+    versionSource,
+    checkedAt: new Date().toISOString(),
     error: null,
   };
 }
@@ -554,7 +573,28 @@ export async function getImageUpdateInfo(opts: {
   data: { stack: string; host: string };
 }): Promise<ImageUpdateSummary[]> {
   const images = [...new Set(imagesFromCompose(opts.data.stack))];
-  return images.map(buildUpdateSummary);
+  const summaries = images.map(buildUpdateSummary);
+  for (const summary of summaries) mockPriorVerdicts.set(summary.image, summary.updateAvailable);
+  return summaries;
+}
+
+export async function checkImageUpdates(opts: {
+  data: { stack: string; host: string; image?: string };
+}): Promise<ManualCheckResult> {
+  const all = [...new Set(imagesFromCompose(opts.data.stack))];
+  const target = opts.data.image === undefined ? all : all.filter((image) => image === opts.data.image);
+  const summaries = target.map(buildUpdateSummary);
+  const changedImages = summaries
+    .filter((summary) => mockPriorVerdicts.get(summary.image) !== summary.updateAvailable)
+    .map((summary) => summary.image);
+  for (const summary of summaries) mockPriorVerdicts.set(summary.image, summary.updateAvailable);
+  return {
+    summaries,
+    checked: summaries.length,
+    changed: changedImages.length,
+    failed: 0,
+    changedImages,
+  };
 }
 
 const MOCK_CHANGELOG_BODY = [

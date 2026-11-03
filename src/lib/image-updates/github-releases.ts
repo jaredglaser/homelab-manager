@@ -22,7 +22,11 @@ interface GitHubRelease {
  * Anonymous GitHub API calls are rate limited to 60/hour per IP, so callers
  * cache aggressively.
  */
-export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRelease[]> {
+export async function fetchGitHubReleases(
+  sourceRepo: string,
+  notFoundMessage = 'No public releases are visible at github.com/' + sourceRepo +
+    ', so there are no release notes to show. A private repository looks the same from the outside; if the repository exists, publishing releases or making it public fixes this.',
+): Promise<ImageRelease[]> {
   const [owner, repo, ...rest] = sourceRepo.split('/');
   if (!owner || !repo || rest.length > 0) {
     throw new ChangelogError(
@@ -33,17 +37,30 @@ export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRele
   const releases: GitHubRelease[] = [];
   let url: string | null = 'https://' + GITHUB_API_HOST + '/repos/' + owner + '/' + repo + '/releases?per_page=' + RELEASES_PER_PAGE;
   for (let page = 0; page < MAX_PAGES && url; page++) {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      redirect: 'error',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new ChangelogError('GitHub took too long to answer, so release notes are unavailable right now. Try again in a moment.');
+      }
+      throw new ChangelogError('Could not reach GitHub to fetch release notes. Check your network and try again.');
+    }
+    // Renamed repositories 301 within api.github.com; anything that lands off-host is untrusted.
+    // Mocked responses carry an empty url, which is not a redirect.
+    if (response.url !== '' && new URL(response.url).host !== GITHUB_API_HOST) {
+      throw new ChangelogError('GitHub redirected release notes to another server, so they were not fetched.');
+    }
 
     if (response.status === 404) {
-      throw new ChangelogError('No releases are published at github.com/' + sourceRepo + ', so there are no release notes to show.');
+      throw new ChangelogError(notFoundMessage);
     }
     if (response.status === 403 || response.status === 429) {
       throw new ChangelogError('GitHub API rate limit reached. Try again later.');
@@ -53,7 +70,12 @@ export async function fetchGitHubReleases(sourceRepo: string): Promise<ImageRele
       throw new ChangelogError('GitHub failed to return release notes, so the changelog is unavailable right now.');
     }
 
-    const body = (await response.json()) as GitHubRelease[];
+    let body: GitHubRelease[];
+    try {
+      body = (await response.json()) as GitHubRelease[];
+    } catch {
+      throw new ChangelogError('GitHub returned an unexpected response, so release notes are unavailable right now.');
+    }
     for (const release of body) {
       if (!release.draft && release.tag_name) releases.push(release);
     }

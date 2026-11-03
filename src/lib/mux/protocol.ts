@@ -98,6 +98,7 @@ export function parseStatsTopic(topic: string): StatsTopicSource | null {
 const TOPIC_REGISTRY = new Map<string, MuxTopicSpec>([
   [INVENTORY_TOPIC, { class: 'control' }],
   [AGENT_INVENTORY_TOPIC, { class: 'control' }],
+  [IMAGE_UPDATES_TOPIC, { class: 'control' }],
   [statsTopic('docker'), { class: 'bulk' }],
   [statsTopic('zfs'), { class: 'bulk' }],
   [statsTopic('proxmox'), { class: 'bulk' }],

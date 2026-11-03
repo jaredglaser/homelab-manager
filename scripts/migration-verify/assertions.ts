@@ -265,7 +265,18 @@ export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
   checks.sameSet(
     'image_update_checks carries the persisted update state columns',
     [...imageUpdateCheckColumns],
-    ['host', 'image', 'current_tag', 'latest_matching_tag', 'latest_overall_tag', 'update_available', 'source_repo', 'error', 'last_error_at', 'etag', 'checked_at']
+    ['host', 'stack', 'image', 'current_tag', 'latest_matching_tag', 'latest_overall_tag', 'update_available', 'source_repo', 'error', 'last_error_at', 'etag', 'manifest_digest', 'checked_at']
+  );
+
+  const imageUpdateCheckPk = await selectRow<{ definition: string }>(
+    pool,
+    `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+     WHERE conrelid = 'image_update_checks'::regclass AND contype = 'p'`
+  );
+  checks.equal(
+    'image_update_checks PK is (host, stack, image)',
+    imageUpdateCheckPk?.definition.includes('(host, stack, image)'),
+    true
   );
 
   const zfsHost = await selectRow<{ is_nullable: string }>(
@@ -1258,6 +1269,38 @@ export async function assertServiceKeyUnification(
     await serviceKeyFor(UNIFY_COMPOSE.containerId),
     UNIFY_COMPOSE.latestEventKey
   );
+}
+
+export async function assertImageUpdateCheckExpansion(pool: Pool, checks: Checks): Promise<void> {
+  const rows = await pool.query(
+    `SELECT stack, image, current_tag, latest_matching_tag, update_available, source_repo, etag, manifest_digest, error
+     FROM image_update_checks
+     ORDER BY stack, image`
+  );
+  checks.sameSet(
+    'image_update_checks rows expanded per running stack with state preserved',
+    rows.rows.map((row) =>
+      `${row.stack}|${row.image}|${row.current_tag}|${row.latest_matching_tag}|${row.update_available}|${row.source_repo}|${row.etag ?? 'null'}|${row.error ?? 'null'}`
+    ),
+    [
+      // The plex row survived expansion into the media stack with its verdict, etag, and error history intact.
+      `media|${UNIFY_COMPOSE.image}|1.0.0|1.0.1|true|example/plex|"etag-plex"|null`,
+      // The web row survived expansion into the app stack.
+      `app|${UNIFY_REPLICA.image}|2.0.0|null|false|null|null|null`,
+    ]
+  );
+
+  const digests = await selectColumn<string>(
+    pool,
+    'SELECT manifest_digest FROM image_update_checks WHERE manifest_digest IS NOT NULL'
+  );
+  checks.equal('image_update_checks manifest_digest starts null after the expansion', digests.length, 0);
+
+  const orphans = await selectColumn<string>(
+    pool,
+    `SELECT image FROM image_update_checks WHERE image = 'ghcr.io/example/ghost:9.9.9'`
+  );
+  checks.equal('image_update_checks rows for images no stack runs were dropped', orphans.length, 0);
 }
 
 export async function assertAgentTlsCertificates(pool: Pool, checks: Checks): Promise<void> {

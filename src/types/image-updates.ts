@@ -26,6 +26,10 @@ export interface ImageUpdateSummary {
   updateAvailable: boolean | null;
   /** `owner/repo` on GitHub that releases are pulled from, when the image carries an `org.opencontainers.image.source` label pointing at github.com. */
   sourceRepo: string | null;
+  /** Version the image declares about itself via `org.opencontainers.image.version`, leading `v` stripped. Absent when the label is missing or the summary predates the field. */
+  currentVersion?: string | null;
+  /** Where the compared running version came from: the image's version label, or a guess from the tag name. Absent for floating/digest paths and legacy callers. */
+  versionSource?: 'label' | 'tag' | null;
   /** Why the registry check failed, when it did. */
   error: string | null;
   /** When this state was produced: the persisted row's checked_at, or the moment of a live check. Absent only from legacy callers. */
@@ -50,6 +54,8 @@ export interface ImageChangelog {
   image: string;
   sourceRepo: string | null;
   releases: ImageRelease[];
-  /** Why releases could not be fetched, when sourceRepo is missing or the API call failed. */
+  /** Why releases could not be fetched, when sourceRepo is missing or invalid or the API call failed. */
   error: string | null;
+  /** Why the release list is empty despite a successful fetch (e.g. the source repo publishes no releases), with the fix where one exists. */
+  emptyStateMessage?: string | null;
 }

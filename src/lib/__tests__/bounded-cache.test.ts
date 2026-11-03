@@ -51,4 +51,14 @@ describe('BoundedCache', () => {
     expect(cache.get('a')).toBeUndefined();
     expect(cache.get('b')).toBeUndefined();
   });
+
+  test('delete drops only the given key', () => {
+    const cache = new BoundedCache(10);
+    cache.set('a', 'va', 60_000);
+    cache.set('b', 'vb', 60_000);
+    cache.delete('a');
+    expect(cache.get('a')).toBeUndefined();
+    expect(cache.get('b')).toBe('vb');
+    expect(() => cache.delete('missing')).not.toThrow();
+  });
 });

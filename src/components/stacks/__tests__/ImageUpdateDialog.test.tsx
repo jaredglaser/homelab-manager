@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
@@ -15,9 +15,29 @@ const mockGetImageChangelog = mock(
   }),
 );
 
+const mockCheckImageUpdates = mock(
+  async (
+    _opts: { data: { stack: string; host: string; image?: string } },
+  ): Promise<{ summaries: ImageUpdateSummary[]; checked: number; changed: number; failed: number }> => ({
+    summaries: [],
+    checked: 0,
+    changed: 0,
+    failed: 0,
+  }),
+);
+
+const mockToastSuccess = mock((_message: string) => {});
+const mockToastError = mock((_message: string) => {});
+const mockToastWarning = mock((_message: string) => {});
+
+mockModule<typeof import('sonner')>('sonner', (real) => ({ ...real, 
+  toast: { success: mockToastSuccess, error: mockToastError, warning: mockToastWarning },
+}));
+
 mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({
   ...real,
   getImageChangelog: mockGetImageChangelog,
+  checkImageUpdates: mockCheckImageUpdates,
 }));
 
 const { default: ImageUpdateDialog } = await import('@/components/stacks/ImageUpdateDialog');
@@ -105,6 +125,10 @@ function renderDialog(props?: {
 describe('ImageUpdateDialog', () => {
   beforeEach(() => {
     mockGetImageChangelog.mockImplementation(async () => changelogResult());
+    mockCheckImageUpdates.mockClear();
+    mockToastSuccess.mockClear();
+    mockToastError.mockClear();
+    mockToastWarning.mockClear();
   });
 
   it('renders releases filtered to the running tag constraint by default', async () => {
@@ -119,6 +143,81 @@ describe('ImageUpdateDialog', () => {
     await screen.findByText('v2.9.4');
     fireEvent.click(screen.getByRole('button', { name: 'All releases' }));
     expect(screen.getByText('v3.0.0')).toBeDefined();
+  });
+
+  it('matches upstream release tags that lack the running tag variant suffix', async () => {
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({ releases: [releases[0], releases[2]] }),
+    );
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app:2-alpine' },
+      summary: { ...summary, image: 'example-org/mock-app:2-alpine', currentTag: '2-alpine', latestMatchingTag: '2.9.4-alpine' },
+    });
+    expect(await screen.findByText('v2.9.4')).toBeDefined();
+    expect(screen.queryByText('v3.0.0')).toBeNull();
+  });
+
+  it('matches release tags that carry a variant, whatever variant it is', async () => {
+    const variantRelease = { tagName: 'v2.9.4-alpine', name: null, publishedAt: null, url: null, body: null, prerelease: false };
+    const otherVariantRelease = { ...variantRelease, tagName: 'v2.9.4-bookworm' };
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({ releases: [variantRelease, otherVariantRelease] }),
+    );
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app:2-alpine' },
+      summary: { ...summary, image: 'example-org/mock-app:2-alpine', currentTag: '2-alpine', latestMatchingTag: '2.9.4-alpine' },
+    });
+    expect(await screen.findByText('v2.9.4-alpine')).toBeDefined();
+    expect(screen.getByText('v2.9.4-bookworm')).toBeDefined();
+  });
+
+  it('expands only the newest release by default and expands older ones on click', async () => {
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({
+        releases: [
+          { tagName: 'v2.9.4', name: null, publishedAt: '2026-09-01T12:00:00Z', url: null, body: 'newest release body', prerelease: false },
+          { tagName: 'v2.9.0', name: null, publishedAt: null, url: null, body: 'older release body', prerelease: false },
+        ],
+      }),
+    );
+    renderDialog();
+    expect(await screen.findByText('newest release body')).toBeDefined();
+    expect(screen.queryByText('older release body')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'v2.9.0' }));
+    expect(screen.getByText('older release body')).toBeDefined();
+  });
+
+  it('renders the dialog wide enough for long release notes', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    const content = document.querySelector('[data-slot="dialog-content"]');
+    expect(content?.className).toContain('max-w-5xl');
+  });
+
+  it('lays the footer out as a three-column grid that stacks labels above side-by-side buttons when narrow', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.className).toContain('grid-cols-2');
+    expect(footer?.className).toContain('sm:grid-cols-[1fr_auto_auto]');
+    const first = footer?.firstElementChild;
+    expect(first?.tagName).toBe('P');
+    expect(first?.className).toContain('col-span-2');
+    expect(first?.className).toContain('sm:col-start-1');
+    const recheck = screen.getByRole('button', { name: 'Re-check' });
+    expect(recheck.className).toContain('row-start-3');
+    expect(recheck.className).toContain('sm:row-span-2');
+    const close = screen.getByRole('button', { name: 'Close' });
+    expect(close.className).toContain('col-start-2');
+    expect(close.className).toContain('sm:col-start-3');
+  });
+
+  it('keeps hyphenated image tokens unbreakable in the footer', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    const tokens = Array.from(footer?.querySelectorAll('span.whitespace-nowrap') ?? []).map((span) => span.textContent);
+    expect(tokens).toEqual(['example-org/mock-app', '2.9.4']);
   });
 
   it('renders release dates, markdown bodies, and release note links', async () => {
@@ -136,6 +235,80 @@ describe('ImageUpdateDialog', () => {
     renderDialog();
     await screen.findByText('v2.9.4');
     expect(screen.getByText('Update available: 2.9.4')).toBeDefined();
+  });
+
+  it('shows a Current badge with the version the image declares', async () => {
+    renderDialog({ summary: { ...summary, currentVersion: '2.9.4' } });
+    await screen.findByText('v2.9.4');
+    expect(screen.getByText('Current: 2.9.4')).toBeDefined();
+  });
+
+  it('shows the Version-unknown badge with the plain-language tooltip when the version was guessed', async () => {
+    renderDialog({ summary: { ...summary, versionSource: 'tag', currentVersion: null } });
+    await screen.findByText('v2.9.4');
+    expect(screen.getByText('Version unknown')).toBeDefined();
+    expect(screen.queryByText(/Current:/)).toBeNull();
+    const trigger = screen.getByLabelText('Why the version is unknown');
+    expect(trigger.className).toContain('text-warning');
+    fireEvent.focus(trigger);
+    expect(await screen.findByText(/This image doesn't say which version it is/)).toBeDefined();
+  });
+
+  it('keeps the muted Current badge when the version came from the label', async () => {
+    renderDialog({ summary: { ...summary, versionSource: 'label', currentVersion: '2.9.4' } });
+    await screen.findByText('v2.9.4');
+    expect(screen.getByText('Current: 2.9.4')).toBeDefined();
+    expect(screen.queryByText('Version unknown')).toBeNull();
+  });
+
+  it('says the check failed to compare versions instead of inviting an update', async () => {
+    renderDialog({ summary: { ...summary, error: 'registry down', updateAvailable: null } });
+    await screen.findByText('Check failed');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The last registry check failed, so this panel can't tell whether an update exists.");
+    expect(footer?.textContent).not.toContain('to the newest published version');
+  });
+
+  it('says the check failed even when a last-good verdict is retained', async () => {
+    renderDialog({ summary: { ...summary, error: 'registry down', updateAvailable: true, latestMatchingTag: '2.9.4' } });
+    await screen.findByText('Check failed');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The last registry check failed, so this panel can't tell whether an update exists.");
+    expect(footer?.textContent).not.toContain('to update example-org/mock-app to 2.9.4');
+  });
+
+  it('says the digest pin cannot be compared instead of inviting an update', async () => {
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app@sha256:' + 'a'.repeat(64) },
+      summary: { ...summary, image: 'example-org/mock-app@sha256:' + 'a'.repeat(64), currentTag: null, updateAvailable: null },
+    });
+    await screen.findByText('Digest pin');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The registry check can't compare versions for a digest pin.");
+  });
+
+  it('gives a tagless implicit-latest ref the not-finished copy instead of the digest copy', async () => {
+    renderDialog({
+      container: { ...container, image: 'example-org/mock-app' },
+      summary: { ...summary, image: 'example-org/mock-app', currentTag: null, updateAvailable: null },
+    });
+    await screen.findByText('Floating tag (implicit latest)');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The registry check hasn't finished comparing versions yet.");
+    expect(footer?.textContent).not.toContain('digest pin');
+  });
+
+  it('says the check has not finished comparing instead of inviting an update while loading', async () => {
+    renderDialog({ summary: null });
+    await screen.findByText('No version info');
+    const footer = document.querySelector('[data-slot="dialog-footer"]');
+    expect(footer?.textContent).toContain("The registry check hasn't finished comparing versions yet.");
+  });
+
+  it('renders Not checked yet when the summary has no timestamp', async () => {
+    renderDialog({ summary: { ...summary, checkedAt: null } });
+    await screen.findByText('v2.9.4');
+    expect(screen.getByText('Not checked yet')).toBeDefined();
   });
 
   it('pins the exact footer sentence', async () => {
@@ -180,8 +353,18 @@ describe('ImageUpdateDialog', () => {
     expect(screen.queryByText('v2.9.4')).toBeNull();
   });
 
-  it('says No releases published when the changelog is empty without error', async () => {
-    mockGetImageChangelog.mockImplementation(async () => changelogResult({ releases: [] }));
+  it('renders the server-provided empty-state message when the changelog is empty without error', async () => {
+    mockGetImageChangelog.mockImplementation(async () =>
+      changelogResult({ releases: [], emptyStateMessage: 'No releases published at github.com/example-org/mock-app, the repository this image\'s source label points to. If releases live in another repository, add the "homelab-manager.release-repo: https://github.com/owner/repo" label to the service in your compose file and recreate the stack.' }),
+    );
+    renderDialog();
+    expect(await screen.findByText(
+      'No releases published at github.com/example-org/mock-app, the repository this image\'s source label points to. If releases live in another repository, add the "homelab-manager.release-repo: https://github.com/owner/repo" label to the service in your compose file and recreate the stack.',
+    )).toBeDefined();
+  });
+
+  it('falls back to a bare empty message when the changelog carries no empty-state message', async () => {
+    mockGetImageChangelog.mockImplementation(async () => changelogResult({ releases: [], sourceRepo: null }));
     renderDialog();
     expect(await screen.findByText('No releases published')).toBeDefined();
   });
@@ -266,6 +449,67 @@ describe('ImageUpdateDialog', () => {
     await screen.findByText('v2.9.4');
     expect(document.querySelector('a[href="javascript:alert(1)"]')).toBeNull();
     expect(screen.queryByText('Release notes')).toBeNull();
+  });
+
+  it('renders the Re-check button in the footer next to Last checked and Close', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    expect(screen.getByRole('button', { name: 'Re-check' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDefined();
+  });
+
+  it('calls checkImageUpdates for this image when Re-check is clicked and stays open', async () => {
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1));
+    const firstCall = (mockCheckImageUpdates.mock.calls as unknown as { data: Record<string, unknown> }[][])[0][0];
+    expect(firstCall.data.stack).toBe('myapp');
+    expect(firstCall.data.host).toBe('server1');
+    expect(firstCall.data.image).toBe('example-org/mock-app:2');
+    // The re-check must not dismiss the dialog; the user stays on the release list.
+    expect(screen.getByRole('button', { name: 'Re-check' })).toBeDefined();
+    expect(mockToastWarning).not.toHaveBeenCalled();
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it('shows a warning toast when the re-check reports failed images', async () => {
+    mockCheckImageUpdates.mockImplementation(async () => ({
+      summaries: [],
+      checked: 1,
+      changed: 0,
+      failed: 1,
+    }));
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => expect(mockToastWarning).toHaveBeenCalledTimes(1));
+    expect(mockToastWarning.mock.calls[0][0]).toContain('Registry check failed for example-org/mock-app:2');
+  });
+
+  it('shows an error toast when the re-check request fails', async () => {
+    mockCheckImageUpdates.mockRejectedValueOnce(new Error('network down'));
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
+    expect(mockToastError.mock.calls[0][0]).toContain('network down');
+  });
+
+  it('disables the Re-check button while a check is pending', async () => {
+    let resolveCheck!: () => void;
+    mockCheckImageUpdates.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveCheck = () => resolve({ summaries: [], checked: 1, changed: 0, failed: 0 });
+      }),
+    );
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Re-check' })).toHaveProperty('disabled', true);
+    });
+    resolveCheck();
   });
 });
 

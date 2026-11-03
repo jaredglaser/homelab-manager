@@ -131,11 +131,12 @@ mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database
 
 import {
   MAX_PENDING_FRAMES,
+  STATIC_TOPIC_ADAPTERS,
   createMuxWsHandlers,
   defaultTopicAdapter,
   parseAgentSseBlock,
 } from '../mux';
-import { MAX_SESSION_TOPICS, MAX_SUB_BATCH, type MuxFrameBody } from '@/lib/mux/protocol';
+import { MAX_SESSION_TOPICS, MAX_SUB_BATCH, isValidTopic, type MuxFrameBody } from '@/lib/mux/protocol';
 import type { Peer } from 'crossws';
 import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
@@ -288,6 +289,22 @@ describe('mux ws route', () => {
 
     expect(calls.map((c) => c.topic)).toEqual(['inventory', 'logs:s/abc']);
     expect(peer.sent).toEqual([{ type: 'ack', ref: 0, ok: true }]);
+  });
+
+  it('accepts the image-updates control topic', async () => {
+    const { calls, adapter } = makeAdapter();
+    const { peer, h } = await openWith({ adapter });
+
+    await h.message(peer as unknown as Peer, command('sub', ['image-updates']));
+
+    expect(calls.map((c) => c.topic)).toEqual(['image-updates']);
+    expect(peer.sent).toEqual([{ type: 'ack', ref: 0, ok: true }]);
+  });
+
+  it('accepts every statically handled topic as a valid command topic', () => {
+    for (const topic of Object.keys(STATIC_TOPIC_ADAPTERS)) {
+      expect(isValidTopic(topic)).toBe(true);
+    }
   });
 
   it('forwards adapter frames to the peer as event frames', async () => {
