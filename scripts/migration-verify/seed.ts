@@ -52,15 +52,47 @@ export async function seed(pool: Pool): Promise<void> {
   await seedProxmoxSupporting(pool);
   await seedEntityMetadata(pool);
   await seedServiceKeyUnification(pool);
+  await seedImageUpdateChecks(pool);
 }
 
 /**
- * Pre-043 image_update_checks rows (the table has no stack column yet at seed
- * time). The plex image runs in the media stack and the web image in the app
- * stack (both seeded by seedServiceKeyUnification), so migration 043 expands
- * each row per running stack; the ghost image runs nowhere and must be dropped.
+ * image_update_checks rows in the shape the seed-time schema dictates. The
+ * upgrade scenario seeds between the base and head migration runs, so a base
+ * that already contains 043 hands the seed a table keyed (host, stack, image)
+ * with no expansion left to run. The plex image runs in the media stack and
+ * the web image in the app stack (both seeded by seedServiceKeyUnification);
+ * the ghost image is only seedable pre-043, where migration 043 drops it as
+ * an orphan.
  */
-export async function seedImageUpdateChecks(pool: Pool): Promise<void> {
+async function seedImageUpdateChecks(pool: Pool): Promise<void> {
+  const table = await pool.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'image_update_checks'`
+  );
+  if (table.rows.length === 0) {
+    return;
+  }
+  const stackColumn = await pool.query(
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'image_update_checks' AND column_name = 'stack'`
+  );
+  if (stackColumn.rows.length > 0) {
+    await pool.query(
+      `INSERT INTO image_update_checks
+         (host, stack, image, current_tag, latest_matching_tag, latest_overall_tag, update_available, source_repo, etag, checked_at)
+       VALUES
+         ($1, $2, $3, '1.0.0', '1.0.1', '2.0.0', true, 'example/plex', '"etag-plex"', now()),
+         ($1, $4, $5, '2.0.0', NULL, NULL, false, NULL, NULL, now())`,
+      [
+        DOCKER_HOST,
+        UNIFY_COMPOSE.latestEventKey.split('/')[0],
+        UNIFY_COMPOSE.image,
+        UNIFY_REPLICA.eventKey.split('/')[0],
+        UNIFY_REPLICA.image,
+      ]
+    );
+    return;
+  }
   await pool.query(
     `INSERT INTO image_update_checks
        (host, image, current_tag, latest_matching_tag, latest_overall_tag, update_available, source_repo, error, last_error_at, etag, checked_at)
