@@ -175,7 +175,11 @@ async function runUpgrade(): Promise<void> {
     );
     await assertServiceKeyUnification(pool, checks, unifySql);
     await assertAgentTlsCertificates(pool, checks);
-    await assertImageUpdateCheckExpansion(pool, checks);
+    // A base predating 042 seeds no image_update_checks rows, so there is no
+    // expansion to assert. Every later base seeds rows the assertion reads.
+    if (baseFiles.includes('042_image_update_checks.sql')) {
+      await assertImageUpdateCheckExpansion(pool, checks);
+    }
     checks.report();
   } finally {
     await pool.end();
