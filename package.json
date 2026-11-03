@@ -117,7 +117,7 @@
     "eslint": "10.12.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.13.0",
-    "msw": "2.15.0",
+    "msw": "3.0.2",
     "seroval": "1.6.11",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.71.2",
