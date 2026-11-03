@@ -332,7 +332,7 @@ export const getImageChangelog = createServerFn()
 /** Re-check a stack's (or one image's) update state on demand and persist the verdict. */
 export const checkImageUpdates = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
-  .inputValidator(manualImageUpdateCheckSchema)
+  .validator(manualImageUpdateCheckSchema)
   .handler(async ({ data }): Promise<ManualCheckResult> => {
     const { runManualImageUpdateCheck } = await import('@/lib/image-updates/manual-check');
     return runManualImageUpdateCheck(data.stack, data.host, data.image);
