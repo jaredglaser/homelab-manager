@@ -67,7 +67,7 @@ With auth disabled, anyone who can reach the port can view your infrastructure a
 docker compose up -d
 ```
 
-Open `http://<your-server-ip>:3000` (or whichever port you set via `WEB_PORT`). The worker applies database migrations on its first start, so give the stack a few seconds before the first page load.
+Open `http://<your-server-ip>:3000` (or whichever port you set via `WEB_PORT`). The worker applies database migrations on its first start, which can take a minute or more on a slow disk. The web container can report healthy before the worker finishes, so an early page load may show an empty dashboard. Watch `docker compose logs -f worker` until it prints `[Migrations] All migrations completed successfully`. `Ctrl-C` exits the log view without stopping anything.
 
 **5. Stop**
 
@@ -80,6 +80,8 @@ Data is persisted in Docker volumes (`pgdata`, `git-repos`) and survives restart
 ```bash
 docker compose down -v
 ```
+
+> **Running a second copy of this stack** (e.g. a throwaway `main`-tag test): use a separate directory with its own `.env` copy (or `docker compose -p <name>`) and a distinct `WEB_PORT`. Volumes are project-scoped, so `docker compose down -v` in one project never touches the other. Containers are named `<project>-<service>-1` after the project.
 
 ---
 
@@ -96,6 +98,7 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 | Image | Description |
 |-------|-------------|
 | `ghcr.io/jaredglaser/homelab-manager-agent` | Agent sidecar deployed on each monitored Docker/ZFS host |
+| `lscr.io/linuxserver/socket-proxy:latest` | Restricted Docker socket proxy (API allowlist - the socket is mounted read-only, with grants for the specific write operations the agent needs), deployed only on hosts with the Docker capability. The agent talks to Docker through it instead of getting the raw socket |
 
 ### Image tags
 
@@ -104,10 +107,13 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 | Tag | Built from | Use it for |
 |-----|-----------|-----------|
 | `latest` | the newest stable release | Normal self-hosting. Prereleases do not advance it, so it stays on the prior stable until the next stable is cut. |
-| `0.2` | the newest `v0.2.x` release | Staying on one minor line and taking its patches automatically. |
-| `0.2.1` | `v0.2.1` | Pinning to an exact release, e.g. to roll back after a bad `latest`. |
+| `0.3` | the newest `v0.3.x` release | Staying on the current minor line and taking its patches automatically. |
+| `0.2` | the newest `v0.2.x` release | Staying one minor behind on purpose, or pinning before an upgrade you don't trust. Note: once a bad release has run, there is no downgrade path (its worker already applied migrations) - recover from a backup instead. |
+| `0.3.0` | `v0.3.0` | Pinning to an exact release - to pin before upgrading, or to roll back a release that has not run yet (there is no downgrade path after one has). |
 | `main` | every push to `main` | Early access to work that has not been released yet. Expect breakage; run it on a throwaway stack, not your only one. |
 | `<short-sha>` | any push to `main` or a release tag | Pinning to an exact build. |
+
+Tag examples show the current stable minor. The GHCR package pages are authoritative if they lag.
 
 Set `HLM_IMAGE_TAG` in your `.env` to move the whole stack at once:
 
@@ -117,12 +123,12 @@ HLM_IMAGE_TAG=main
 
 Mixing tags across images is not tested, and one mismatch in particular breaks the dashboard: only the `worker` applies database migrations, so a `web:main` running against a `worker:latest` that has not applied a newer schema fails every write it attempts. Use the one variable rather than editing image lines.
 
-The `web` image knows which release it was built from, so the Add Host wizard on a `v0.2.x` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:0.2`. That is the minor line, so the agent takes patches but never crosses into `0.3`, where the agent protocol is allowed to change. A `main` dashboard pins new agents to `main`. Hosts you enrolled before switching keep whatever tag their own `.env` pins.
+The `web` image knows which release it was built from, so the Add Host wizard on a `v0.N.x` dashboard generates an agent stack pinned to `ghcr.io/jaredglaser/homelab-manager-agent:0.N` - the same minor line as the dashboard. The agent takes patches but never crosses into the next minor, where the agent protocol is allowed to change. A `main` dashboard pins new agents to `main`. Hosts you enrolled before a tag change keep whatever tag their own `.env` pins.
 
 Each agent reports the image it is running, so **Settings → Managed Hosts** shows every host's tag next to its version and flags the ones that do not match the dashboard. The notice names the tag the dashboard expects. To move a flagged host, set both variables in its `.env` on that host to that tag:
 
 ```env
-AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:0.2
+AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:0.N   # same minor line as your dashboard
 ```
 
 Then run `docker compose up -d` in the agent stack directory.
@@ -296,6 +302,8 @@ Encrypted columns use a versioned keyring so a new master key can be enrolled wi
    docker compose exec web bun run migrate-secrets --from v1 --to v2
    ```
 
+   > This step depends on step 2: if `MASTER_KEY_v2` is not reaching the containers, the command exits non-zero with a Bun stack trace whose first line is `No key found for KID "v2"`. Before running it, confirm the key arrived: `docker compose exec web bun -e 'console.log(Boolean(process.env.MASTER_KEY_v2))'` should print `true`. The usual miss is the compose `environment:` block addition from step 2. A missing key fails before any row is written, so fixing step 2 and re-running is safe. If the run fails partway through, nothing is lost: rows already migrated decrypt with the new key and the rest with the old one (both keys are loaded during the rotation window), so just fix the cause and run the command again.
+
 5. Remove the old key from `.env` (and its compose line if you added one), then `docker compose up -d` again.
 
 The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window. It covers `stack_secrets`, `agent_keypairs`, and `git_tokens`; active login sessions are not re-encrypted, so a login that predates the rotation may need to sign in again after step 5 removes the old key.
@@ -304,15 +312,51 @@ The migration exits non-zero on any failure. Partially migrated rows are safe be
 
 Three things constitute a full backup:
 
-1. **The database.** Either snapshot the `pgdata` volume while the stack is stopped, or take a live dump: `docker compose exec postgres pg_dump -U $POSTGRES_USER -Fc $POSTGRES_DB > homelab.dump`
-2. **The git repos volume** (`git-repos`), which holds your stack definitions.
+1. **The database.** Either snapshot the `pgdata` volume while the stack is stopped (restoring a snapshot is stop-stack, restore volume, start-stack - the simplest full-restore path), or take a live dump:
+
+   ```bash
+   docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > homelab.dump
+   ```
+
+   Run this with the stack up and from the stack's directory - it writes `homelab.dump` to the current directory, so move it off-host along with your `.env`. The stderr warning about circular foreign-key constraints on TimescaleDB internals is expected and harmless. To run this from cron, prefix the command with `cd /path/to/stack &&` - `docker compose` resolves the project from the working directory.
+
+2. **The git repos volume** (`git-repos`), which holds your stack definitions:
+
+   ```bash
+   docker run --rm -v <project>_git-repos:/data -v "$PWD":/backup alpine sh -c 'tar czf /backup/git-repos.tgz -C /data .'
+   ```
+
+   `<project>` is your compose project name - the directory's name unless you passed `-p`. `docker compose ps` shows it as the container-name prefix. Move `git-repos.tgz` off-host too.
+
 3. **Your `.env`, especially `MASTER_KEY`.**
 
 The master key is not stored in the database. A database backup without the key is incomplete: stack secrets, every managed host's agent keypair, and all git tokens are encrypted with it and cannot be recovered if it is lost. You would have to re-enter all stack secrets, re-enroll every managed host, and regenerate git tokens. Store the key somewhere safe and separate from the database backup.
 
+### Restore
+
+Restore `.env` first (the stack cannot start without it). Then stop `worker` and `web` - everything from here on runs with them down - restore the `git-repos` volume, then the database. `postgres` stays up throughout: `pg_restore` runs inside it.
+
+**git-repos volume**:
+
+```bash
+docker compose stop worker web
+docker run --rm -v <project>_git-repos:/data -v "$PWD":/backup alpine sh -c 'tar xzf /backup/git-repos.tgz -C /data'
+```
+
+**Database** - preconditions: `postgres` is running and `homelab.dump` is in the current directory. `--clean` drops everything currently in the database and replaces it with the dump's contents (`--if-exists` makes the DROPs tolerate absent objects), and TimescaleDB hypertables require its pre/post restore wrappers:
+
+```bash
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT timescaledb_pre_restore();"'
+docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < homelab.dump
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT timescaledb_post_restore();"'
+docker compose start worker web
+```
+
+**`.env`** - copy the backed-up `.env` back. Without `MASTER_KEY` the encrypted columns (stack secrets, agent keypairs, git tokens) are unrecoverable - see the warning above.
+
 ## Health Monitoring
 
-The web service exposes an unauthenticated `GET /api/health` endpoint that verifies database reachability: `200 {"status":"ok","database":true}` when healthy, `503` otherwise. The compose file uses it for the `web` service's Docker healthcheck, and it is the right target for an external uptime monitor (e.g. Uptime Kuma):
+The web service exposes an unauthenticated `GET /api/health` endpoint that verifies database reachability: `200 {"status":"ok","database":true}` when healthy, `503` otherwise. The compose file uses it for the `web` service's Docker healthcheck, and it is the right target for an external uptime monitor (e.g. Uptime Kuma). Neither the healthcheck nor `/api/health` reflects migration state - on first start the web container can report healthy while the worker is still applying migrations (see Quick Start).
 
 ```bash
 curl http://<your-server-ip>:3000/api/health
@@ -395,14 +439,21 @@ New versions are cut automatically: release-please keeps a standing release PR f
 
 **Dashboard shows no data**
 - Check the worker logs: `docker compose logs -f worker`
-- Verify your Docker/ZFS/Proxmox host is reachable from the container: `docker compose exec worker ping <host>`
+- Verify the target host is reachable from the worker container. The image ships no `ping`, so use these instead:
+  - DNS resolution (use a hostname - IP addresses do not involve DNS): `docker compose exec worker getent hosts <host>`
+  - HTTP reachability (any status, even 4xx/5xx, proves the network path is fine): `docker compose exec worker bun -e 'fetch("http://<agent-ip>:9090/health").then(r => console.log("status", r.status)).catch(e => { console.error("unreachable:", e.message); process.exit(1); })`
+  - A DNS failure prints `getaddrinfo ENOTFOUND ...`. Other connection failures print Bun's connection-error message (e.g. "Unable to connect"). A TLS/certificate error (Proxmox on port 8006 with its self-signed default certificate, or a TLS-enabled agent) also proves the network path is fine - only DNS and connection failures indicate a network problem. Agents listen on 9090, Proxmox on 8006.
+
+**Stack fails with `required variable POSTGRES_... is missing a value`**
+- Your `.env` is missing or missing keys - Compose refuses to parse the stack instead of starting a broken database. Recreate `.env` from the template in Quick Start with your real values, then `docker compose up -d`. This applies to every `docker compose` command, not just `up`.
+- If `.env` is complete and a `postgres` container still comes up unhealthy, that is a different failure - see the next entry.
 
 **Database connection errors**
-- The web and worker services wait for the database to be healthy before starting, but if the DB is slow to initialize on first run, restart the failed service: `docker compose restart worker web`
+- The web and worker services wait for the database to be healthy before starting, but if the DB is slow to initialize on first run, restart the failed service: `docker compose restart worker web`. This applies only once a valid `.env` exists - restarting cannot fix a database that never initialized (see the entry above).
 - `docker compose ps` shows the web service's health state; `curl http://<ip>:3000/api/health` checks it from outside.
 
 **Proxmox page shows no data**
-- `WORKER_PROXMOX_ENABLED` defaults to `false`. Set it to `true` in your `.env` along with the `PROXMOX_*` connection vars, then restart the worker.
+- `WORKER_PROXMOX_ENABLED` defaults to `false`. Set it to `true` in your `.env` along with the `PROXMOX_*` connection vars, then recreate the worker: `docker compose up -d worker`. (`docker compose restart` does not pick up `.env` changes - the environment is baked in when the container is created.)
 
 **Managed hosts aren't reachable / Stacks page shows no hosts**
 - Verify the agent is running on the target host: `curl http://<agent-ip>:9090/health`
