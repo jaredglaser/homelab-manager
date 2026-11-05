@@ -216,6 +216,7 @@ These variables are set on each **agent** container (not on the dashboard or wor
 | `AGENT_PORT` | `9090` | Port the agent listens on |
 | `DOCKER_HOST` | - | Docker endpoint (socket proxy recommended, e.g. `tcp://socket-proxy:2375`). Enables the Docker capability. |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | - | Optional TLS for the agent's listener. Set both together. |
+| `HLM_TLS_HTTP_FALLBACK` | `false` | Escape hatch for the agent's TLS enrollment flow. When set to `true`, the agent serves plain HTTP whenever no enrolled certificate is present, regardless of the marker, instead of refusing to start. Only use during TLS troubleshooting (see the recovery runbook below). Remove it once the certificate is enrolled. |
 
 ### Docker Monitoring
 
@@ -250,13 +251,15 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 Two separate credentials are involved, neither of which is an env var:
 
 - **Dashboard-to-agent:** each deploy request carries a short-lived JWT signed by a per-host Ed25519 keypair stored encrypted in the database; no token file is distributed to hosts.
-- **Git pushes:** authenticated with per-user git tokens. Generate one in **Settings → Auth Management → Generate Git Token** (admin only; the token is shown once). Use it as the password on `git push`; pushes require the `admin` or `operator` role.
+- **Git pushes:** authenticated with per-user git tokens. Generate one in **Settings → Auth Management → Generate Git Token** (admins and operators, with the token shown once). Use it as the password on `git push`. Pushes require the `admin` or `operator` role. Operators manage only their own tokens, and admins see every user's tokens.
 
 > **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and sends the public JWK to the agent. Each deploy request carries a short-lived signed JWT; the agent verifies it against the trusted public key.
 >
 > **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose stack for the agent and handles key exchange during the Verify step. Set `AGENT_HOST_NAME` on the agent to the host name you enter in the wizard (see [Agent Environment](#agent-environment)). Once connectivity is confirmed, the keypair is stored and the host is ready.
 >
-> **Rotating a host keypair:** Use **Settings → Managed Hosts → key icon** on the host row, then **Rotate keypair** (confirm twice). The dialog shows the new public JWK; copy it into the agent's `AGENT_TRUSTED_PUBKEY` (or `AGENT_TRUSTED_PUBKEY_FILE`) in that machine's `.env` and recreate the agent container. Until you do, every authenticated call to that agent fails with 401: the dashboard signs with the new key immediately, and the agent still trusts the old one. The dialog stays open with the new key until you close it.
+### Rotating a host keypair
+
+Use **Settings → Managed Hosts → key icon** on the host row, then **Rotate keypair** (the button arms on the first press, then press it again to confirm). The dialog shows the new public JWK. Copy it into the agent's `AGENT_TRUSTED_PUBKEY` (or `AGENT_TRUSTED_PUBKEY_FILE`) in that machine's `.env` and recreate the agent container. Until you do, every authenticated call to that agent fails with 401: the dashboard signs with the new key immediately, and the agent still trusts the old one. The dialog stays open with the new key until you close it.
 
 ### PostgreSQL Connection
 
@@ -281,7 +284,7 @@ The worker always runs and applies database migrations on startup; individual co
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WORKER_DOCKER_ENABLED` | `true` | Enable Docker stats collection |
+| `WORKER_DOCKER_ENABLED` | `true` | Enable Docker stats collection. Default `true` in the compose file. The app itself treats unset as disabled. |
 | `WORKER_ZFS_ENABLED` | `false` | Enable ZFS stats collection |
 | `WORKER_PROXMOX_ENABLED` | `false` | Enable Proxmox stats collection |
 | `WORKER_COLLECTION_INTERVAL_MS` | `1000` | Collection interval in milliseconds |
