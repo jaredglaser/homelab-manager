@@ -7,6 +7,7 @@ import {
   buildSubjectAltName,
   ENROLL_MARKER_NAME,
   handleTlsEnroll,
+  isAllowedOverPlainHttp,
   parseAndValidateSans,
   parseTlsHttpFallback,
   resolveTlsStartup,
@@ -268,7 +269,7 @@ describe('tls-enroll', () => {
     });
 
     it('serves plain HTTP without a warning when TLS is not configured', () => {
-      expect(resolveTlsStartup(undefined, undefined, false, readable, () => false)).toEqual({ mode: 'http' });
+      expect(resolveTlsStartup(undefined, undefined, false, readable, () => false)).toEqual({ mode: 'http', restricted: false });
     });
 
     it('is fatal when only one path is set', () => {
@@ -296,6 +297,7 @@ describe('tls-enroll', () => {
       if (decision.mode === 'http') {
         expect(decision.warning).toContain('HLM_TLS_HTTP_FALLBACK=true');
         expect(decision.warning).toContain('without TLS');
+        expect(decision.restricted).toBe(true);
       }
     });
 
@@ -305,7 +307,20 @@ describe('tls-enroll', () => {
       if (decision.mode === 'http') {
         expect(decision.warning).toContain('first boot');
         expect(decision.warning).toContain('Re-run TLS provisioning');
+        expect(decision.restricted).toBe(true);
       }
+    });
+
+    it('restricts plain HTTP to the enrollment endpoints only when TLS is configured but no cert is served', () => {
+      expect(isAllowedOverPlainHttp('/health')).toBe(true);
+      expect(isAllowedOverPlainHttp('/auth/verify')).toBe(true);
+      expect(isAllowedOverPlainHttp('/tls/enroll')).toBe(true);
+      expect(isAllowedOverPlainHttp('/info')).toBe(false);
+      expect(isAllowedOverPlainHttp('/stats/stream')).toBe(false);
+      expect(isAllowedOverPlainHttp('/stacks/deploy')).toBe(false);
+      expect(isAllowedOverPlainHttp('/containers/myapp/stop')).toBe(false);
+      expect(isAllowedOverPlainHttp('/exec/myapp')).toBe(false);
+      expect(isAllowedOverPlainHttp('/')).toBe(false);
     });
   });
 

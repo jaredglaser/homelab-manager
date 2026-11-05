@@ -49,8 +49,24 @@ export function parseTlsHttpFallback(value: string | undefined): boolean {
 
 export type TlsStartupDecision =
   | { mode: 'tls'; certPath: string; keyPath: string }
-  | { mode: 'http'; warning?: string }
+  | { mode: 'http'; warning?: string; /** TLS was configured but no certificate is being served: only the enrollment endpoints may be served over plain HTTP. */ restricted: boolean }
   | { mode: 'fatal'; error: string };
+
+/**
+ * Paths an agent may serve while it is in restricted plain-HTTP mode (TLS
+ * configured but no certificate yet). Everything else gets a 403, because
+ * over plain HTTP the bearer-token auth is defeated by any network observer:
+ * a sniffer can read and replay tokens, and deploy payloads carry resolved
+ * secret values. Keeping the surface down to enrollment plus liveness means
+ * the unencrypted window can only ever carry the enrollment handshake itself,
+ * whose request body is a SAN list and whose response is the public
+ * certificate - the private key is generated on the agent and never leaves it.
+ */
+export const HTTP_ENROLLMENT_ALLOWED_PATHS: ReadonlySet<string> = new Set(['/health', '/auth/verify', '/tls/enroll']);
+
+export function isAllowedOverPlainHttp(pathname: string): boolean {
+  return HTTP_ENROLLMENT_ALLOWED_PATHS.has(pathname);
+}
 
 /** Missing cert plus no enrollment marker is a first boot served over HTTP with a warning. An enrolled host that lost its cert stays fatal, because silently serving HTTP under a pinned https URL breaks every connection unexplained. */
 export function resolveTlsStartup(
@@ -60,7 +76,7 @@ export function resolveTlsStartup(
   isReadable: (path: string) => boolean,
   isEnrolled: () => boolean,
 ): TlsStartupDecision {
-  if (!certPath && !keyPath) return { mode: 'http' };
+  if (!certPath && !keyPath) return { mode: 'http', restricted: false };
   if (!certPath || !keyPath) {
     return {
       mode: 'fatal',
@@ -72,6 +88,7 @@ export function resolveTlsStartup(
   if (fallback) {
     return {
       mode: 'http',
+      restricted: true,
       warning:
         `${problem}. Serving HTTP because HLM_TLS_HTTP_FALLBACK=true. Manager-to-agent connections run without TLS until TLS provisioning succeeds.`,
     };
@@ -79,6 +96,7 @@ export function resolveTlsStartup(
   if (!isEnrolled()) {
     return {
       mode: 'http',
+      restricted: true,
       warning:
         `${problem}. No enrollment marker found, so this is a first boot before TLS enrollment. Serving HTTP so the manager can enroll a certificate and restart the agent with TLS. If this host was enrolled before, its certificate was lost. Re-run TLS provisioning from the manager, or set HLM_TLS_HTTP_FALLBACK=true to keep serving HTTP.`,
     };
