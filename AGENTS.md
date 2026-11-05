@@ -44,6 +44,7 @@ bun run dev:local:logs        # Tail all Docker service logs
 bun run dev:local:logs:worker # Worker logs only
 bun run dev:local:logs:agent  # Agent logs only
 bun run dev:local:logs:db     # Postgres logs only
+bun run dev:local:logs:pocketid # Pocket ID logs only
 
 # Setup
 bun run setup                 # Install homelab-manager and agent
@@ -53,7 +54,7 @@ bun run typecheck             # TypeScript type checking
 bun test --isolate            # Run all tests sequentially (--isolate required: module mocks leak across files without it)
 bun run test                  # Same as above + coverage enforcement
 bun test --isolate --watch    # Run tests in watch mode
-bun build                     # Production build (runs typecheck first)
+bun run build                 # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)
 bun worker                    # Run background collector locally
 bun icons:download            # Download dashboard icons from homarr-labs/dashboard-icons
@@ -77,7 +78,7 @@ bun run test:e2e:ui           # Playwright UI mode
 
 E2e runs against static production builds served over MSW (not a dev server), so
 loaders/auth/the WebSocket are intercepted before first render. Specs live in `e2e/`;
-`*.demo.e2e.ts` run on the demo build, all other `*.e2e.ts` on the app build
+`*.demo.e2e.ts` run on the demo build, `*.mobile.e2e.ts` run on the dedicated mobile build, all other `*.e2e.ts` on the app build
 (the suffix keeps `bun test` from collecting Playwright specs). A flow earns a
 Playwright test only when it needs something Happy-DOM cannot do (real layout, the
 service worker, streaming end to end, canvas, the virtualizer, cross-tab, scroll);
@@ -87,7 +88,7 @@ everything else belongs in `bun test`. Selection rule and authoring conventions:
 ## Critical Rules
 
 1. **Styling**: TailwindCSS ONLY. Never create `.css` files (exception: `App.css`). Inline `style` only when Tailwind cannot express the value (virtualizer positioning, dynamic indent, computed transforms). Never use hardcoded hex colors - use the design tokens in `App.css` (`bg-card`, `text-muted-foreground`, `border-border`, `bg-level1`, `bg-chart-bg`, etc.). The tokens hold literal color values (no longer aliased to `--mui-palette-*`); the dark scheme lives in `:root` and the light overrides in `[data-color-scheme="light"]`, with `useLightPaletteEffect` rewriting the background-derived light tokens per selectable palette. Color mode (light/dark) is owned by `useColorMode` (sets `data-color-scheme`, persists to localStorage), seeded before first paint by an inline script in `__root.tsx`.
-2. **Imports**: Always use `@/` for src files. In test files: use `@/` for imports from outside `__tests__/`, relative paths for imports within the same `__tests__/` directory. Never mix `@/` and relative paths in non-test files.
+2. **Imports**: Always use `@/` for src files. In test files: use `@/` for imports from outside the test's directory tree, relative paths for imports within the same `__tests__/` directory, and a relative path is also accepted for the module under test itself (e.g. `../git-config`). Never mix `@/` and relative paths in non-test files.
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly in server functions.
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside the mux WebSocket route (`server/routes/api/mux.ts`); its handler closures live in a route module that ships to the client. In `createServerFn` modules, static imports are also safe: the Start compiler strips handler bodies from the client bundle and dead-code-eliminates handler-only imports, and every server-only entry point they reach statically carries a `@tanstack/react-start/server-only` marker (database client, database config, master key, encrypted value, git token repository) with `importProtection: { behavior: 'error' }` set in `vite.config.ts`, so any leak fails the build instead of breaking at runtime.
 5. **Muxed WebSocket Pattern**: one WebSocket at `/api/mux` (`server/routes/api/mux.ts`) carries every live topic (`stats:docker|zfs|proxmox`, `inventory`, `agent-inventory`, `settings`, `stack-status`, `image-updates` control class, `logs:<host>/<containerId>` bulk class). Every statically handled topic must be registered in `isValidTopic` (`src/lib/mux/protocol.ts`); the guard tests (`server/routes/api/__tests__/mux.test.ts`, `src/lib/channels/__tests__/channel-topics.test.ts`) fail CI otherwise. Client: `useMuxChannel`/`useMuxQuery` (`src/lib/mux/`) → `useTimeSeriesStream` hook → shared `DataTable` (CSS Grid + conditional `useVirtualizer`). Use div-based rows (not `<table>/<tr>/<td>`). Never use TanStack Start streaming server functions for real-time data.
@@ -263,4 +264,4 @@ Env vars documented in `.env.example`. `.env` sets `POSTGRES_HOST=localhost` for
 ## Agent-Specific Notes
 
 - **Codex** reads this file natively. Repo-local Codex skills live under `.codex/skills/`; Codex only auto-discovers skills from `~/.codex/skills` (or `$CODEX_HOME/skills`), so install the repo-local ones as symlinks with `.codex/scripts/install-repo-skills.sh`.
-- **Zed** reads this file natively as project instructions. Project settings and tasks live under `.zed/`. MCP servers are the one exception Zed configures at the user level, not per project; the snippet in [docs/development.md](docs/development.md) matches `.mcp.json`.
+- **Zed** reads this file natively as project instructions. Project settings and tasks live under `.zed/`. MCP servers are the one exception Zed configures at the user level, not per project; the snippet in [docs/development.md](docs/development.md) matches your local `.mcp.json` (gitignored, not committed).
