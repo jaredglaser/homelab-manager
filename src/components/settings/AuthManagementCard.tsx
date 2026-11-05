@@ -314,7 +314,12 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
   )
 }
 
-function GitTokensTable() {
+/**
+ * Git-token management section: generation, listing, and revocation.
+ * Admins see every user's tokens. Operators see only their own. The server
+ * functions scope the data by the caller's role.
+ */
+export function GitTokensSection() {
   const queryClient = useQueryClient()
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
   const [newToken, setNewToken] = useState<string | null>(null)
@@ -433,7 +438,7 @@ export function AuthManagementCard() {
         <RoleMappingPanel />
         <UsersTable />
         <SessionsTable />
-        <GitTokensTable />
+        <GitTokensSection />
       </div>
     </div>
   )

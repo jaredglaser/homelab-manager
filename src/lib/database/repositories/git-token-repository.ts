@@ -128,6 +128,15 @@ export class GitTokenRepository {
     await this.pool.query('DELETE FROM git_tokens WHERE id = $1', [id]);
   }
 
+  /** Deletes a token only if it is owned by the given user. Resolves to whether a row was removed. */
+  async deleteByIdAndUser(id: number, userId: number): Promise<boolean> {
+    const result = await this.pool.query(
+      'DELETE FROM git_tokens WHERE id = $1 AND user_id = $2',
+      [id, userId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async deleteByUserId(userId: number): Promise<void> {
     await this.pool.query('DELETE FROM git_tokens WHERE user_id = $1', [userId]);
   }
