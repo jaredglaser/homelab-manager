@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.1](https://github.com/jaredglaser/homelab-manager/compare/v0.3.0...v0.3.1) (2026-11-06)
+
+
+### Features
+
+* **auth:** allow operators to mint and manage their own git tokens ([#599](https://github.com/jaredglaser/homelab-manager/issues/599)) ([4207b7d](https://github.com/jaredglaser/homelab-manager/commit/4207b7d25f6f0a8435571306656c627b8dd995d7))
+
+
+### Bug Fixes
+
+* **agent:** restrict plain HTTP to TLS enrollment endpoints; skip http:// agents in worker ([#600](https://github.com/jaredglaser/homelab-manager/issues/600)) ([90c3d7c](https://github.com/jaredglaser/homelab-manager/commit/90c3d7ccf673b3c8bc1513fe2d41f12841c5df0a))
+* **self-hosting:** fail fast on missing config, fix backup/restore and diagnostics, drop fixed container names ([#596](https://github.com/jaredglaser/homelab-manager/issues/596)) ([ae391c6](https://github.com/jaredglaser/homelab-manager/commit/ae391c60a967dca2c5278a7ef4e1d3f3dc1e4a60))
+
 ## [0.3.0](https://github.com/jaredglaser/homelab-manager/compare/v0.2.4...v0.3.0) (2026-11-03)
 
 
