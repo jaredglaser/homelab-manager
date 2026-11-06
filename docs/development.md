@@ -337,7 +337,7 @@ defeated by any network observer. After enrollment a missing or unreadable
 certificate or key file is fatal: the agent refuses to start.
 
 Agents with no `TLS_CERT_PATH`/`TLS_KEY_PATH` at all keep the full API over
-plain HTTP — that is the intentional development setup (the dev compose does
+plain HTTP, which is the intentional development setup (the dev compose does
 not set the TLS paths), and the worker only talks to such agents when
 `WORKER_ALLOW_INSECURE_AGENTS=true`, which `docker-compose.local.yml` sets.
 

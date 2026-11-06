@@ -216,7 +216,7 @@ These variables are set on each **agent** container (not on the dashboard or wor
 | `AGENT_PORT` | `9090` | Port the agent listens on |
 | `DOCKER_HOST` | - | Docker endpoint (socket proxy recommended, e.g. `tcp://socket-proxy:2375`). Enables the Docker capability. |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | - | Optional TLS for the agent's listener. Set both together. |
-| `HLM_TLS_HTTP_FALLBACK` | `false` | Escape hatch for the agent's TLS enrollment flow. When set to `true`, the agent serves plain HTTP whenever no enrolled certificate is present, regardless of the marker, instead of refusing to start. Only use during TLS troubleshooting (see the recovery runbook below); remove it once the certificate is enrolled. While the agent serves plain HTTP with TLS configured but no enrolled certificate — first boot and fallback alike — it serves only `/health`, `/auth/verify` and `/tls/enroll`; every other endpoint returns `403` so stats, container control, stack deploys and exec sessions are never exposed unencrypted. |
+| `HLM_TLS_HTTP_FALLBACK` | `false` | Escape hatch for the agent's TLS enrollment flow. When set to `true`, the agent serves plain HTTP whenever no enrolled certificate is present, regardless of the marker, instead of refusing to start. Only use during TLS troubleshooting (see the recovery runbook below); remove it once the certificate is enrolled. While the agent serves plain HTTP with TLS configured but no enrolled certificate (first boot and fallback alike) it serves only `/health`, `/auth/verify` and `/tls/enroll`; every other endpoint returns `403` so stats, container control, stack deploys and exec sessions are never exposed unencrypted. |
 
 ### Docker Monitoring
 
