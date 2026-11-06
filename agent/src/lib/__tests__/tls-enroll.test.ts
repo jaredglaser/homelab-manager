@@ -7,6 +7,8 @@ import {
   buildSubjectAltName,
   ENROLL_MARKER_NAME,
   handleTlsEnroll,
+  HTTP_ENROLLMENT_ALLOWED_PATHS,
+  HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT,
   isAllowedOverPlainHttp,
   parseAndValidateSans,
   parseTlsHttpFallback,
@@ -14,7 +16,7 @@ import {
   TlsEnrollError,
   type SpawnFn,
 } from '../tls-enroll';
-import { authenticateRequest } from '../../middleware';
+import { AUTH_BYPASS_PATH, authenticateRequest } from '../../middleware';
 import { loadTrustedPublicKey } from '../jwt-auth';
 
 interface SpawnCall {
@@ -321,6 +323,19 @@ describe('tls-enroll', () => {
       expect(isAllowedOverPlainHttp('/containers/myapp/stop')).toBe(false);
       expect(isAllowedOverPlainHttp('/exec/myapp')).toBe(false);
       expect(isAllowedOverPlainHttp('/')).toBe(false);
+      // Exact pathname match is deliberate: the agent router compares
+      // url.pathname with ===, so a trailing slash 404s under TLS anyway and
+      // must not pass the restricted-mode gate either.
+      expect(isAllowedOverPlainHttp('/health/')).toBe(false);
+      expect(isAllowedOverPlainHttp('/tls/enroll/')).toBe(false);
+      expect(isAllowedOverPlainHttp('/health/x')).toBe(false);
+    });
+
+    it('keeps the JWT-bypassed liveness path inside the plain-HTTP allowlist', () => {
+      // authenticateRequest skips JWT for AUTH_BYPASS_PATH; if it were ever
+      // removed from the allowlist, restricted mode would 403 the health check.
+      expect(HTTP_ENROLLMENT_ALLOWED_PATHS.has(AUTH_BYPASS_PATH)).toBe(true);
+      expect(HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT).toBe('/health, /auth/verify, /tls/enroll');
     });
   });
 

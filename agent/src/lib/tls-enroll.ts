@@ -68,6 +68,10 @@ export function isAllowedOverPlainHttp(pathname: string): boolean {
   return HTTP_ENROLLMENT_ALLOWED_PATHS.has(pathname);
 }
 
+// Derived from the Set so the startup warning and the 403 error cannot drift
+// from the actual allowlist when a path is added or renamed.
+export const HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT = [...HTTP_ENROLLMENT_ALLOWED_PATHS].join(', ');
+
 /** Missing cert plus no enrollment marker is a first boot served over HTTP with a warning. An enrolled host that lost its cert stays fatal, because silently serving HTTP under a pinned https URL breaks every connection unexplained. */
 export function resolveTlsStartup(
   certPath: string | undefined,

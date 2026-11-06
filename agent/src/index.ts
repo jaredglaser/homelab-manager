@@ -12,7 +12,7 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
-import { enrollMarkerPath, handleTlsEnroll, isAllowedOverPlainHttp, parseTlsHttpFallback, resolveTlsStartup } from './lib/tls-enroll';
+import { enrollMarkerPath, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, parseTlsHttpFallback, resolveTlsStartup } from './lib/tls-enroll';
 
 function isFileReadable(path: string): boolean {
   try {
@@ -111,7 +111,7 @@ if (tlsDecision.mode === 'fatal') {
 }
 if (tlsDecision.mode === 'http' && tlsDecision.warning) console.warn(tlsDecision.warning);
 if (tlsDecision.mode === 'http' && tlsDecision.restricted) {
-  console.warn('Plain HTTP is restricted to /health, /auth/verify and /tls/enroll until a certificate is enrolled.');
+  console.warn(`Plain HTTP is restricted to ${HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT} until a certificate is enrolled.`);
 }
 
 const tlsConfig = tlsDecision.mode === 'tls'
@@ -243,7 +243,7 @@ Bun.serve<ExecWebSocketData>({
         return Response.json(
           {
             error:
-              'Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only /health, /auth/verify and /tls/enroll are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.',
+              `Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only ${HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT} are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.`,
           },
           { status: 403 },
         );
