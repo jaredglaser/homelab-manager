@@ -19,6 +19,7 @@ import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleM
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
 import { Spinner } from '@/components/ui/spinner';
 import CopyButton from '@/components/settings/CopyButton'
+import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
 
 function RoleMappingPanel() {
   const { data: roleMapping } = useQuery({
@@ -325,6 +326,7 @@ export function GitTokensSection() {
   const queryClient = useQueryClient()
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
   const [newToken, setNewToken] = useState<string | null>(null)
+  const [pendingRevoke, setPendingRevoke] = useState<{ id: number; label: string } | null>(null)
 
   const { data: tokens = [], isLoading, isError, error } = useQuery({
     queryKey: ['git-tokens'],
@@ -401,7 +403,7 @@ export function GitTokensSection() {
                             size="icon-sm"
                             className="text-destructive"
                             disabled={revokeMutation.isPending}
-                            onClick={() => revokeMutation.mutate(token.id)}
+                            onClick={() => setPendingRevoke({ id: token.id, label: token.label })}
                             aria-label="Revoke token"
                           />
                         }
@@ -424,6 +426,18 @@ export function GitTokensSection() {
         onGenerate={(label) => generateMutation.mutate(label)}
         isGenerating={generateMutation.isPending}
         newToken={newToken}
+      />
+      <UnsavedChangesDialog
+        open={pendingRevoke !== null}
+        onCancel={() => setPendingRevoke(null)}
+        onConfirm={() => {
+          if (pendingRevoke) revokeMutation.mutate(pendingRevoke.id)
+          setPendingRevoke(null)
+        }}
+        title="Revoke token"
+        description={`Revoke "${pendingRevoke?.label ?? ''}"? Applications using it will lose access. This cannot be undone.`}
+        confirmLabel="Revoke"
+        cancelLabel="Cancel"
       />
     </div>
   )
