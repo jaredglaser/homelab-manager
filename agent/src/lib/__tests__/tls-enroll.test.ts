@@ -313,20 +313,16 @@ describe('tls-enroll', () => {
       }
     });
 
-    it('restricts plain HTTP to the enrollment endpoints only when TLS is configured but no cert is served', () => {
+    it('allows only the enrollment endpoints over restricted plain HTTP', () => {
+      // The enrollment handshake must stay reachable without TLS or a first
+      // boot could never provision a certificate.
       expect(isAllowedOverPlainHttp('/health')).toBe(true);
       expect(isAllowedOverPlainHttp('/auth/verify')).toBe(true);
       expect(isAllowedOverPlainHttp('/tls/enroll')).toBe(true);
-      expect(isAllowedOverPlainHttp('/info')).toBe(false);
-      expect(isAllowedOverPlainHttp('/stats/stream')).toBe(false);
-      expect(isAllowedOverPlainHttp('/stacks/deploy')).toBe(false);
-      expect(isAllowedOverPlainHttp('/containers/myapp/stop')).toBe(false);
-      expect(isAllowedOverPlainHttp('/exec/myapp')).toBe(false);
+
+      // The derived-text test pins the Set's exact contents, so these guard
+      // only the matching shape: exact pathname, never a prefix.
       expect(isAllowedOverPlainHttp('/')).toBe(false);
-      // Exact pathname match is deliberate: the agent router compares
-      // url.pathname with ===, so a trailing slash 404s under TLS anyway and
-      // must not pass the restricted-mode gate either.
-      expect(isAllowedOverPlainHttp('/health/')).toBe(false);
       expect(isAllowedOverPlainHttp('/tls/enroll/')).toBe(false);
       expect(isAllowedOverPlainHttp('/health/x')).toBe(false);
     });
