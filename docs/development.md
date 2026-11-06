@@ -330,12 +330,23 @@ rotate a certificate.
 
 Before its first enrollment the agent serves plain HTTP with a warning in its
 logs (tracked by an `.enrolled` marker next to the certificate files), so the
-manager can reach it to enroll a certificate. After enrollment a missing or
-unreadable certificate or key file is fatal: the agent refuses to start.
+manager can reach it to enroll a certificate. In that state the plain-HTTP
+surface is restricted to `/health`, `/auth/verify` and `/tls/enroll`; every
+other endpoint returns `403`, because over plaintext the bearer-token auth is
+defeated by any network observer. After enrollment a missing or unreadable
+certificate or key file is fatal: the agent refuses to start.
+
+Agents with no `TLS_CERT_PATH`/`TLS_KEY_PATH` at all keep the full API over
+plain HTTP, which is the intentional development setup (the dev compose does
+not set the TLS paths), and the worker only talks to such agents when
+`WORKER_ALLOW_INSECURE_AGENTS=true`, which `docker-compose.local.yml` sets.
 
 `HLM_TLS_HTTP_FALLBACK` (agent container): set it to `true` to serve plain HTTP
 instead of refusing to start, with a warning in the agent logs. The value must
-be exactly `true` or `false`. Anything else stops the agent at startup.
+be exactly `true` or `false`. Anything else stops the agent at startup. The
+plain-HTTP surface stays restricted to the enrollment endpoints in this mode
+too, so a forgotten fallback flag cannot quietly reopen the full API over
+plaintext.
 
 ## Editor Setup (Zed)
 

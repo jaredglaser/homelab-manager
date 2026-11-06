@@ -216,7 +216,7 @@ These variables are set on each **agent** container (not on the dashboard or wor
 | `AGENT_PORT` | `9090` | Port the agent listens on |
 | `DOCKER_HOST` | - | Docker endpoint (socket proxy recommended, e.g. `tcp://socket-proxy:2375`). Enables the Docker capability. |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | - | Optional TLS for the agent's listener. Set both together. |
-| `HLM_TLS_HTTP_FALLBACK` | `false` | Escape hatch for the agent's TLS enrollment flow. When set to `true`, the agent serves plain HTTP whenever no enrolled certificate is present, regardless of the marker, instead of refusing to start. Only use during TLS troubleshooting (see the recovery runbook below). Remove it once the certificate is enrolled. |
+| `HLM_TLS_HTTP_FALLBACK` | `false` | Escape hatch for the agent's TLS enrollment flow. When set to `true`, the agent serves plain HTTP whenever no enrolled certificate is present, regardless of the marker, instead of refusing to start. Only use during TLS troubleshooting (see the recovery runbook below); remove it once the certificate is enrolled. While the agent serves plain HTTP with TLS configured but no enrolled certificate (first boot and fallback alike) it serves only `/health`, `/auth/verify` and `/tls/enroll`; every other endpoint returns `403` so stats, container control, stack deploys and exec sessions are never exposed unencrypted. |
 
 ### Docker Monitoring
 
@@ -289,6 +289,7 @@ The worker always runs and applies database migrations on startup; individual co
 | `WORKER_PROXMOX_ENABLED` | `false` | Enable Proxmox stats collection |
 | `WORKER_COLLECTION_INTERVAL_MS` | `1000` | Collection interval in milliseconds |
 | `WORKER_LOCALHOST_AGENT` | - | Docker-internal hostname to substitute for `localhost` agent URLs (e.g. `hlm-agent`). Set this when the worker and an agent container run on the same Docker host; without it, `localhost` agent URLs resolve to the worker container itself rather than the agent container. |
+| `WORKER_ALLOW_INSECURE_AGENTS` | `false` | Allow the worker to collect from agents whose stored URL is plain `http://`. The worker skips such hosts with a warning, because a plain-http agent URL means TLS provisioning has not completed (the URL is flipped to https once it succeeds). Set to `true` only in development, where agents intentionally serve plain HTTP without TLS; the local dev compose sets it for you. |
 
 ---
 
@@ -412,6 +413,8 @@ PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 WORKER_PROXMOX_ENABLED=true
 # WORKER_COLLECTION_INTERVAL_MS=1000
 # WORKER_LOCALHOST_AGENT=hlm-agent
+# Development only: allow collection from agents over plain http://
+# WORKER_ALLOW_INSECURE_AGENTS=true
 ```
 
 ---
@@ -469,7 +472,7 @@ If the manager's per-host certificate record is lost (for example, a database re
 1. SSH into the agent host and remove the certificate files and the enrollment marker: `rm /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem /opt/homelab-manager/stacks/hlm-agent-tls/key.pem /opt/homelab-manager/stacks/hlm-agent-tls/.enrolled`. With the marker gone the agent treats the missing certificates as a first boot and serves plain HTTP with a warning in its logs.
 2. In Settings → Managed Hosts, edit the host and set its agent URL back to `http://<agent-ip>:9090` (an https URL cannot reach an agent serving plain HTTP), then use **Rotate TLS** (or re-run **Verify Connection** in the Add Host wizard). Provisioning enrolls a fresh certificate, restarts the agent, verifies HTTPS, and flips the URL back to https.
 
-If you cannot SSH in, add `HLM_TLS_HTTP_FALLBACK=true` to the agent service environment (a `docker-compose.override.yml` is fine) and run `docker compose up -d` instead of step 1. The agent then serves plain HTTP regardless of the marker. Remove the override and run `docker compose up -d` again afterwards so the agent refuses to serve without a certificate in the future.
+If you cannot SSH in, add `HLM_TLS_HTTP_FALLBACK=true` to the agent service environment (a `docker-compose.override.yml` is fine) and run `docker compose up -d` instead of step 1. The agent then serves plain HTTP regardless of the marker, restricted to `/health`, `/auth/verify` and `/tls/enroll` so nothing else is exposed unencrypted. Remove the override and run `docker compose up -d` again afterwards so the agent refuses to serve without a certificate in the future.
 
 **ZFS host shows no pools**
 - The agent needs the host's `zpool`/`zfs` binaries and `/dev/zfs` mounted into its container (the wizard-generated stack includes these). Check the agent logs for "ZFS capability: disabled".

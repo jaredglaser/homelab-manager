@@ -109,6 +109,8 @@ services:
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
       WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
+      # Dev agents serve plain HTTP by default (TLS is optional in development).
+      WORKER_ALLOW_INSECURE_AGENTS: "true"
       DEV_HOST_NAME: ${DEV_HOST_NAME:-}
       WORKER_LOCALHOST_AGENT: "hlm-agent"
       HOMELAB_DEV_SEED: "true"
