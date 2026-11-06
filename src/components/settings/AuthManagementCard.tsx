@@ -18,6 +18,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
 import { Spinner } from '@/components/ui/spinner';
+import CopyButton from '@/components/settings/CopyButton'
 
 function RoleMappingPanel() {
   const { data: roleMapping } = useQuery({
@@ -275,10 +276,11 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
           {newToken ? (
             <>
               <Alert variant="warning">
-                <AlertDescription>Copy this token now — it will not be shown again.</AlertDescription>
+                <AlertDescription>Copy this token now. It will not be shown again.</AlertDescription>
               </Alert>
-              <div className="p-3 rounded bg-level1">
+              <div className="p-3 rounded bg-level1 flex items-start justify-between gap-2">
                 <p className="text-sm font-mono break-all">{newToken}</p>
+                <CopyButton text={newToken} label="token" />
               </div>
             </>
           ) : (

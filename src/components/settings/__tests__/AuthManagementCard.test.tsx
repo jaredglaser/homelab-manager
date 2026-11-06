@@ -322,8 +322,9 @@ describe('AuthManagementCard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
 
       await waitFor(() => {
-        expect(screen.getByText('Copy this token now — it will not be shown again.')).toBeDefined()
+        expect(screen.getByText('Copy this token now. It will not be shown again.')).toBeDefined()
         expect(screen.getByText('test-token-abc123')).toBeDefined()
+        expect(screen.getByLabelText('Copy token')).toBeDefined()
       })
     })
 
