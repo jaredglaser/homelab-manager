@@ -276,6 +276,31 @@ describe('AddHostWizard', () => {
       expect(onVerify).toHaveBeenCalledWith(1, 'http://192.168.1.10:9191')
     })
 
+    it('accepts a bracketed IPv6 literal and keeps the brackets in the composed URL', () => {
+      const onVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '[2001:db8::1]' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+      expect(onVerify).toHaveBeenCalledWith(1, 'http://[2001:db8::1]:9090')
+    })
+
+    it('still rejects a bare unbracketed IPv6 host whose colons cannot be a hostname', () => {
+      const onVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '2001:db8::1' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      expect(onVerify).not.toHaveBeenCalled()
+    })
+
     it('never produces an HTTPS URL, whatever the operator types', () => {
       const onVerify = mock(() => {})
       render(<AddHostWizard {...makeProps({ onVerify })} />)

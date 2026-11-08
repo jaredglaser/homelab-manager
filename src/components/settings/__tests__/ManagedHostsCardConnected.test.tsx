@@ -58,8 +58,11 @@ const createPendingHost = (data: { data: { name: string; capabilities?: { docker
 }
 
 let removeHostCalls: number[] = []
+// When set, removeHost rejects with this error instead of resolving.
+let removeHostError: unknown = null
 const removeHost = (data: { data: { hostId: number } }): Promise<{ success: boolean }> => {
   removeHostCalls.push(data.data.hostId)
+  if (removeHostError != null) return Promise.reject(removeHostError)
   return Promise.resolve({ success: true })
 }
 
@@ -96,6 +99,7 @@ beforeEach(() => {
   rotateTlsGate = null
   rotateTlsCalls.length = 0
   removeHostCalls.length = 0
+  removeHostError = null
   updateHostCalls.length = 0
   createPendingHostCalls.length = 0
   toasts.length = 0
@@ -278,6 +282,48 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
     })
+    expect(removeHostCalls).toEqual([1])
+  })
+
+  it('treats a discard whose pending row was already removed elsewhere as a silent success', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    removeHostError = new Error('Host not found')
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    await act(async () => {})
+    expect(toasts).toEqual([])
+  })
+
+  it('treats a stale pending host removed elsewhere as gone and still creates the renamed one', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    removeHostError = new Error('Host not found')
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
+    })
+    expect(toasts).toEqual([])
+  })
+
+  it('restores the original pending host when the rename stale removal fails', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    removeHostError = new Error('remove failed: connection reset by peer')
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
+    })
+    expect(createPendingHostCalls).toEqual([{ name: 'host-a' }])
     expect(removeHostCalls).toEqual([1])
   })
 

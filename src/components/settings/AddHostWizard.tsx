@@ -129,11 +129,14 @@ export default function AddHostWizard({
     && (!docker || isNonNegativeInt(dockerGid))
 
   // First contact is always plain HTTP: the scheme is not an operator choice, so the URL is composed here.
+  // Bracketed IPv6 literals are accepted and stay bracketed in the URL so new URL() parses the host.
   const AGENT_HOST_PATTERN = /^[a-zA-Z0-9._-]+$/
+  const AGENT_HOST_IPV6_PATTERN = /^\[[0-9a-fA-F:.]+\]$/
+  const isValidAgentHost = (host: string) => AGENT_HOST_PATTERN.test(host) || AGENT_HOST_IPV6_PATTERN.test(host)
   const portNumber = Number(agentPort.trim())
   const canVerify = !!pendingHost
     && agentHost.trim().length > 0
-    && AGENT_HOST_PATTERN.test(agentHost.trim())
+    && isValidAgentHost(agentHost.trim())
     && Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535
 
   return (

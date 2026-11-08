@@ -2,19 +2,25 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listHosts, createPendingHost, removeHost, checkHostHealth, updateHost, getHostPublicJwk, rotateHostKeypair, rotateHostTls } from '@/data/hosts/functions'
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
+import type { PendingHostState } from '@/components/settings/AddHostWizard'
 import { useToast } from '@/hooks/toastAtom'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
+
+// A not-found removal means the record is already gone, which discard and stale-removal treat as success.
+const isNotFound = (err: unknown) => err instanceof Error && /not found/i.test(err.message)
 
 export function ManagedHostsCard({ filterHostName }: { filterHostName?: string } = {}) {
   const queryClient = useQueryClient()
   const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
   const { showToast } = useToast()
-  const [pendingHost, setPendingHost] = useState<{ id: number; name: string; status: string; publicJwk: unknown } | null>(null)
+  const [pendingHost, setPendingHost] = useState<PendingHostState | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   const [provisionError, setProvisionError] = useState<string | null>(null)
   const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
   const [rotatingTlsHostIds, setRotatingTlsHostIds] = useState<Set<number>>(new Set())
+  // The pending record that a rename is replacing, kept so a failed stale removal can restore it.
+  const stalePendingHostRef = useRef<PendingHostState | null>(null)
 
   const { data: hosts = [], isLoading } = useQuery({
     queryKey: HOSTS_QUERY_KEY,
@@ -26,12 +32,18 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const createHostMutation = useMutation({
     mutationFn: async ({ name, capabilities, staleHostId }: { name: string; capabilities: { docker: boolean; zfs: boolean }; staleHostId: number | null }) => {
       if (staleHostId != null) {
-        await removeHost({ data: { hostId: staleHostId } })
+        await removeHost({ data: { hostId: staleHostId } }).catch((err: unknown) => {
+          // Another surface already removed the stale record, so creation can proceed.
+          if (!isNotFound(err)) throw Object.assign(err instanceof Error ? err : new Error(String(err)), { staleRemovalFailed: true })
+        })
       }
       return createPendingHost({ data: { name, capabilities } })
     },
     onMutate: ({ staleHostId }) => {
-      if (staleHostId != null) setPendingHost(null)
+      if (staleHostId != null) {
+        stalePendingHostRef.current = pendingHost
+        setPendingHost(null)
+      }
       setCreateError(null)
     },
     onSuccess: (result) => {
@@ -39,7 +51,13 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       setPendingHost({ id: result.host.id, name: result.host.name, status: result.host.status, publicJwk: result.publicJwk })
       setCreateError(null)
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, variables) => {
+      // A failed stale removal leaves the old record alive, so re-target it instead of duplicating it.
+      if (variables?.staleHostId != null
+        && (err as { staleRemovalFailed?: boolean }).staleRemovalFailed === true
+        && stalePendingHostRef.current?.id === variables.staleHostId) {
+        setPendingHost(stalePendingHostRef.current)
+      }
       setCreateError(err instanceof Error ? err.message : 'Failed to create the pending host')
     },
   })
@@ -86,6 +104,10 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     if (pendingHost && pendingHost.status === 'pending') {
       const hostId = pendingHost.id
       void removeHost({ data: { hostId } })
+        .catch((err: unknown) => {
+          // The row may already have been removed elsewhere, which makes discard a no-op, not a failure.
+          if (!isNotFound(err)) throw err
+        })
         .then(() => {
           void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
           setPendingHost((current) => (current?.id === hostId ? null : current))
