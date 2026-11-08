@@ -15,13 +15,6 @@ export interface KeypairsDep {
   getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
 }
 
-export interface AddHostResult {
-  host: HostListItem;
-  publicJwk?: import('jose').JWK;
-  /** Set when TLS provisioning failed but the keypair was created/returned; the host stays pending. */
-  provisioningError?: string;
-}
-
 export type HostOperationResult =
   | {
       hostId: number;
@@ -165,34 +158,32 @@ export async function handleRotateHostKeypair(
 }
 
 /**
- * Register a user-managed agent. Generates an Ed25519 keypair and returns the
- * public JWK to the operator, who installs it in the agent's AGENT_TRUSTED_PUBKEY
- * env. Status is pending until the operator installs the pubkey and a follow-up
- * health check passes.
+ * Create (or reuse) the pending host record and its Ed25519 keypair, and return
+ * the public JWK. Called when the Add Host wizard enters the Compose File step,
+ * so the generated compose embeds the real AGENT_TRUSTED_PUBKEY and the agent
+ * boots already trusting the manager. Provisioning is a separate step
+ * (handleRotateHostTls) that runs once the operator has deployed the stack and
+ * entered the agent URL.
  */
-export async function handleVerifyHost(
-  deps: HostHandlerDeps & {
-    keypairs: KeypairsDep;
-    /** Must run after repo.create: the cert row has an FK on the host name. Flips the agent URL to https on success. */
-    provisionTls?: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
-  },
-  data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
-): Promise<AddHostResult> {
+export async function handleCreatePendingHost(
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+): Promise<{ host: HostListItem; publicJwk: import('jose').JWK }> {
   const name = data.name.trim();
-  // The wizard re-runs verifyHost after a failed attempt, and the pending row
-  // from that attempt blocks a second create on the unique host name.
+  const capabilities = data.capabilities ?? { docker: false, zfs: false };
   const existing = await deps.repo.findByName(name);
   const host = existing ?? (await deps.repo.create({
     name,
-    agentUrl: data.agentUrl,
-    capabilities: data.capabilities,
+    // agent_url is NOT NULL but unknown at this point; the operator enters the
+    // URL on the Verify step, which persists it before provisioning runs.
+    agentUrl: '',
+    capabilities,
   }));
 
-  // Get-or-create: a re-verify must reuse the enrolled keypair. Rotating here
-  // would invalidate the AGENT_TRUSTED_PUBKEY the operator already installed on
-  // the agent, and the wizard's "Re-run provisioning" path re-runs this handler
-  // after fixing the agent. Rotation is the explicit rotate-keypair action,
-  // never a side effect of verify.
+  // Get-or-create: re-entering the wizard must reuse the enrolled keypair.
+  // Rotating here would invalidate the AGENT_TRUSTED_PUBKEY the operator
+  // already deployed in the compose. Rotation is the explicit rotate-keypair
+  // action, never a side effect of the wizard.
   let publicJwk = await deps.keypairs.getPublicJwkForHost(name);
   if (!publicJwk) {
     try {
@@ -203,33 +194,16 @@ export async function handleVerifyHost(
     }
   }
 
-  if (deps.provisionTls) {
-    try {
-      const provisioned = await deps.provisionTls(name, data.agentUrl);
-      const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
-      return {
-        host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
-        publicJwk,
-      };
-    } catch (err) {
-      // First contact is the expected way to land here. The wizard only shows
-      // AGENT_TRUSTED_PUBKEY once this handler returns, the agent exits at boot
-      // without a parseable pubkey, and every endpoint except /health (including
-      // the enroll endpoint) requires a JWT the agent verifies against that
-      // pubkey — so provisioning cannot succeed before the operator has the
-      // key in hand. Return the key alongside the error so the operator can
-      // boot the agent, and leave the record pending with its original URL so
-      // provisioning can be re-run against it.
-      return {
-        host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
-        publicJwk,
-        provisioningError: err instanceof Error ? err.message : String(err),
-      };
-    }
+  // Capability toggles may have changed since the record was created; keep the
+  // record honest, but only for pending hosts the wizard is still enrolling.
+  if (existing && host.status === 'pending'
+      && JSON.stringify(host.capabilities ?? {}) !== JSON.stringify(capabilities)) {
+    const updated = await deps.repo.update(host.id, { capabilities });
+    return { host: toHostListItem(updated), publicJwk };
   }
 
   return {
-    host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
+    host: toHostListItem(host, existing ? undefined : { agentVersion: null, status: 'pending' }),
     publicJwk,
   };
 }

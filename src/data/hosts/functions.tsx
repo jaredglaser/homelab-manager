@@ -1,16 +1,16 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-import { removeHostSchema, checkHostHealthSchema, verifyHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, rotateHostTlsSchema, updateAgentSchema } from '@/data/hosts/schemas';
+import { removeHostSchema, checkHostHealthSchema, createPendingHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, rotateHostTlsSchema, updateAgentSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleVerifyHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair, handleRotateHostTls,
-  type AddHostResult, type HostOperationResult, type HostHandlerDeps,
+  handleUpdateHost, handleCreatePendingHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair, handleRotateHostTls,
+  type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
-export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
+export type { HostListItem, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
@@ -132,18 +132,16 @@ function makeProvisionTls(
   };
 }
 
-export const verifyHost = createServerFn()
+export const createPendingHost = createServerFn()
   .middleware([authMiddleware])
-  .validator(verifyHostSchema)
-  .handler(async ({ data, context }): Promise<AddHostResult> => {
+  .validator(createPendingHostSchema)
+  .handler(async ({ data, context }): Promise<{ host: HostListItem; publicJwk: import('jose').JWK }> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
-    const tlsCerts = await loadTlsCertsRepo();
-    return handleVerifyHost({
+    return handleCreatePendingHost({
       ...baseDeps,
       keypairs: makeKeypairsDep(keypairs),
-      provisionTls: makeProvisionTls(keypairs, tlsCerts),
     }, data);
   });
 

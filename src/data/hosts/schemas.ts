@@ -5,9 +5,8 @@ const hostNameSchema = z.string().min(1).max(100).regex(
   'Must contain only letters, numbers, hyphens, and underscores',
 );
 
-export const verifyHostSchema = z.object({
+export const createPendingHostSchema = z.object({
   name: hostNameSchema,
-  agentUrl: z.url(),
   capabilities: z.object({
     docker: z.boolean().optional().default(false),
     zfs: z.boolean().optional().default(false),

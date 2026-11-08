@@ -22,10 +22,19 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
   return {
     hosts: [],
     isLoading: false,
-    onAdd: mock(() => {}),
-    isAdding: false,
-    addError: null,
-    verifyResult: null,
+    isCreating: false,
+    isProvisioning: false,
+    createError: null,
+    provisionError: null,
+    pendingHost: {
+      id: 1,
+      name: 'server1',
+      status: 'pending',
+      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
+    },
+    onCreateHost: mock(() => {}),
+    onVerify: mock(() => {}),
+    onDiscard: mock(() => {}),
     onRemove: mock(() => {}),
     isRemoving: false,
     onUpdate: mock(() => {}),
@@ -332,37 +341,35 @@ describe('ManagedHostsCard', () => {
       expect(btn.hasAttribute('disabled')).toBe(false)
     })
 
-    it('calls onAdd with name, url, and capabilities when Verify Connection is clicked', () => {
-      const onAdd = mock(() => {})
-      render(<ManagedHostsCardView {...makeProps({ onAdd })} />)
+    it('calls onVerify with the pending host id and trimmed URL when Verify Connection is clicked', () => {
+      const onVerify = mock(() => {})
+      render(<ManagedHostsCardView {...makeProps({ onVerify })} />)
       enterHostName('  server1  ')
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://localhost:9090  ' } })
       fireEvent.click(screen.getByRole('button', { name: /Verify Connection/ }))
-      expect(onAdd).toHaveBeenCalledTimes(1)
-      const args = (onAdd as ReturnType<typeof mock>).mock.calls[0]
-      expect(args[0]).toBe('server1')
-      expect(args[1]).toBe('http://localhost:9090')
-      expect(args[2]).toEqual({ docker: true, zfs: false })
+      expect(onVerify).toHaveBeenCalledTimes(1)
+      expect(onVerify).toHaveBeenCalledWith(1, 'http://localhost:9090')
     })
 
-    it('Verify Connection button is disabled while isAdding', () => {
-      render(<ManagedHostsCardView {...makeProps({ isAdding: true })} />)
+    it('Verify Connection button is disabled while isProvisioning', () => {
+      render(<ManagedHostsCardView {...makeProps({ isProvisioning: true })} />)
       enterHostName()
       // Navigate to verify step: capabilities -> compose -> configuration -> verify
-      // The Next button is not disabled by isAdding, only Back and Verify are
+      // The Next button is not disabled by isProvisioning, only Back and Verify are
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://localhost:9090' } })
       const btn = screen.getByRole('button', { name: /Verify Connection/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('shows add error with a re-run action on the verify step when addError is set', () => {
+    it('shows the provisioning error with a re-run action on the verify step when provisionError is set', () => {
       render(
-        <ManagedHostsCardView {...makeProps({ addError: 'Agent health check failed' })} />
+        <ManagedHostsCardView {...makeProps({ provisionError: 'Agent health check failed' })} />
       )
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -372,8 +379,12 @@ describe('ManagedHostsCard', () => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
 
-    it('does not show error when addError is null', () => {
-      render(<ManagedHostsCardView {...makeProps({ addError: null })} />)
+    it('does not show an error when provisionError is null', () => {
+      render(<ManagedHostsCardView {...makeProps({ provisionError: null })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.queryByText('Agent health check failed')).toBeNull()
     })
 
@@ -394,21 +405,17 @@ describe('ManagedHostsCard', () => {
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
     })
 
-    it('shows public JWK after enrollment when verifyResult is set', () => {
-      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
-      render(<ManagedHostsCardView {...makeProps({ verifyResult: { publicJwk } })} />)
+    it('embeds the pending host key in the compose', () => {
+      render(<ManagedHostsCardView {...makeProps()} />)
       enterHostName()
-      // Navigate to verify step to see the JWK display
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('pubkey-display')).toBeDefined()
-      expect(screen.getByText(/AGENT_TRUSTED_PUBKEY/)).toBeDefined()
-      expect(screen.getByTestId('pubkey-display').textContent).toContain('"kty":"OKP"')
+      const composeStep = screen.getByTestId('step-compose')
+      expect(composeStep.textContent).toContain('AGENT_TRUSTED_PUBKEY')
+      expect(composeStep.textContent).toContain('wizard-key-x')
     })
 
-    it('does not show JWK display when verifyResult is null', () => {
-      render(<ManagedHostsCardView {...makeProps({ verifyResult: null })} />)
+    it('does not show the verify-step pubkey display: the key lives in the compose', () => {
+      render(<ManagedHostsCardView {...makeProps()} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))

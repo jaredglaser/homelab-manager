@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost, getHostPublicJwk, rotateHostKeypair, rotateHostTls } from '@/data/hosts/functions'
+import { listHosts, createPendingHost, removeHost, checkHostHealth, updateHost, getHostPublicJwk, rotateHostKeypair, rotateHostTls } from '@/data/hosts/functions'
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
 import { useToast } from '@/hooks/toastAtom'
 
@@ -10,8 +10,9 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const queryClient = useQueryClient()
   const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
   const { showToast } = useToast()
-  const [addError, setAddError] = useState<string | null>(null)
-  const [verifyResult, setVerifyResult] = useState<{ publicJwk: unknown } | null>(null)
+  const [pendingHost, setPendingHost] = useState<{ id: number; name: string; status: string; publicJwk: unknown } | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [provisionError, setProvisionError] = useState<string | null>(null)
   const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
   const [rotatingTlsHostIds, setRotatingTlsHostIds] = useState<Set<number>>(new Set())
 
@@ -20,34 +21,57 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     queryFn: () => listHosts(),
   })
 
-  const addMutation = useMutation({
-    mutationFn: ({ name, agentUrl, capabilities }: { name: string; agentUrl: string; capabilities: { docker: boolean; zfs: boolean } }) =>
-      verifyHost({ data: { name, agentUrl, capabilities } }),
-    onMutate: () => {
-      setVerifyResult(null)
+  // Entering the Compose step creates (or reuses) the pending host + keypair so
+  // the generated compose embeds the real AGENT_TRUSTED_PUBKEY. Renaming after
+  // that point drops the stale pending record and creates a new one.
+  const createHostMutation = useMutation({
+    mutationFn: async ({ name, capabilities }: { name: string; capabilities: { docker: boolean; zfs: boolean } }) => {
+      if (pendingHost && pendingHost.name !== name) {
+        await removeHost({ data: { hostId: pendingHost.id } })
+      }
+      return createPendingHost({ data: { name, capabilities } })
+    },
+    onMutate: ({ name }) => {
+      if (!pendingHost || pendingHost.name !== name) setPendingHost(null)
+      setCreateError(null)
     },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      if (result.publicJwk) {
-        setVerifyResult({ publicJwk: result.publicJwk })
-      } else {
-        setVerifyResult(null)
-      }
-      if (result.publicJwk) {
-        showToast('Host added. Set AGENT_TRUSTED_PUBKEY on the agent and run Verify Connection.', 'warning')
-      } else {
-        showToast('Host added successfully', 'success')
-      }
-      // A failed provisioning run returns instead of throwing, so the key is
-      // shown together with the error and its Re-run provisioning button.
-      setAddError(result.provisioningError ?? null)
+      setPendingHost({ id: result.host.id, name: result.host.name, status: result.host.status, publicJwk: result.publicJwk })
+      setCreateError(null)
     },
     onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Failed to add host'
-      setAddError(message)
-      setVerifyResult(null)
+      setCreateError(err instanceof Error ? err.message : 'Failed to create the pending host')
     },
   })
+
+  // Verify = point the record at the URL the operator deployed the agent on,
+  // then provision TLS (the same operation the row's Rotate TLS action runs).
+  const provisionMutation = useMutation({
+    mutationFn: async ({ hostId, agentUrl }: { hostId: number; agentUrl: string }) => {
+      await updateHost({ data: { hostId, agentUrl } })
+      return rotateHostTls({ data: { hostId } })
+    },
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+      setProvisionError(null)
+      showToast(`Host verified. The agent is served over ${result.agentUrl}.`, 'success')
+    },
+    onError: (err: unknown) => {
+      setProvisionError(err instanceof Error ? err.message : 'Failed to verify the connection')
+    },
+  })
+
+  const discardPendingHost = () => {
+    if (pendingHost && pendingHost.status === 'pending') {
+      void removeHost({ data: { hostId: pendingHost.id } }).then(() => {
+        void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+      })
+    }
+    setPendingHost(null)
+    setCreateError(null)
+    setProvisionError(null)
+  }
 
   const removeMutation = useMutation({
     mutationFn: (hostId: number) => removeHost({ data: { hostId } }),
@@ -144,10 +168,14 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     <ManagedHostsCardView
       hosts={filteredHosts}
       isLoading={isLoading}
-      onAdd={(name, agentUrl, capabilities) => addMutation.mutate({ name, agentUrl, capabilities })}
-      isAdding={addMutation.isPending}
-      addError={addError}
-      verifyResult={verifyResult}
+      onCreateHost={(name, capabilities) => createHostMutation.mutate({ name, capabilities })}
+      isCreating={createHostMutation.isPending}
+      isProvisioning={provisionMutation.isPending}
+      createError={createError}
+      provisionError={provisionError}
+      pendingHost={pendingHost}
+      onVerify={(hostId, agentUrl) => provisionMutation.mutate({ hostId, agentUrl })}
+      onDiscard={discardPendingHost}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
       isRemoving={removeMutation.isPending}
       onUpdate={(hostId, name, agentUrl) => updateMutation.mutate({ hostId, name, agentUrl })}

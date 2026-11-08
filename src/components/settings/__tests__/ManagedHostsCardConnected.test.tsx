@@ -1,7 +1,10 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
+// Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
+// screen.* queries and clicks leak into whichever wizard was mounted first.
+import '@/lib/test/testing-library'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 
 // Register module mocks before any component import: a mock.module call made
@@ -40,21 +43,30 @@ const rotateHostTls = (data: { data: { hostId: number } }): Promise<RotateTlsRes
   return rotateTlsResult
 }
 
-type VerifyHostResult = { host: HostListItem; publicJwk?: Record<string, unknown>; provisioningError?: string }
-let verifyHostResult: Promise<VerifyHostResult> = Promise.resolve({ host: makeHost(), publicJwk: {} })
-let verifyHostCalls: Array<{ name: string; agentUrl: string; capabilities?: { docker: boolean; zfs: boolean } }> = []
+type CreatePendingHostResult = { host: HostListItem; publicJwk: Record<string, string> }
+let createPendingHostResult: Promise<CreatePendingHostResult> = Promise.resolve({
+  host: makeHost({ status: 'pending' }),
+  publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
+})
+let createPendingHostCalls: Array<{ name: string }> = []
 
-const verifyHost = (data: { data: { name: string; agentUrl: string } }): Promise<VerifyHostResult> => {
-  verifyHostCalls.push(data.data)
-  return verifyHostResult
+const createPendingHost = (data: { data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } } }): Promise<CreatePendingHostResult> => {
+  createPendingHostCalls.push({ name: data.data.name })
+  return createPendingHostResult
+}
+
+let updateHostCalls: Array<{ hostId: number; agentUrl?: string }> = []
+const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Promise<HostListItem> => {
+  updateHostCalls.push({ hostId: data.data.hostId, agentUrl: data.data.agentUrl })
+  return Promise.resolve(makeHost())
 }
 
 mock.module('@/data/hosts/functions', () => ({
   listHosts: () => Promise.resolve([makeHost()]),
-  verifyHost,
+  createPendingHost,
   removeHost: () => Promise.resolve({ success: true }),
   checkHostHealth: () => Promise.resolve({ hostId: 1, healthy: true }),
-  updateHost: () => Promise.resolve(makeHost()),
+  updateHost,
   getHostPublicJwk: () => Promise.resolve({ publicJwk: {} }),
   rotateHostKeypair: () => Promise.resolve({ hostId: 1, publicJwk: {} }),
   rotateHostTls: (data: { data: { hostId: number } }) => rotateHostTls(data),
@@ -71,6 +83,18 @@ function renderCard(): void {
     </QueryClientProvider>,
   )
 }
+
+beforeEach(() => {
+  rotateTlsCalls.length = 0
+  updateHostCalls.length = 0
+  createPendingHostCalls.length = 0
+  toasts.length = 0
+  rotateTlsResult = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
+  createPendingHostResult = Promise.resolve({
+    host: makeHost({ status: 'pending' }),
+    publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
+  })
+})
 
 describe('ManagedHostsCardConnected rotate TLS toasts', () => {
   it('shows the pinned success toast after a successful rotation', async () => {
@@ -101,26 +125,53 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
   })
 })
 
-describe('ManagedHostsCardConnected add-host verify flow', () => {
-  it('shows the public JWK alongside the provisioning error when provisioning fails', async () => {
-    verifyHostResult = Promise.resolve({
-      host: makeHost({ status: 'pending' }),
-      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' },
-      provisioningError: 'TLS provisioning failed: the agent did not become healthy over HTTPS (connection refused)',
-    })
+describe('ManagedHostsCardConnected add-host flow', () => {
+  function navigateToVerify() {
     renderCard()
     fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://x:9090' } })
+  }
+
+  it('embeds the created host key in the compose when entering the Compose step', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('step-compose').textContent).toContain('wizard-key-x')
+    })
+    expect(createPendingHostCalls).toEqual([{ name: 'newhost' }])
+  })
+
+  it('persists the agent URL and provisions TLS when Verify Connection is clicked', async () => {
+    navigateToVerify()
+    // The Verify button enables once the pending host exists and a URL is entered.
+    fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://10.1.1.99:9090' } })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     await waitFor(() => {
-      expect(screen.getByTestId('pubkey-display').textContent).toContain('enrolled-x')
+      expect(updateHostCalls).toEqual([{ hostId: 1, agentUrl: 'http://10.1.1.99:9090' }])
+      expect(rotateTlsCalls).toEqual([{ data: { hostId: 1 } }])
     })
-    expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
-    expect(toasts.some((t) => t.message.startsWith('Host added.'))).toBe(true)
-    expect(verifyHostCalls).toEqual([{ name: 'newhost', agentUrl: 'http://x:9090', capabilities: { docker: true, zfs: false } }])
+    expect(toasts.some((t) => t.message.startsWith('Host verified.'))).toBe(true)
+  })
+
+  it('shows the provisioning error with a re-run action when provisioning fails', async () => {
+    navigateToVerify()
+    fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://10.1.1.99:9090' } })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+    })
+    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (connection refused)'))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+    })
+    expect(screen.getByText(/TLS provisioning failed/)).toBeDefined()
   })
 })

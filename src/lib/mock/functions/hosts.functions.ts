@@ -1,6 +1,5 @@
 import type {
   HostListItem,
-  AddHostResult,
   HealthCheckResult,
   UpdateAgentResult,
   AgentInventoryEntry,
@@ -63,13 +62,14 @@ const mockHosts: readonly HostListItem[] = [
 let nextMockId = mockHosts.length + 1;
 
 /** Intentionally stateless: returns a plausible result without mutating mockHosts. Demo mode shows a fixed set of hosts. */
-export async function verifyHost(data: {
+export async function createPendingHost(data: {
   name: string;
-  agentUrl: string;
-  agentToken: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
-}): Promise<AddHostResult> {
-  return { host: buildHost(data) };
+}): Promise<{ host: HostListItem; publicJwk: Record<string, string> }> {
+  return {
+    host: buildHost({ name: data.name, agentUrl: '', capabilities: data.capabilities }),
+    publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'mock-public-key-x' },
+  };
 }
 
 export async function updateHost(data: {

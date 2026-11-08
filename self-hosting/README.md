@@ -212,7 +212,7 @@ These variables are set on each **agent** container (not on the dashboard or wor
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_HOST_NAME` | - | **Required.** Must equal the managed host's name as registered in **Settings → Managed Hosts**. Manager-issued JWTs carry this name as the `aud` claim, so a token minted for one host is rejected by another (protects against a reused or copy-pasted keypair). The agent exits at startup if it is unset. |
-| `AGENT_TRUSTED_PUBKEY` or `AGENT_TRUSTED_PUBKEY_FILE` | - | Trusted Ed25519 public JWK the agent verifies request JWTs against. The dashboard hands you this value during the Verify step. Set one of the two; if both are set, the `_FILE` variant wins. |
+| `AGENT_TRUSTED_PUBKEY` or `AGENT_TRUSTED_PUBKEY_FILE` | - | Trusted Ed25519 public JWK the agent verifies request JWTs against. The wizard-generated compose embeds this value, so deploying the generated stack sets it for you. Set one of the two; if both are set, the `_FILE` variant wins. |
 | `AGENT_PORT` | `9090` | Port the agent listens on |
 | `DOCKER_HOST` | - | Docker endpoint (socket proxy recommended, e.g. `tcp://socket-proxy:2375`). Enables the Docker capability. |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | - | Optional TLS for the agent's listener. Set both together. |
@@ -255,7 +255,7 @@ Two separate credentials are involved, neither of which is an env var:
 
 > **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and sends the public JWK to the agent. Each deploy request carries a short-lived signed JWT; the agent verifies it against the trusted public key.
 >
-> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose stack for the agent and handles key exchange during the Verify step. Set `AGENT_HOST_NAME` on the agent to the host name you enter in the wizard (see [Agent Environment](#agent-environment)). Once connectivity is confirmed, the keypair is stored and the host is ready.
+> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard creates the host record and keypair when you enter the Compose File step, so the generated compose embeds the real `AGENT_TRUSTED_PUBKEY` — the agent boots already trusting the manager. Set `AGENT_HOST_NAME` on the agent to the host name you enter in the wizard (see [Agent Environment](#agent-environment)). The Verify step then provisions TLS for the agent and moves the connection to HTTPS.
 >
 ### Rotating a host keypair
 

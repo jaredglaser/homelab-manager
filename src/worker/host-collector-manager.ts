@@ -182,7 +182,7 @@ export class HostCollectorManager implements AsyncDisposable {
     }
 
     // Plain-http agent URLs are the pre-TLS-provisioning state: the host row
-    // exists from verifyHost before the URL is flipped to https. Collecting
+    // exists from the Add Host wizard before the URL is flipped to https. Collecting
     // over plaintext would stream stats, inventory and stack data unencrypted,
     // so such hosts are skipped unless plaintext is explicitly allowed
     // (development only, via WORKER_ALLOW_INSECURE_AGENTS=true).
