@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
 import { getAgentImage } from '@/lib/hosts/host-utils';
+import type { JWK } from 'jose';
 import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
 import {
   handleListHosts,
@@ -13,6 +14,8 @@ import {
   handleRotateHostTls,
   handleUpdateAgent,
 } from '../handlers';
+
+const MOCK_JWK: JWK = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' };
 
 const NOW = new Date('2026-03-01T00:00:00Z');
 
@@ -37,7 +40,8 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
   return {
     findById: mock(() => Promise.resolve(mockRow())),
     findAll: mock(() => Promise.resolve([mockRow()])),
-    create: mock(() => Promise.resolve(mockRow())),
+    create: mock((input: { name: string; agentUrl: string }) =>
+      Promise.resolve(mockRow({ name: input.name, agentUrl: input.agentUrl }))),
     findByName: mock((_name: string) => Promise.resolve(null)),
     update: mock(() => Promise.resolve(mockRow())),
     delete: mock(() => Promise.resolve()),
@@ -59,6 +63,7 @@ function makeKeypairsMock(): KeypairsDep {
     deleteForHost: mock(async () => undefined),
     // Default: no keypair enrolled yet, so the create path is exercised.
     getPublicJwkForHost: mock(async (_name: string) => null),
+    getOrCreateForHost: mock(() => Promise.resolve(MOCK_JWK)),
   };
 }
 
@@ -193,7 +198,7 @@ describe('handleCreatePendingHost', () => {
     const deps = createDeps();
     const result = await handleCreatePendingHost(deps, { name: 'newhost', capabilities: { docker: true } });
     expect(deps.repo.create).toHaveBeenCalledWith({ name: 'newhost', agentUrl: '', capabilities: { docker: true } });
-    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('newhost');
+    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('newhost');
     expect(result.publicJwk).toBeDefined();
     expect(result.host.status).toBe('pending');
   });
@@ -209,6 +214,7 @@ describe('handleCreatePendingHost', () => {
     const result = await handleCreatePendingHost(deps, { name: 'dev' });
     expect(repo.create).not.toHaveBeenCalled();
     expect(deps.keypairs.createForHost).not.toHaveBeenCalled();
+    expect(deps.keypairs.getOrCreateForHost).not.toHaveBeenCalled();
     expect(result.publicJwk?.x).toBe('enrolled-x');
     expect(result.host.status).toBe('pending');
   });
@@ -244,7 +250,7 @@ describe('handleCreatePendingHost', () => {
 
   it('rolls back a newly created record when keypair generation fails', async () => {
     const deps = createDeps();
-    deps.keypairs.createForHost = mock(() => Promise.reject(new Error('keygen failed')));
+    deps.keypairs.getOrCreateForHost = mock(() => Promise.reject(new Error('keygen failed')));
     await expect(handleCreatePendingHost(deps, { name: 'new' })).rejects.toThrow(/Failed to generate agent keypair/);
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
@@ -252,9 +258,18 @@ describe('handleCreatePendingHost', () => {
   it('keeps a pre-existing record when keypair generation fails', async () => {
     const repo = mockRepo({ findByName: mock((_n: string) => Promise.resolve(mockRow())) });
     const deps = createDeps(repo);
-    deps.keypairs.createForHost = mock(() => Promise.reject(new Error('keygen failed')));
+    deps.keypairs.getOrCreateForHost = mock(() => Promise.reject(new Error('keygen failed')));
     await expect(handleCreatePendingHost(deps, { name: 'dev' })).rejects.toThrow(/Failed to generate agent keypair/);
     expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a freshly created record when the keypair read fails', async () => {
+    const deps = createDeps();
+    deps.keypairs.getPublicJwkForHost = mock(() => Promise.reject(new Error('keypair store unreachable')));
+    await expect(
+      handleCreatePendingHost(deps, { name: 'new' }),
+    ).rejects.toThrow(/Failed to generate agent keypair: keypair store unreachable/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 
   it('trims the host name', async () => {

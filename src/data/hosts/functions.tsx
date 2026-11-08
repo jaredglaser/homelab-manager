@@ -102,6 +102,7 @@ function makeKeypairsDep(
     createForHost: (name: string) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
     deleteForHost: (name: string) => keypairs.deleteForHost(name),
     getPublicJwkForHost: (name: string) => keypairs.getPublicJwkForHost(name),
+    getOrCreateForHost: (name: string) => keypairs.getOrCreateForHost(name),
   };
 }
 

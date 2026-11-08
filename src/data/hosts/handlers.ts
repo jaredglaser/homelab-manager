@@ -5,6 +5,7 @@ import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
@@ -13,6 +14,7 @@ export interface KeypairsDep {
   createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
   getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
+  getOrCreateForHost: (hostName: string) => Promise<JWK>;
 }
 
 export type HostOperationResult =
@@ -182,14 +184,13 @@ export async function handleCreatePendingHost(
 
   // Get-or-create: re-entering the wizard must reuse the enrolled keypair. Rotating
   // here would invalidate the AGENT_TRUSTED_PUBKEY the operator already deployed.
-  let publicJwk = await deps.keypairs.getPublicJwkForHost(name);
-  if (!publicJwk) {
-    try {
-      ({ publicJwk } = await deps.keypairs.createForHost(name));
-    } catch (err) {
-      if (!existing) await deps.repo.delete(host.id);
-      throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
-    }
+  let publicJwk: import('jose').JWK | null;
+  try {
+    publicJwk = await deps.keypairs.getPublicJwkForHost(name);
+    if (!publicJwk) publicJwk = await deps.keypairs.getOrCreateForHost(name);
+  } catch (err) {
+    if (!existing) await deps.repo.delete(host.id);
+    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
   }
 
   // Capability toggles may have changed since creation. Keep the record honest, but
