@@ -223,22 +223,33 @@ describe('AddHostWizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     }
 
-    it('shows the Agent URL field', () => {
+    it('shows the agent host and port fields with the port defaulting to 9090', () => {
       navigateToVerify()
-      expect(screen.getByLabelText('Agent URL')).toBeDefined()
+      expect(screen.getByLabelText('Agent host or IP')).toBeDefined()
+      const port = screen.getByLabelText('Agent port') as HTMLInputElement
+      expect(port.value).toBe('9090')
     })
 
-    it('Verify Connection button is disabled when the agent URL is empty', () => {
+    it('Verify Connection button is disabled when the host is empty', () => {
       navigateToVerify()
       const btn = screen.getByRole('button', { name: 'Verify Connection' })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('Verify Connection button is enabled once the agent URL is filled', () => {
+    it('Verify Connection button is enabled once the host is filled', () => {
       navigateToVerify()
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://192.168.1.10:9090' } })
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
       const btn = screen.getByRole('button', { name: 'Verify Connection' })
       expect(btn.hasAttribute('disabled')).toBe(false)
+    })
+
+    it('Verify Connection button is disabled when the port is not a valid port', () => {
+      navigateToVerify()
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
+      fireEvent.change(screen.getByLabelText('Agent port'), { target: { value: '99999' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      fireEvent.change(screen.getByLabelText('Agent port'), { target: { value: 'abc' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
     })
 
     it('Verify Connection button is disabled without a pending host', () => {
@@ -247,21 +258,35 @@ describe('AddHostWizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://192.168.1.10:9090' } })
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
     })
 
-    it('calls onVerify with the pending host id and trimmed URL when Verify Connection is clicked', () => {
+    it('composes a plain-HTTP URL from the host and port when Verify Connection is clicked', () => {
       const onVerify = mock(() => {})
       render(<AddHostWizard {...makeProps({ onVerify })} />)
       enterHostName('  dev-machine  ')
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://192.168.1.10:9090  ' } })
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '  192.168.1.10  ' } })
+      fireEvent.change(screen.getByLabelText('Agent port'), { target: { value: '9191' } })
       fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
       expect(onVerify).toHaveBeenCalledTimes(1)
-      expect(onVerify).toHaveBeenCalledWith(1, 'http://192.168.1.10:9090')
+      expect(onVerify).toHaveBeenCalledWith(1, 'http://192.168.1.10:9191')
+    })
+
+    it('never produces an HTTPS URL, whatever the operator types', () => {
+      const onVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      // A scheme typed into the host field is rejected as an invalid hostname.
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: 'https://192.168.1.10' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      expect(onVerify).not.toHaveBeenCalled()
     })
 
     it('does not call onVerify when isProvisioning is true', () => {
@@ -271,7 +296,7 @@ describe('AddHostWizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'https://192.168.1.10:9090' } })
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
       const btn = screen.getByRole('button', { name: 'Verify Connection' })
       expect(btn.hasAttribute('disabled')).toBe(true)
       fireEvent.click(btn)

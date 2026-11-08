@@ -310,17 +310,18 @@ describe('ManagedHostsCard', () => {
       expect(screen.getByText('docker-compose.yml')).toBeDefined()
     })
 
-    it('verify step shows the Agent URL field', () => {
+    it('verify step shows the agent host and port fields', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       enterHostName()
       // Advance through capabilities -> compose -> configuration -> verify
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByLabelText('Agent URL')).toBeDefined()
+      expect(screen.getByLabelText('Agent host or IP')).toBeDefined()
+      expect(screen.getByLabelText('Agent port')).toBeDefined()
     })
 
-    it('Verify Connection button is disabled when the agent URL is empty', () => {
+    it('Verify Connection button is disabled when the agent host is empty', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -336,22 +337,23 @@ describe('ManagedHostsCard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://localhost:9090' } })
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: 'localhost' } })
       const btn = screen.getByRole('button', { name: /Verify Connection/ })
       expect(btn.hasAttribute('disabled')).toBe(false)
     })
 
-    it('calls onVerify with the pending host id and trimmed URL when Verify Connection is clicked', () => {
+    it('composes the plain-HTTP URL from host and port when Verify Connection is clicked', () => {
       const onVerify = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ onVerify })} />)
       enterHostName('  server1  ')
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://localhost:9090  ' } })
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '  10.1.1.99  ' } })
+      fireEvent.change(screen.getByLabelText('Agent port'), { target: { value: '9191' } })
       fireEvent.click(screen.getByRole('button', { name: /Verify Connection/ }))
       expect(onVerify).toHaveBeenCalledTimes(1)
-      expect(onVerify).toHaveBeenCalledWith(1, 'http://localhost:9090')
+      expect(onVerify).toHaveBeenCalledWith(1, 'http://10.1.1.99:9191')
     })
 
     it('Verify Connection button is disabled while isProvisioning', () => {
@@ -362,7 +364,7 @@ describe('ManagedHostsCard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://localhost:9090' } })
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: 'localhost' } })
       const btn = screen.getByRole('button', { name: /Verify Connection/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })

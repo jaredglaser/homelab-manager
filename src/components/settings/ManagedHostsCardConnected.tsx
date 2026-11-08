@@ -58,15 +58,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       showToast(`Host verified. The agent is served over ${result.agentUrl}.`, 'success')
     },
     onError: (err: unknown) => {
-      const raw = err instanceof Error ? err.message : String(err)
-      // First contact over an https URL can never work: the agent has no
-      // certificate yet and this manager has nothing pinned for it. Point the
-      // operator at the agent's plain-HTTP URL; provisioning enrolls a
-      // certificate and flips the stored URL to https on success.
-      const message = raw.startsWith('No pinned TLS certificate for this HTTPS agent URL')
-        ? "The agent URL uses HTTPS, but this connection has no TLS certificate yet. For first contact, enter the agent's plain-HTTP URL (for example http://<agent-host>:9090); verifying enrolls a certificate and moves the connection to HTTPS."
-        : raw
-      setProvisionError(message)
+      setProvisionError(err instanceof Error ? err.message : 'Failed to verify the connection')
     },
   })
 

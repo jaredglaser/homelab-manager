@@ -6,39 +6,57 @@ import { Plus } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 
 interface VerifyConnectionStepProps {
-  agentUrl: string
+  agentHost: string
+  agentPort: string
   isProvisioning: boolean
   canVerify: boolean
   error: string | null
-  onAgentUrlChange: (value: string) => void
+  onAgentHostChange: (value: string) => void
+  onAgentPortChange: (value: string) => void
   onVerify: () => void
 }
 
 export default function VerifyConnectionStep({
-  agentUrl,
+  agentHost,
+  agentPort,
   isProvisioning,
   canVerify,
   error,
-  onAgentUrlChange,
+  onAgentHostChange,
+  onAgentPortChange,
   onVerify,
 }: VerifyConnectionStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-verify">
       <p className="text-sm text-muted-foreground">
-        Deploy the compose and .env from the previous steps on the target host, then enter the
-        agent's plain-HTTP URL. Verifying enrolls a TLS certificate for the agent and moves the
-        connection to HTTPS.
+        Deploy the compose and .env from the previous steps on the target host, then enter where
+        the agent is reachable. First contact is plain HTTP; verifying enrolls a TLS certificate
+        for the agent and moves the connection to HTTPS.
       </p>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="wizard-agent-url">Agent URL</Label>
-        <Input
-          id="wizard-agent-url"
-          value={agentUrl}
-          onChange={(e) => onAgentUrlChange(e.target.value)}
-          placeholder="http://192.168.1.10:9090"
-          disabled={isProvisioning}
-          aria-label="Agent URL"
-        />
+      <div className="grid grid-cols-3 gap-2">
+        <div className="col-span-2 flex flex-col gap-1">
+          <Label htmlFor="wizard-agent-host">Agent host or IP</Label>
+          <Input
+            id="wizard-agent-host"
+            value={agentHost}
+            onChange={(e) => onAgentHostChange(e.target.value)}
+            placeholder="192.168.1.10"
+            disabled={isProvisioning}
+            aria-label="Agent host or IP"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="wizard-agent-port">Agent port</Label>
+          <Input
+            id="wizard-agent-port"
+            value={agentPort}
+            onChange={(e) => onAgentPortChange(e.target.value)}
+            placeholder="9090"
+            disabled={isProvisioning}
+            aria-label="Agent port"
+            inputMode="numeric"
+          />
+        </div>
       </div>
       <Button
         size="sm"

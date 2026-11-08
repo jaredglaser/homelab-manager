@@ -53,7 +53,8 @@ export default function AddHostWizard({
   const [hlmZfsGid, setHlmZfsGid] = useState('')
   const [dockerGid, setDockerGid] = useState('')
   const [name, setName] = useState('')
-  const [agentUrl, setAgentUrl] = useState('')
+  const [agentHost, setAgentHost] = useState('')
+  const [agentPort, setAgentPort] = useState('9090')
 
   const visibleSteps = useMemo(() => {
     if (zfs) return [...WIZARD_STEPS]
@@ -108,8 +109,8 @@ export default function AddHostWizard({
   }
 
   function handleVerify() {
-    if (!pendingHost || !agentUrl.trim() || isProvisioning) return
-    onVerify(pendingHost.id, agentUrl.trim())
+    if (!pendingHost || !canVerify || isProvisioning) return
+    onVerify(pendingHost.id, `http://${agentHost.trim()}:${portNumber}`)
   }
 
   function handleReset() {
@@ -121,14 +122,23 @@ export default function AddHostWizard({
     setHlmZfsGid('')
     setDockerGid('')
     setName('')
-    setAgentUrl('')
+    setAgentHost('')
+    setAgentPort('9090')
   }
 
   const canProceedFromCapabilities = (docker || zfs) && name.trim().length > 0
   const isNonNegativeInt = (v: string) => /^\d+$/.test(v.trim())
   const canProceedFromZfs = isNonNegativeInt(hlmZfsUid) && isNonNegativeInt(hlmZfsGid)
     && (!docker || isNonNegativeInt(dockerGid))
-  const canVerify = !!pendingHost && agentUrl.trim().length > 0
+
+  // First contact is always plain HTTP — the scheme is not an operator choice,
+  // so the step collects host and port separately and the URL is composed here.
+  const AGENT_HOST_PATTERN = /^[a-zA-Z0-9._-]+$/
+  const portNumber = Number(agentPort.trim())
+  const canVerify = !!pendingHost
+    && agentHost.trim().length > 0
+    && AGENT_HOST_PATTERN.test(agentHost.trim())
+    && Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535
 
   return (
     <div className="flex flex-col gap-4 pt-4 border-t border-border">
@@ -184,11 +194,13 @@ export default function AddHostWizard({
 
         {currentStepName === 'Verify Connection' && (
           <VerifyConnectionStep
-            agentUrl={agentUrl}
+            agentHost={agentHost}
+            agentPort={agentPort}
             isProvisioning={isProvisioning}
             canVerify={canVerify}
             error={provisionError}
-            onAgentUrlChange={setAgentUrl}
+            onAgentHostChange={setAgentHost}
+            onAgentPortChange={setAgentPort}
             onVerify={handleVerify}
           />
         )}
