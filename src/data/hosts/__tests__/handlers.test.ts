@@ -268,6 +268,33 @@ describe('handleRotateHostTls', () => {
     expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
   });
 
+  it('provisions against an explicit agentUrl override and persists only the flipped https URL', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090' }))),
+      update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
+    });
+    const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
+    const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7, agentUrl: 'http://candidate:9090' });
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090');
+    expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
+  });
+
+  it('never writes the row when provisioning with an agentUrl override fails', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://working:9090' }))),
+    });
+    const deps = {
+      repo,
+      provisionTls: mock(async (_hostName: string, _agentUrl: string) => {
+        throw new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
+      }),
+    };
+    await expect(handleRotateHostTls(deps, { hostId: 7, agentUrl: 'http://candidate:9090' })).rejects.toThrow(/TLS provisioning failed/);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+
   it('propagates the provisioning error without touching the host record', async () => {
     const repo = mockRepo();
     const deps = {

@@ -17,7 +17,10 @@ export const removeHostSchema = z.object({ hostId: z.number().int().positive() }
 export const checkHostHealthSchema = z.object({ hostId: z.number().int().positive() });
 export const getHostPublicJwkSchema = z.object({ hostId: z.number().int().positive() });
 export const rotateHostKeypairSchema = z.object({ hostId: z.number().int().positive() });
-export const rotateHostTlsSchema = z.object({ hostId: z.number().int().positive() });
+export const rotateHostTlsSchema = z.object({
+  hostId: z.number().int().positive(),
+  agentUrl: z.string().url().optional(),
+});
 export const updateAgentSchema = z.object({ hostId: z.number().int().positive() });
 
 export const updateHostSchema = z.object({

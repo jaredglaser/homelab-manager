@@ -208,17 +208,24 @@ export async function handleCreatePendingHost(
   };
 }
 
-/** Re-runs TLS provisioning for an enrolled host. Failure leaves the host record and its enrolled keypair untouched. */
+/**
+ * Re-runs TLS provisioning for an enrolled host. Failure leaves the host record
+ * and its enrolled keypair untouched.
+ *
+ * An explicit `agentUrl` re-points the host: provisioning runs against it, and
+ * only a successful run (which flips the URL to https) is persisted. A failed
+ * attempt never writes, so a bad address cannot clobber a working one.
+ */
 export async function handleRotateHostTls(
   deps: HostHandlerDeps & {
     provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
   },
-  data: { hostId: number },
+  data: { hostId: number; agentUrl?: string },
 ): Promise<{ hostId: number; agentUrl: string }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const provisioned = await deps.provisionTls(host.name, host.agentUrl);
+  const provisioned = await deps.provisionTls(host.name, data.agentUrl ?? host.agentUrl);
   await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
   return { hostId: host.id, agentUrl: provisioned.agentUrl };
 }

@@ -36,11 +36,11 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
 
 type RotateTlsResult = { hostId: number; agentUrl: string }
 let rotateTlsResult: Promise<RotateTlsResult> = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
-let rotateTlsCalls: Array<{ data: { hostId: number } }> = []
+let rotateTlsCalls: Array<{ data: { hostId: number; agentUrl?: string } }> = []
 // When set, rotateHostTls returns this manually-settled promise instead.
 let rotateTlsGate: Promise<RotateTlsResult> | null = null
 
-const rotateHostTls = (data: { data: { hostId: number } }): Promise<RotateTlsResult> => {
+const rotateHostTls = (data: { data: { hostId: number; agentUrl?: string } }): Promise<RotateTlsResult> => {
   rotateTlsCalls.push(data)
   return rotateTlsGate ?? rotateTlsResult
 }
@@ -147,7 +147,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(createPendingHostCalls).toEqual([{ name: 'newhost' }])
   })
 
-  it('persists the agent URL and provisions TLS when Verify Connection is clicked', async () => {
+  it('provisions TLS against the candidate URL in one call and leaves the row untouched on failure', async () => {
     navigateToVerify()
     // The Verify button enables once the pending host exists and a URL is entered.
     fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
@@ -157,10 +157,24 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     await waitFor(() => {
-      expect(updateHostCalls).toEqual([{ hostId: 1, agentUrl: 'http://10.1.1.99:9090' }])
-      expect(rotateTlsCalls).toEqual([{ data: { hostId: 1 } }])
+      expect(rotateTlsCalls).toEqual([{ data: { hostId: 1, agentUrl: 'http://10.1.1.99:9090' } }])
     })
+    expect(updateHostCalls).toEqual([])
     expect(toasts.some((t) => t.message.startsWith('Host verified.'))).toBe(true)
+  })
+
+  it('a failed verify leaves the stored URL alone', async () => {
+    navigateToVerify()
+    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+    })
+    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable).'))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+    })
+    expect(updateHostCalls).toEqual([])
   })
 
   it('cancel stops waiting, re-enables the form, and discards the late result', async () => {
