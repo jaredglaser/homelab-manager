@@ -17,6 +17,13 @@ export interface KeypairsDep {
   getOrCreateForHost: (hostName: string) => Promise<JWK>;
 }
 
+export interface AddHostResult {
+  host: HostListItem;
+  publicJwk?: JWK;
+  /** Set when TLS provisioning failed but the keypair was still created and returned. The host stays pending. */
+  provisioningError?: string;
+}
+
 export type HostOperationResult =
   | {
       hostId: number;
@@ -143,7 +150,7 @@ export async function handleUpdateHost(
 export async function handleGetHostPublicJwk(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
-): Promise<{ publicJwk: import('jose').JWK }> {
+): Promise<{ publicJwk: JWK }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -157,7 +164,7 @@ export async function handleGetHostPublicJwk(
 export async function handleRotateHostKeypair(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
-): Promise<{ hostId: number; publicJwk: import('jose').JWK }> {
+): Promise<{ hostId: number; publicJwk: JWK }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
