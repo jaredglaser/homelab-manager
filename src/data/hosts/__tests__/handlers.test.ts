@@ -277,6 +277,28 @@ describe('handleCreatePendingHost', () => {
     await handleCreatePendingHost(deps, { name: '  padded  ' });
     expect(deps.repo.create).toHaveBeenCalledWith({ name: 'padded', agentUrl: '', capabilities: { docker: false, zfs: false } });
   });
+
+  it('keeps a pre-existing record when the keypair read fails', async () => {
+    const repo = mockRepo({
+      findByName: mock((_name: string) => Promise.resolve(mockRow())),
+    });
+    const deps = {
+      ...baseDeps(repo),
+      keypairs: {
+        ...makeKeypairsMock(),
+        getPublicJwkForHost: mock((_name: string) => Promise.reject(new Error('keypair store unreachable'))),
+      },
+    };
+    let message = '';
+    try {
+      await handleCreatePendingHost(deps, { name: 'tlshost' });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toMatch(/Failed to generate agent keypair/);
+    expect(message).not.toContain('cleaned up');
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleRotateHostTls', () => {
