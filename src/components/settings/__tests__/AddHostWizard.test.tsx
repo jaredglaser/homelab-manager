@@ -11,6 +11,7 @@ interface WizardProps {
   pendingHost: PendingHostState | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
+  onCancelVerify: () => void
   onDiscard: () => void
 }
 
@@ -33,6 +34,7 @@ function makeProps(overrides?: Partial<WizardProps>): WizardProps {
     pendingHost: makePendingHost(),
     onCreateHost: mock(() => {}),
     onVerify: mock(() => {}),
+    onCancelVerify: mock(() => {}),
     onDiscard: mock(() => {}),
     ...overrides,
   }
@@ -297,10 +299,32 @@ describe('AddHostWizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
-      const btn = screen.getByRole('button', { name: 'Verify Connection' })
+      const btn = screen.getByRole('button', { name: /Verifying/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
       fireEvent.click(btn)
       expect(onVerify).not.toHaveBeenCalled()
+    })
+
+    it('shows a Verifying loading state and a cancel action while provisioning', () => {
+      render(<AddHostWizard {...makeProps({ isProvisioning: true })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByRole('button', { name: /Verifying/ })).toBeDefined()
+      expect(screen.queryByRole('button', { name: 'Verify Connection' })).toBeNull()
+      expect(screen.getByTestId('cancel-provisioning')).toBeDefined()
+    })
+
+    it('cancel button calls onCancelVerify', () => {
+      const onCancelVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onCancelVerify, isProvisioning: true })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByTestId('cancel-provisioning'))
+      expect(onCancelVerify).toHaveBeenCalledTimes(1)
     })
 
     it('does not show a pubkey display on the verify step: the key lives in the compose', () => {

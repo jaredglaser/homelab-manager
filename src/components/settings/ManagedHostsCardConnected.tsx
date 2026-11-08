@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listHosts, createPendingHost, removeHost, checkHostHealth, updateHost, getHostPublicJwk, rotateHostKeypair, rotateHostTls } from '@/data/hosts/functions'
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
@@ -47,20 +47,34 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
 
   // Verify = point the record at the URL the operator deployed the agent on,
   // then provision TLS (the same operation the row's Rotate TLS action runs).
+  // A cancel only abandons the wait: an in-flight run may still finish
+  // server-side, and its late result is discarded so the UI stays consistent.
+  const provisionCancelledRef = useRef(false)
   const provisionMutation = useMutation({
     mutationFn: async ({ hostId, agentUrl }: { hostId: number; agentUrl: string }) => {
       await updateHost({ data: { hostId, agentUrl } })
       return rotateHostTls({ data: { hostId } })
     },
+    onMutate: () => {
+      provisionCancelledRef.current = false
+    },
     onSuccess: (result) => {
+      if (provisionCancelledRef.current) return
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setProvisionError(null)
       showToast(`Host verified. The agent is served over ${result.agentUrl}.`, 'success')
     },
     onError: (err: unknown) => {
+      if (provisionCancelledRef.current) return
       setProvisionError(err instanceof Error ? err.message : 'Failed to verify the connection')
     },
   })
+
+  const cancelVerification = () => {
+    provisionCancelledRef.current = true
+    provisionMutation.reset()
+    setProvisionError(null)
+  }
 
   const discardPendingHost = () => {
     if (pendingHost && pendingHost.status === 'pending') {
@@ -175,6 +189,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       provisionError={provisionError}
       pendingHost={pendingHost}
       onVerify={(hostId, agentUrl) => provisionMutation.mutate({ hostId, agentUrl })}
+      onCancelVerify={cancelVerification}
       onDiscard={discardPendingHost}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
       isRemoving={removeMutation.isPending}

@@ -19,6 +19,7 @@ export interface ManagedHostsCardProps {
   pendingHost: { id: number; name: string; status: string; publicJwk: unknown } | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
+  onCancelVerify: () => void
   onDiscard: () => void
   onRemove: (hostId: number) => void
   isRemoving: boolean
@@ -137,6 +138,7 @@ export function ManagedHostsCardView({
   pendingHost,
   onCreateHost,
   onVerify,
+  onCancelVerify,
   onDiscard,
   onRemove,
   isRemoving,
@@ -225,6 +227,7 @@ export function ManagedHostsCardView({
             pendingHost={pendingHost}
             onCreateHost={onCreateHost}
             onVerify={onVerify}
+            onCancelVerify={onCancelVerify}
             onDiscard={onDiscard}
           />
         </div>

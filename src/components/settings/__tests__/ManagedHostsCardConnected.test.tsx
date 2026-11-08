@@ -37,10 +37,12 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
 type RotateTlsResult = { hostId: number; agentUrl: string }
 let rotateTlsResult: Promise<RotateTlsResult> = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
 let rotateTlsCalls: Array<{ data: { hostId: number } }> = []
+// When set, rotateHostTls returns this manually-settled promise instead.
+let rotateTlsGate: Promise<RotateTlsResult> | null = null
 
 const rotateHostTls = (data: { data: { hostId: number } }): Promise<RotateTlsResult> => {
   rotateTlsCalls.push(data)
-  return rotateTlsResult
+  return rotateTlsGate ?? rotateTlsResult
 }
 
 type CreatePendingHostResult = { host: HostListItem; publicJwk: Record<string, string> }
@@ -85,6 +87,7 @@ function renderCard(): void {
 }
 
 beforeEach(() => {
+  rotateTlsGate = null
   rotateTlsCalls.length = 0
   updateHostCalls.length = 0
   createPendingHostCalls.length = 0
@@ -158,6 +161,38 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       expect(rotateTlsCalls).toEqual([{ data: { hostId: 1 } }])
     })
     expect(toasts.some((t) => t.message.startsWith('Host verified.'))).toBe(true)
+  })
+
+  it('cancel stops waiting, re-enables the form, and discards the late result', async () => {
+    navigateToVerify()
+    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+    })
+    let rejectRotate!: (err: unknown) => void
+    rotateTlsGate = new Promise<RotateTlsResult>((_res, rej) => { rejectRotate = rej })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+
+    // In-flight: loading state, cancel action, everything disabled.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Verifying/ })).toBeDefined()
+    })
+    const cancelBtn = screen.getByTestId('cancel-provisioning')
+    expect(cancelBtn).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Reset' }).hasAttribute('disabled')).toBe(true)
+
+    fireEvent.click(cancelBtn)
+    // Back to idle: the Verify button is enabled again, no error is shown.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+    })
+    expect(screen.queryByTestId('cancel-provisioning')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    // A late server-side failure after cancel must not resurface as an error.
+    rejectRotate(new Error('TLS provisioning failed: late failure after cancel'))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('shows the provisioning error with a re-run action when provisioning fails', async () => {

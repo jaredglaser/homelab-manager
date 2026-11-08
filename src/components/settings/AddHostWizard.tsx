@@ -28,6 +28,7 @@ interface AddHostWizardProps {
   pendingHost: PendingHostState | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
+  onCancelVerify: () => void
   onDiscard: () => void
 }
 
@@ -44,6 +45,7 @@ export default function AddHostWizard({
   pendingHost,
   onCreateHost,
   onVerify,
+  onCancelVerify,
   onDiscard,
 }: AddHostWizardProps) {
   const [activeStep, setActiveStep] = useState(0)
@@ -202,6 +204,7 @@ export default function AddHostWizard({
             onAgentHostChange={setAgentHost}
             onAgentPortChange={setAgentPort}
             onVerify={handleVerify}
+            onCancel={onCancelVerify}
           />
         )}
       </div>

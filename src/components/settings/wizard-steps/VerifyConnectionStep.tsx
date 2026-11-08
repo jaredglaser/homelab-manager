@@ -14,6 +14,7 @@ interface VerifyConnectionStepProps {
   onAgentHostChange: (value: string) => void
   onAgentPortChange: (value: string) => void
   onVerify: () => void
+  onCancel: () => void
 }
 
 export default function VerifyConnectionStep({
@@ -25,6 +26,7 @@ export default function VerifyConnectionStep({
   onAgentHostChange,
   onAgentPortChange,
   onVerify,
+  onCancel,
 }: VerifyConnectionStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-verify">
@@ -58,15 +60,21 @@ export default function VerifyConnectionStep({
           />
         </div>
       </div>
-      <Button
-        size="sm"
-        disabled={!canVerify || isProvisioning}
-        onClick={onVerify}
-        className="self-end"
-      >
-        {isProvisioning ? <Spinner className="size-3.5" /> : <Plus size={14} />}
-        Verify Connection
-      </Button>
+      <div className="flex justify-end gap-2">
+        {isProvisioning && (
+          <Button size="sm" variant="outline" onClick={onCancel} data-testid="cancel-provisioning">
+            Cancel
+          </Button>
+        )}
+        <Button
+          size="sm"
+          disabled={!canVerify || isProvisioning}
+          onClick={onVerify}
+        >
+          {isProvisioning ? <Spinner className="size-3.5" /> : <Plus size={14} />}
+          {isProvisioning ? 'Verifying…' : 'Verify Connection'}
+        </Button>
+      </div>
 
       {error && (
         <Alert variant="error" className="mt-2">

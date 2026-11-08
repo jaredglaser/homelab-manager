@@ -34,6 +34,7 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     },
     onCreateHost: mock(() => {}),
     onVerify: mock(() => {}),
+    onCancelVerify: mock(() => {}),
     onDiscard: mock(() => {}),
     onRemove: mock(() => {}),
     isRemoving: false,
@@ -365,7 +366,7 @@ describe('ManagedHostsCard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: 'localhost' } })
-      const btn = screen.getByRole('button', { name: /Verify Connection/ })
+      const btn = screen.getByRole('button', { name: /Verifying/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
