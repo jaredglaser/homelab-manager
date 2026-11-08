@@ -425,6 +425,30 @@ describe('handleVerifyHost', () => {
     ).rejects.toThrow(/Failed to generate agent keypair/);
     expect(repo.delete).not.toHaveBeenCalled();
   });
+
+  it('keeps a pre-existing record when the keypair read fails on re-run', async () => {
+    const repo = mockRepo({
+      findByName: mock((_name: string) => Promise.resolve(mockRow())),
+    });
+    const deps = {
+      ...baseDeps(repo),
+      keypairs: {
+        ...makeKeypairsMock(),
+        getPublicJwkForHost: mock((_name: string) => Promise.reject(new Error('keypair store unreachable'))),
+      },
+      provisionTls: mock((_name: string, _agentUrl: string) => Promise.resolve({ agentUrl: 'https://x:9090' })),
+    };
+    let message = '';
+    try {
+      await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toMatch(/Failed to generate agent keypair/);
+    expect(message).not.toContain('cleaned up');
+    expect(repo.delete).not.toHaveBeenCalled();
+    expect(deps.provisionTls).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleRotateHostTls', () => {

@@ -101,6 +101,13 @@ describe('AgentKeypairsRepository', () => {
     expect(pool.query.mock.calls[0][0]).toContain('SELECT public_jwk');
   });
 
+  it('getOrCreateForHost throws when the row is missing after the insert', async () => {
+    pool.results.push({ rows: [] });
+    pool.results.push({ rows: [] });
+    pool.results.push({ rows: [] });
+    await expect(repo.getOrCreateForHost('h')).rejects.toThrow(/row missing for h after insert/);
+  });
+
   it('deleteForHost issues DELETE', async () => {
     pool.results.push({ rows: [] });
     await repo.deleteForHost('h');
