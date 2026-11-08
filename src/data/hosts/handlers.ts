@@ -183,7 +183,7 @@ export async function handleRotateHostKeypair(
 export async function handleCreatePendingHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } },
-): Promise<{ host: HostListItem; publicJwk: import('jose').JWK }> {
+): Promise<{ host: HostListItem; publicJwk: JWK }> {
   const name = data.name.trim();
   const capabilities = data.capabilities ?? { docker: false, zfs: false };
   const existing = await deps.repo.findByName(name);
@@ -197,7 +197,7 @@ export async function handleCreatePendingHost(
 
   // Get-or-create: re-entering the wizard must reuse the enrolled keypair. Rotating
   // here would invalidate the AGENT_TRUSTED_PUBKEY the operator already deployed.
-  let publicJwk: import('jose').JWK | null;
+  let publicJwk: JWK | null;
   try {
     publicJwk = await deps.keypairs.getPublicJwkForHost(name);
     if (!publicJwk) publicJwk = await deps.keypairs.getOrCreateForHost(name);
