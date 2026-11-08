@@ -187,6 +187,23 @@ describe('handleRemoveHost', () => {
     await expect(handleRemoveHost(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 
+  it('rejects an expectStatus removal when the host is no longer pending and deletes nothing', async () => {
+    const deps = removeDeps({ findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) });
+    await expect(
+      handleRemoveHost(deps, { hostId: 1, expectStatus: 'pending' }),
+    ).rejects.toThrow('Host test-host is no longer pending');
+    expect(deps.keypairs.deleteForHost).not.toHaveBeenCalled();
+    expect(deps.repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('still deletes a healthy host when no expectStatus is requested', async () => {
+    const deps = removeDeps({ findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) });
+    const result = await handleRemoveHost(deps, { hostId: 1 });
+    expect(result.success).toBe(true);
+    expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('test-host');
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
 });
 
 describe('handleCreatePendingHost', () => {

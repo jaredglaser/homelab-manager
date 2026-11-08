@@ -96,10 +96,16 @@ export async function handleCheckHostHealth(
 
 export async function handleRemoveHost(
   deps: HostHandlerDeps & { keypairs: Pick<KeypairsDep, 'deleteForHost'> },
-  data: { hostId: number },
+  data: { hostId: number; expectStatus?: 'pending' },
 ): Promise<{ success: boolean }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  // The row just read is the arbiter: a wizard-driven removal must not delete a
+  // host whose status flipped after the client's snapshot was taken.
+  if (data.expectStatus && host.status !== data.expectStatus) {
+    throw new Error(`Host ${host.name} is no longer pending`);
+  }
 
   try {
     await deps.keypairs.deleteForHost(host.name);

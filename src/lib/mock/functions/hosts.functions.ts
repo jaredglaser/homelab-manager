@@ -81,10 +81,15 @@ export async function updateHost(data: {
   return buildHost(data, data.hostId);
 }
 
-/** Intentionally stateless: returns success without mutating mockHosts. */
-export async function removeHost(_data: {
+/** Intentionally stateless: never mutates mockHosts, but mirrors the server's expectStatus guard so demo mode behaves like production. */
+export async function removeHost(data: {
   hostId: number;
+  expectStatus?: 'pending';
 }): Promise<{ success: boolean }> {
+  const host = mockHosts.find((h) => h.id === data.hostId);
+  if (data.expectStatus && host && host.status !== data.expectStatus) {
+    throw new Error(`Host ${host.name} is no longer pending`);
+  }
   return { success: true };
 }
 

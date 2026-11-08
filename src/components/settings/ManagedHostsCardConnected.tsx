@@ -7,8 +7,8 @@ import { useToast } from '@/hooks/toastAtom'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
 
-// A not-found removal means the record is already gone, which discard and stale-removal treat as success.
-const isNotFound = (err: unknown) => err instanceof Error && /not found/i.test(err.message)
+// A not-found or no-longer-pending removal is an idempotent no-op: the record is already gone or survived on the server, so discard and stale-removal treat it as success.
+const isRemovalNoOp = (err: unknown) => err instanceof Error && (/not found/i.test(err.message) || /no longer pending/i.test(err.message))
 
 export function ManagedHostsCard({ filterHostName }: { filterHostName?: string } = {}) {
   const queryClient = useQueryClient()
@@ -38,9 +38,10 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const createHostMutation = useMutation({
     mutationFn: async ({ name, capabilities, staleHostId }: { name: string; capabilities: { docker: boolean; zfs: boolean }; staleHostId: number | null }) => {
       if (staleHostId != null) {
-        await removeHost({ data: { hostId: staleHostId } }).catch((err: unknown) => {
-          // Another surface already removed the stale record, so creation can proceed.
-          if (!isNotFound(err)) throw Object.assign(err instanceof Error ? err : new Error(String(err)), { staleRemovalFailed: true })
+        await removeHost({ data: { hostId: staleHostId, expectStatus: 'pending' } }).catch((err: unknown) => {
+          // The stale record is gone or no longer pending, so creation proceeds and
+          // get-or-create returns the enrolled host with its keypair.
+          if (!isRemovalNoOp(err)) throw Object.assign(err instanceof Error ? err : new Error(String(err)), { staleRemovalFailed: true })
         })
       }
       return createPendingHost({ data: { name, capabilities } })
@@ -112,10 +113,10 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const discardPendingHost = () => {
     if (pendingHost && isStillPending(pendingHost)) {
       const hostId = pendingHost.id
-      void removeHost({ data: { hostId } })
+      void removeHost({ data: { hostId, expectStatus: 'pending' } })
         .catch((err: unknown) => {
-          // The row may already have been removed elsewhere, which makes discard a no-op, not a failure.
-          if (!isNotFound(err)) throw err
+          // The row may already be gone or no longer pending, which makes discard a no-op, not a failure.
+          if (!isRemovalNoOp(err)) throw err
         })
         .then(() => {
           void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })

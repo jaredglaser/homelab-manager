@@ -66,10 +66,12 @@ const createPendingHost = (data: { data: { name: string; capabilities?: { docker
 }
 
 let removeHostCalls: number[] = []
+let removeHostData: Array<{ hostId: number; expectStatus?: 'pending' }> = []
 // When set, removeHost rejects with this error instead of resolving.
 let removeHostError: unknown = null
-const removeHost = (data: { data: { hostId: number } }): Promise<{ success: boolean }> => {
+const removeHost = (data: { data: { hostId: number; expectStatus?: 'pending' } }): Promise<{ success: boolean }> => {
   removeHostCalls.push(data.data.hostId)
+  removeHostData.push(data.data)
   if (removeHostError != null) return Promise.reject(removeHostError)
   return Promise.resolve({ success: true })
 }
@@ -110,6 +112,7 @@ beforeEach(() => {
   rotateTlsGate = null
   rotateTlsCalls.length = 0
   removeHostCalls.length = 0
+  removeHostData.length = 0
   removeHostError = null
   updateHostCalls.length = 0
   createPendingHostCalls.length = 0
@@ -313,6 +316,40 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
     })
     expect(removeHostCalls).toEqual([1])
+  })
+
+  it('Reset treats a no-longer-pending rejection as a silent success and clears the wizard', async () => {
+    // Stale-cache simulation: the list still serves the row as pending, but the
+    // server flips it between the snapshot and the removal, so removeHost rejects.
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    removeHostError = new Error('Host server1 is no longer pending')
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    await waitFor(() => {
+      expect(screen.queryByTestId('step-compose')).toBeNull()
+    })
+    expect(removeHostCalls).toEqual([1])
+    expect(removeHostData).toEqual([{ hostId: 1, expectStatus: 'pending' }])
+    expect(toasts).toEqual([])
+  })
+
+  it('a rename treats a no-longer-pending stale record as gone and still creates the renamed one', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    removeHostError = new Error('Host host-a is no longer pending')
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
+    })
+    expect(removeHostCalls).toEqual([1])
+    expect(removeHostData).toEqual([{ hostId: 1, expectStatus: 'pending' }])
+    expect(toasts).toEqual([])
   })
 
   it('treats a discard whose pending row was already removed elsewhere as a silent success', async () => {
