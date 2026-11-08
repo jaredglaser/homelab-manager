@@ -150,7 +150,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     onSuccess: (result, hostId) => {
       setRotatingTlsHostIds((prev) => { const next = new Set(prev); next.delete(hostId); return next })
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      showToast(`TLS certificate rotated for ${result.agentUrl}. The agent restarted with the new certificate.`, 'success')
+      showToast(`TLS certificate rotated for ${result.agentUrl}. The agent is now serving the new certificate.`, 'success')
     },
     onError: (err: unknown, hostId: number) => {
       setRotatingTlsHostIds((prev) => { const next = new Set(prev); next.delete(hostId); return next })

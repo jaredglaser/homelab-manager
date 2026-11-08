@@ -109,7 +109,7 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
 
     await waitFor(() => {
       expect(
-        toasts.some((t) => t.message === 'TLS certificate rotated for https://server1:9090. The agent restarted with the new certificate.'),
+        toasts.some((t) => t.message === 'TLS certificate rotated for https://server1:9090. The agent is now serving the new certificate.'),
       ).toBe(true)
     })
     expect(rotateTlsCalls).toEqual([{ data: { hostId: 1 } }])

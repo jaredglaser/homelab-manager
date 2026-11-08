@@ -40,5 +40,14 @@ export function handleContainerStop(docker: Dockerode, containerId: string, _req
 }
 
 export function handleContainerRestart(docker: Dockerode, containerId: string, _request: Request): Promise<Response> {
+  // Restarting the agent's own container kills this process mid-response, so
+  // the manager would read the resulting connection close as a failed restart
+  // even though the swap is underway. Acknowledge first, then die.
+  if (containerId === (process.env.AGENT_CONTAINER_NAME ?? 'hlm-agent')) {
+    void controlContainer(docker, containerId, 'restart').catch((err) => {
+      console.error(`Self-restart of container '${containerId}' failed:`, err);
+    });
+    return Promise.resolve(Response.json({ started: true }, { status: 202 }));
+  }
   return controlContainer(docker, containerId, 'restart');
 }

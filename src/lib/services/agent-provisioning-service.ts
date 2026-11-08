@@ -177,6 +177,10 @@ async function requestRestart(
  */
 export function isRestartConnectionLoss(err: unknown): boolean {
   if (err instanceof DOMException && err.name === 'TimeoutError') return true;
+  // Bun surfaces the self-restart's mid-flight connection close as a plain
+  // AbortError carrying "The connection was closed." — the request was sent,
+  // the agent process died with the socket, and no response will ever come.
+  if (err instanceof DOMException && err.name === 'AbortError' && /connection (was )?closed/i.test(err.message)) return true;
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && /ECONNRESET|EPIPE|ECONNABORTED/i.test(code)) return true;
   const message = err instanceof Error ? err.message : String(err);

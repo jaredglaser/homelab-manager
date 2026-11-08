@@ -108,6 +108,19 @@ describe('provisionHostTls', () => {
     expect(healthCalls).toHaveLength(1);
   });
 
+  it('treats Bun’s mid-flight connection close (AbortError) as success-unknown and keeps polling', async () => {
+    // Bun reports the self-restart killing the socket as a plain AbortError
+    // with this message; the older TimeoutError pattern does not catch it.
+    const closed = new DOMException('The connection was closed.', 'AbortError');
+    const { deps, healthCalls } = makeDeps({
+      fetchResponses: [enrollResponse(), closed],
+      healthResults: [true],
+    });
+    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    expect(healthCalls).toHaveLength(1);
+  });
+
   it('fails with the actionable copy when the agent never becomes healthy over https', async () => {
     const { deps, stored } = makeDeps({
       fetchResponses: [enrollResponse(), new Error('socket hang up')],
