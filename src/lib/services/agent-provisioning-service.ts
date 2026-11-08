@@ -15,8 +15,8 @@ const ENROLL_TIMEOUT_MS = 30_000;
 /** Docker restart waits out the default 10s stop timeout. 30s leaves slack for the start and the response. */
 const RESTART_TIMEOUT_MS = 30_000;
 
-/** Same cadence as handleUpdateAgent's post-update poll: 0.5s to 16s, ~31.5s total. */
-const TLS_HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
+/** Same cadence as handleUpdateAgent's post-update poll, plus a 30s tail: ~61.5s total. */
+const TLS_HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000, 30000, 30000] as const;
 
 export interface TlsProvisionResult {
   /** https agent URL to store on the host record. Flipped only after a successful https probe. */
@@ -36,9 +36,44 @@ export interface ProvisionHostTlsDeps {
   caCertPem?: string | null;
 }
 
-const RERUN_ADVICE = 'Fix the agent, then re-run TLS provisioning from the Managed Hosts card.';
+/** Short, single-sentence provisioning errors: the flow already retries and
+ * queues server-side, so the message states what failed without chained
+ * advice. Longer operator guidance lives in the wizard's error mapping and
+ * the self-hosting README. */
+
+// One rotation per host at a time. Concurrent rotations interleave enroll and
+// restart windows: rotation B enrolls while rotation A's agent restart serves
+// B's freshly-written cert, and B's pin then disagrees with what the agent
+// actually serves ('self signed certificate' errors that are really races).
+// Later rotations for the same host queue behind the in-flight one; a failed
+// rotation does not block the next.
+const rotationLocks = new Map<string, Promise<void>>();
+
+async function withRotationLock<T>(hostName: string, fn: () => Promise<T>): Promise<T> {
+  const previous = rotationLocks.get(hostName) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  rotationLocks.set(hostName, gate);
+  try {
+    await previous.catch(() => {});
+    return await fn();
+  } finally {
+    if (rotationLocks.get(hostName) === gate) rotationLocks.delete(hostName);
+    release();
+  }
+}
 
 export async function provisionHostTls(
+  hostName: string,
+  agentUrl: string,
+  deps: ProvisionHostTlsDeps,
+): Promise<TlsProvisionResult> {
+  return withRotationLock(hostName, () => runProvisionHostTls(hostName, agentUrl, deps));
+}
+
+async function runProvisionHostTls(
   hostName: string,
   agentUrl: string,
   deps: ProvisionHostTlsDeps,
@@ -76,7 +111,7 @@ export async function provisionHostTls(
       }
       if (retried) {
         throw new Error(
-          `${err instanceof Error ? err.message : String(err)} The agent may have been restarting from a recent certificate rotation; give it a few seconds and retry.`,
+          'TLS enrollment failed: the agent was unreachable after 3 attempts. It may be restarting from a recent rotation — retry in a few seconds.',
         );
       }
       throw err;
@@ -101,7 +136,7 @@ export async function provisionHostTls(
   }
 
   throw new Error(
-    `TLS provisioning failed: the agent did not become healthy over HTTPS (${lastResult.error}). Provisioning may be incomplete: the agent may serve a certificate the manager has not pinned. Re-run TLS provisioning from the Managed Hosts card, or follow the agent TLS recovery steps in the self-hosting README.`,
+    `TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window (${lastResult.error}). It may still be restarting — retry in a few seconds.`,
   );
 }
 
@@ -141,18 +176,18 @@ async function enrollCert(
     );
   } catch (err) {
     throw new Error(
-      `TLS provisioning failed: the agent could not be reached to create its certificate (${err instanceof Error ? err.message : err}). ${RERUN_ADVICE}`,
+      `TLS enrollment failed: the agent could not be reached (${err instanceof Error ? err.message : err}).`,
     );
   }
   if (!response.ok) {
     const detail = await readErrorBody(response);
     throw new Error(
-      `TLS provisioning failed: the agent rejected the certificate request (${detail}). ${RERUN_ADVICE}`,
+      `TLS enrollment failed: the agent rejected the certificate request (${detail}).`,
     );
   }
   const body = (await response.json().catch(() => null)) as { certPem?: unknown } | null;
   if (typeof body?.certPem !== 'string' || !body.certPem.includes('BEGIN CERTIFICATE')) {
-    throw new Error(`TLS provisioning failed: the agent returned no usable certificate. ${RERUN_ADVICE}`);
+    throw new Error('TLS enrollment failed: the agent returned no usable certificate.');
   }
   return body.certPem;
 }
@@ -184,13 +219,13 @@ async function requestRestart(
       return;
     }
     throw new Error(
-      `TLS provisioning failed: the agent could not be restarted (${err instanceof Error ? err.message : err}). ${RERUN_ADVICE}`,
+      `TLS restart failed: could not reach the agent to restart it (${err instanceof Error ? err.message : err}).`,
     );
   }
   if (!response.ok) {
     const detail = await readErrorBody(response);
     throw new Error(
-      `TLS provisioning failed: the agent could not be restarted to serve the new certificate (${detail}). ${RERUN_ADVICE}`,
+      `TLS restart failed: the agent rejected the restart request (${detail}).`,
     );
   }
 }
@@ -217,7 +252,7 @@ async function wrapFailure(reason: string, fn: () => Promise<void>): Promise<voi
     await fn();
   } catch (err) {
     throw new Error(
-      `TLS provisioning failed: ${reason} (${err instanceof Error ? err.message : err}). ${RERUN_ADVICE}`,
+      `TLS provisioning failed: ${reason} (${err instanceof Error ? err.message : err}).`,
     );
   }
 }
