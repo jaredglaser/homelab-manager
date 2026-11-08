@@ -25,8 +25,9 @@ export default function VerifyConnectionStep({
   return (
     <div className="flex flex-col gap-3" data-testid="step-verify">
       <p className="text-sm text-muted-foreground">
-        Deploy the compose and .env from the previous steps, then enter the agent's URL.
-        Verifying provisions TLS for the agent and moves the connection to HTTPS.
+        Deploy the compose and .env from the previous steps on the target host, then enter the
+        agent's plain-HTTP URL. Verifying enrolls a TLS certificate for the agent and moves the
+        connection to HTTPS.
       </p>
       <div className="flex flex-col gap-1">
         <Label htmlFor="wizard-agent-url">Agent URL</Label>

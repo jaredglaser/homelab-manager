@@ -160,6 +160,20 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(toasts.some((t) => t.message.startsWith('Host verified.'))).toBe(true)
   })
 
+  it('maps the pinned-certificate error to first-contact guidance', async () => {
+    navigateToVerify()
+    fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://10.1.1.99:9090' } })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+    })
+    rotateTlsResult = Promise.reject(new Error('No pinned TLS certificate for this HTTPS agent URL: run TLS enrollment for the host, then retry'))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => {
+      expect(screen.getByText(/plain-HTTP URL/)).toBeDefined()
+    })
+    expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+  })
+
   it('shows the provisioning error with a re-run action when provisioning fails', async () => {
     navigateToVerify()
     fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://10.1.1.99:9090' } })
