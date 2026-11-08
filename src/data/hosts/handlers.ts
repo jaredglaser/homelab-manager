@@ -18,6 +18,8 @@ export interface KeypairsDep {
 export interface AddHostResult {
   host: HostListItem;
   publicJwk?: import('jose').JWK;
+  /** Set when TLS provisioning failed but the keypair was created/returned; the host stays pending. */
+  provisioningError?: string;
 }
 
 export type HostOperationResult =
@@ -186,28 +188,44 @@ export async function handleVerifyHost(
     capabilities: data.capabilities,
   }));
 
-  let publicJwk;
-  try {
-    ({ publicJwk } = await deps.keypairs.createForHost(name));
-  } catch (err) {
-    if (!existing) await deps.repo.delete(host.id);
-    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
+  // Get-or-create: a re-verify must reuse the enrolled keypair. Rotating here
+  // would invalidate the AGENT_TRUSTED_PUBKEY the operator already installed on
+  // the agent, and the wizard's "Re-run provisioning" path re-runs this handler
+  // after fixing the agent. Rotation is the explicit rotate-keypair action,
+  // never a side effect of verify.
+  let publicJwk = await deps.keypairs.getPublicJwkForHost(name);
+  if (!publicJwk) {
+    try {
+      ({ publicJwk } = await deps.keypairs.createForHost(name));
+    } catch (err) {
+      if (!existing) await deps.repo.delete(host.id);
+      throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
+    }
   }
 
   if (deps.provisionTls) {
-    let provisioned: { agentUrl: string };
     try {
-      provisioned = await deps.provisionTls(name, data.agentUrl);
+      const provisioned = await deps.provisionTls(name, data.agentUrl);
+      const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+      return {
+        host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
+        publicJwk,
+      };
     } catch (err) {
-      // The host stays pending so the operator can fix the agent and re-run
-      // provisioning instead of losing the enrolled keypair with the record.
-      throw new Error(err instanceof Error ? err.message : String(err));
+      // First contact is the expected way to land here. The wizard only shows
+      // AGENT_TRUSTED_PUBKEY once this handler returns, the agent exits at boot
+      // without a parseable pubkey, and every endpoint except /health (including
+      // the enroll endpoint) requires a JWT the agent verifies against that
+      // pubkey — so provisioning cannot succeed before the operator has the
+      // key in hand. Return the key alongside the error so the operator can
+      // boot the agent, and leave the record pending with its original URL so
+      // provisioning can be re-run against it.
+      return {
+        host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
+        publicJwk,
+        provisioningError: err instanceof Error ? err.message : String(err),
+      };
     }
-    const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
-    return {
-      host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
-      publicJwk,
-    };
   }
 
   return {

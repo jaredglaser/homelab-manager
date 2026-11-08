@@ -40,9 +40,18 @@ const rotateHostTls = (data: { data: { hostId: number } }): Promise<RotateTlsRes
   return rotateTlsResult
 }
 
+type VerifyHostResult = { host: HostListItem; publicJwk?: Record<string, unknown>; provisioningError?: string }
+let verifyHostResult: Promise<VerifyHostResult> = Promise.resolve({ host: makeHost(), publicJwk: {} })
+let verifyHostCalls: Array<{ name: string; agentUrl: string; capabilities?: { docker: boolean; zfs: boolean } }> = []
+
+const verifyHost = (data: { data: { name: string; agentUrl: string } }): Promise<VerifyHostResult> => {
+  verifyHostCalls.push(data.data)
+  return verifyHostResult
+}
+
 mock.module('@/data/hosts/functions', () => ({
   listHosts: () => Promise.resolve([makeHost()]),
-  verifyHost: () => Promise.resolve({ host: makeHost(), publicJwk: {} }),
+  verifyHost,
   removeHost: () => Promise.resolve({ success: true }),
   checkHostHealth: () => Promise.resolve({ hostId: 1, healthy: true }),
   updateHost: () => Promise.resolve(makeHost()),
@@ -89,5 +98,29 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
     await waitFor(() => {
       expect(toasts.some((t) => t.message === 'Failed to rotate the TLS certificate')).toBe(true)
     })
+  })
+})
+
+describe('ManagedHostsCardConnected add-host verify flow', () => {
+  it('shows the public JWK alongside the provisioning error when provisioning fails', async () => {
+    verifyHostResult = Promise.resolve({
+      host: makeHost({ status: 'pending' }),
+      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' },
+      provisioningError: 'TLS provisioning failed: the agent did not become healthy over HTTPS (connection refused)',
+    })
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://x:9090' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pubkey-display').textContent).toContain('enrolled-x')
+    })
+    expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+    expect(toasts.some((t) => t.message.startsWith('Host added.'))).toBe(true)
+    expect(verifyHostCalls).toEqual([{ name: 'newhost', agentUrl: 'http://x:9090', capabilities: { docker: true, zfs: false } }])
   })
 })

@@ -28,7 +28,6 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      setAddError(null)
       if (result.publicJwk) {
         setVerifyResult({ publicJwk: result.publicJwk })
       } else {
@@ -39,6 +38,9 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       } else {
         showToast('Host added successfully', 'success')
       }
+      // A failed provisioning run returns instead of throwing, so the key is
+      // shown together with the error and its Re-run provisioning button.
+      setAddError(result.provisioningError ?? null)
     },
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : 'Failed to add host'
