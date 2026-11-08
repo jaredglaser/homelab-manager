@@ -357,7 +357,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    removeHostError = new Error('Host not found')
+    removeHostError = new Error('Host with id 1 not found')
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
     await act(async () => {})
     expect(toasts).toEqual([])
@@ -369,7 +369,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    removeHostError = new Error('Host not found')
+    removeHostError = new Error('Host with id 1 not found')
     fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {

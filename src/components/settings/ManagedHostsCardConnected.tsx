@@ -7,8 +7,8 @@ import { useToast } from '@/hooks/toastAtom'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
 
-// A not-found or no-longer-pending removal is an idempotent no-op: the record is already gone or survived on the server, so discard and stale-removal treat it as success.
-const isRemovalNoOp = (err: unknown) => err instanceof Error && (/not found/i.test(err.message) || /no longer pending/i.test(err.message))
+// A not-found or no-longer-pending removal is an idempotent no-op: the record is already gone or survived on the server, so discard and stale-removal treat it as success. The matcher matches the exact server message shapes.
+const isRemovalNoOp = (err: unknown) => err instanceof Error && (/^Host with id \d+ not found$/.test(err.message) || /^Host .+ is no longer pending$/.test(err.message))
 
 export function ManagedHostsCard({ filterHostName }: { filterHostName?: string } = {}) {
   const queryClient = useQueryClient()
