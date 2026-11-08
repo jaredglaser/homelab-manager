@@ -123,8 +123,7 @@ describe('provisionHostTls', () => {
     ]);
     expect(first.agentUrl).toBe('https://myhost.lan:9090');
     expect(second.agentUrl).toBe('https://myhost.lan:9090');
-    // Serialized: enroll, restart, enroll, restart — rotation 2's enroll never
-    // interleaves with rotation 1's restart window.
+    // Serialized order: enroll, restart, enroll, restart. Rotation 2's enroll never lands in rotation 1's restart window.
     expect(fetchCalls.map((c) => c.url)).toEqual([
       'http://myhost.lan:9090/tls/enroll',
       'http://myhost.lan:9090/containers/hlm-agent/restart',

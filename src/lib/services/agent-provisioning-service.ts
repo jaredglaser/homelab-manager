@@ -111,7 +111,7 @@ async function runProvisionHostTls(
       }
       if (retried) {
         throw new Error(
-          'TLS enrollment failed: the agent was unreachable after 3 attempts. It may be restarting from a recent rotation — retry in a few seconds.',
+          'TLS enrollment failed: the agent was unreachable after 3 attempts. It may be restarting from a recent rotation. Retry in a few seconds.',
         );
       }
       throw err;
@@ -136,7 +136,7 @@ async function runProvisionHostTls(
   }
 
   throw new Error(
-    `TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window (${lastResult.error}). It may still be restarting — retry in a few seconds.`,
+    `TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window (${lastResult.error}). It may still be restarting. Retry in a few seconds.`,
   );
 }
 
@@ -237,9 +237,7 @@ async function requestRestart(
  */
 export function isRestartConnectionLoss(err: unknown): boolean {
   if (err instanceof DOMException && err.name === 'TimeoutError') return true;
-  // Bun surfaces the self-restart's mid-flight connection close as a plain
-  // AbortError carrying "The connection was closed." — the request was sent,
-  // the agent process died with the socket, and no response will ever come.
+  // Bun reports the self-restart killing the socket as AbortError("The connection was closed."): the request was sent and no response will ever come.
   if (err instanceof DOMException && err.name === 'AbortError' && /connection (was )?closed/i.test(err.message)) return true;
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && /ECONNRESET|EPIPE|ECONNABORTED/i.test(code)) return true;

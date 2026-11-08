@@ -133,8 +133,7 @@ export default function AddHostWizard({
   const canProceedFromZfs = isNonNegativeInt(hlmZfsUid) && isNonNegativeInt(hlmZfsGid)
     && (!docker || isNonNegativeInt(dockerGid))
 
-  // First contact is always plain HTTP — the scheme is not an operator choice,
-  // so the step collects host and port separately and the URL is composed here.
+  // First contact is always plain HTTP: the scheme is not an operator choice, so the URL is composed here.
   const AGENT_HOST_PATTERN = /^[a-zA-Z0-9._-]+$/
   const portNumber = Number(agentPort.trim())
   const canVerify = !!pendingHost

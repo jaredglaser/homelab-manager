@@ -180,10 +180,8 @@ export async function handleCreatePendingHost(
     capabilities,
   }));
 
-  // Get-or-create: re-entering the wizard must reuse the enrolled keypair.
-  // Rotating here would invalidate the AGENT_TRUSTED_PUBKEY the operator
-  // already deployed in the compose. Rotation is the explicit rotate-keypair
-  // action, never a side effect of the wizard.
+  // Get-or-create: re-entering the wizard must reuse the enrolled keypair. Rotating
+  // here would invalidate the AGENT_TRUSTED_PUBKEY the operator already deployed.
   let publicJwk = await deps.keypairs.getPublicJwkForHost(name);
   if (!publicJwk) {
     try {
@@ -194,8 +192,8 @@ export async function handleCreatePendingHost(
     }
   }
 
-  // Capability toggles may have changed since the record was created; keep the
-  // record honest, but only for pending hosts the wizard is still enrolling.
+  // Capability toggles may have changed since creation. Keep the record honest, but
+  // only for pending hosts the wizard is still enrolling.
   if (existing && host.status === 'pending'
       && JSON.stringify(host.capabilities ?? {}) !== JSON.stringify(capabilities)) {
     const updated = await deps.repo.update(host.id, { capabilities });
