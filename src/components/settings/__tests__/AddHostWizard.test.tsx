@@ -254,14 +254,12 @@ describe('AddHostWizard', () => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
     })
 
-    it('Verify Connection button is disabled without a pending host', () => {
+    it('Next is disabled on the Compose step while the keypair has not been created', () => {
       render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
-      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      expect(screen.getByTestId('step-compose-loading')).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(true)
     })
 
     it('composes a plain-HTTP URL from the host and port when Verify Connection is clicked', () => {
@@ -364,7 +362,7 @@ describe('AddHostWizard', () => {
       const composeStep = screen.getByTestId('step-compose')
       expect(composeStep.textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
       expect(composeStep.textContent).not.toContain('wizard-key-x')
-      expect(composeStep.textContent).not.toContain('\\\"kty\\\"')
+      expect(composeStep.textContent).not.toContain('"kty"')
       // Advance to Configuration: the .env carries the real key.
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       const envStep = screen.getByTestId('step-env')

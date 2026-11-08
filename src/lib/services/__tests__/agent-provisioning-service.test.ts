@@ -133,8 +133,8 @@ describe('provisionHostTls', () => {
   });
 
   it('treats Bun’s mid-flight connection close (AbortError) as success-unknown and keeps polling', async () => {
-    // Bun reports the self-restart killing the socket as a plain AbortError
-    // with this message; the older TimeoutError pattern does not catch it.
+    // Bun reports the self-restart killing the socket as a plain AbortError with this message.
+    // The older TimeoutError pattern does not catch it.
     const closed = new DOMException('The connection was closed.', 'AbortError');
     const { deps, healthCalls } = makeDeps({
       fetchResponses: [enrollResponse(), closed],
@@ -224,9 +224,23 @@ describe('provisionHostTls', () => {
     const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
     expect(result.agentUrl).toBe('https://myhost.lan:9090');
     expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(3);
-    // The first two delays are the enrollment backoffs; the trailing 500ms is the first https health poll.
+    // The first two delays are the enrollment backoffs. The trailing 500ms is the first https health poll.
     expect(delays.slice(0, 2)).toEqual([2000, 4000]);
     expect(healthCalls).toHaveLength(1);
+  });
+
+  it('propagates a terminal HTTP rejection after connection retries instead of the unreachable copy', async () => {
+    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const { deps } = makeDeps({
+      fetchResponses: [
+        connectError,
+        connectError,
+        jsonResponse({ error: 'Unauthorized' }, 401),
+      ],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /the agent rejected the certificate request \(Unauthorized\)/,
+    );
   });
 
   it('reports a rotation-restart hint when enrollment retries are exhausted', async () => {
@@ -238,6 +252,23 @@ describe('provisionHostTls', () => {
       /was unreachable after 3 attempts/,
     );
     expect(delays).toEqual([2000, 4000]);
+  });
+
+  it('a failed rotation does not block the next one for the same host', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [
+        jsonResponse({ error: 'Invalid SAN' }, 400),
+        enrollResponse(),
+        new Error('Connection reset by peer'),
+      ],
+      healthResults: [true],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /the agent rejected the certificate request \(Invalid SAN\)/,
+    );
+    const second = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(second.agentUrl).toBe('https://myhost.lan:9090');
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(2);
   });
 
   it('refuses to store or poll when the agent returns no usable certificate', async () => {

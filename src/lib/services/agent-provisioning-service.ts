@@ -36,16 +36,11 @@ export interface ProvisionHostTlsDeps {
   caCertPem?: string | null;
 }
 
-/** Short, single-sentence provisioning errors: the flow already retries and
- * queues server-side, so the message states what failed without chained
- * advice. Longer operator guidance lives in the wizard's error mapping and
- * the self-hosting README. */
-
 // One rotation per host at a time. Concurrent rotations interleave enroll and
 // restart windows: rotation B enrolls while rotation A's agent restart serves
 // B's freshly-written cert, and B's pin then disagrees with what the agent
 // actually serves ('self signed certificate' errors that are really races).
-// Later rotations for the same host queue behind the in-flight one; a failed
+// Later rotations for the same host queue behind the in-flight one. A failed
 // rotation does not block the next.
 const rotationLocks = new Map<string, Promise<void>>();
 
@@ -109,7 +104,9 @@ async function runProvisionHostTls(
         await sleepFn(2000 + attempt * 2000);
         continue;
       }
-      if (retried) {
+      // Only a connection failure gets the unreachable copy: a terminal HTTP
+      // rejection (e.g. Unauthorized) must reach the wizard's key-mismatch mapping.
+      if (retried && /unable to connect/i.test(message)) {
         throw new Error(
           'TLS enrollment failed: the agent was unreachable after 3 attempts. It may be restarting from a recent rotation. Retry in a few seconds.',
         );

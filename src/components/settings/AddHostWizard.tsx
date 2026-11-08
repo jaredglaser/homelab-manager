@@ -65,9 +65,6 @@ export default function AddHostWizard({
 
   const currentStepName = visibleSteps[activeStep]
 
-  // The real key lands here via onCreateHost → pendingHost, so the compose the
-  // operator deploys already carries the key the agent will trust. There is no
-  // placeholder state: the Compose step shows a spinner until the key exists.
   const agentStackConfig = useMemo(() => ({
     hostName: name.trim(),
     agentTrustedPubkey: pendingHost ? JSON.stringify(pendingHost.publicJwk) : '',
@@ -99,8 +96,6 @@ export default function AddHostWizard({
   function handleNext() {
     const targetStep = visibleSteps[activeStep + 1]
     if (targetStep === 'Compose File') {
-      // Entering the Compose step materializes the host record and keypair so
-      // the compose can embed the real AGENT_TRUSTED_PUBKEY.
       onCreateHost(name.trim(), { docker, zfs })
     }
     setActiveStep((prev) => Math.min(prev + 1, visibleSteps.length - 1))
@@ -228,6 +223,7 @@ export default function AddHostWizard({
                 isCreating
                 || (currentStepName === 'Capabilities' && !canProceedFromCapabilities)
                 || (currentStepName === 'ZFS Setup' && !canProceedFromZfs)
+                || (currentStepName === 'Compose File' && !pendingHost)
               }
             >
               Next

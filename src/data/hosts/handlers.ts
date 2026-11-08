@@ -174,7 +174,7 @@ export async function handleCreatePendingHost(
   const existing = await deps.repo.findByName(name);
   const host = existing ?? (await deps.repo.create({
     name,
-    // agent_url is NOT NULL but unknown at this point; the operator enters the
+    // agent_url is NOT NULL but unknown at this point. The operator enters the
     // URL on the Verify step, which persists it before provisioning runs.
     agentUrl: '',
     capabilities,

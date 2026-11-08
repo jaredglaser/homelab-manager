@@ -18,8 +18,7 @@ describe('handleContainerRestart', () => {
       const docker = { getContainer: mock(() => ({ restart })) };
       const response = await handleContainerRestart(docker as never, 'hlm-agent', {} as Request);
       expect(response.status).toBe(202);
-      // The background restart was kicked off, not awaited.
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      // The background restart is kicked off before the response resolves, not awaited.
       expect(docker.getContainer).toHaveBeenCalledWith('hlm-agent');
       expect(restart).toHaveBeenCalledTimes(1);
     } finally {
@@ -47,7 +46,20 @@ describe('handleContainerRestart', () => {
       const docker = { getContainer: mock(() => ({ restart })) };
       const response = await handleContainerRestart(docker as never, 'hlm-agent', {} as Request);
       expect(response.status).toBe(202);
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(restart).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('still acknowledges 202 when the background self-restart fails', async () => {
+    process.env.AGENT_CONTAINER_NAME = 'hlm-agent';
+    try {
+      const restart = mock(() => Promise.reject(new Error('docker daemon down')));
+      const docker = { getContainer: mock(() => ({ restart })) };
+      const response = await handleContainerRestart(docker as never, 'hlm-agent', {} as Request);
+      expect(response.status).toBe(202);
+      // The rejection is caught inside controlContainer and by the background call's .catch.
       expect(restart).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();

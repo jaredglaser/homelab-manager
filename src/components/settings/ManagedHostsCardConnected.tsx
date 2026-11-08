@@ -21,18 +21,17 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     queryFn: () => listHosts(),
   })
 
-  // Entering the Compose step creates (or reuses) the pending host + keypair so
-  // the generated compose embeds the real AGENT_TRUSTED_PUBKEY. Renaming after
-  // that point drops the stale pending record and creates a new one.
+  // Renaming after the Compose step drops the stale pending record and creates a new one.
+  // The stale id rides the mutate variables because a pendingHost closure goes stale once onMutate clears it mid-mutation.
   const createHostMutation = useMutation({
-    mutationFn: async ({ name, capabilities }: { name: string; capabilities: { docker: boolean; zfs: boolean } }) => {
-      if (pendingHost && pendingHost.name !== name) {
-        await removeHost({ data: { hostId: pendingHost.id } })
+    mutationFn: async ({ name, capabilities, staleHostId }: { name: string; capabilities: { docker: boolean; zfs: boolean }; staleHostId: number | null }) => {
+      if (staleHostId != null) {
+        await removeHost({ data: { hostId: staleHostId } })
       }
       return createPendingHost({ data: { name, capabilities } })
     },
-    onMutate: ({ name }) => {
-      if (!pendingHost || pendingHost.name !== name) setPendingHost(null)
+    onMutate: ({ staleHostId }) => {
+      if (staleHostId != null) setPendingHost(null)
       setCreateError(null)
     },
     onSuccess: (result) => {
@@ -47,42 +46,56 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
 
   // The handler persists the candidate URL only when provisioning with it succeeds
   // (storing the https-flipped URL), so a failed verify never writes a dead address.
-  const provisionCancelledRef = useRef(false)
+  const provisionGenerationRef = useRef(0)
   const provisionMutation = useMutation({
-    mutationFn: ({ hostId, agentUrl }: { hostId: number; agentUrl: string }) =>
-      rotateHostTls({ data: { hostId, agentUrl } }),
-    onMutate: () => {
-      provisionCancelledRef.current = false
+    mutationFn: async ({ hostId, agentUrl }: { hostId: number; agentUrl: string }) => {
+      const generation = ++provisionGenerationRef.current
+      try {
+        const result = await rotateHostTls({ data: { hostId, agentUrl } })
+        return { result, generation }
+      } catch (err) {
+        throw Object.assign(err instanceof Error ? err : new Error(String(err)), { provisionGeneration: generation })
+      }
     },
-    onSuccess: (result) => {
-      if (provisionCancelledRef.current) return
+    onSuccess: ({ result, generation }) => {
+      // A stale completion (the operator cancelled or re-ran) must not act.
+      if (generation !== provisionGenerationRef.current) return
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setProvisionError(null)
       showToast(`Host verified. The agent is served over ${result.agentUrl}.`, 'success')
     },
     onError: (err: unknown) => {
-      if (provisionCancelledRef.current) return
+      const generation = (err as { provisionGeneration?: number }).provisionGeneration ?? 0
+      if (generation !== provisionGenerationRef.current) return
       const raw = err instanceof Error ? err.message : String(err)
-      // An Unauthorized enrollment rejection means the deployed .env's AGENT_TRUSTED_PUBKEY
-      // belongs to another wizard session, or AGENT_HOST_NAME does not match the verified host.
       const message = raw.includes('the agent rejected the certificate request') && raw.includes('Unauthorized')
         ? 'The agent rejected the manager\u2019s request: the AGENT_TRUSTED_PUBKEY in the deployed .env does not match this host\u2019s keypair, or AGENT_HOST_NAME does not match the host being verified. Deploy the compose and .env from this wizard session together, or copy the current key from this row\u2019s keypair dialog into the .env and restart the agent, then re-verify.'
-        : raw
+        : `${raw} Use Re-run provisioning below to try again.`
       setProvisionError(message)
     },
   })
 
   const cancelVerification = () => {
-    provisionCancelledRef.current = true
+    // Supersede the in-flight run so its late completion cannot act.
+    provisionGenerationRef.current += 1
     provisionMutation.reset()
     setProvisionError(null)
   }
 
   const discardPendingHost = () => {
     if (pendingHost && pendingHost.status === 'pending') {
-      void removeHost({ data: { hostId: pendingHost.id } }).then(() => {
-        void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      })
+      const hostId = pendingHost.id
+      void removeHost({ data: { hostId } })
+        .then(() => {
+          void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+          setPendingHost((current) => (current?.id === hostId ? null : current))
+          setCreateError(null)
+          setProvisionError(null)
+        })
+        .catch((err: unknown) => {
+          showToast(err instanceof Error ? err.message : 'Failed to remove host', 'error')
+        })
+      return
     }
     setPendingHost(null)
     setCreateError(null)
@@ -184,7 +197,10 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     <ManagedHostsCardView
       hosts={filteredHosts}
       isLoading={isLoading}
-      onCreateHost={(name, capabilities) => createHostMutation.mutate({ name, capabilities })}
+      onCreateHost={(name, capabilities) => {
+        const stale = pendingHost && pendingHost.status === 'pending' && pendingHost.name !== name ? pendingHost : null
+        createHostMutation.mutate({ name, capabilities, staleHostId: stale?.id ?? null })
+      }}
       isCreating={createHostMutation.isPending}
       isProvisioning={provisionMutation.isPending}
       createError={createError}

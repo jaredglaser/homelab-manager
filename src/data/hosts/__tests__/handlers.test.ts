@@ -223,6 +223,15 @@ describe('handleCreatePendingHost', () => {
     expect(repo.update).toHaveBeenCalledWith(1, { capabilities: { docker: true, zfs: true } });
   });
 
+  it('does not update a pending host whose capabilities already match', async () => {
+    const repo = mockRepo({
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ capabilities: { docker: true } }))),
+    });
+    const deps = createDeps(repo);
+    await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true } });
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
   it('does not touch capabilities on a host that is not pending', async () => {
     const repo = mockRepo({
       findByName: mock((_n: string) => Promise.resolve(mockRow({ status: 'healthy' }))),

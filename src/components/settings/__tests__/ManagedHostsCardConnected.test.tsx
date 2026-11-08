@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
 // Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
@@ -57,6 +57,12 @@ const createPendingHost = (data: { data: { name: string; capabilities?: { docker
   return createPendingHostResult
 }
 
+let removeHostCalls: number[] = []
+const removeHost = (data: { data: { hostId: number } }): Promise<{ success: boolean }> => {
+  removeHostCalls.push(data.data.hostId)
+  return Promise.resolve({ success: true })
+}
+
 let updateHostCalls: Array<{ hostId: number; agentUrl?: string }> = []
 const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Promise<HostListItem> => {
   updateHostCalls.push({ hostId: data.data.hostId, agentUrl: data.data.agentUrl })
@@ -66,7 +72,7 @@ const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Prom
 mock.module('@/data/hosts/functions', () => ({
   listHosts: () => Promise.resolve([makeHost()]),
   createPendingHost,
-  removeHost: () => Promise.resolve({ success: true }),
+  removeHost,
   checkHostHealth: () => Promise.resolve({ hostId: 1, healthy: true }),
   updateHost,
   getHostPublicJwk: () => Promise.resolve({ publicJwk: {} }),
@@ -89,6 +95,7 @@ function renderCard(): void {
 beforeEach(() => {
   rotateTlsGate = null
   rotateTlsCalls.length = 0
+  removeHostCalls.length = 0
   updateHostCalls.length = 0
   createPendingHostCalls.length = 0
   toasts.length = 0
@@ -129,10 +136,19 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
 })
 
 describe('ManagedHostsCardConnected add-host flow', () => {
-  function navigateToVerify() {
+  // The Compose step's Next is disabled until the pending host (and its keypair)
+  // exists, so navigation must wait for the creation to settle before advancing.
+  async function waitForPendingHost() {
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
+    })
+  }
+
+  async function navigateToVerify() {
     renderCard()
     fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
   }
@@ -148,7 +164,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('provisions TLS against the candidate URL in one call and leaves the row untouched on failure', async () => {
-    navigateToVerify()
+    await navigateToVerify()
     // The Verify button enables once the pending host exists and a URL is entered.
     fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
     await waitFor(() => {
@@ -164,7 +180,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a failed verify leaves the stored URL alone', async () => {
-    navigateToVerify()
+    await navigateToVerify()
     fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
@@ -178,7 +194,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('cancel stops waiting, re-enables the form, and discards the late result', async () => {
-    navigateToVerify()
+    await navigateToVerify()
     fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
@@ -205,12 +221,12 @@ describe('ManagedHostsCardConnected add-host flow', () => {
 
     // A late server-side failure after cancel must not resurface as an error.
     rejectRotate(new Error('TLS provisioning failed: late failure after cancel'))
-    await new Promise((r) => setTimeout(r, 50))
+    await act(async () => {})
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('maps an Unauthorized enrollment rejection to key-mismatch guidance', async () => {
-    navigateToVerify()
+    await navigateToVerify()
     fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
@@ -224,7 +240,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('shows the provisioning error with a re-run action when provisioning fails', async () => {
-    navigateToVerify()
+    await navigateToVerify()
     fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
@@ -236,5 +252,54 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
     expect(screen.getByText(/TLS provisioning failed/)).toBeDefined()
+  })
+
+  it('shows unrecognized provisioning failures with a re-run hint appended', async () => {
+    await navigateToVerify()
+    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+    })
+    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (connection refused)'))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => {
+      expect(screen.getByText(/Use Re-run provisioning below to try again/)).toBeDefined()
+    })
+  })
+
+  it('drops the stale pending host and creates a new one when the name changes', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
+    })
+    expect(removeHostCalls).toEqual([1])
+  })
+
+  it('Reset removes the wizard-created pending host', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    expect(removeHostCalls).toEqual([1])
+  })
+
+  it('Reset does not remove an enrolled host returned by get-or-create', async () => {
+    createPendingHostResult = Promise.resolve({
+      host: makeHost({ status: 'healthy' }),
+      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
+    })
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    expect(removeHostCalls).toEqual([])
   })
 })

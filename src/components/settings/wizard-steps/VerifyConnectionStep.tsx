@@ -32,7 +32,7 @@ export default function VerifyConnectionStep({
     <div className="flex flex-col gap-3" data-testid="step-verify">
       <p className="text-sm text-muted-foreground">
         Deploy the compose and .env from the previous steps on the target host, then enter where
-        the agent is reachable. First contact is plain HTTP; verifying enrolls a TLS certificate
+        the agent is reachable. First contact is plain HTTP. Verifying enrolls a TLS certificate
         for the agent and moves the connection to HTTPS.
       </p>
       <div className="grid grid-cols-3 gap-2">
