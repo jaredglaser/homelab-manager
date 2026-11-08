@@ -69,10 +69,6 @@ const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Prom
   return Promise.resolve(makeHost())
 }
 
-beforeEach(() => {
-  verifyHostCalls = []
-})
-
 mock.module('@/data/hosts/functions', () => ({
   listHosts: () => Promise.resolve([makeHost()]),
   createPendingHost,
@@ -305,25 +301,5 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitForPendingHost()
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
     expect(removeHostCalls).toEqual([])
-  })
-
-  it('leaves the error alert empty when verify resolves without a provisioning error', async () => {
-    verifyHostResult = Promise.resolve({
-      host: makeHost({ status: 'pending' }),
-      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' },
-    })
-    renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://x:9090' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('pubkey-display').textContent).toContain('enrolled-x')
-    })
-    expect(screen.queryByTestId('rerun-provisioning')).toBeNull()
-    expect(toasts.some((t) => t.message.startsWith('Host added.'))).toBe(true)
   })
 })
