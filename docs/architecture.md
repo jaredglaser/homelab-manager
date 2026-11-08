@@ -383,7 +383,7 @@ Managed hosts are configured via the Settings page:
 
 | Component | Purpose |
 |-----------|---------|
-| `AddHostWizard` | Multi-step wizard for onboarding new hosts with token generation |
+| `AddHostWizard` | Multi-step wizard for onboarding new hosts: keypair generation, agent stack and .env generation, and TLS provisioning |
 | `ManagedHostsCard` | Host list with status, capabilities, and actions |
 | `HostDialogs` | Edit and delete confirmation dialogs |
 | `HostRow` | Individual host row with health indicator |

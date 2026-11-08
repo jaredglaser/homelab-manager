@@ -19,13 +19,19 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const [provisionError, setProvisionError] = useState<string | null>(null)
   const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
   const [rotatingTlsHostIds, setRotatingTlsHostIds] = useState<Set<number>>(new Set())
-  // The pending record that a rename is replacing, kept so a failed stale removal can restore it.
-  const stalePendingHostRef = useRef<PendingHostState | null>(null)
 
   const { data: hosts = [], isLoading } = useQuery({
     queryKey: HOSTS_QUERY_KEY,
     queryFn: () => listHosts(),
   })
+
+  // The snapshot's status is write-once from create-response time, but the server
+  // flips the row later (worker sweep, health checks). Destructive actions must
+  // re-derive "still pending" from the hosts query before they can delete anything.
+  const isStillPending = (host: PendingHostState) => {
+    const liveHost = hosts.find((h) => h.id === host.id)
+    return (liveHost?.status ?? host.status) === 'pending'
+  }
 
   // Renaming after the Compose step drops the stale pending record and creates a new one.
   // The stale id rides the mutate variables because a pendingHost closure goes stale once onMutate clears it mid-mutation.
@@ -41,22 +47,26 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     },
     onMutate: ({ staleHostId }) => {
       if (staleHostId != null) {
-        stalePendingHostRef.current = pendingHost
         setPendingHost(null)
       }
       setCreateError(null)
+      setProvisionError(null)
+      return { replacedHost: pendingHost }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
     },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setPendingHost({ id: result.host.id, name: result.host.name, status: result.host.status, publicJwk: result.publicJwk })
       setCreateError(null)
     },
-    onError: (err: unknown, variables) => {
+    onError: (err: unknown, variables, context) => {
       // A failed stale removal leaves the old record alive, so re-target it instead of duplicating it.
       if (variables?.staleHostId != null
         && (err as { staleRemovalFailed?: boolean }).staleRemovalFailed === true
-        && stalePendingHostRef.current?.id === variables.staleHostId) {
-        setPendingHost(stalePendingHostRef.current)
+        && context?.replacedHost?.id === variables.staleHostId) {
+        setPendingHost(context.replacedHost)
       }
       setCreateError(err instanceof Error ? err.message : 'Failed to create the pending host')
     },
@@ -66,8 +76,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   // (storing the https-flipped URL), so a failed verify never writes a dead address.
   const provisionGenerationRef = useRef(0)
   const provisionMutation = useMutation({
-    mutationFn: async ({ hostId, agentUrl }: { hostId: number; agentUrl: string }) => {
-      const generation = ++provisionGenerationRef.current
+    mutationFn: async ({ hostId, agentUrl, generation }: { hostId: number; agentUrl: string; generation: number }) => {
       try {
         const result = await rotateHostTls({ data: { hostId, agentUrl } })
         return { result, generation }
@@ -101,7 +110,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   }
 
   const discardPendingHost = () => {
-    if (pendingHost && pendingHost.status === 'pending') {
+    if (pendingHost && isStillPending(pendingHost)) {
       const hostId = pendingHost.id
       void removeHost({ data: { hostId } })
         .catch((err: unknown) => {
@@ -220,7 +229,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       hosts={filteredHosts}
       isLoading={isLoading}
       onCreateHost={(name, capabilities) => {
-        const stale = pendingHost && pendingHost.status === 'pending' && pendingHost.name !== name ? pendingHost : null
+        const stale = pendingHost && isStillPending(pendingHost) && pendingHost.name !== name ? pendingHost : null
         createHostMutation.mutate({ name, capabilities, staleHostId: stale?.id ?? null })
       }}
       isCreating={createHostMutation.isPending}
@@ -228,7 +237,10 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       createError={createError}
       provisionError={provisionError}
       pendingHost={pendingHost}
-      onVerify={(hostId, agentUrl) => provisionMutation.mutate({ hostId, agentUrl })}
+      onVerify={(hostId, agentUrl) => {
+        const generation = ++provisionGenerationRef.current
+        provisionMutation.mutate({ hostId, agentUrl, generation })
+      }}
       onCancelVerify={cancelVerification}
       onDiscard={discardPendingHost}
       onRemove={(hostId) => removeMutation.mutate(hostId)}

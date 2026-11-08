@@ -52,9 +52,17 @@ let createPendingHostResult: Promise<CreatePendingHostResult> = Promise.resolve(
 })
 let createPendingHostCalls: Array<{ name: string }> = []
 
+// What listHosts serves. Creating a pending host lands its row in this list with
+// the response status, like the real server, so the card's live-status checks see it.
+let hostsRows: HostListItem[] = [makeHost()]
+const listHosts = (): Promise<HostListItem[]> => Promise.resolve(hostsRows)
+
 const createPendingHost = (data: { data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } } }): Promise<CreatePendingHostResult> => {
   createPendingHostCalls.push({ name: data.data.name })
-  return createPendingHostResult
+  return createPendingHostResult.then((res) => {
+    hostsRows = hostsRows.map((h) => (h.id === res.host.id ? res.host : h))
+    return res
+  })
 }
 
 let removeHostCalls: number[] = []
@@ -73,7 +81,7 @@ const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Prom
 }
 
 mock.module('@/data/hosts/functions', () => ({
-  listHosts: () => Promise.resolve([makeHost()]),
+  listHosts,
   createPendingHost,
   removeHost,
   checkHostHealth: () => Promise.resolve({ hostId: 1, healthy: true }),
@@ -83,10 +91,13 @@ mock.module('@/data/hosts/functions', () => ({
   rotateHostTls: (data: { data: { hostId: number } }) => rotateHostTls(data),
 }))
 
+let lastQueryClient: QueryClient | null = null
+
 function renderCard(): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
+  lastQueryClient = queryClient
   const { ManagedHostsCard } = require('@/components/settings/ManagedHostsCardConnected') as typeof import('@/components/settings/ManagedHostsCardConnected')
   render(
     <QueryClientProvider client={queryClient}>
@@ -103,6 +114,7 @@ beforeEach(() => {
   updateHostCalls.length = 0
   createPendingHostCalls.length = 0
   toasts.length = 0
+  hostsRows = [makeHost()]
   rotateTlsResult = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
   createPendingHostResult = Promise.resolve({
     host: makeHost({ status: 'pending' }),
@@ -145,6 +157,24 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   async function waitForPendingHost() {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
+    })
+    // The create's onSuccess invalidates the hosts list. Wait for that refetch so
+    // live-status checks read the pending row, not the pre-create snapshot.
+    await act(async () => {
+      await lastQueryClient!.refetchQueries({ queryKey: ['managed-hosts'] })
+    })
+  }
+
+  // Simulates the worker sweep flipping the row to enrolled after the create response.
+  async function flipHostToHealthy() {
+    hostsRows = [makeHost({ status: 'healthy' })]
+    await act(async () => {
+      await lastQueryClient!.refetchQueries({ queryKey: ['managed-hosts'] })
+    })
+    // The flipped row renders its Rotate TLS action once the refetch reaches the card;
+    // waitFor it so the click below acts on the flipped row, not a queued render.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'rotate TLS' })).toBeDefined()
     })
   }
 
@@ -359,5 +389,60 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitForPendingHost()
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
     expect(removeHostCalls).toEqual([])
+  })
+
+  it('a server-side status flip keeps a rename from deleting the enrolled host', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    // The worker sweep enrolled the host after the create response: the list now
+    // shows healthy while the wizard still holds a pending snapshot.
+    await flipHostToHealthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
+    })
+    expect(removeHostCalls).toEqual([])
+  })
+
+  it('a server-side status flip keeps Reset from deleting the enrolled host', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    await flipHostToHealthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    await act(async () => {})
+    expect(removeHostCalls).toEqual([])
+  })
+
+  it('a rename clears the previous host\'s provisioning error from the Verify step', async () => {
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent rejected the certificate request (Unauthorized). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => {
+      expect(screen.getByText(/does not match this host/)).toBeDefined()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('step-verify')).toBeDefined()
+    })
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

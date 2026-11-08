@@ -11,9 +11,9 @@ export type { HostListItem } from '@/lib/hosts/host-utils';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 export interface KeypairsDep {
-  createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
+  createForHost: (hostName: string) => Promise<{ publicJwk: JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
-  getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
+  getPublicJwkForHost: (hostName: string) => Promise<JWK | null>;
   getOrCreateForHost: (hostName: string) => Promise<JWK>;
 }
 
@@ -162,10 +162,10 @@ export async function handleRotateHostKeypair(
 /**
  * Create (or reuse) the pending host record and its Ed25519 keypair, and return
  * the public JWK. Called when the Add Host wizard enters the Compose File step,
- * so the generated compose embeds the real AGENT_TRUSTED_PUBKEY and the agent
- * boots already trusting the manager. Provisioning is a separate step
- * (handleRotateHostTls) that runs once the operator has deployed the stack and
- * entered the agent URL.
+ * so the generated .env (referenced by the compose) carries the real
+ * AGENT_TRUSTED_PUBKEY and the agent boots already trusting the manager.
+ * Provisioning is a separate step (handleRotateHostTls) that runs once the
+ * operator has deployed the stack and entered the agent URL.
  */
 export async function handleCreatePendingHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
@@ -208,8 +208,9 @@ export async function handleCreatePendingHost(
 }
 
 /**
- * Re-runs TLS provisioning for an enrolled host. Failure leaves the host record
- * and its enrolled keypair untouched.
+ * Runs TLS provisioning for a host: the Add Host wizard's first contact, or a
+ * re-run for an enrolled host. Failure leaves the host record and its enrolled
+ * keypair untouched.
  *
  * An explicit `agentUrl` re-points the host: provisioning runs against it, and
  * only a successful run (which flips the URL to https) is persisted. A failed

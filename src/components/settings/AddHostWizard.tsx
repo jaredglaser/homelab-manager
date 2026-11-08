@@ -176,14 +176,16 @@ export default function AddHostWizard({
                 <AlertDescription>{createError}</AlertDescription>
               </Alert>
             )}
-            {!composeYaml ? (
+            {isCreating ? (
               <div data-testid="step-compose-loading" className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Spinner className="size-3.5" />
                 Generating this host's keypair…
               </div>
-            ) : (
+            ) : composeYaml ? (
               <ComposeFileStep composeYaml={composeYaml} />
-            )}
+            ) : !createError ? (
+              <p className="text-sm text-muted-foreground">The keypair is generated when you reach this step.</p>
+            ) : null}
           </div>
         )}
 

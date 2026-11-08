@@ -255,9 +255,11 @@ describe('AddHostWizard', () => {
     })
 
     it('Next is disabled on the Compose step while the keypair has not been created', () => {
-      render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
+      const view = render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      // isCreating turns on only after the Next click lands (the create call), like the real flow.
+      view.rerender(<AddHostWizard {...makeProps({ pendingHost: null, isCreating: true })} />)
       expect(screen.getByTestId('step-compose-loading')).toBeDefined()
       expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(true)
     })
@@ -394,20 +396,30 @@ describe('AddHostWizard', () => {
       expect(envStep.textContent).toContain('AGENT_TRUSTED_PUBKEY={"kty":"OKP","crv":"Ed25519","x":"wizard-key-x"}')
     })
 
-    it('shows a keypair spinner on the Compose step before the pending host exists', () => {
-      render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
+    it('shows a keypair spinner on the Compose step only while creation is in flight', () => {
+      const view = render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      view.rerender(<AddHostWizard {...makeProps({ pendingHost: null, isCreating: true })} />)
       const loading = screen.getByTestId('step-compose-loading')
       expect(loading.textContent).toContain("Generating this host's keypair")
       expect(loading.querySelector('pre')).toBeNull()
     })
 
-    it('shows the create error on the Compose step when creation failed', () => {
+    it('shows an idle line on the Compose step when creation has not started', () => {
+      render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByText('The keypair is generated when you reach this step.')).toBeDefined()
+      expect(screen.queryByTestId('step-compose-loading')).toBeNull()
+    })
+
+    it('shows the create error without a spinner on the Compose step when creation failed', () => {
       render(<AddHostWizard {...makeProps({ pendingHost: null, createError: 'Failed to generate agent keypair: disk full' })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText(/Failed to generate agent keypair/)).toBeDefined()
+      expect(screen.queryByTestId('step-compose-loading')).toBeNull()
     })
   })
 
