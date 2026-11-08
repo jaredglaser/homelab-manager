@@ -186,6 +186,36 @@ describe('provisionHostTls', () => {
     );
   });
 
+  it('retries the enrollment through a rotation restart window and succeeds', async () => {
+    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const { deps, fetchCalls, delays, healthCalls } = makeDeps({
+      fetchResponses: [
+        connectError,
+        connectError,
+        enrollResponse(),
+        new DOMException('The connection was closed.', 'AbortError'),
+      ],
+      healthResults: [true],
+    });
+    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(3);
+    // The first two delays are the enrollment backoffs; the trailing 500ms is the first https health poll.
+    expect(delays.slice(0, 2)).toEqual([2000, 4000]);
+    expect(healthCalls).toHaveLength(1);
+  });
+
+  it('reports a rotation-restart hint when enrollment retries are exhausted', async () => {
+    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const { deps, delays } = makeDeps({
+      fetchResponses: [connectError, connectError, connectError],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /restarting from a recent certificate rotation/,
+    );
+    expect(delays).toEqual([2000, 4000]);
+  });
+
   it('refuses to store or poll when the agent returns no usable certificate', async () => {
     const { deps, storeCert } = makeDeps({
       fetchResponses: [jsonResponse({ certPem: 'not a pem' })],

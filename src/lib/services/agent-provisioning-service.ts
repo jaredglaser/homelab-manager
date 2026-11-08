@@ -56,7 +56,32 @@ export async function provisionHostTls(
   const ip = await resolveHostIp(hostname, deps.resolveIp ?? defaultResolveIp);
   const sans = buildSans(hostname, ip);
 
-  const certPem = await enrollCert(baseUrl, sans, deps, fetchFn);
+  // A rotation restarts the agent for up to ~10s (docker stop + start), so an
+  // immediately following rotation can land inside that window and see the
+  // connection refused. Bound-retry the enrollment before giving up: the agent
+  // is very likely mid-restart, not gone.
+  const ENROLL_RETRIES = 2;
+  let certPem: string;
+  let retried = false;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      certPem = await enrollCert(baseUrl, sans, deps, fetchFn);
+      break;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (attempt < ENROLL_RETRIES && /unable to connect/i.test(message)) {
+        retried = true;
+        await sleepFn(2000 + attempt * 2000);
+        continue;
+      }
+      if (retried) {
+        throw new Error(
+          `${err instanceof Error ? err.message : String(err)} The agent may have been restarting from a recent certificate rotation; give it a few seconds and retry.`,
+        );
+      }
+      throw err;
+    }
+  }
 
   await requestRestart(baseUrl, deps, fetchFn);
 
