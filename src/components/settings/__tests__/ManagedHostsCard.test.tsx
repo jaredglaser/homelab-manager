@@ -407,13 +407,14 @@ describe('ManagedHostsCard', () => {
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
     })
 
-    it('embeds the pending host key in the compose', () => {
+    it('references the key in the compose and puts the real key in the .env', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      const composeStep = screen.getByTestId('step-compose')
-      expect(composeStep.textContent).toContain('AGENT_TRUSTED_PUBKEY')
-      expect(composeStep.textContent).toContain('wizard-key-x')
+      expect(screen.getByTestId('step-compose').textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
+      expect(screen.getByTestId('step-compose').textContent).not.toContain('wizard-key-x')
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-env').textContent).toContain('wizard-key-x')
     })
 
     it('does not show the verify-step pubkey display: the key lives in the compose', () => {

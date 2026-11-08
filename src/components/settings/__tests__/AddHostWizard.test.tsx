@@ -333,14 +333,18 @@ describe('AddHostWizard', () => {
       expect(composeStep.textContent).toContain('AGENT_HOST_NAME: my-host')
     })
 
-    it('embeds the real public key in the generated compose', () => {
+    it('references the key in the compose without embedding it, and puts the real key in the .env', () => {
       render(<AddHostWizard {...makeProps()} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       const composeStep = screen.getByTestId('step-compose')
-      expect(composeStep.textContent).toContain('AGENT_TRUSTED_PUBKEY')
-      expect(composeStep.textContent).toContain('wizard-key-x')
-      expect(composeStep.textContent).not.toContain('will appear here')
+      expect(composeStep.textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
+      expect(composeStep.textContent).not.toContain('wizard-key-x')
+      expect(composeStep.textContent).not.toContain('\\\"kty\\\"')
+      // Advance to Configuration: the .env carries the real key.
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      const envStep = screen.getByTestId('step-env')
+      expect(envStep.textContent).toContain('AGENT_TRUSTED_PUBKEY={"kty":"OKP","crv":"Ed25519","x":"wizard-key-x"}')
     })
 
     it('shows a keypair spinner on the Compose step before the pending host exists', () => {

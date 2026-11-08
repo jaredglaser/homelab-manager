@@ -134,12 +134,12 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
   }
 
-  it('embeds the created host key in the compose when entering the Compose step', async () => {
+  it('references the created host key in the compose when entering the Compose step', async () => {
     renderCard()
     fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
-      expect(screen.getByTestId('step-compose').textContent).toContain('wizard-key-x')
+      expect(screen.getByTestId('step-compose').textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
     })
     expect(createPendingHostCalls).toEqual([{ name: 'newhost' }])
   })
