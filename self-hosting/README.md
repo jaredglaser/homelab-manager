@@ -257,6 +257,8 @@ Two separate credentials are involved, neither of which is an env var:
 >
 > **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard creates the host record and keypair when you enter the Compose File step, so the generated .env carries the real `AGENT_TRUSTED_PUBKEY` (referenced by the compose) — the agent boots already trusting the manager. Set `AGENT_HOST_NAME` on the agent to the host name you enter in the wizard (see [Agent Environment](#agent-environment)). The Verify step then provisions TLS for the agent and moves the connection to HTTPS.
 >
+> **Stacks directory:** the agent writes stack files to `${HLM_STACKS_DIR}` on the host, but runs as a non-root user, so the directory must be writable by that user. If the agent logs "Stacks directory is not writable", create it and hand it to the container user: `mkdir -p /opt/homelab-manager/stacks && docker exec hlm-agent id -u && docker exec hlm-agent id -g`, then `chown <uid>:<gid> /opt/homelab-manager/stacks`. Deploy both generated files from the same wizard session — a compose from one run with an .env from another points the agent at a key no manager will sign with.
+>
 ### Rotating a host keypair
 
 Use **Settings → Managed Hosts → key icon** on the host row, then **Rotate keypair** (the button arms on the first press, then press it again to confirm). The dialog shows the new public JWK. Copy it into the agent's `AGENT_TRUSTED_PUBKEY` (or `AGENT_TRUSTED_PUBKEY_FILE`) in that machine's `.env` and recreate the agent container. Until you do, every authenticated call to that agent fails with 401: the dashboard signs with the new key immediately, and the agent still trusts the old one. The dialog stays open with the new key until you close it.

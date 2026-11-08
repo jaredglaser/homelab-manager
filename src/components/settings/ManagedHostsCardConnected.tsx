@@ -66,7 +66,15 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     },
     onError: (err: unknown) => {
       if (provisionCancelledRef.current) return
-      setProvisionError(err instanceof Error ? err.message : 'Failed to verify the connection')
+      const raw = err instanceof Error ? err.message : String(err)
+      // An Unauthorized rejection during enrollment means the agent verified
+      // the JWT against a different key: the deployed .env's
+      // AGENT_TRUSTED_PUBKEY belongs to another wizard session (or another
+      // host), or AGENT_HOST_NAME does not match the host being verified.
+      const message = raw.includes('the agent rejected the certificate request') && raw.includes('Unauthorized')
+        ? 'The agent rejected the manager\u2019s request: the AGENT_TRUSTED_PUBKEY in the deployed .env does not match this host\u2019s keypair, or AGENT_HOST_NAME does not match the host being verified. Deploy the compose and .env from this wizard session together, or copy the current key from this row\u2019s keypair dialog into the .env and restart the agent, then re-verify.'
+        : raw
+      setProvisionError(message)
     },
   })
 

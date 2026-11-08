@@ -195,6 +195,20 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('maps an Unauthorized enrollment rejection to key-mismatch guidance', async () => {
+    navigateToVerify()
+    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+    })
+    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent rejected the certificate request (Unauthorized). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => {
+      expect(screen.getByText(/does not match this host/)).toBeDefined()
+    })
+    expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+  })
+
   it('shows the provisioning error with a re-run action when provisioning fails', async () => {
     navigateToVerify()
     fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
