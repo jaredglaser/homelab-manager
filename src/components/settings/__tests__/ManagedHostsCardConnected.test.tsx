@@ -312,6 +312,12 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('restores the original pending host when the rename stale removal fails', async () => {
+    // A distinctive keypair makes the restored host-a record observable in the
+    // rendered .env: a duplicated creation would carry a different publicJwk.
+    createPendingHostResult = Promise.resolve({
+      host: makeHost({ status: 'pending' }),
+      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'host-a-key' },
+    })
     renderCard()
     fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -325,6 +331,12 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     })
     expect(createPendingHostCalls).toEqual([{ name: 'host-a' }])
     expect(removeHostCalls).toEqual([1])
+    // The wizard renders the restored pending state: advancing past the Compose
+    // step shows the .env carrying host-a's original keypair.
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('step-env').textContent).toContain('host-a-key')
+    })
   })
 
   it('Reset removes the wizard-created pending host', async () => {
