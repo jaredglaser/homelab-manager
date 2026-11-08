@@ -11,15 +11,15 @@ export type { HostListItem } from '@/lib/hosts/host-utils';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 export interface KeypairsDep {
-  createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
+  createForHost: (hostName: string) => Promise<{ publicJwk: JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
-  getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
+  getPublicJwkForHost: (hostName: string) => Promise<JWK | null>;
   getOrCreateForHost: (hostName: string) => Promise<JWK>;
 }
 
 export interface AddHostResult {
   host: HostListItem;
-  publicJwk?: import('jose').JWK;
+  publicJwk?: JWK;
   /** Set when TLS provisioning failed but the keypair was still created and returned. The host stays pending. */
   provisioningError?: string;
 }
@@ -144,7 +144,7 @@ export async function handleUpdateHost(
 export async function handleGetHostPublicJwk(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
-): Promise<{ publicJwk: import('jose').JWK }> {
+): Promise<{ publicJwk: JWK }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -158,7 +158,7 @@ export async function handleGetHostPublicJwk(
 export async function handleRotateHostKeypair(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
-): Promise<{ hostId: number; publicJwk: import('jose').JWK }> {
+): Promise<{ hostId: number; publicJwk: JWK }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
