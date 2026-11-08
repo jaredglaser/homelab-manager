@@ -78,6 +78,29 @@ describe('AgentKeypairsRepository', () => {
     expect(await repo.getPublicJwkForHost('absent')).toBeNull();
   });
 
+  it('getOrCreateForHost inserts when the host has no keypair', async () => {
+    pool.results.push({ rows: [] });
+    pool.results.push({ rows: [] });
+    pool.results.push({ rows: [{ public_jwk: { kty: 'OKP', crv: 'Ed25519', x: 'stored' } }] });
+    const jwk = await repo.getOrCreateForHost('h');
+    expect(jwk).toEqual({ kty: 'OKP', crv: 'Ed25519', x: 'stored' });
+    const [selectSql, insertSql] = pool.query.mock.calls.map((c) => c[0] as string);
+    expect(selectSql).toContain('SELECT public_jwk');
+    expect(insertSql).toContain('INSERT INTO agent_keypairs');
+    expect(insertSql).toContain('ON CONFLICT (host_name) DO NOTHING');
+    expect(insertSql).not.toContain('DO UPDATE');
+    expect((pool.query.mock.calls[1][1] as unknown[])[0]).toBe('h');
+  });
+
+  it('getOrCreateForHost returns the stored JWK without rotating when one exists', async () => {
+    const stored = { kty: 'OKP', crv: 'Ed25519', x: 'enrolled' };
+    pool.results.push({ rows: [{ public_jwk: stored }] });
+    const jwk = await repo.getOrCreateForHost('h');
+    expect(jwk).toBe(stored);
+    expect(pool.query.mock.calls).toHaveLength(1);
+    expect(pool.query.mock.calls[0][0]).toContain('SELECT public_jwk');
+  });
+
   it('deleteForHost issues DELETE', async () => {
     pool.results.push({ rows: [] });
     await repo.deleteForHost('h');

@@ -5,6 +5,7 @@ import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
@@ -13,12 +14,13 @@ export interface KeypairsDep {
   createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
   getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
+  getOrCreateForHost: (hostName: string) => Promise<JWK>;
 }
 
 export interface AddHostResult {
   host: HostListItem;
   publicJwk?: import('jose').JWK;
-  /** Set when TLS provisioning failed but the keypair was created/returned; the host stays pending. */
+  /** Set when TLS provisioning failed but the keypair was still created and returned. The host stays pending. */
   provisioningError?: string;
 }
 
@@ -188,44 +190,34 @@ export async function handleVerifyHost(
     capabilities: data.capabilities,
   }));
 
-  // Get-or-create: a re-verify must reuse the enrolled keypair. Rotating here
-  // would invalidate the AGENT_TRUSTED_PUBKEY the operator already installed on
-  // the agent, and the wizard's "Re-run provisioning" path re-runs this handler
-  // after fixing the agent. Rotation is the explicit rotate-keypair action,
-  // never a side effect of verify.
-  let publicJwk = await deps.keypairs.getPublicJwkForHost(name);
-  if (!publicJwk) {
-    try {
-      ({ publicJwk } = await deps.keypairs.createForHost(name));
-    } catch (err) {
-      if (!existing) await deps.repo.delete(host.id);
-      throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
-    }
+  // A re-verify must reuse the enrolled keypair. Rotation is the explicit
+  // rotate-keypair action, never a side effect of verify.
+  let publicJwk: JWK | null;
+  try {
+    publicJwk = await deps.keypairs.getPublicJwkForHost(name);
+    if (!publicJwk) publicJwk = await deps.keypairs.getOrCreateForHost(name);
+  } catch (err) {
+    if (!existing) await deps.repo.delete(host.id);
+    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
   }
 
   if (deps.provisionTls) {
+    let provisioned: { agentUrl: string };
     try {
-      const provisioned = await deps.provisionTls(name, data.agentUrl);
-      const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
-      return {
-        host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
-        publicJwk,
-      };
+      provisioned = await deps.provisionTls(name, data.agentUrl);
     } catch (err) {
-      // First contact is the expected way to land here. The wizard only shows
-      // AGENT_TRUSTED_PUBKEY once this handler returns, the agent exits at boot
-      // without a parseable pubkey, and every endpoint except /health (including
-      // the enroll endpoint) requires a JWT the agent verifies against that
-      // pubkey — so provisioning cannot succeed before the operator has the
-      // key in hand. Return the key alongside the error so the operator can
-      // boot the agent, and leave the record pending with its original URL so
-      // provisioning can be re-run against it.
+      // Provisioning cannot succeed before the operator installs the returned pubkey, so a failure here is expected first contact.
       return {
         host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
         publicJwk,
         provisioningError: err instanceof Error ? err.message : String(err),
       };
     }
+    const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+    return {
+      host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
+      publicJwk,
+    };
   }
 
   return {

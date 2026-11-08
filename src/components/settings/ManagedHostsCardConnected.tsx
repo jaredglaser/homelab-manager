@@ -38,8 +38,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       } else {
         showToast('Host added successfully', 'success')
       }
-      // A failed provisioning run returns instead of throwing, so the key is
-      // shown together with the error and its Re-run provisioning button.
+      // A failed provisioning run resolves instead of rejecting, so its error must surface here rather than through onError.
       setAddError(result.provisioningError ?? null)
     },
     onError: (err: unknown) => {

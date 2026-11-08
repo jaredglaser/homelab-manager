@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
 import { getAgentImage } from '@/lib/hosts/host-utils';
+import type { JWK } from 'jose';
 import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
 import {
   handleListHosts,
@@ -13,6 +14,8 @@ import {
   handleRotateHostTls,
   handleUpdateAgent,
 } from '../handlers';
+
+const MOCK_JWK: JWK = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' };
 
 const NOW = new Date('2026-03-01T00:00:00Z');
 
@@ -37,7 +40,8 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
   return {
     findById: mock(() => Promise.resolve(mockRow())),
     findAll: mock(() => Promise.resolve([mockRow()])),
-    create: mock(() => Promise.resolve(mockRow())),
+    create: mock((input: { name: string; agentUrl: string }) =>
+      Promise.resolve(mockRow({ name: input.name, agentUrl: input.agentUrl }))),
     findByName: mock((_name: string) => Promise.resolve(null)),
     update: mock(() => Promise.resolve(mockRow())),
     delete: mock(() => Promise.resolve()),
@@ -59,6 +63,7 @@ function makeKeypairsMock(): KeypairsDep {
     deleteForHost: mock(async () => undefined),
     // Default: no keypair enrolled yet, so the create path is exercised.
     getPublicJwkForHost: mock(async (_name: string) => null),
+    getOrCreateForHost: mock(() => Promise.resolve(MOCK_JWK)),
   };
 }
 
@@ -195,7 +200,7 @@ describe('handleVerifyHost', () => {
   it('generates keypair and returns public JWK', async () => {
     const deps = verifyDeps();
     const result = await handleVerifyHost(deps, { name: 'newhost', agentUrl: 'http://x:9090' });
-    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('newhost');
+    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('newhost');
     expect(result.publicJwk).toBeDefined();
     expect(result.publicJwk?.kty).toBe('OKP');
   });
@@ -224,7 +229,7 @@ describe('handleVerifyHost', () => {
 
   it('rolls back DB record on keypair generation failure', async () => {
     const deps = verifyDeps();
-    deps.keypairs.createForHost = mock(() => Promise.reject(new Error('keygen failed')));
+    deps.keypairs.getOrCreateForHost = mock(() => Promise.reject(new Error('keygen failed')));
     await expect(
       handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090' })
     ).rejects.toThrow(/Failed to generate agent keypair/);
@@ -253,7 +258,7 @@ describe('handleVerifyHost', () => {
       agentUrl: 'http://x:9090',
       capabilities: undefined,
     });
-    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('padded-host');
+    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('padded-host');
   });
 
   it('provisions TLS and stores the https agent URL on success', async () => {
@@ -284,8 +289,58 @@ describe('handleVerifyHost', () => {
     expect(result.publicJwk).toBeDefined();
     expect(result.provisioningError).toMatch(/TLS provisioning failed: the agent did not become healthy over HTTPS/);
     expect(result.host.status).toBe('pending');
+    expect(result.host.agentUrl).toBe('http://x:9090');
     expect(repo.delete).not.toHaveBeenCalled();
     expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('returns the enrolled JWK and the provisioning error on a re-verify whose provisioning fails again', async () => {
+    const update = mock(() => Promise.resolve(mockRow()));
+    const remove = mock(() => Promise.resolve());
+    const repo = mockRepo({
+      findByName: mock(() => Promise.resolve(mockRow({ agentUrl: 'http://x:9090' }))),
+      update,
+      delete: remove,
+    });
+    const enrolledJwk: JWK = { kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' };
+    const deps = {
+      ...baseDeps(repo),
+      keypairs: {
+        ...makeKeypairsMock(),
+        getPublicJwkForHost: mock(() => Promise.resolve(enrolledJwk)),
+      },
+      provisionTls: mock(() =>
+        Promise.reject(new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (unreachable).'))),
+    };
+    const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
+    expect(result.publicJwk).toEqual(enrolledJwk);
+    expect(result.provisioningError).toMatch(/TLS provisioning failed: the agent did not become healthy over HTTPS/);
+    expect(deps.keypairs.createForHost).not.toHaveBeenCalled();
+    expect(deps.keypairs.getOrCreateForHost).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a freshly created record when the keypair read fails', async () => {
+    const remove = mock(() => Promise.resolve());
+    const base = verifyDeps();
+    const deps = {
+      repo: { ...base.repo, delete: remove },
+      keypairs: {
+        ...base.keypairs,
+        getPublicJwkForHost: mock(() => Promise.reject(new Error('keypair store unreachable'))),
+      },
+      provisionTls: mock(() => Promise.resolve({ agentUrl: 'https://x:9090' })),
+    };
+    let message = '';
+    try {
+      await handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090' });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toMatch(/Failed to generate agent keypair: keypair store unreachable/);
+    expect(deps.provisionTls).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalledWith(1);
   });
 
   it('creates the host record with the original URL before the https rewrite', async () => {
@@ -354,7 +409,7 @@ describe('handleVerifyHost', () => {
       provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
     };
     await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
-    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('tlshost');
+    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('tlshost');
   });
 
   it('keeps a pre-existing record when keypair generation fails on re-run', async () => {
@@ -363,7 +418,7 @@ describe('handleVerifyHost', () => {
     });
     const deps = {
       ...baseDeps(repo),
-      keypairs: { ...makeKeypairsMock(), createForHost: mock(() => Promise.reject(new Error('keygen failed'))) },
+      keypairs: { ...makeKeypairsMock(), getOrCreateForHost: mock(() => Promise.reject(new Error('keygen failed'))) },
     };
     await expect(
       handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' }),

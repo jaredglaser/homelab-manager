@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, beforeEach, mock } from 'bun:test'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
@@ -48,6 +48,10 @@ const verifyHost = (data: { data: { name: string; agentUrl: string } }): Promise
   verifyHostCalls.push(data.data)
   return verifyHostResult
 }
+
+beforeEach(() => {
+  verifyHostCalls = []
+})
 
 mock.module('@/data/hosts/functions', () => ({
   listHosts: () => Promise.resolve([makeHost()]),
@@ -122,5 +126,25 @@ describe('ManagedHostsCardConnected add-host verify flow', () => {
     expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     expect(toasts.some((t) => t.message.startsWith('Host added.'))).toBe(true)
     expect(verifyHostCalls).toEqual([{ name: 'newhost', agentUrl: 'http://x:9090', capabilities: { docker: true, zfs: false } }])
+  })
+
+  it('leaves the error alert empty when verify resolves without a provisioning error', async () => {
+    verifyHostResult = Promise.resolve({
+      host: makeHost({ status: 'pending' }),
+      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' },
+    })
+    renderCard()
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://x:9090' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pubkey-display').textContent).toContain('enrolled-x')
+    })
+    expect(screen.queryByTestId('rerun-provisioning')).toBeNull()
+    expect(toasts.some((t) => t.message.startsWith('Host added.'))).toBe(true)
   })
 })
