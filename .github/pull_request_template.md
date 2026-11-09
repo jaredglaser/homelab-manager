@@ -7,7 +7,7 @@
 <!-- The path through the system, not a list of files. Where does this sit, and what moves through it?
 Arrows are good:
 
-  AgentStatsCollector -> docker_stats -> StatsPollService -> /api/docker-stats -> useTimeSeriesStream
+  AgentStatsCollector -> docker_stats -> StatsPollService -> /api/mux (WebSocket) -> useTimeSeriesStream
   git push -> post-receive -> DeployRequest -> resolve secrets -> agent -> deploy_history
 
 If the path already exists and you are changing it, show before and after. If it is new, show the whole

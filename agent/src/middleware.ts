@@ -7,13 +7,16 @@ import { verifyAgentJwt } from './lib/jwt-auth';
  * @param expectedAudience host name the token's aud claim must match.
  * Returns a Response on rejection, or `null` on success.
  */
+/** Path that may be served without a JWT (the liveness probe). A test pins this to be inside HTTP_ENROLLMENT_ALLOWED_PATHS, so restricted plain-HTTP mode does not 403 the health check. */
+export const AUTH_BYPASS_PATH = '/health';
+
 export async function authenticateRequest(
   headers: Headers,
   trustedPublicKey: CryptoKey,
   pathname: string,
   expectedAudience: string,
 ): Promise<Response | null> {
-  if (pathname === '/health') return null;
+  if (pathname === AUTH_BYPASS_PATH) return null;
 
   const authHeader = headers.get('Authorization');
   if (!authHeader) return new Response('Unauthorized', { status: 401 });

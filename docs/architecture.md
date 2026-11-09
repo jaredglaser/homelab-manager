@@ -185,6 +185,10 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | POST | `/stacks/start` | Run `docker compose up -d` |
 | POST | `/stacks/stop` | Run `docker compose stop` |
 | GET | `/stacks/status` | List stacks in working directory |
+| GET | `/stacks/inventory` | List containerized stacks with image detail |
+| GET | `/stacks/compose` | Fetch a stack's compose file content |
+| WS | `/exec/:containerId` | Interactive shell into a container (WebSocket) |
+| POST | `/tls/enroll` | Enroll a TLS certificate for the agent (manager-driven) |
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
 | POST | `/agent/update` | Spawn a helper container that replaces the agent with the digest-pinned target image |
@@ -279,7 +283,7 @@ Push:
   POST /api/git/stacks/git-receive-pack
 ```
 
-- Bearer token authentication
+- Bearer or Basic token authentication (the token is the Basic password field)
 - Repo name validation and path traversal protection
 - Request body size limit (50MB)
 - Subprocess exit code checking

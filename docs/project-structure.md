@@ -1,6 +1,6 @@
 # Project Structure
 
-Directory-level map of the repo's four packages. For how the subsystems fit together, see [Architecture](architecture.md); for file-level detail, read the directory itself. Tests live in `__tests__/` folders co-located with the code they cover (omitted below).
+Directory-level map of the repo's two packages. For how the subsystems fit together, see [Architecture](architecture.md). For file-level detail, read the directory itself. Tests live in `__tests__/` folders co-located with the code they cover (omitted below).
 
 ```text
 src/                        # Web app + worker (TanStack Start SPA, Bun)

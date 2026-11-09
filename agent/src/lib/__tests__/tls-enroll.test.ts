@@ -7,13 +7,16 @@ import {
   buildSubjectAltName,
   ENROLL_MARKER_NAME,
   handleTlsEnroll,
+  HTTP_ENROLLMENT_ALLOWED_PATHS,
+  HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT,
+  isAllowedOverPlainHttp,
   parseAndValidateSans,
   parseTlsHttpFallback,
   resolveTlsStartup,
   TlsEnrollError,
   type SpawnFn,
 } from '../tls-enroll';
-import { authenticateRequest } from '../../middleware';
+import { AUTH_BYPASS_PATH, authenticateRequest } from '../../middleware';
 import { loadTrustedPublicKey } from '../jwt-auth';
 
 interface SpawnCall {
@@ -268,7 +271,7 @@ describe('tls-enroll', () => {
     });
 
     it('serves plain HTTP without a warning when TLS is not configured', () => {
-      expect(resolveTlsStartup(undefined, undefined, false, readable, () => false)).toEqual({ mode: 'http' });
+      expect(resolveTlsStartup(undefined, undefined, false, readable, () => false)).toEqual({ mode: 'http', restricted: false });
     });
 
     it('is fatal when only one path is set', () => {
@@ -296,6 +299,7 @@ describe('tls-enroll', () => {
       if (decision.mode === 'http') {
         expect(decision.warning).toContain('HLM_TLS_HTTP_FALLBACK=true');
         expect(decision.warning).toContain('without TLS');
+        expect(decision.restricted).toBe(true);
       }
     });
 
@@ -305,7 +309,29 @@ describe('tls-enroll', () => {
       if (decision.mode === 'http') {
         expect(decision.warning).toContain('first boot');
         expect(decision.warning).toContain('Re-run TLS provisioning');
+        expect(decision.restricted).toBe(true);
       }
+    });
+
+    it('allows only the enrollment endpoints over restricted plain HTTP', () => {
+      // The enrollment handshake must stay reachable without TLS or a first
+      // boot could never provision a certificate.
+      expect(isAllowedOverPlainHttp('/health')).toBe(true);
+      expect(isAllowedOverPlainHttp('/auth/verify')).toBe(true);
+      expect(isAllowedOverPlainHttp('/tls/enroll')).toBe(true);
+
+      // The derived-text test pins the Set's exact contents, so these guard
+      // only the matching shape: exact pathname, never a prefix.
+      expect(isAllowedOverPlainHttp('/')).toBe(false);
+      expect(isAllowedOverPlainHttp('/tls/enroll/')).toBe(false);
+      expect(isAllowedOverPlainHttp('/health/x')).toBe(false);
+    });
+
+    it('keeps the JWT-bypassed liveness path inside the plain-HTTP allowlist', () => {
+      // authenticateRequest skips JWT for AUTH_BYPASS_PATH; if it were ever
+      // removed from the allowlist, restricted mode would 403 the health check.
+      expect(HTTP_ENROLLMENT_ALLOWED_PATHS.has(AUTH_BYPASS_PATH)).toBe(true);
+      expect(HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT).toBe('/health, /auth/verify, /tls/enroll');
     });
   });
 
