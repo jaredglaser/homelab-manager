@@ -63,6 +63,14 @@ function shouldStartZfs(workerConfig: WorkerConfig, caps: HostCapabilities | und
   return Boolean(workerConfig.zfs.enabled && caps?.zfs);
 }
 
+function isPlainHttpUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Default factory that wires up the real collector classes. Extracted so
  * tests can inject a fake without monkey-patching modules.
@@ -119,6 +127,7 @@ export function defaultHostCollectorFactory(
  */
 export class HostCollectorManager implements AsyncDisposable {
   private readonly entries = new Map<string, HostEntry>();
+  private readonly plaintextHttpSkipped = new Set<string>();
   private reconcileChain: Promise<void> = Promise.resolve();
 
   constructor(
@@ -172,7 +181,32 @@ export class HostCollectorManager implements AsyncDisposable {
       return;
     }
 
-    const desiredByName = new Map(desired.map((h) => [h.name, h]));
+    // Plain-http agent URLs are the pre-TLS-provisioning state: the host row
+    // exists from verifyHost before the URL is flipped to https. Collecting
+    // over plaintext would stream stats, inventory and stack data unencrypted,
+    // so such hosts are skipped unless plaintext is explicitly allowed
+    // (development only, via WORKER_ALLOW_INSECURE_AGENTS=true).
+    const eligible: ManagedHost[] = [];
+    for (const host of desired) {
+      if (!isPlainHttpUrl(host.agentUrl)) {
+        this.plaintextHttpSkipped.delete(host.name);
+        eligible.push(host);
+        continue;
+      }
+      if (this.workerConfig.agents.allowInsecurePlaintext) {
+        this.plaintextHttpSkipped.delete(host.name);
+        eligible.push(host);
+        continue;
+      }
+      if (!this.plaintextHttpSkipped.has(host.name)) {
+        this.plaintextHttpSkipped.add(host.name);
+        console.warn(
+          `[HostCollectorManager] skipping host '${host.name}': agent URL '${host.agentUrl}' uses plain http:// (TLS not provisioned yet). Collecting over plaintext is disabled; run TLS provisioning from the Managed Hosts card, or set WORKER_ALLOW_INSECURE_AGENTS=true to allow plaintext collection (development only).`,
+        );
+      }
+    }
+
+    const desiredByName = new Map(eligible.map((h) => [h.name, h]));
 
     // Remove hosts no longer present
     for (const name of [...this.entries.keys()]) {
@@ -182,7 +216,7 @@ export class HostCollectorManager implements AsyncDisposable {
     }
 
     // Add new hosts and recreate changed ones
-    for (const host of desired) {
+    for (const host of eligible) {
       const existing = this.entries.get(host.name);
       const newIdentity = identityFor(host);
       if (!existing) {

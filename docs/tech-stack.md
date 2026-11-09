@@ -16,7 +16,7 @@
 | **Git** | [isomorphic-git](https://isomorphic-git.org/) | Server-side git operations for stack repository management |
 | **Crypto** | [jose](https://github.com/panva/jose) | JWE at-rest encryption for stack secrets and per-agent private keys; Ed25519 JWT signing for agent auth |
 | **Code Editor** | [Monaco Editor](https://microsoft.github.io/monaco-editor/) + [monaco-yaml](https://github.com/remcohaszing/monaco-yaml) | In-app YAML editor for Docker Compose files with schema validation |
-| **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and indefinite retention for time-series data |
+| **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and tiered retention for time-series data (raw 24h → 1-minute 30d → 1-hour forever) |
 | **DB Driver** | [node-postgres (`pg`)](https://node-postgres.com/) | PostgreSQL client used by the web server and worker for queries, LISTEN/NOTIFY, and connection pooling |
 | **Server Runtime** | [Nitro](https://nitro.build/) | Server engine under TanStack Start (pinned to a nightly build via `nitro-nightly`) |
 | **Validation** | [Zod](https://zod.dev) | Schema validation |

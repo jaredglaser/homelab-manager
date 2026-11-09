@@ -65,6 +65,13 @@ export async function seed(pool: Pool): Promise<void> {
  * an orphan.
  */
 async function seedImageUpdateChecks(pool: Pool): Promise<void> {
+  const table = await pool.query(
+    `SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'image_update_checks'`
+  );
+  if (table.rows.length === 0) {
+    return;
+  }
   const stackColumn = await pool.query(
     `SELECT 1 FROM information_schema.columns
      WHERE table_schema = 'public' AND table_name = 'image_update_checks' AND column_name = 'stack'`
