@@ -31,6 +31,7 @@ function createWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
     zfs: { enabled: false },
     proxmox: { enabled: false },
     collection: { interval: 1000 },
+    agents: { allowInsecurePlaintext: true },
     ...overrides,
   };
 }
