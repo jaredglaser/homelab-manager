@@ -22,8 +22,8 @@ Start with `AGENTS.md`, then inspect the requested files or the relevant recent 
 
 - Only `VITE_*` env vars should be client-visible.
 - `createServerFn()` paths should use the expected middleware and validation.
-- The `/api/mux` WebSocket route should avoid leaking server-only imports into the client bundle (dynamic imports inside its handler callbacks).
-- Dynamic imports are required for server-only modules such as `pg`, `dockerode`, `ssh2`, subscription services, and database clients in the sensitive paths called out by `AGENTS.md`.
+- The `/api/mux` WebSocket route must use dynamic imports inside its handler callbacks. Static imports there leak server-only modules (`pg`, `dockerode`, subscription services, database clients) into the client bundle.
+- In `createServerFn` modules, static imports are safe: the Start compiler strips handler bodies from the client bundle and `importProtection` fails the build on leaks (see `AGENTS.md` rule 4).
 - Docker or entity operations should use validated host-prefixed IDs, not display names.
 
 ## Search patterns
@@ -32,7 +32,7 @@ Use targeted searches such as:
 
 - SQL construction in `client.query(...)`
 - console logging around `password`, `token`, `secret`, or `key`
-- static imports of `pg`, `dockerode`, or `ssh2` in route or mixed client/server code
+- static imports of `pg`, `dockerode`, or subscription/database services in route or mixed client/server code
 - user input flowing into commands, file paths, or privileged agent operations
 
 ## Output

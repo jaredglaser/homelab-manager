@@ -192,6 +192,8 @@ bun run dev:local:wipe         # Stop and delete all volumes (fresh database)
 bun run dev:local:logs         # Tail all service logs
 bun run dev:local:logs:worker  # Worker logs only
 bun run dev:local:logs:agent   # Agent logs only
+bun run dev:local:logs:db      # Postgres logs only
+bun run dev:local:logs:pocketid # Pocket ID logs only
 ```
 
 If the sample containers were started standalone, stop them with `docker compose -f ~/stacks/samples/docker-compose.yml down`.
@@ -284,7 +286,9 @@ bun run test:e2e:ui     # Playwright UI mode
 Two targets share the handlers in `src/lib/mock`: `demo` (the `VITE_DEMO_MODE`
 build, smoke-tested) and `app` (the real non-demo build with `VITE_ENABLE_MSW`,
 deep flows). Specs live in `e2e/`; `*.demo.e2e.ts` run on `demo`, all other
-`*.e2e.ts` on `app`. The `.e2e.ts` suffix is deliberate: `bun test` collects
+`*.e2e.ts` on `app`, and `*.mobile.e2e.ts` run on the dedicated `mobile`
+Playwright project (viewport-sized smoke checks that pin the shell chrome). The
+`.e2e.ts` suffix is deliberate: `bun test` collects
 `*.spec.ts`, and Playwright's `test()` throws when bun's runner loads it. Tests
 reshape individual responses per scenario with `overrideServerFn` (see
 `e2e/fixtures.ts`).
@@ -311,7 +315,7 @@ bun run typecheck:all       # Both
 ## Production Build
 
 ```bash
-bun build               # Production build (runs typecheck first)
+bun run build           # Production build (runs typecheck first)
 ```
 
 ## TLS Setup (Agent Communication)
@@ -326,16 +330,27 @@ rotate a certificate.
 
 Before its first enrollment the agent serves plain HTTP with a warning in its
 logs (tracked by an `.enrolled` marker next to the certificate files), so the
-manager can reach it to enroll a certificate. After enrollment a missing or
-unreadable certificate or key file is fatal: the agent refuses to start.
+manager can reach it to enroll a certificate. In that state the plain-HTTP
+surface is restricted to `/health`, `/auth/verify` and `/tls/enroll`; every
+other endpoint returns `403`, because over plaintext the bearer-token auth is
+defeated by any network observer. After enrollment a missing or unreadable
+certificate or key file is fatal: the agent refuses to start.
+
+Agents with no `TLS_CERT_PATH`/`TLS_KEY_PATH` at all keep the full API over
+plain HTTP, which is the intentional development setup (the dev compose does
+not set the TLS paths), and the worker only talks to such agents when
+`WORKER_ALLOW_INSECURE_AGENTS=true`, which `docker-compose.local.yml` sets.
 
 `HLM_TLS_HTTP_FALLBACK` (agent container): set it to `true` to serve plain HTTP
 instead of refusing to start, with a warning in the agent logs. The value must
-be exactly `true` or `false`. Anything else stops the agent at startup.
+be exactly `true` or `false`. Anything else stops the agent at startup. The
+plain-HTTP surface stays restricted to the enrollment endpoints in this mode
+too, so a forgotten fallback flag cannot quietly reopen the full API over
+plaintext.
 
 ## Editor Setup (Zed)
 
-MCP servers are the one piece Zed configures at the user level (`~/.config/zed/settings.json`) rather than per project. To match the repo's Playwright MCP setup (`.mcp.json`, used by Claude Code), add:
+MCP servers are the one piece Zed configures at the user level (`~/.config/zed/settings.json`) rather than per project. To match the repo's Playwright MCP setup (`.mcp.json`, used by Claude Code. Note that the file is gitignored and not committed, so it may not exist in a fresh clone), add:
 
 ```json
 {

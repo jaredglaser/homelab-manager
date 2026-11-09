@@ -19,6 +19,9 @@ function makeWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
     zfs: { enabled: true },
     proxmox: { enabled: false },
     collection: { interval: 1000 },
+    // Most tests exercise collection itself; plaintext http agents are the
+    // historical fixture shape, so insecure collection is allowed by default.
+    agents: { allowInsecurePlaintext: true },
   } as WorkerConfig;
   return { ...base, ...(overrides ?? {}) } as WorkerConfig;
 }
@@ -393,6 +396,59 @@ describe('HostCollectorManager', () => {
 
     expect(calls).toHaveLength(0);
     expect(manager.hostNames()).toEqual([]);
+  });
+
+  it('skips plain-http agent URLs unless insecure plaintext collection is allowed', async () => {
+    const originalConsoleWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = mock((msg?: unknown) => warns.push(String(msg)));
+    try {
+      const { factory, calls } = makeFactory();
+      // makeHost defaults to http:// URLs: the pre-TLS-provisioning shape.
+      let url = 'http://a:9090';
+      const manager = new HostCollectorManager(
+        makeWorkerConfig({ agents: { allowInsecurePlaintext: false } }),
+        controller.signal,
+        () => Promise.resolve([makeHost('a', { agentUrl: url })]),
+        okSigner,
+        () => Promise.resolve(null),
+        factory,
+      );
+
+      await manager.reconcile();
+      expect(calls).toHaveLength(0);
+      expect(manager.hostNames()).toEqual([]);
+      expect(warns.some((w) => w.includes("skipping host 'a'") && w.includes('plain http://'))).toBe(true);
+
+      // Reconciling again does not repeat the warning.
+      await manager.reconcile();
+      expect(calls).toHaveLength(0);
+      expect(warns.filter((w) => w.includes("skipping host 'a'"))).toHaveLength(1);
+
+      // Once TLS provisioning flips the URL to https, collectors start.
+      url = 'https://a:9090';
+      await manager.reconcile();
+      expect(calls).toHaveLength(1);
+      expect(manager.hostNames()).toEqual(['a']);
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+  });
+
+  it('collects over plain http when WORKER_ALLOW_INSECURE_AGENTS-style config allows it', async () => {
+    const { factory, calls } = makeFactory();
+    const manager = new HostCollectorManager(
+      makeWorkerConfig({ agents: { allowInsecurePlaintext: true } }),
+      controller.signal,
+      () => Promise.resolve([makeHost('a')]),
+      okSigner,
+      () => Promise.resolve(null),
+      factory,
+    );
+
+    await manager.reconcile();
+    expect(calls).toHaveLength(1);
+    expect(manager.hostNames()).toEqual(['a']);
   });
 
   it('asyncDispose stops collectors for all tracked hosts', async () => {

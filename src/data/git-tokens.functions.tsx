@@ -15,7 +15,7 @@ export const createGitToken = createServerFn()
   .middleware([authMiddleware])
   .validator(z.object({ label: z.string().min(1).max(100) }))
   .handler(async ({ data, context }): Promise<{ token: string }> => {
-    requireRole('admin')(context.user);
+    requireRole('admin', 'operator')(context.user);
 
     const rawToken = randomBytes(32).toString('hex');
 
@@ -37,32 +37,46 @@ export const createGitToken = createServerFn()
   });
 
 /**
- * List all git tokens (admin only). Does not return encrypted values.
+ * List git tokens. Admins see all users' tokens. Operators see only their own.
+ * Does not return encrypted values.
  */
 export const listGitTokens = createServerFn()
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
-    requireRole('admin')(context.user);
+    requireRole('admin', 'operator')(context.user);
 
     const dbConfig = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(dbConfig);
     const repo = new GitTokenRepository(dbClient.getPool());
 
-    return repo.findAll();
+    if (context.user.role === 'admin') {
+      return repo.findAll();
+    }
+    const own = await repo.findByUserId(context.user.id);
+    // Shape rows like GitTokenWithUser so the UI table renders identically for both scopes.
+    return own.map((row) => ({
+      ...row,
+      userName: context.user.name,
+      userEmail: context.user.email,
+    }));
   });
 
 /**
- * Revoke a git token by ID (admin only).
+ * Revoke a git token by ID. Admins may revoke any token. Operators may revoke only their own.
  */
 export const revokeGitToken = createServerFn()
   .middleware([authMiddleware])
   .validator(z.object({ tokenId: z.number() }))
   .handler(async ({ data, context }): Promise<void> => {
-    requireRole('admin')(context.user);
+    requireRole('admin', 'operator')(context.user);
 
     const dbConfig = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(dbConfig);
     const repo = new GitTokenRepository(dbClient.getPool());
 
-    await repo.deleteById(data.tokenId);
+    if (context.user.role === 'admin') {
+      await repo.deleteById(data.tokenId);
+      return;
+    }
+    await repo.deleteByIdAndUser(data.tokenId, context.user.id);
   });

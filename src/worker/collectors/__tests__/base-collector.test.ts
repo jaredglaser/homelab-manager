@@ -22,6 +22,7 @@ function createMockConfig(overrides?: Partial<any>) {
     zfs: { enabled: true },
     proxmox: { enabled: false },
     collection: { interval: 1000 },
+    agents: { allowInsecurePlaintext: true },
     ...overrides,
   };
 }
