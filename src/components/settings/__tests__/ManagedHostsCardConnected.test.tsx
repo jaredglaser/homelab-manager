@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
 // Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
@@ -138,11 +139,12 @@ beforeEach(() => {
 
 describe('ManagedHostsCardConnected rotate TLS toasts', () => {
   it('shows the pinned success toast after a successful rotation', async () => {
+    const user = userEvent.setup()
     renderCard()
     await screen.findByText('server1')
     rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
 
-    fireEvent.click(screen.getByLabelText('rotate TLS'))
+    await user.click(screen.getByLabelText('rotate TLS'))
 
     await waitFor(() => {
       expect(
@@ -153,11 +155,14 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
   })
 
   it('shows the pinned fallback toast when rotation fails without an Error', async () => {
+    const user = userEvent.setup()
     renderCard()
     await screen.findByText('server1')
     rotateTlsResult = Promise.reject('boom')
+    // The rejection stays unconsumed until the click dispatches the mutation, and bun fails the test on the unhandled rejection, so attach a no-op consumer up front.
+    rotateTlsResult.catch(() => null)
 
-    fireEvent.click(screen.getByLabelText('rotate TLS'))
+    await user.click(screen.getByLabelText('rotate TLS'))
 
     await waitFor(() => {
       expect(toasts.some((t) => t.message === 'Failed to rotate the TLS certificate')).toBe(true)
@@ -167,6 +172,7 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
 
 describe('ManagedHostsCardConnected health check toasts', () => {
   it('maps an unhealthy result to its code copy', async () => {
+    const user = userEvent.setup()
     healthCheckResult = Promise.resolve({
       hostId: 1,
       healthy: false,
@@ -176,7 +182,7 @@ describe('ManagedHostsCardConnected health check toasts', () => {
     renderCard()
     await screen.findByText('server1')
 
-    fireEvent.click(screen.getByLabelText('check health'))
+    await user.click(screen.getByLabelText('check health'))
 
     await waitFor(() => {
       expect(
@@ -213,19 +219,20 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     })
   }
 
-  async function navigateToVerify() {
+  async function navigateToVerify(user: ReturnType<typeof userEvent.setup>) {
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
   }
 
   it('references the created host key in the compose when entering the Compose step', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
       expect(screen.getByTestId('step-compose').textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
     })
@@ -233,13 +240,14 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('provisions TLS against the candidate URL in one call and leaves the row untouched on failure', async () => {
-    await navigateToVerify()
+    const user = userEvent.setup()
+    await navigateToVerify(user)
     // The Verify button enables once the pending host exists and a URL is entered.
-    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     await waitFor(() => {
       expect(rotateTlsCalls).toEqual([
@@ -251,13 +259,14 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a failed verify leaves the stored URL alone', async () => {
-    await navigateToVerify()
-    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    const user = userEvent.setup()
+    await navigateToVerify(user)
+    await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
     rotateTlsResult = Promise.resolve({ ok: false, code: 'agent_unreachable', message: 'the agent could not be reached to create its certificate' })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
@@ -265,14 +274,15 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('cancel stops waiting, re-enables the form, and discards the late result', async () => {
-    await navigateToVerify()
-    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    const user = userEvent.setup()
+    await navigateToVerify(user)
+    await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
     let resolveRotate!: (result: RotateTlsResult) => void
     rotateTlsGate = new Promise<RotateTlsResult>((res) => { resolveRotate = res })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     // In-flight: loading state, cancel action, everything disabled.
     await waitFor(() => {
@@ -282,7 +292,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(cancelBtn).toBeDefined()
     expect(screen.getByRole('button', { name: 'Reset' }).hasAttribute('disabled')).toBe(true)
 
-    fireEvent.click(cancelBtn)
+    await user.click(cancelBtn)
     // Back to idle: the Verify button is enabled again, no error is shown.
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
@@ -297,13 +307,14 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('maps an Unauthorized enrollment rejection to key-mismatch guidance', async () => {
-    await navigateToVerify()
-    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    const user = userEvent.setup()
+    await navigateToVerify(user)
+    await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
     rotateTlsResult = Promise.resolve({ ok: false, code: 'signature_invalid', message: 'the agent rejected the certificate request (Unauthorized)' })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/does not match this host/)).toBeDefined()
     })
@@ -311,13 +322,14 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('shows the provisioning error with a re-run action when provisioning fails', async () => {
-    await navigateToVerify()
-    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    const user = userEvent.setup()
+    await navigateToVerify(user)
+    await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
     rotateTlsResult = Promise.resolve({ ok: false, code: 'poll_timeout', message: 'the agent did not serve the new certificate in time (connection refused)' })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     await waitFor(() => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
@@ -326,26 +338,29 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('shows unrecognized provisioning failures with a re-run hint appended', async () => {
-    await navigateToVerify()
-    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    const user = userEvent.setup()
+    await navigateToVerify(user)
+    await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
     rotateTlsResult = Promise.resolve({ ok: false, code: 'unexpected_agent_response', message: 'the agent answered with something unrecognised' })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/Use Re-run provisioning below to try again/)).toBeDefined()
     })
   })
 
   it('drops the stale pending host and creates a new one when the name changes', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'host-a')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.clear(screen.getByLabelText('Host Name'))
+    await user.type(screen.getByLabelText('Host Name'), 'host-b')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
       expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
     })
@@ -353,14 +368,15 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('Reset treats a no-longer-pending rejection as a silent success and clears the wizard', async () => {
+    const user = userEvent.setup()
     // Stale-cache simulation: the list still serves the row as pending, but the
     // server flips it between the snapshot and the removal, so removeHost rejects.
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
     removeHostError = new Error('Host server1 is no longer pending')
-    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
     await waitFor(() => {
       expect(screen.queryByTestId('step-compose')).toBeNull()
     })
@@ -370,14 +386,16 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a rename treats a no-longer-pending stale record as gone and still creates the renamed one', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'host-a')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     removeHostError = new Error('Host host-a is no longer pending')
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.clear(screen.getByLabelText('Host Name'))
+    await user.type(screen.getByLabelText('Host Name'), 'host-b')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
       expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
     })
@@ -387,25 +405,28 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('treats a discard whose pending row was already removed elsewhere as a silent success', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
     removeHostError = new Error('Host with id 1 not found')
-    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
     await act(async () => {})
     expect(toasts).toEqual([])
   })
 
   it('treats a stale pending host removed elsewhere as gone and still creates the renamed one', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'host-a')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     removeHostError = new Error('Host with id 1 not found')
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.clear(screen.getByLabelText('Host Name'))
+    await user.type(screen.getByLabelText('Host Name'), 'host-b')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
       expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
     })
@@ -413,6 +434,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('restores the original pending host when the rename stale removal fails', async () => {
+    const user = userEvent.setup()
     // A distinctive keypair makes the restored host-a record observable in the
     // rendered .env: a duplicated creation would carry a different publicJwk.
     createPendingHostResult = Promise.resolve({
@@ -420,13 +442,14 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'host-a-key' },
     })
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'host-a')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     removeHostError = new Error('remove failed: connection reset by peer')
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.clear(screen.getByLabelText('Host Name'))
+    await user.type(screen.getByLabelText('Host Name'), 'host-b')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
     })
@@ -434,45 +457,49 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(removeHostCalls).toEqual([1])
     // The wizard renders the restored pending state: advancing past the Compose
     // step shows the .env carrying host-a's original keypair.
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
       expect(screen.getByTestId('step-env').textContent).toContain('host-a-key')
     })
   })
 
   it('Reset removes the wizard-created pending host', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
     expect(removeHostCalls).toEqual([1])
   })
 
   it('Reset does not remove an enrolled host returned by get-or-create', async () => {
+    const user = userEvent.setup()
     createPendingHostResult = Promise.resolve({
       host: makeHost({ status: 'healthy' }),
       publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
     })
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
     expect(removeHostCalls).toEqual([])
   })
 
   it('a server-side status flip keeps a rename from deleting the enrolled host', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'host-a')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
     // The worker sweep enrolled the host after the create response: the list now
     // shows healthy while the wizard still holds a pending snapshot.
     await flipHostToHealthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.clear(screen.getByLabelText('Host Name'))
+    await user.type(screen.getByLabelText('Host Name'), 'host-b')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
       expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
     })
@@ -480,37 +507,40 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a server-side status flip keeps Reset from deleting the enrolled host', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
     await flipHostToHealthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
     await act(async () => {})
     expect(removeHostCalls).toEqual([])
   })
 
   it('a rename clears the previous host\'s provisioning error from the Verify step', async () => {
+    const user = userEvent.setup()
     renderCard()
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-a' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Host Name'), 'host-a')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     rotateTlsResult = Promise.resolve({ ok: false, code: 'signature_invalid', message: 'the agent rejected the certificate request (Unauthorized)' })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/does not match this host/)).toBeDefined()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'host-b' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.clear(screen.getByLabelText('Host Name'))
+    await user.type(screen.getByLabelText('Host Name'), 'host-b')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitForPendingHost()
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() => {
       expect(screen.getByTestId('step-verify')).toBeDefined()
     })

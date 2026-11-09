@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import '@/lib/test/testing-library'
 import { RemoveDialog, EditDialog } from '@/components/settings/HostDialogs'
 import type { HostListItem } from '@/lib/hosts/host-utils'
@@ -39,17 +40,19 @@ describe('RemoveDialog', () => {
     expect(screen.getByText('Remove Host')).toBeDefined()
   })
 
-  it('calls onConfirm when Remove button is clicked', () => {
+  it('calls onConfirm when Remove button is clicked', async () => {
+    const user = userEvent.setup()
     const onConfirm = mock(() => {})
     render(<RemoveDialog {...defaultProps} onConfirm={onConfirm} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 
-  it('calls onClose when Cancel button is clicked', () => {
+  it('calls onClose when Cancel button is clicked', async () => {
+    const user = userEvent.setup()
     const onClose = mock(() => {})
     render(<RemoveDialog {...defaultProps} onClose={onClose} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
@@ -123,33 +126,39 @@ describe('EditDialog', () => {
     expect(saveBtn.hasAttribute('disabled')).toBe(false)
   })
 
-  it('Save button is disabled when Agent URL is cleared', () => {
+  it('Save button is disabled when Agent URL is cleared', async () => {
+    const user = userEvent.setup()
     render(<EditDialog {...defaultProps} />)
-    fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: '' } })
+    await user.clear(screen.getByLabelText('Edit Agent URL'))
     const saveBtn = screen.getByRole('button', { name: 'Save' })
     expect(saveBtn.hasAttribute('disabled')).toBe(true)
   })
 
-  it('Save button is disabled when Agent URL is whitespace-only', () => {
+  it('Save button is disabled when Agent URL is whitespace-only', async () => {
+    const user = userEvent.setup()
     render(<EditDialog {...defaultProps} />)
-    fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: '   ' } })
+    await user.clear(screen.getByLabelText('Edit Agent URL'))
+    await user.type(screen.getByLabelText('Edit Agent URL'), '   ')
     const saveBtn = screen.getByRole('button', { name: 'Save' })
     expect(saveBtn.hasAttribute('disabled')).toBe(true)
   })
 
-  it('calls onConfirm with hostId, the unchanged host name, and trimmed agentUrl', () => {
+  it('calls onConfirm with hostId, the unchanged host name, and trimmed agentUrl', async () => {
+    const user = userEvent.setup()
     const onConfirm = mock(() => {})
     render(<EditDialog {...defaultProps} onConfirm={onConfirm} />)
-    fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: '  http://10.0.0.1:9090  ' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await user.clear(screen.getByLabelText('Edit Agent URL'))
+    await user.type(screen.getByLabelText('Edit Agent URL'), '  http://10.0.0.1:9090  ')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
     expect(onConfirm).toHaveBeenCalledTimes(1)
     expect(onConfirm).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.1:9090')
   })
 
-  it('calls onClose when Cancel is clicked', () => {
+  it('calls onClose when Cancel is clicked', async () => {
+    const user = userEvent.setup()
     const onClose = mock(() => {})
     render(<EditDialog {...defaultProps} onClose={onClose} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 

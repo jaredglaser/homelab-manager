@@ -1,5 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, configure } from '@testing-library/react'
+import { getConfig } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Mock server functions before importing the component
@@ -303,6 +305,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('revokes a token only after confirmation', async () => {
+      const user = userEvent.setup()
       const gitFns = require('@/data/git-tokens.functions') as {
         listGitTokens: ReturnType<typeof mock>
         revokeGitToken: ReturnType<typeof mock>
@@ -313,36 +316,39 @@ describe('AuthManagementCard', () => {
       renderCard()
       await waitFor(() => expect(screen.getByLabelText('Revoke token')).toBeDefined())
 
-      fireEvent.click(screen.getByLabelText('Revoke token'))
+      await user.click(screen.getByLabelText('Revoke token'))
       expect(screen.getByText('Revoke "CI deploy key"? Applications using it will lose access. This cannot be undone.')).toBeDefined()
       expect(gitFns.revokeGitToken).not.toHaveBeenCalled()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
       expect(gitFns.revokeGitToken).not.toHaveBeenCalled()
 
-      fireEvent.click(screen.getByLabelText('Revoke token'))
-      fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+      await user.click(screen.getByLabelText('Revoke token'))
+      await user.click(screen.getByRole('button', { name: 'Revoke' }))
       await waitFor(() => expect(gitFns.revokeGitToken).toHaveBeenCalledWith({ data: { tokenId: 1 } }))
     })
 
-    it('opens generate token dialog when Generate Token is clicked', () => {
+    it('opens generate token dialog when Generate Token is clicked', async () => {
+      const user = userEvent.setup()
       renderCard()
-      fireEvent.click(screen.getByText('Generate Token'))
+      await user.click(screen.getByText('Generate Token'))
       expect(screen.getByText('Generate Git Token')).toBeDefined()
     })
 
-    it('generate token dialog has label input', () => {
+    it('generate token dialog has label input', async () => {
+      const user = userEvent.setup()
       renderCard()
-      fireEvent.click(screen.getByText('Generate Token'))
+      await user.click(screen.getByText('Generate Token'))
       expect(screen.getByLabelText('Token label')).toBeDefined()
     })
 
     it('shows generated token after generation with warning', async () => {
+      const user = userEvent.setup()
       renderCard()
-      fireEvent.click(screen.getByText('Generate Token'))
+      await user.click(screen.getByText('Generate Token'))
       const labelInput = screen.getByLabelText('Token label')
-      fireEvent.change(labelInput, { target: { value: 'My token' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+      await user.type(labelInput, 'My token')
+      await user.click(screen.getByRole('button', { name: 'Generate' }))
 
       await waitFor(() => {
         expect(screen.getByText('Copy this token now. It will not be shown again.')).toBeDefined()
@@ -354,6 +360,7 @@ describe('AuthManagementCard', () => {
     describe('dialog close (handleClose / handleDialogClose)', () => {
       const origSetTimeout = globalThis.setTimeout
       const origClearTimeout = globalThis.clearTimeout
+      const rtlConfig = { ...getConfig() }
       let pendingCallbacks: Array<{ fn: () => void; id: number }> = []
       let nextTimerId = 9000
 
@@ -368,11 +375,14 @@ describe('AuthManagementCard', () => {
         ;(globalThis as any).clearTimeout = (id?: number) => {
           pendingCallbacks = pendingCallbacks.filter((cb) => cb.id !== id)
         }
+        // RTL's asyncWrapper drains microtasks via setTimeout, which the timer replacement above captures and never fires, so user-event calls would hang without a passthrough wrapper.
+        configure({ asyncWrapper: (cb: () => unknown) => Promise.resolve(cb()) })
       })
 
       afterEach(() => {
         globalThis.setTimeout = origSetTimeout
         globalThis.clearTimeout = origClearTimeout
+        configure(rtlConfig)
       })
 
       function flushTimers() {
@@ -381,18 +391,28 @@ describe('AuthManagementCard', () => {
         for (const cb of cbs) cb.fn()
       }
 
-      it('Cancel resets label and calls handleDialogClose', () => {
+      // delay: null keeps user-event's internal wait timer out of the captured callback list.
+      function setupUser() {
+        return userEvent.setup({ delay: null, skipHover: true })
+      }
+
+      it('Cancel resets label and calls handleDialogClose', async () => {
+        const user = setupUser()
         renderCard()
         act(() => { flushTimers() })
 
-        fireEvent.click(screen.getByText('Generate Token'))
+        await act(async () => {
+          await user.click(screen.getByText('Generate Token'))
+        })
         act(() => { flushTimers() })
 
         const labelInput = screen.getByLabelText('Token label')
-        fireEvent.change(labelInput, { target: { value: 'my label' } })
+        await act(async () => {
+          await user.type(labelInput, 'my label')
+        })
 
-        act(() => {
-          fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+        await act(async () => {
+          await user.click(screen.getByRole('button', { name: 'Cancel' }))
         })
         act(() => { flushTimers() })
         act(() => { flushTimers() })
@@ -402,7 +422,9 @@ describe('AuthManagementCard', () => {
         // but the label state was reset to '' (line 261) and setGenerateDialogOpen(false)
         // and setNewToken(null) were called (lines 337-338).
         // Reopen to confirm label was reset:
-        fireEvent.click(screen.getByText('Generate Token'))
+        await act(async () => {
+          await user.click(screen.getByText('Generate Token'))
+        })
         act(() => { flushTimers() })
         expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
       })

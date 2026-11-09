@@ -1,8 +1,17 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, act, configure } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import '@/lib/test/testing-library'
 import CopyButton from '@/components/settings/CopyButton'
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers'
+
+// RTL's asyncWrapper drains microtasks via setTimeout and then calls jest.advanceTimersByTime, which bun's timer spy makes look like fake timers: the drain hangs under mockSetTimeout and the advance call throws.
+configure({ asyncWrapper: (cb: () => unknown) => Promise.resolve(cb()) })
+
+// delay: null skips user-event's internal wait timer, which mockSetTimeout would capture and never fire, and skipHover keeps tooltip hover timers out of setSpy call counts.
+function setupUser() {
+  return userEvent.setup({ delay: null, skipHover: true })
+}
 
 describe('CopyButton', () => {
   let writeTextMock: ReturnType<typeof mock>
@@ -10,12 +19,6 @@ describe('CopyButton', () => {
 
   beforeEach(() => {
     writeTextMock = mock(() => Promise.resolve())
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: writeTextMock },
-      writable: true,
-      configurable: true,
-    })
-
     timers = mockSetTimeout()
   })
 
@@ -38,30 +41,38 @@ describe('CopyButton', () => {
   })
 
   it('calls navigator.clipboard.writeText with the text prop when clicked', async () => {
+    const user = setupUser()
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      writable: true,
+      configurable: true,
+    })
     render(<CopyButton text="my-secret-token" label="token" />)
     const button = screen.getByLabelText('Copy token')
     await act(async () => {
-      fireEvent.click(button)
+      await user.click(button)
     })
     expect(writeTextMock).toHaveBeenCalledTimes(1)
     expect(writeTextMock).toHaveBeenCalledWith('my-secret-token')
   })
 
   it('schedules a timeout to revert the copied state after clicking', async () => {
+    const user = setupUser()
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
     await act(async () => {
-      fireEvent.click(button)
+      await user.click(button)
     })
     expect(timers.setSpy).toHaveBeenCalledTimes(1)
   })
 
   it('reverts to copy icon after timeout fires', async () => {
+    const user = setupUser()
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
 
     await act(async () => {
-      fireEvent.click(button)
+      await user.click(button)
     })
 
     act(() => {
@@ -73,6 +84,7 @@ describe('CopyButton', () => {
   })
 
   it('still gives copied feedback on insecure origins where navigator.clipboard is undefined', async () => {
+    const user = setupUser()
     Object.defineProperty(navigator, 'clipboard', {
       value: undefined,
       writable: true,
@@ -88,7 +100,7 @@ describe('CopyButton', () => {
     render(<CopyButton text="insecure" label="token" />)
     const button = screen.getByLabelText('Copy token')
     await act(async () => {
-      fireEvent.click(button)
+      await user.click(button)
     })
 
     expect(execCommandMock).toHaveBeenCalledWith('copy')
@@ -101,6 +113,7 @@ describe('CopyButton', () => {
 
   it('does not throw when clipboard.writeText resolves', async () => {
     writeTextMock = mock(() => Promise.resolve())
+    const user = setupUser()
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: writeTextMock },
       writable: true,
@@ -108,7 +121,7 @@ describe('CopyButton', () => {
     })
     render(<CopyButton text="test" label="test label" />)
     await act(async () => {
-      fireEvent.click(screen.getByLabelText('Copy test label'))
+      await user.click(screen.getByLabelText('Copy test label'))
     })
     expect(writeTextMock).toHaveBeenCalledTimes(1)
   })
