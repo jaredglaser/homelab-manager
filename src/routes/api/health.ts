@@ -1,5 +1,5 @@
-// Unauthenticated by design: liveness probe for orchestrators and load balancers.
 /* eslint-disable local/endpoint-auth */
+// Unauthenticated by design: liveness probe for orchestrators and load balancers.
 import { createFileRoute } from '@tanstack/react-router';
 import { handleHealth } from '@/lib/health/health-handler';
 

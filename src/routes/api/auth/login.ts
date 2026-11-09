@@ -1,5 +1,5 @@
-// Unauthenticated by design: establishes the session itself.
 /* eslint-disable local/endpoint-auth */
+// Unauthenticated by design: establishes the session itself.
 import { createFileRoute } from '@tanstack/react-router';
 import { loginGetHandler } from '@/lib/auth/login-handler';
 

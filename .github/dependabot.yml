@@ -18,6 +18,8 @@ updates:
     ignore:
       # @types/bun is pinned to .bun-version by scripts/__tests__/bun-version.test.ts and only moves with a runtime bump.
       - dependency-name: "@types/bun"
+      # js-yaml 5.5+ pulls argparse 3 (PSF-2.0), which the license allowlist gate rejects; widening the allowlist is an owner decision.
+      - dependency-name: "js-yaml"
 
   - package-ecosystem: "bun"
     directory: "/agent"
