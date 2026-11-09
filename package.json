@@ -125,6 +125,6 @@
     "vite": "8.3.5"
   },
   "overrides": {
-    "seroval": "1.6.11"
+    "seroval": "1.6.12"
   }
 }

@@ -15,6 +15,9 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # @types/bun is pinned to .bun-version by scripts/__tests__/bun-version.test.ts and only moves with a runtime bump.
+      - dependency-name: "@types/bun"
 
   - package-ecosystem: "bun"
     directory: "/agent"
