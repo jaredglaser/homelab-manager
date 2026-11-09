@@ -19,7 +19,7 @@
 
 ## Overview
 
-Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Docker hosts, Proxmox clusters, and Docker Compose stacks from a single interface. Agent sidecars on each managed host stream stats into TimescaleDB, and the frontend streams them in real time via Server-Sent Events.
+Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Docker hosts, Proxmox clusters, and Docker Compose stacks from a single interface. Agent sidecars on each managed host stream stats into TimescaleDB, and the frontend streams them in real time over a WebSocket.
 
 ## Documentation
 
@@ -79,7 +79,7 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
 - [x] Stack management with GitOps deploy pipeline
 - [x] Host management UI with agent sidecar enrollment
 - [x] Encrypted-at-rest stack secrets and agent keypairs (JWE)
-- [x] Agent-updater sidecar for automatic container updates
+- [x] Manual agent updates driven from the manager
 - [x] Pre-built Docker image on a container registry
 - [x] Automated releases (release-please): versioned images, changelog, and GitHub Releases
 - [x] Live demo deployed to GitHub Pages

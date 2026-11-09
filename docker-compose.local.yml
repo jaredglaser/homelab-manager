@@ -11,12 +11,15 @@
 # collide across worktrees.
 name: homelab-manager
 
+x-postgres-required: &postgres-required
+  POSTGRES_DB: ${POSTGRES_DB:?set it in ~/.config/homelab-manager/.env}
+  POSTGRES_USER: ${POSTGRES_USER:?set it in ~/.config/homelab-manager/.env}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in ~/.config/homelab-manager/.env}
+
 x-postgres-env: &postgres-env
+  <<: *postgres-required
   POSTGRES_HOST: postgres
   POSTGRES_PORT: 5432
-  POSTGRES_DB: ${POSTGRES_DB}
-  POSTGRES_USER: ${POSTGRES_USER}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: "false"
 
 x-zfs-env: &zfs-env
@@ -75,9 +78,7 @@ services:
     restart: unless-stopped
     command: postgres -c synchronous_commit=off
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      <<: *postgres-required
     ports:
       - "127.0.0.1:${POSTGRES_PORT}:5432"
     volumes:
@@ -108,6 +109,8 @@ services:
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
       WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
+      # Dev agents serve plain HTTP by default (TLS is optional in development).
+      WORKER_ALLOW_INSECURE_AGENTS: "true"
       DEV_HOST_NAME: ${DEV_HOST_NAME:-}
       WORKER_LOCALHOST_AGENT: "hlm-agent"
       HOMELAB_DEV_SEED: "true"

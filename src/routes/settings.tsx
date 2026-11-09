@@ -14,7 +14,7 @@ import {
 } from '@/hooks/useSettings'
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
-import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
+import { AuthManagementCard, GitTokensSection } from '@/components/settings/AuthManagementCard'
 import { useAuth } from '@/hooks/useAuth'
 import {
   CHART_WINDOW_MARKS,
@@ -276,6 +276,11 @@ function SettingsContent() {
         </div>
 
         {user?.role === 'admin' && <AuthManagementCard />}
+        {user?.role === 'operator' && (
+          <div className="p-4 bg-card rounded-lg border border-border">
+            <GitTokensSection />
+          </div>
+        )}
 
         <div id="developer" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
           <h6 className="text-xl font-medium mb-4">Developer</h6>
