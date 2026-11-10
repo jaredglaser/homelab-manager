@@ -15,6 +15,10 @@ COPY package.json bun.lock ./
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
 RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-${BUN_VERSION} \
     bun install --frozen-lockfile --ignore-scripts
+# Published images are copies: MIT/BSD/ISC require their copyright and license
+# notices to survive into the distribution, so generate them from the same
+# node_modules that ships (bunx pinned for a stable layer cache).
+RUN bunx license-checker-rseidelsohn@5.0.1 --plainVertical --out THIRD-PARTY-NOTICES.txt
 EXPOSE 3000
 
 # Source stage - includes source code (worker/cleanup in production)
