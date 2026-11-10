@@ -25,7 +25,7 @@ export async function startMockServiceWorker(): Promise<void> {
     },
     // The app also talks to static assets, icons, and HMR endpoints that have no
     // handler; let those reach the real (dev) server untouched.
-    onUnhandledRequest: 'bypass',
+    onUnhandledFrame: 'bypass',
     quiet: true,
   });
 

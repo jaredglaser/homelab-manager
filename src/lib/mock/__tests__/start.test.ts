@@ -10,7 +10,7 @@ type ResponseMockedHandler = (event: MockedResponseEvent) => void;
 
 interface WorkerStartOptions {
   serviceWorker: { url: string };
-  onUnhandledRequest: string;
+  onUnhandledFrame: string;
   quiet: boolean;
 }
 
@@ -105,7 +105,7 @@ describe('startMockServiceWorker', () => {
     expect(workerStart).toHaveBeenCalledTimes(1);
     const options = workerStart.mock.calls[0][0];
     expect(options.serviceWorker.url).toBe('/mockServiceWorker.js');
-    expect(options.onUnhandledRequest).toBe('bypass');
+    expect(options.onUnhandledFrame).toBe('bypass');
     expect(options.quiet).toBe(true);
   });
 
