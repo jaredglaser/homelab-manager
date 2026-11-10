@@ -68,6 +68,21 @@ function enrollResponse(): Response {
   return jsonResponse({ certPem: CERT_PEM });
 }
 
+/** The response shape of an agent new enough to restart itself after enrollment. */
+function selfRestartEnrollResponse(): Response {
+  return jsonResponse({ certPem: CERT_PEM, selfRestartScheduled: true });
+}
+
+function restrictedModeRestartRejection(): Response {
+  return jsonResponse(
+    {
+      error:
+        'Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only /health, /auth/verify, /tls/enroll are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.',
+    },
+    403,
+  );
+}
+
 describe('provisionHostTls', () => {
   it('enrolls, stores the cert, survives the restart connection loss, and polls https before returning the https URL', async () => {
     const { deps, fetchCalls, healthCalls, stored, delays } = makeDeps({
@@ -145,13 +160,50 @@ describe('provisionHostTls', () => {
     expect(healthCalls).toHaveLength(1);
   });
 
+  it('skips the restart request when the agent reports a scheduled self-restart', async () => {
+    const { deps, fetchCalls, stored } = makeDeps({
+      fetchResponses: [selfRestartEnrollResponse()],
+      healthResults: [true],
+      resolveIp: async () => '192.168.1.10',
+    });
+    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    // The agent restarts itself after enroll; the manager goes straight to the https poll.
+    expect(fetchCalls.map((c) => c.url)).toEqual(['http://myhost.lan:9090/tls/enroll']);
+    expect(stored).toEqual([['myhost', CERT_PEM]]);
+  });
+
+  it('tolerates the restricted-mode 403 on the restart request and lets the https poll decide', async () => {
+    // A first-boot agent in restricted plain-HTTP mode 403s the restart path
+    // by design (agent too old to self-restart, or Docker capability off).
+    const { deps, fetchCalls, healthCalls } = makeDeps({
+      fetchResponses: [enrollResponse(), restrictedModeRestartRejection()],
+      healthResults: [true],
+    });
+    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    expect(fetchCalls).toHaveLength(2);
+    expect(healthCalls).toHaveLength(1);
+  });
+
+  it('names the manual restart step in the poll-timeout error', async () => {
+    const { deps, stored } = makeDeps({
+      fetchResponses: [enrollResponse(), restrictedModeRestartRejection()],
+      healthResults: [false, false, false, false, false, false, false, false],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /did not serve the new certificate over HTTPS within the retry window \(unreachable\)\. If the agent could not restart itself.*docker restart hlm-agent/,
+    );
+    expect(stored).toEqual([]);
+  });
+
   it('fails with the actionable copy when the agent never becomes healthy over https', async () => {
     const { deps, stored } = makeDeps({
       fetchResponses: [enrollResponse(), new Error('socket hang up')],
       healthResults: [false, false, false, false, false, false, false, false],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window \(unreachable\)\. It may still be restarting/,
+      /TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window \(unreachable\)\. If the agent could not restart itself/,
     );
     expect(stored).toEqual([]);
   });

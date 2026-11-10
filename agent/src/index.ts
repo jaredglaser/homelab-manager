@@ -13,6 +13,7 @@ import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
 import { enrollMarkerPath, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, parseTlsHttpFallback, resolveTlsStartup } from './lib/tls-enroll';
+import { scheduleSelfRestart } from './lib/self-restart';
 
 function isFileReadable(path: string): boolean {
   try {
@@ -190,7 +191,16 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   }
 
   if (url.pathname === '/tls/enroll' && request.method === 'POST') {
-    return handleTlsEnroll(request, STACKS_DIR);
+    // In restricted plain-HTTP mode the manager cannot restart the agent: the
+    // restricted gate 403s the restart endpoint by design, which deadlocked
+    // first-contact provisioning (enroll succeeded, restart refused). The
+    // agent restarts itself instead, and the enroll response reports whether
+    // it could. Outside restricted mode the manager drives the restart over
+    // the existing HTTPS channel, so no self-restart there.
+    const scheduleRestart = tlsDecision.mode === 'http' && tlsDecision.restricted
+      ? () => scheduleSelfRestart(docker, AGENT_CONTAINER_NAME)
+      : undefined;
+    return handleTlsEnroll(request, STACKS_DIR, undefined, scheduleRestart);
   }
 
   return null;
