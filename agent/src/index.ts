@@ -191,12 +191,7 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   }
 
   if (url.pathname === '/tls/enroll' && request.method === 'POST') {
-    // In restricted plain-HTTP mode the manager cannot restart the agent: the
-    // restricted gate 403s the restart endpoint by design, which deadlocked
-    // first-contact provisioning (enroll succeeded, restart refused). The
-    // agent restarts itself instead, and the enroll response reports whether
-    // it could. Outside restricted mode the manager drives the restart over
-    // the existing HTTPS channel, so no self-restart there.
+    // Restricted mode only: the gate 403s the manager's restart request, so the agent restarts itself.
     const scheduleRestart = tlsDecision.mode === 'http' && tlsDecision.restricted
       ? () => scheduleSelfRestart(docker, AGENT_CONTAINER_NAME)
       : undefined;

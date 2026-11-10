@@ -115,9 +115,7 @@ async function runProvisionHostTls(
     }
   }
 
-  // An agent that restarts itself after enrollment does not need the manager's
-  // restart request at all: on a first boot the restricted plain-HTTP gate
-  // would reject it anyway (every path outside the enrollment allowlist 403s).
+  // A self-restarting agent needs no restart request. The restricted gate would 403 it on a first boot anyway.
   if (!enrolled.selfRestartScheduled) {
     await requestRestart(baseUrl, deps, fetchFn);
   }
@@ -232,10 +230,8 @@ async function requestRestart(
   if (!response.ok) {
     const detail = await readErrorBody(response);
     if (response.status === 403 && detail.startsWith('Agent TLS is configured but no certificate is enrolled yet')) {
-      // A first-boot agent in restricted plain-HTTP mode rejects the restart
-      // endpoint by design. Agents new enough restart themselves after
-      // enrollment; for anything else the https poll below is the real
-      // verdict, and its timeout message carries the manual-restart step.
+      // First-boot restricted gate rejects the restart by design. Agents new enough self-restart on their own.
+      // The https poll below is the real verdict, and its timeout message carries the manual-restart step.
       return;
     }
     throw new Error(

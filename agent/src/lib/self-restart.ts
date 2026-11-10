@@ -4,7 +4,7 @@ import type Dockerode from 'dockerode';
  * Give the enroll response time to reach the manager before the restart kills
  * this process. The manager reads the enroll response (and the
  * selfRestartScheduled flag inside it) before it starts polling HTTPS, so any
- * delay works; 2s keeps a manual `docker logs` follow readable.
+ * delay works. 2s keeps a manual `docker logs` follow readable.
  */
 export const SELF_RESTART_DELAY_MS = 2000;
 
@@ -30,7 +30,7 @@ export function scheduleSelfRestart(
       .catch((err: unknown) => {
         // The restart call can still fail after the response left (socket
         // proxy down, container missing). Nothing can retry it from inside a
-        // dying process; log so `docker logs` shows why provisioning stalled.
+        // dying process. Log so `docker logs` shows why provisioning stalled.
         console.error(`Self-restart of container '${containerName}' after TLS enrollment failed:`, err);
       });
   }, delayMs);

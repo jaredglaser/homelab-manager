@@ -168,14 +168,13 @@ describe('provisionHostTls', () => {
     });
     const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
     expect(result.agentUrl).toBe('https://myhost.lan:9090');
-    // The agent restarts itself after enroll; the manager goes straight to the https poll.
+    // The agent restarts itself after enroll. The manager goes straight to the https poll.
     expect(fetchCalls.map((c) => c.url)).toEqual(['http://myhost.lan:9090/tls/enroll']);
     expect(stored).toEqual([['myhost', CERT_PEM]]);
   });
 
   it('tolerates the restricted-mode 403 on the restart request and lets the https poll decide', async () => {
-    // A first-boot agent in restricted plain-HTTP mode 403s the restart path
-    // by design (agent too old to self-restart, or Docker capability off).
+    // First-boot restricted gate: agent too old to self-restart, or Docker capability off.
     const { deps, fetchCalls, healthCalls } = makeDeps({
       fetchResponses: [enrollResponse(), restrictedModeRestartRejection()],
       healthResults: [true],
