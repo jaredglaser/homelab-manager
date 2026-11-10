@@ -133,6 +133,78 @@ describe('tls-enroll', () => {
       }
     });
 
+    it('reports a scheduled self-restart in the enroll response', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
+      try {
+        const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
+        let restartCalls = 0;
+        const response = await handleTlsEnroll(
+          enrollRequest(['myhost.lan']),
+          dir,
+          spawnFn,
+          () => {
+            restartCalls += 1;
+            return true;
+          },
+        );
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { certPem: string; selfRestartScheduled: boolean };
+        expect(body.certPem).toBe(CERT_PEM);
+        expect(body.selfRestartScheduled).toBe(true);
+        // Scheduled only after the cert, key and marker are in place.
+        expect(restartCalls).toBe(1);
+        expect(existsSync(join(dir, 'hlm-agent-tls', ENROLL_MARKER_NAME))).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports selfRestartScheduled false when no restart callback is wired', async () => {
+      // TLS-mode agents (cert rotation) get no callback: the manager drives
+      // the restart over the existing HTTPS channel.
+      const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
+      try {
+        const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
+        const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), dir, spawnFn);
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { selfRestartScheduled: boolean };
+        expect(body.selfRestartScheduled).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not schedule a restart when the enrollment fails', async () => {
+      const { spawnFn } = fakeSpawn([{ stderr: 'openssl exploded', exitCode: 1 }]);
+      let restartCalls = 0;
+      const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), '/tmp', spawnFn, () => {
+        restartCalls += 1;
+        return true;
+      });
+      expect(response.status).toBe(500);
+      const body = (await response.json()) as { selfRestartScheduled?: boolean };
+      expect(body.selfRestartScheduled).toBeUndefined();
+      expect(restartCalls).toBe(0);
+    });
+
+    it('still returns the certificate when the restart callback throws', async () => {
+      // A throwing callback must not turn a completed enrollment into a 500:
+      // the cert and key are already in place, and the manager can still poll.
+      const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
+      try {
+        const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
+        const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), dir, spawnFn, () => {
+          throw new Error('docker unavailable');
+        });
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { certPem: string; selfRestartScheduled: boolean };
+        expect(body.certPem).toBe(CERT_PEM);
+        expect(body.selfRestartScheduled).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it('returns 400 for a malformed JSON body', async () => {
       const request = new Request('http://localhost/tls/enroll', { method: 'POST', body: 'not json' });
       const response = await handleTlsEnroll(request, '/tmp', async () => ({ stdout: '', stderr: '', exitCode: 0 }));
@@ -235,7 +307,7 @@ describe('tls-enroll', () => {
         const tlsDir = join(dir, 'hlm-agent-tls');
         const key = readFileSync(join(tlsDir, 'key.pem'), 'utf8');
         const cert = readFileSync(join(tlsDir, 'cert.pem'), 'utf8');
-        expect((await second.json()) as { certPem: string }).toEqual({ certPem: cert });
+        expect((await second.json())).toEqual({ certPem: cert, selfRestartScheduled: false });
         expect(existsSync(join(tlsDir, ENROLL_MARKER_NAME))).toBe(true);
         expect(key.length).toBeGreaterThan(0);
       } finally {

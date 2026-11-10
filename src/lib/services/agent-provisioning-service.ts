@@ -91,11 +91,11 @@ async function runProvisionHostTls(
   // connection refused. Bound-retry the enrollment before giving up: the agent
   // is very likely mid-restart, not gone.
   const ENROLL_RETRIES = 2;
-  let certPem: string;
+  let enrolled: { certPem: string; selfRestartScheduled: boolean };
   let retried = false;
   for (let attempt = 0; ; attempt++) {
     try {
-      certPem = await enrollCert(baseUrl, sans, deps, fetchFn);
+      enrolled = await enrollCert(baseUrl, sans, deps, fetchFn);
       break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -115,9 +115,13 @@ async function runProvisionHostTls(
     }
   }
 
-  await requestRestart(baseUrl, deps, fetchFn);
+  // A self-restarting agent needs no restart request. The restricted gate would 403 it on a first boot anyway.
+  if (!enrolled.selfRestartScheduled) {
+    await requestRestart(baseUrl, deps, fetchFn);
+  }
 
   const httpsUrl = toHttpsAgentUrl(parsed);
+  const certPem = enrolled.certPem;
 
   let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
   for (const delay of TLS_HEALTH_CHECK_DELAYS_MS) {
@@ -133,7 +137,9 @@ async function runProvisionHostTls(
   }
 
   throw new Error(
-    `TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window (${lastResult.error}). It may still be restarting. Retry in a few seconds.`,
+    `TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window (${lastResult.error}). `
+      + 'If the agent could not restart itself (no Docker capability, or an agent version too old to self-restart), '
+      + 'restart it manually (docker restart hlm-agent on the agent host) and retry provisioning.',
   );
 }
 
@@ -155,7 +161,7 @@ async function enrollCert(
   sans: string[],
   deps: ProvisionHostTlsDeps,
   fetchFn: typeof fetch,
-): Promise<string> {
+): Promise<{ certPem: string; selfRestartScheduled: boolean }> {
   let response: Response;
   const jwt = await deps.getSigner();
   try {
@@ -182,11 +188,13 @@ async function enrollCert(
       `TLS enrollment failed: the agent rejected the certificate request (${detail}).`,
     );
   }
-  const body = (await response.json().catch(() => null)) as { certPem?: unknown } | null;
+  const body = (await response.json().catch(() => null)) as
+    | { certPem?: unknown; selfRestartScheduled?: unknown }
+    | null;
   if (typeof body?.certPem !== 'string' || !body.certPem.includes('BEGIN CERTIFICATE')) {
     throw new Error('TLS enrollment failed: the agent returned no usable certificate.');
   }
-  return body.certPem;
+  return { certPem: body.certPem, selfRestartScheduled: body.selfRestartScheduled === true };
 }
 
 async function requestRestart(
@@ -221,6 +229,11 @@ async function requestRestart(
   }
   if (!response.ok) {
     const detail = await readErrorBody(response);
+    if (response.status === 403 && detail.startsWith('Agent TLS is configured but no certificate is enrolled yet')) {
+      // First-boot restricted gate rejects the restart by design. Agents new enough self-restart on their own.
+      // The https poll below is the real verdict, and its timeout message carries the manual-restart step.
+      return;
+    }
     throw new Error(
       `TLS restart failed: the agent rejected the restart request (${detail}).`,
     );

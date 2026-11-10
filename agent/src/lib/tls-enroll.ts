@@ -175,17 +175,30 @@ export function enrollMarkerPath(stacksDir: string): string {
 // key and cert pair into place.
 let enrollChain: Promise<unknown> = Promise.resolve();
 
+/**
+ * Callback scheduled after the certificate and enrollment marker are in place.
+ * Returns whether a restart was actually scheduled, which the response reports
+ * as `selfRestartScheduled` so the manager can skip its own restart request.
+ * Must not throw: a throwing callback would turn a successful enrollment into
+ * a 500 and make provisioning retry an enroll that already replaced the cert.
+ */
 export function handleTlsEnroll(
   request: Request,
   stacksDir: string,
   spawnFn: SpawnFn = realSpawn,
+  scheduleRestart?: () => boolean,
 ): Promise<Response> {
-  const result = enrollChain.then(() => enroll(request, stacksDir, spawnFn));
+  const result = enrollChain.then(() => enroll(request, stacksDir, spawnFn, scheduleRestart));
   enrollChain = result.catch(() => undefined);
   return result;
 }
 
-async function enroll(request: Request, stacksDir: string, spawnFn: SpawnFn): Promise<Response> {
+async function enroll(
+  request: Request,
+  stacksDir: string,
+  spawnFn: SpawnFn,
+  scheduleRestart?: () => boolean,
+): Promise<Response> {
   let body: unknown;
   try {
     body = await request.json();
@@ -270,7 +283,6 @@ async function enroll(request: Request, stacksDir: string, spawnFn: SpawnFn): Pr
     renameSync(stagedKeyPath, keyPath);
     renameSync(stagedCertPath, certPath);
     writeFileSync(enrollMarkerPath(stacksDir), new Date().toISOString());
-    return Response.json({ certPem });
   } catch (err) {
     removeQuietly(stagedKeyPath);
     removeQuietly(stagedCertPath);
@@ -279,6 +291,20 @@ async function enroll(request: Request, stacksDir: string, spawnFn: SpawnFn): Pr
       { status: 500 },
     );
   }
+
+  // Scheduled only after the files are in place, so a restart can never race
+  // the enrollment itself. The callback returning false (Docker unavailable)
+  // is reported instead of swallowed: the manager uses it to tell a failed
+  // provisioning apart from one that needs a manual restart.
+  let selfRestartScheduled = false;
+  if (scheduleRestart) {
+    try {
+      selfRestartScheduled = scheduleRestart();
+    } catch (err) {
+      console.error('Scheduling the post-enrollment self-restart failed:', err);
+    }
+  }
+  return Response.json({ certPem, selfRestartScheduled });
 }
 
 function removeQuietly(path: string): void {
