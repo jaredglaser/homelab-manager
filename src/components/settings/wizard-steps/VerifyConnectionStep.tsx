@@ -3,74 +3,85 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus } from 'lucide-react'
-import CopyButton from '@/components/settings/CopyButton'
-import { Spinner } from '@/components/ui/spinner';
+import { Spinner } from '@/components/ui/spinner'
 
 interface VerifyConnectionStepProps {
-  agentUrl: string
-  isAdding: boolean
+  agentHost: string
+  agentPort: string
+  isProvisioning: boolean
   canVerify: boolean
-  publicJwkJson: string | null
   error: string | null
-  onAgentUrlChange: (value: string) => void
+  onAgentHostChange: (value: string) => void
+  onAgentPortChange: (value: string) => void
   onVerify: () => void
+  onCancel: () => void
 }
 
 export default function VerifyConnectionStep({
-  agentUrl,
-  isAdding,
+  agentHost,
+  agentPort,
+  isProvisioning,
   canVerify,
-  publicJwkJson,
   error,
-  onAgentUrlChange,
+  onAgentHostChange,
+  onAgentPortChange,
   onVerify,
+  onCancel,
 }: VerifyConnectionStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-verify">
       <p className="text-sm text-muted-foreground">
-        Enter the agent URL and verify:
+        Deploy the compose and .env from the previous steps on the target host, then enter where
+        the agent is reachable. First contact is plain HTTP. Verifying enrolls a TLS certificate
+        for the agent and moves the connection to HTTPS.
       </p>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="wizard-agent-url">Agent URL</Label>
-        <Input
-          id="wizard-agent-url"
-          value={agentUrl}
-          onChange={(e) => onAgentUrlChange(e.target.value)}
-          placeholder="https://192.168.1.10:9090"
-          disabled={isAdding}
-          aria-label="Agent URL"
-        />
+      <div className="grid grid-cols-3 gap-2">
+        <div className="col-span-2 flex flex-col gap-1">
+          <Label htmlFor="wizard-agent-host">Agent host or IP</Label>
+          <Input
+            id="wizard-agent-host"
+            value={agentHost}
+            onChange={(e) => onAgentHostChange(e.target.value)}
+            placeholder="192.168.1.10"
+            disabled={isProvisioning}
+            aria-label="Agent host or IP"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="wizard-agent-port">Agent port</Label>
+          <Input
+            id="wizard-agent-port"
+            value={agentPort}
+            onChange={(e) => onAgentPortChange(e.target.value)}
+            placeholder="9090"
+            disabled={isProvisioning}
+            aria-label="Agent port"
+            inputMode="numeric"
+          />
+        </div>
       </div>
-      <Button
-        size="sm"
-        disabled={!canVerify || isAdding}
-        onClick={onVerify}
-        className="self-end"
-      >
-        {isAdding ? <Spinner className="size-3.5" /> : <Plus size={14} />}
-        Verify Connection
-      </Button>
-
-      {publicJwkJson && (
-        <Alert variant="info" className="mt-2">
-          <AlertDescription className="w-full">
-            <p className="text-sm mb-2">
-              Set this as <code>AGENT_TRUSTED_PUBKEY</code> in your agent environment, then restart the agent:
-            </p>
-            <pre className="text-xs w-full overflow-auto p-2 rounded bg-level1 text-foreground" data-testid="pubkey-display">
-              {publicJwkJson}
-            </pre>
-            <CopyButton text={publicJwkJson} label="public key" />
-          </AlertDescription>
-        </Alert>
-      )}
+      <div className="flex justify-end gap-2">
+        {isProvisioning && (
+          <Button size="sm" variant="outline" onClick={onCancel} data-testid="cancel-provisioning">
+            Cancel
+          </Button>
+        )}
+        <Button
+          size="sm"
+          disabled={!canVerify || isProvisioning}
+          onClick={onVerify}
+        >
+          {isProvisioning ? <Spinner className="size-3.5" /> : <Plus size={14} />}
+          {isProvisioning ? 'Verifying…' : 'Verify Connection'}
+        </Button>
+      </div>
 
       {error && (
         <Alert variant="error" className="mt-2">
           <AlertDescription className="w-full">
             <p className="text-sm mb-2">{error}</p>
-            <Button size="sm" variant="outline" onClick={onVerify} disabled={isAdding} data-testid="rerun-provisioning">
-              {isAdding ? <Spinner className="size-3.5" /> : <Plus size={14} />}
+            <Button size="sm" variant="outline" onClick={onVerify} disabled={isProvisioning} data-testid="rerun-provisioning">
+              {isProvisioning ? <Spinner className="size-3.5" /> : <Plus size={14} />}
               Re-run provisioning
             </Button>
           </AlertDescription>

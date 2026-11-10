@@ -5,20 +5,25 @@ const hostNameSchema = z.string().min(1).max(100).regex(
   'Must contain only letters, numbers, hyphens, and underscores',
 );
 
-export const verifyHostSchema = z.object({
+export const createPendingHostSchema = z.object({
   name: hostNameSchema,
-  agentUrl: z.url(),
   capabilities: z.object({
     docker: z.boolean().optional().default(false),
     zfs: z.boolean().optional().default(false),
   }).optional().default({ docker: false, zfs: false }),
 });
 
-export const removeHostSchema = z.object({ hostId: z.number().int().positive() });
+export const removeHostSchema = z.object({
+  hostId: z.number().int().positive(),
+  expectStatus: z.literal('pending').optional(),
+});
 export const checkHostHealthSchema = z.object({ hostId: z.number().int().positive() });
 export const getHostPublicJwkSchema = z.object({ hostId: z.number().int().positive() });
 export const rotateHostKeypairSchema = z.object({ hostId: z.number().int().positive() });
-export const rotateHostTlsSchema = z.object({ hostId: z.number().int().positive() });
+export const rotateHostTlsSchema = z.object({
+  hostId: z.number().int().positive(),
+  agentUrl: z.string().url().optional(),
+});
 export const updateAgentSchema = z.object({ hostId: z.number().int().positive() });
 
 export const updateHostSchema = z.object({

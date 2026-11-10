@@ -12,10 +12,15 @@ import { Spinner } from '@/components/ui/spinner';
 export interface ManagedHostsCardProps {
   hosts: HostListItem[]
   isLoading: boolean
-  onAdd: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
-  isAdding: boolean
-  addError: string | null
-  verifyResult: { publicJwk: unknown } | null
+  isCreating: boolean
+  isProvisioning: boolean
+  createError: string | null
+  provisionError: string | null
+  pendingHost: { id: number; name: string; status: string; publicJwk: unknown } | null
+  onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onVerify: (hostId: number, agentUrl: string) => void
+  onCancelVerify: () => void
+  onDiscard: () => void
   onRemove: (hostId: number) => void
   isRemoving: boolean
   onUpdate: (hostId: number, name: string, agentUrl: string) => void
@@ -126,10 +131,15 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
 export function ManagedHostsCardView({
   hosts,
   isLoading,
-  onAdd,
-  isAdding,
-  addError,
-  verifyResult,
+  isCreating,
+  isProvisioning,
+  createError,
+  provisionError,
+  pendingHost,
+  onCreateHost,
+  onVerify,
+  onCancelVerify,
+  onDiscard,
   onRemove,
   isRemoving,
   onUpdate,
@@ -210,10 +220,15 @@ export function ManagedHostsCardView({
 
         <div className="mt-4">
           <AddHostWizard
-            isAdding={isAdding}
-            addError={addError}
-            onSubmit={onAdd}
-            verifyResult={verifyResult}
+            isCreating={isCreating}
+            isProvisioning={isProvisioning}
+            createError={createError}
+            provisionError={provisionError}
+            pendingHost={pendingHost}
+            onCreateHost={onCreateHost}
+            onVerify={onVerify}
+            onCancelVerify={onCancelVerify}
+            onDiscard={onDiscard}
           />
         </div>
       </div>

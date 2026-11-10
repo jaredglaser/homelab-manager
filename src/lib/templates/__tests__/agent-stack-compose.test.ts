@@ -72,11 +72,12 @@ describe('generateAgentStackCompose', () => {
     expect(zfsParsed.networks).toBeUndefined();
   });
 
-  it('sets AGENT_TRUSTED_PUBKEY env var in all cases', () => {
+  it('references AGENT_TRUSTED_PUBKEY from the .env in all cases, without embedding the key', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackCompose(config);
       const parsed = parseYaml(result);
-      expect(parsed.services.agent.environment.AGENT_TRUSTED_PUBKEY).toBe(MOCK_PUBKEY);
+      expect(parsed.services.agent.environment.AGENT_TRUSTED_PUBKEY).toBe('${AGENT_TRUSTED_PUBKEY}');
+      expect(result).not.toContain('kty');
       expect(parsed.services.agent.environment.AGENT_HOST_NAME).toBe('test-host');
       expect(parsed.services.agent.environment.AGENT_TOKEN_FILE).toBeUndefined();
       expect(parsed.services.agent.environment.AGENT_TOKEN).toBeUndefined();
@@ -326,6 +327,7 @@ describe('generateAgentStackEnv', () => {
         `AGENT_IMAGE=${dockerOnlyConfig.agentImage}`,
         'HLM_AGENT_PORT=9090',
         'HLM_STACKS_DIR=/opt/homelab-manager/stacks',
+        `AGENT_TRUSTED_PUBKEY=${MOCK_PUBKEY}`,
       ].join('\n') + '\n',
     );
   });

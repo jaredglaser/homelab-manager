@@ -108,13 +108,50 @@ describe('provisionHostTls', () => {
     expect(healthCalls).toHaveLength(1);
   });
 
+  it('serializes concurrent rotations for the same host', async () => {
+    const closed = new DOMException('The connection was closed.', 'AbortError');
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [
+        enrollResponse(), closed, // rotation 1: enroll, restart (connection loss tolerated)
+        enrollResponse(), closed, // rotation 2 queues behind 1, then enroll, restart
+      ],
+      healthResults: [true, true],
+    });
+    const [first, second] = await Promise.all([
+      provisionHostTls('myhost', 'http://myhost.lan:9090', deps),
+      provisionHostTls('myhost', 'http://myhost.lan:9090', deps),
+    ]);
+    expect(first.agentUrl).toBe('https://myhost.lan:9090');
+    expect(second.agentUrl).toBe('https://myhost.lan:9090');
+    // Serialized order: enroll, restart, enroll, restart. Rotation 2's enroll never lands in rotation 1's restart window.
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      'http://myhost.lan:9090/tls/enroll',
+      'http://myhost.lan:9090/containers/hlm-agent/restart',
+      'http://myhost.lan:9090/tls/enroll',
+      'http://myhost.lan:9090/containers/hlm-agent/restart',
+    ]);
+  });
+
+  it('treats Bun’s mid-flight connection close (AbortError) as success-unknown and keeps polling', async () => {
+    // Bun reports the self-restart killing the socket as a plain AbortError with this message.
+    // The older TimeoutError pattern does not catch it.
+    const closed = new DOMException('The connection was closed.', 'AbortError');
+    const { deps, healthCalls } = makeDeps({
+      fetchResponses: [enrollResponse(), closed],
+      healthResults: [true],
+    });
+    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    expect(healthCalls).toHaveLength(1);
+  });
+
   it('fails with the actionable copy when the agent never becomes healthy over https', async () => {
     const { deps, stored } = makeDeps({
       fetchResponses: [enrollResponse(), new Error('socket hang up')],
-      healthResults: [false, false, false, false, false, false],
+      healthResults: [false, false, false, false, false, false, false, false],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /TLS provisioning failed: the agent did not become healthy over HTTPS \(unreachable\)\. Provisioning may be incomplete: the agent may serve a certificate the manager has not pinned\. Re-run TLS provisioning from the Managed Hosts card, or follow the agent TLS recovery steps in the self-hosting README\./,
+      /TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window \(unreachable\)\. It may still be restarting/,
     );
     expect(stored).toEqual([]);
   });
@@ -159,7 +196,7 @@ describe('provisionHostTls', () => {
       fetchResponses: [jsonResponse({ error: 'Invalid SAN' }, 400)],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /TLS provisioning failed: the agent rejected the certificate request \(Invalid SAN\)\. Fix the agent, then re-run TLS provisioning/,
+      /TLS enrollment failed: the agent rejected the certificate request \(Invalid SAN\)/,
     );
     expect(storeCert).not.toHaveBeenCalled();
   });
@@ -169,8 +206,69 @@ describe('provisionHostTls', () => {
       fetchResponses: [new Error('ECONNREFUSED')],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /TLS provisioning failed: the agent could not be reached to create its certificate/,
+      /TLS enrollment failed: the agent could not be reached/,
     );
+  });
+
+  it('retries the enrollment through a rotation restart window and succeeds', async () => {
+    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const { deps, fetchCalls, delays, healthCalls } = makeDeps({
+      fetchResponses: [
+        connectError,
+        connectError,
+        enrollResponse(),
+        new DOMException('The connection was closed.', 'AbortError'),
+      ],
+      healthResults: [true],
+    });
+    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(3);
+    // The first two delays are the enrollment backoffs. The trailing 500ms is the first https health poll.
+    expect(delays.slice(0, 2)).toEqual([2000, 4000]);
+    expect(healthCalls).toHaveLength(1);
+  });
+
+  it('propagates a terminal HTTP rejection after connection retries instead of the unreachable copy', async () => {
+    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const { deps } = makeDeps({
+      fetchResponses: [
+        connectError,
+        connectError,
+        jsonResponse({ error: 'Unauthorized' }, 401),
+      ],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /the agent rejected the certificate request \(Unauthorized\)/,
+    );
+  });
+
+  it('reports a rotation-restart hint when enrollment retries are exhausted', async () => {
+    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const { deps, delays } = makeDeps({
+      fetchResponses: [connectError, connectError, connectError],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /was unreachable after 3 attempts/,
+    );
+    expect(delays).toEqual([2000, 4000]);
+  });
+
+  it('a failed rotation does not block the next one for the same host', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [
+        jsonResponse({ error: 'Invalid SAN' }, 400),
+        enrollResponse(),
+        new Error('Connection reset by peer'),
+      ],
+      healthResults: [true],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /the agent rejected the certificate request \(Invalid SAN\)/,
+    );
+    const second = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(second.agentUrl).toBe('https://myhost.lan:9090');
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(2);
   });
 
   it('refuses to store or poll when the agent returns no usable certificate', async () => {
@@ -188,7 +286,7 @@ describe('provisionHostTls', () => {
       fetchResponses: [enrollResponse(), Object.assign(new Error('permission denied'), { code: 'EACCES' })],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /the agent could not be restarted \(permission denied\)/,
+      /TLS restart failed: could not reach the agent to restart it \(permission denied\)/,
     );
     expect(checkHealth).not.toHaveBeenCalled();
   });
@@ -198,7 +296,7 @@ describe('provisionHostTls', () => {
       fetchResponses: [enrollResponse(), new Response('docker daemon down', { status: 500 })],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /the agent could not be restarted to serve the new certificate \(docker daemon down\)/,
+      /TLS restart failed: the agent rejected the restart request \(docker daemon down\)/,
     );
   });
 
@@ -217,7 +315,7 @@ describe('provisionHostTls', () => {
       fetchResponses: [enrollResponse(), jsonResponse({ error: 'Container not found: hlm-agent' }, 404)],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /the agent could not be restarted to serve the new certificate \(Container not found: hlm-agent\)/,
+      /TLS restart failed: the agent rejected the restart request \(Container not found: hlm-agent\)/,
     );
     expect(checkHealth).not.toHaveBeenCalled();
   });

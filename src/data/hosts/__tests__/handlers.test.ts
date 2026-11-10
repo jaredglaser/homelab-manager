@@ -7,7 +7,7 @@ import {
   handleListHosts,
   handleCheckHostHealth,
   handleRemoveHost,
-  handleVerifyHost,
+  handleCreatePendingHost,
   handleUpdateHost,
   handleGetHostPublicJwk,
   handleRotateHostKeypair,
@@ -187,246 +187,115 @@ describe('handleRemoveHost', () => {
     await expect(handleRemoveHost(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 
-});
-
-describe('handleVerifyHost', () => {
-  function verifyDeps(repo?: Partial<HostRepo>) {
-    return {
-      ...baseDeps(repo),
-      keypairs: makeKeypairsMock(),
-    };
-  }
-
-  it('generates keypair and returns public JWK', async () => {
-    const deps = verifyDeps();
-    const result = await handleVerifyHost(deps, { name: 'newhost', agentUrl: 'http://x:9090' });
-    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('newhost');
-    expect(result.publicJwk).toBeDefined();
-    expect(result.publicJwk?.kty).toBe('OKP');
-  });
-
-  it('creates host record with name, url, and capabilities', async () => {
-    const deps = verifyDeps();
-    await handleVerifyHost(deps, {
-      name: 'new-host',
-      agentUrl: 'http://192.168.1.10:9090',
-      capabilities: { docker: true },
-    });
-    expect(deps.repo.create).toHaveBeenCalledWith({
-      name: 'new-host',
-      agentUrl: 'http://192.168.1.10:9090',
-      capabilities: { docker: true },
-    });
-  });
-
-  it('returns pending status', async () => {
-    const deps = verifyDeps();
-    const result = await handleVerifyHost(deps, { name: 'new-host', agentUrl: 'http://x:9090' });
-    expect(result.host.status).toBe('pending');
-    expect(deps.repo.updateStatus).not.toHaveBeenCalled();
-    expect(deps.repo.updateAgentInfo).not.toHaveBeenCalled();
-  });
-
-  it('rolls back DB record on keypair generation failure', async () => {
-    const deps = verifyDeps();
-    deps.keypairs.getOrCreateForHost = mock(() => Promise.reject(new Error('keygen failed')));
+  it('rejects an expectStatus removal when the host is no longer pending and deletes nothing', async () => {
+    const deps = removeDeps({ findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) });
     await expect(
-      handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090' })
-    ).rejects.toThrow(/Failed to generate agent keypair/);
+      handleRemoveHost(deps, { hostId: 1, expectStatus: 'pending' }),
+    ).rejects.toThrow('Host test-host is no longer pending');
+    expect(deps.keypairs.deleteForHost).not.toHaveBeenCalled();
+    expect(deps.repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('still deletes a healthy host when no expectStatus is requested', async () => {
+    const deps = removeDeps({ findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) });
+    const result = await handleRemoveHost(deps, { hostId: 1 });
+    expect(result.success).toBe(true);
+    expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('test-host');
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 
-  it('passes capabilities to repo.create', async () => {
-    const deps = verifyDeps();
-    await handleVerifyHost(deps, {
-      name: 'zfs-host',
-      agentUrl: 'http://x:9090',
-      capabilities: { docker: true, zfs: true },
-    });
-    expect(deps.repo.create).toHaveBeenCalledWith({
-      name: 'zfs-host',
-      agentUrl: 'http://x:9090',
-      capabilities: { docker: true, zfs: true },
-    });
-  });
+});
 
-  it('trims the host name before create and keypair generation', async () => {
-    const deps = verifyDeps();
-    await handleVerifyHost(deps, { name: '  padded-host  ', agentUrl: 'http://x:9090' });
-    expect(deps.repo.create).toHaveBeenCalledWith({
-      name: 'padded-host',
-      agentUrl: 'http://x:9090',
-      capabilities: undefined,
-    });
-    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('padded-host');
-  });
+describe('handleCreatePendingHost', () => {
+  function createDeps(repo?: Partial<HostRepo>) {
+    return { ...baseDeps(repo), keypairs: makeKeypairsMock() };
+  }
 
-  it('provisions TLS and stores the https agent URL on success', async () => {
-    const repo = mockRepo({
-      update: mock(() => Promise.resolve(mockRow({ agentUrl: 'https://x:9090' }))),
-    });
-    const deps = {
-      ...baseDeps(repo),
-      keypairs: makeKeypairsMock(),
-      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
-    };
-    const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
-    expect(deps.provisionTls).toHaveBeenCalledWith('tlshost', 'http://x:9090');
-    expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'https://x:9090' });
-    expect(result.host.agentUrl).toBe('https://x:9090');
-  });
-
-  it('returns the JWK and the provisioning error, keeping the host pending, when provisioning fails', async () => {
-    const repo = mockRepo();
-    const deps = {
-      ...baseDeps(repo),
-      keypairs: makeKeypairsMock(),
-      provisionTls: mock(async () => {
-        throw new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
-      }),
-    };
-    const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
+  it('creates a pending host with an empty agent URL and returns the public JWK', async () => {
+    const deps = createDeps();
+    const result = await handleCreatePendingHost(deps, { name: 'newhost', capabilities: { docker: true } });
+    expect(deps.repo.create).toHaveBeenCalledWith({ name: 'newhost', agentUrl: '', capabilities: { docker: true } });
+    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('newhost');
     expect(result.publicJwk).toBeDefined();
-    expect(result.provisioningError).toMatch(/TLS provisioning failed: the agent did not become healthy over HTTPS/);
     expect(result.host.status).toBe('pending');
-    expect(result.host.agentUrl).toBe('http://x:9090');
-    expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('reuses an existing pending host and its enrolled keypair (get-or-create)', async () => {
+    const repo = mockRepo({ findByName: mock((_n: string) => Promise.resolve(mockRow())) });
+    const keypairs = {
+      ...makeKeypairsMock(),
+      getPublicJwkForHost: mock(async (_n: string) =>
+        ({ kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' } as import('jose').JWK)),
+    };
+    const deps = { ...baseDeps(repo), keypairs };
+    const result = await handleCreatePendingHost(deps, { name: 'dev' });
+    expect(repo.create).not.toHaveBeenCalled();
+    expect(deps.keypairs.createForHost).not.toHaveBeenCalled();
+    expect(deps.keypairs.getOrCreateForHost).not.toHaveBeenCalled();
+    expect(result.publicJwk?.x).toBe('enrolled-x');
+    expect(result.host.status).toBe('pending');
+  });
+
+  it('refreshes capabilities on a pending host when they changed', async () => {
+    const repo = mockRepo({
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ capabilities: { docker: true } }))),
+      update: mock(() => Promise.resolve(mockRow({ capabilities: { docker: true, zfs: true } }))),
+    });
+    const deps = createDeps(repo);
+    await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true, zfs: true } });
+    expect(repo.update).toHaveBeenCalledWith(1, { capabilities: { docker: true, zfs: true } });
+  });
+
+  it('does not update a pending host whose capabilities already match', async () => {
+    const repo = mockRepo({
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ capabilities: { docker: true } }))),
+    });
+    const deps = createDeps(repo);
+    await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true } });
     expect(repo.update).not.toHaveBeenCalled();
   });
 
-  it('returns the enrolled JWK and the provisioning error on a re-verify whose provisioning fails again', async () => {
-    const update = mock(() => Promise.resolve(mockRow()));
-    const remove = mock(() => Promise.resolve());
+  it('does not touch capabilities on a host that is not pending', async () => {
     const repo = mockRepo({
-      findByName: mock(() => Promise.resolve(mockRow({ agentUrl: 'http://x:9090' }))),
-      update,
-      delete: remove,
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ status: 'healthy' }))),
     });
-    const enrolledJwk: JWK = { kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' };
-    const deps = {
-      ...baseDeps(repo),
-      keypairs: {
-        ...makeKeypairsMock(),
-        getPublicJwkForHost: mock(() => Promise.resolve(enrolledJwk)),
-      },
-      provisionTls: mock(() =>
-        Promise.reject(new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (unreachable).'))),
-    };
-    const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
-    expect(result.publicJwk).toEqual(enrolledJwk);
-    expect(result.provisioningError).toMatch(/TLS provisioning failed: the agent did not become healthy over HTTPS/);
-    expect(deps.keypairs.createForHost).not.toHaveBeenCalled();
-    expect(deps.keypairs.getOrCreateForHost).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
-    expect(remove).not.toHaveBeenCalled();
+    const deps = createDeps(repo);
+    const result = await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true, zfs: true } });
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(result.host.status).toBe('healthy');
   });
 
-  it('rolls back a freshly created record when the keypair read fails', async () => {
-    const remove = mock(() => Promise.resolve());
-    const base = verifyDeps();
-    const deps = {
-      repo: { ...base.repo, delete: remove },
-      keypairs: {
-        ...base.keypairs,
-        getPublicJwkForHost: mock(() => Promise.reject(new Error('keypair store unreachable'))),
-      },
-      provisionTls: mock(() => Promise.resolve({ agentUrl: 'https://x:9090' })),
-    };
-    let message = '';
-    try {
-      await handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090' });
-    } catch (err) {
-      message = err instanceof Error ? err.message : String(err);
-    }
-    expect(message).toMatch(/Failed to generate agent keypair: keypair store unreachable/);
-    expect(deps.provisionTls).not.toHaveBeenCalled();
-    expect(remove).toHaveBeenCalledWith(1);
+  it('rolls back a newly created record when keypair generation fails', async () => {
+    const deps = createDeps();
+    deps.keypairs.getOrCreateForHost = mock(() => Promise.reject(new Error('keygen failed')));
+    await expect(handleCreatePendingHost(deps, { name: 'new' })).rejects.toThrow(/Failed to generate agent keypair/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 
-  it('creates the host record with the original URL before the https rewrite', async () => {
-    const repo = mockRepo();
-    const deps = {
-      ...baseDeps(repo),
-      keypairs: makeKeypairsMock(),
-      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
-    };
-    await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
-    expect(repo.create).toHaveBeenCalledWith({
-      name: 'tlshost',
-      agentUrl: 'http://x:9090',
-      capabilities: undefined,
-    });
-  });
-
-  it('reuses the existing record and keypair, and re-runs provisioning, on a second verifyHost call', async () => {
-    const repo = mockRepo({
-      findByName: mock((_name: string) => Promise.resolve(mockRow({ agentUrl: 'http://x:9090' }))),
-      update: mock(() => Promise.resolve(mockRow({ agentUrl: 'https://x:9090' }))),
-    });
-    const deps = {
-      ...baseDeps(repo),
-      keypairs: {
-        ...makeKeypairsMock(),
-        getPublicJwkForHost: mock(async (_name: string) =>
-          ({ kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' } as import('jose').JWK)),
-      },
-      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
-    };
-    const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
-    expect(repo.create).not.toHaveBeenCalled();
-    expect(deps.keypairs.createForHost).not.toHaveBeenCalled();
-    expect(deps.keypairs.getPublicJwkForHost).toHaveBeenCalledWith('tlshost');
-    expect(deps.provisionTls).toHaveBeenCalledWith('tlshost', 'http://x:9090');
-    expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'https://x:9090' });
-    expect(result.host.agentUrl).toBe('https://x:9090');
-  });
-
-  it('returns the enrolled JWK on re-verify instead of a freshly rotated one', async () => {
-    const repo = mockRepo({
-      findByName: mock((_name: string) => Promise.resolve(mockRow())),
-    });
-    const keypairs = {
-      ...makeKeypairsMock(),
-      getPublicJwkForHost: mock(async (_name: string) =>
-        ({ kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' } as import('jose').JWK)),
-    };
-    const deps = {
-      ...baseDeps(repo),
-      keypairs,
-      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
-    };
-    const result = await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
-    expect(result.publicJwk?.x).toBe('enrolled-x');
-  });
-
-  it('creates a keypair when re-verifying a host that has none yet', async () => {
-    const repo = mockRepo({
-      findByName: mock((_name: string) => Promise.resolve(mockRow())),
-    });
-    const deps = {
-      ...baseDeps(repo),
-      keypairs: makeKeypairsMock(),
-      provisionTls: mock(async () => ({ agentUrl: 'https://x:9090' })),
-    };
-    await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
-    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('tlshost');
-  });
-
-  it('keeps a pre-existing record when keypair generation fails on re-run', async () => {
-    const repo = mockRepo({
-      findByName: mock((_name: string) => Promise.resolve(mockRow())),
-    });
-    const deps = {
-      ...baseDeps(repo),
-      keypairs: { ...makeKeypairsMock(), getOrCreateForHost: mock(() => Promise.reject(new Error('keygen failed'))) },
-    };
-    await expect(
-      handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' }),
-    ).rejects.toThrow(/Failed to generate agent keypair/);
+  it('keeps a pre-existing record when keypair generation fails', async () => {
+    const repo = mockRepo({ findByName: mock((_n: string) => Promise.resolve(mockRow())) });
+    const deps = createDeps(repo);
+    deps.keypairs.getOrCreateForHost = mock(() => Promise.reject(new Error('keygen failed')));
+    await expect(handleCreatePendingHost(deps, { name: 'dev' })).rejects.toThrow(/Failed to generate agent keypair/);
     expect(repo.delete).not.toHaveBeenCalled();
   });
 
-  it('keeps a pre-existing record when the keypair read fails on re-run', async () => {
+  it('rolls back a freshly created record when the keypair read fails', async () => {
+    const deps = createDeps();
+    deps.keypairs.getPublicJwkForHost = mock(() => Promise.reject(new Error('keypair store unreachable')));
+    await expect(
+      handleCreatePendingHost(deps, { name: 'new' }),
+    ).rejects.toThrow(/Failed to generate agent keypair: keypair store unreachable/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('trims the host name', async () => {
+    const deps = createDeps();
+    await handleCreatePendingHost(deps, { name: '  padded  ' });
+    expect(deps.repo.create).toHaveBeenCalledWith({ name: 'padded', agentUrl: '', capabilities: { docker: false, zfs: false } });
+  });
+
+  it('keeps a pre-existing record when the keypair read fails', async () => {
     const repo = mockRepo({
       findByName: mock((_name: string) => Promise.resolve(mockRow())),
     });
@@ -436,18 +305,16 @@ describe('handleVerifyHost', () => {
         ...makeKeypairsMock(),
         getPublicJwkForHost: mock((_name: string) => Promise.reject(new Error('keypair store unreachable'))),
       },
-      provisionTls: mock((_name: string, _agentUrl: string) => Promise.resolve({ agentUrl: 'https://x:9090' })),
     };
     let message = '';
     try {
-      await handleVerifyHost(deps, { name: 'tlshost', agentUrl: 'http://x:9090' });
+      await handleCreatePendingHost(deps, { name: 'tlshost' });
     } catch (err) {
       message = err instanceof Error ? err.message : String(err);
     }
     expect(message).toMatch(/Failed to generate agent keypair/);
     expect(message).not.toContain('cleaned up');
     expect(repo.delete).not.toHaveBeenCalled();
-    expect(deps.provisionTls).not.toHaveBeenCalled();
   });
 });
 
@@ -462,6 +329,33 @@ describe('handleRotateHostTls', () => {
     expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090');
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
     expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
+  });
+
+  it('provisions against an explicit agentUrl override and persists only the flipped https URL', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090' }))),
+      update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
+    });
+    const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
+    const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7, agentUrl: 'http://candidate:9090' });
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090');
+    expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
+  });
+
+  it('never writes the row when provisioning with an agentUrl override fails', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://working:9090' }))),
+    });
+    const deps = {
+      repo,
+      provisionTls: mock(async (_hostName: string, _agentUrl: string) => {
+        throw new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
+      }),
+    };
+    await expect(handleRotateHostTls(deps, { hostId: 7, agentUrl: 'http://candidate:9090' })).rejects.toThrow(/TLS provisioning failed/);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.delete).not.toHaveBeenCalled();
   });
 
   it('propagates the provisioning error without touching the host record', async () => {

@@ -24,8 +24,9 @@ export default function ConfigurationStep({ envFile }: ConfigurationStepProps) {
 
       <Alert variant="info">
         <AlertDescription>
-          After verifying the connection, you will receive the public key to set as{' '}
-          <code>AGENT_TRUSTED_PUBKEY</code> in the agent environment.
+          The compose file embeds this host's <code>AGENT_TRUSTED_PUBKEY</code>, so the agent
+          trusts the manager as soon as it starts. After deploying both files, verify the
+          connection to provision TLS.
         </AlertDescription>
       </Alert>
     </div>

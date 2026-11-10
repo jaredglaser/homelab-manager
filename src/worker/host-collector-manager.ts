@@ -181,13 +181,19 @@ export class HostCollectorManager implements AsyncDisposable {
       return;
     }
 
-    // Plain-http agent URLs are the pre-TLS-provisioning state: the host row
-    // exists from verifyHost before the URL is flipped to https. Collecting
-    // over plaintext would stream stats, inventory and stack data unencrypted,
-    // so such hosts are skipped unless plaintext is explicitly allowed
-    // (development only, via WORKER_ALLOW_INSECURE_AGENTS=true).
+    // A pending host has an empty agentUrl and is skipped unconditionally. A plain
+    // http:// URL is pre-TLS-provisioning state: collecting over it would stream
+    // data unencrypted, so it is skipped unless WORKER_ALLOW_INSECURE_AGENTS=true
+    // (development only). Both log once per host.
     const eligible: ManagedHost[] = [];
     for (const host of desired) {
+      if (host.agentUrl.trim() === '') {
+        if (!this.plaintextHttpSkipped.has(host.name)) {
+          this.plaintextHttpSkipped.add(host.name);
+          console.warn(`[HostCollectorManager] skipping host '${host.name}': agent URL is empty (TLS provisioning has not run yet). Collectors start after the URL is provisioned.`);
+        }
+        continue;
+      }
       if (!isPlainHttpUrl(host.agentUrl)) {
         this.plaintextHttpSkipped.delete(host.name);
         eligible.push(host);

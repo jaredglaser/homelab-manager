@@ -1,6 +1,5 @@
 import type {
   HostListItem,
-  AddHostResult,
   HealthCheckResult,
   UpdateAgentResult,
   AgentInventoryEntry,
@@ -63,12 +62,14 @@ const mockHosts: readonly HostListItem[] = [
 let nextMockId = mockHosts.length + 1;
 
 /** Intentionally stateless: returns a plausible result without mutating mockHosts. Demo mode shows a fixed set of hosts. */
-export async function verifyHost(data: {
+export async function createPendingHost(data: {
   name: string;
-  agentUrl: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
-}): Promise<AddHostResult> {
-  return { host: buildHost(data), publicJwk: MOCK_PUBLIC_JWK };
+}): Promise<{ host: HostListItem; publicJwk: Record<string, string> }> {
+  return {
+    host: buildHost({ name: data.name, agentUrl: '', capabilities: data.capabilities }),
+    publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'mock-public-key-x' },
+  };
 }
 
 export async function updateHost(data: {
@@ -80,10 +81,15 @@ export async function updateHost(data: {
   return buildHost(data, data.hostId);
 }
 
-/** Intentionally stateless: returns success without mutating mockHosts. */
-export async function removeHost(_data: {
+/** Intentionally stateless: never mutates mockHosts, but mirrors the server's expectStatus guard so demo mode behaves like production. */
+export async function removeHost(data: {
   hostId: number;
+  expectStatus?: 'pending';
 }): Promise<{ success: boolean }> {
+  const host = mockHosts.find((h) => h.id === data.hostId);
+  if (data.expectStatus && host && host.status !== data.expectStatus) {
+    throw new Error(`Host ${host.name} is no longer pending`);
+  }
   return { success: true };
 }
 
@@ -105,12 +111,14 @@ export async function rotateHostKeypair(_data: {
   return { hostId: _data.hostId, publicJwk: { ...MOCK_PUBLIC_JWK, x: 'rotated-key-x' } };
 }
 
-/** Intentionally stateless: returns success without mutating mockHosts. */
-export async function rotateHostTls(_data: {
+/** Intentionally stateless: mirrors handleRotateHostTls (https-flipped override or the stored URL). */
+export async function rotateHostTls(data: {
   hostId: number;
+  agentUrl?: string;
 }): Promise<{ hostId: number; agentUrl: string }> {
-  const host = mockHosts.find((h) => h.id === _data.hostId);
-  return { hostId: _data.hostId, agentUrl: host ? host.agentUrl.replace(/^http:/, 'https:') : 'https://mock-host:9090' };
+  if (data.agentUrl) return { hostId: data.hostId, agentUrl: data.agentUrl.replace(/^http:/, 'https:') };
+  const host = mockHosts.find((h) => h.id === data.hostId);
+  return { hostId: data.hostId, agentUrl: host ? host.agentUrl.replace(/^http:/, 'https:') : 'https://mock-host:9090' };
 }
 
 /** Demo inventory: a mixed-status set so the overview shows online, offline, and unknown rows. */

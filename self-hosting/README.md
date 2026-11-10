@@ -212,7 +212,7 @@ These variables are set on each **agent** container (not on the dashboard or wor
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_HOST_NAME` | - | **Required.** Must equal the managed host's name as registered in **Settings → Managed Hosts**. Manager-issued JWTs carry this name as the `aud` claim, so a token minted for one host is rejected by another (protects against a reused or copy-pasted keypair). The agent exits at startup if it is unset. |
-| `AGENT_TRUSTED_PUBKEY` or `AGENT_TRUSTED_PUBKEY_FILE` | - | Trusted Ed25519 public JWK the agent verifies request JWTs against. The dashboard hands you this value during the Verify step. Set one of the two; if both are set, the `_FILE` variant wins. |
+| `AGENT_TRUSTED_PUBKEY` or `AGENT_TRUSTED_PUBKEY_FILE` | - | Trusted Ed25519 public JWK the agent verifies request JWTs against. The generated .env carries this value and the compose references it via `${AGENT_TRUSTED_PUBKEY}`, so deploying the generated pair sets it for you. Set one of the two; if both are set, the `_FILE` variant wins. |
 | `AGENT_PORT` | `9090` | Port the agent listens on |
 | `DOCKER_HOST` | - | Docker endpoint (socket proxy recommended, e.g. `tcp://socket-proxy:2375`). Enables the Docker capability. |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | - | Optional TLS for the agent's listener. Set both together. |
@@ -253,9 +253,11 @@ Two separate credentials are involved, neither of which is an env var:
 - **Dashboard-to-agent:** each deploy request carries a short-lived JWT signed by a per-host Ed25519 keypair stored encrypted in the database; no token file is distributed to hosts.
 - **Git pushes:** authenticated with per-user git tokens. Generate one in **Settings → Auth Management → Generate Git Token** (admins and operators, with the token shown once). Use it as the password on `git push`. Pushes require the `admin` or `operator` role. Operators manage only their own tokens, and admins see every user's tokens.
 
-> **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and sends the public JWK to the agent. Each deploy request carries a short-lived signed JWT; the agent verifies it against the trusted public key.
+> **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and gives you the public JWK in the wizard-generated .env, which you deploy alongside the agent's compose file. Each deploy request carries a short-lived signed JWT, and the agent verifies it against the trusted public key.
 >
-> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose stack for the agent and handles key exchange during the Verify step. Set `AGENT_HOST_NAME` on the agent to the host name you enter in the wizard (see [Agent Environment](#agent-environment)). Once connectivity is confirmed, the keypair is stored and the host is ready.
+> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard creates the host record and keypair when you enter the Compose File step. The generated .env carries the real `AGENT_TRUSTED_PUBKEY`, which the compose references, so the agent boots already trusting the manager. The Verify step then provisions TLS for the agent and moves the connection to HTTPS.
+>
+> **Stacks directory:** the agent writes stack files to `${HLM_STACKS_DIR}` on the host, but runs as a non-root user, so the directory must be writable by that user. If the agent logs "Stacks directory is not writable", create it and hand it to the container user: `mkdir -p /opt/homelab-manager/stacks && docker exec hlm-agent id -u && docker exec hlm-agent id -g`, then `chown <uid>:<gid> /opt/homelab-manager/stacks`. Deploy both generated files from the same wizard session. A compose from one run with an .env from another points the agent at a key no manager will sign with.
 >
 ### Rotating a host keypair
 

@@ -1,21 +1,41 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@/lib/test/testing-library'
-import AddHostWizard from '@/components/settings/AddHostWizard'
+import AddHostWizard, { type PendingHostState } from '@/components/settings/AddHostWizard'
 
 interface WizardProps {
-  isAdding: boolean
-  addError: string | null
-  onSubmit: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
-  verifyResult: { publicJwk: unknown } | null
+  isCreating: boolean
+  isProvisioning: boolean
+  createError: string | null
+  provisionError: string | null
+  pendingHost: PendingHostState | null
+  onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onVerify: (hostId: number, agentUrl: string) => void
+  onCancelVerify: () => void
+  onDiscard: () => void
+}
+
+function makePendingHost(overrides?: Partial<PendingHostState>): PendingHostState {
+  return {
+    id: 1,
+    name: 'dev-machine',
+    status: 'pending',
+    publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
+    ...overrides,
+  }
 }
 
 function makeProps(overrides?: Partial<WizardProps>): WizardProps {
   return {
-    isAdding: false,
-    addError: null,
-    onSubmit: mock(() => {}),
-    verifyResult: null,
+    isCreating: false,
+    isProvisioning: false,
+    createError: null,
+    provisionError: null,
+    pendingHost: makePendingHost(),
+    onCreateHost: mock(() => {}),
+    onVerify: mock(() => {}),
+    onCancelVerify: mock(() => {}),
+    onDiscard: mock(() => {}),
     ...overrides,
   }
 }
@@ -77,6 +97,27 @@ describe('AddHostWizard', () => {
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-compose')).toBeDefined()
+    })
+
+    it('creates the pending host when entering the Compose File step', () => {
+      const onCreateHost = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onCreateHost })} />)
+      enterHostName('  dev-machine  ')
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(onCreateHost).toHaveBeenCalledWith('dev-machine', { docker: true, zfs: false })
+    })
+
+    it('creates the pending host with ZFS capabilities when leaving the ZFS Setup step', () => {
+      const onCreateHost = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onCreateHost })} />)
+      enterHostName()
+      fireEvent.click(screen.getByLabelText('ZFS capability'))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.change(screen.getByLabelText('HLM_ZFS_UID'), { target: { value: '1001' } })
+      fireEvent.change(screen.getByLabelText('HLM_ZFS_GID'), { target: { value: '1001' } })
+      fireEvent.change(screen.getByLabelText('DOCKER_GID'), { target: { value: '999' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(onCreateHost).toHaveBeenCalledWith('dev-machine', { docker: true, zfs: true })
     })
 
     it('shows Back button after advancing past first step', () => {
@@ -184,83 +225,140 @@ describe('AddHostWizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     }
 
-    it('shows the Agent URL field', () => {
+    it('shows the agent host and port fields with the port defaulting to 9090', () => {
       navigateToVerify()
-      expect(screen.getByLabelText('Agent URL')).toBeDefined()
+      expect(screen.getByLabelText('Agent host or IP')).toBeDefined()
+      const port = screen.getByLabelText('Agent port') as HTMLInputElement
+      expect(port.value).toBe('9090')
     })
 
-    it('Verify Connection button is disabled when the agent URL is empty', () => {
+    it('Verify Connection button is disabled when the host is empty', () => {
       navigateToVerify()
       const btn = screen.getByRole('button', { name: 'Verify Connection' })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('Verify Connection button is enabled once the agent URL is filled', () => {
+    it('Verify Connection button is enabled once the host is filled', () => {
       navigateToVerify()
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://192.168.1.10:9090' } })
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
       const btn = screen.getByRole('button', { name: 'Verify Connection' })
       expect(btn.hasAttribute('disabled')).toBe(false)
     })
 
-    it('calls onSubmit with trimmed name, url, and capabilities when Verify Connection is clicked', () => {
-      const onSubmit = mock(() => {})
-      render(<AddHostWizard isAdding={false} addError={null} onSubmit={onSubmit} verifyResult={null} />)
-      enterHostName('  dev-machine  ')
-      // Capabilities → Compose → Configuration → Verify
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://192.168.1.10:9090  ' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
-      expect(onSubmit).toHaveBeenCalledTimes(1)
-      const callArgs = onSubmit.mock.calls[0] as unknown as [string, string, { docker: boolean; zfs: boolean }]
-      const [name, agentUrl, capabilities] = callArgs
-      expect(name).toBe('dev-machine')
-      expect(agentUrl).toBe('http://192.168.1.10:9090')
-      expect(capabilities).toEqual({ docker: true, zfs: false })
+    it('Verify Connection button is disabled when the port is not a valid port', () => {
+      navigateToVerify()
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
+      fireEvent.change(screen.getByLabelText('Agent port'), { target: { value: '99999' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      fireEvent.change(screen.getByLabelText('Agent port'), { target: { value: 'abc' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
     })
 
-    it('does not call onSubmit when isAdding is true', () => {
-      const onSubmit = mock(() => {})
-      render(<AddHostWizard isAdding={true} addError={null} onSubmit={onSubmit} verifyResult={null} />)
+    it('Next is disabled on the Compose step while the keypair has not been created', () => {
+      const view = render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
       enterHostName()
-      // Capabilities → Compose → Configuration → Verify
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      // isCreating turns on only after the Next click lands (the create call), like the real flow.
+      view.rerender(<AddHostWizard {...makeProps({ pendingHost: null, isCreating: true })} />)
+      expect(screen.getByTestId('step-compose-loading')).toBeDefined()
+      expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(true)
+    })
+
+    it('composes a plain-HTTP URL from the host and port when Verify Connection is clicked', () => {
+      const onVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify })} />)
+      enterHostName('  dev-machine  ')
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      // Populate the agent URL so the button is disabled only because isAdding=true
-      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'https://192.168.1.10:9090' } })
-      const btn = screen.getByRole('button', { name: 'Verify Connection' })
-      // Button is disabled while adding even when fields are populated
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '  192.168.1.10  ' } })
+      fireEvent.change(screen.getByLabelText('Agent port'), { target: { value: '9191' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+      expect(onVerify).toHaveBeenCalledTimes(1)
+      expect(onVerify).toHaveBeenCalledWith(1, 'http://192.168.1.10:9191')
+    })
+
+    it('accepts a bracketed IPv6 literal and keeps the brackets in the composed URL', () => {
+      const onVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '[2001:db8::1]' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
+      expect(onVerify).toHaveBeenCalledWith(1, 'http://[2001:db8::1]:9090')
+    })
+
+    it('still rejects a bare unbracketed IPv6 host whose colons cannot be a hostname', () => {
+      const onVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '2001:db8::1' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      expect(onVerify).not.toHaveBeenCalled()
+    })
+
+    it('never produces an HTTPS URL, whatever the operator types', () => {
+      const onVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      // A scheme typed into the host field is rejected as an invalid hostname.
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: 'https://192.168.1.10' } })
+      expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      expect(onVerify).not.toHaveBeenCalled()
+    })
+
+    it('does not call onVerify when isProvisioning is true', () => {
+      const onVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify, isProvisioning: true })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '192.168.1.10' } })
+      const btn = screen.getByRole('button', { name: /Verifying/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
       fireEvent.click(btn)
-      expect(onSubmit).not.toHaveBeenCalled()
+      expect(onVerify).not.toHaveBeenCalled()
     })
 
-    it('shows public JWK after successful verification', () => {
-      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
-      render(<AddHostWizard {...makeProps({ verifyResult: { publicJwk } })} />)
-      enterHostName()
-      // Navigate to Verify step
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('pubkey-display')).toBeDefined()
-      expect(screen.getByText(/AGENT_TRUSTED_PUBKEY/)).toBeDefined()
-      expect(screen.getByTestId('pubkey-display').textContent).toContain('"kty":"OKP"')
-    })
-
-    it('does not show public JWK when verifyResult is null', () => {
-      render(<AddHostWizard {...makeProps({ verifyResult: null })} />)
+    it('shows a Verifying loading state and a cancel action while provisioning', () => {
+      render(<AddHostWizard {...makeProps({ isProvisioning: true })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByRole('button', { name: /Verifying/ })).toBeDefined()
+      expect(screen.queryByRole('button', { name: 'Verify Connection' })).toBeNull()
+      expect(screen.getByTestId('cancel-provisioning')).toBeDefined()
+    })
+
+    it('cancel button calls onCancelVerify', () => {
+      const onCancelVerify = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onCancelVerify, isProvisioning: true })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByTestId('cancel-provisioning'))
+      expect(onCancelVerify).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not show a pubkey display on the verify step: the key lives in the compose', () => {
+      navigateToVerify()
       expect(screen.queryByTestId('pubkey-display')).toBeNull()
     })
 
     it('shows the provisioning error with a re-run provisioning action on failure', () => {
-      render(<AddHostWizard {...makeProps({ addError: 'TLS provisioning failed: the agent did not become healthy over HTTPS.' })} />)
+      render(<AddHostWizard {...makeProps({ provisionError: 'TLS provisioning failed: the agent did not become healthy over HTTPS.' })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -269,13 +367,8 @@ describe('AddHostWizard', () => {
       expect(screen.getByText(/TLS provisioning failed/)).toBeDefined()
     })
 
-    it('does not show the re-run action when verification succeeded', () => {
-      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
-      render(<AddHostWizard {...makeProps({ verifyResult: { publicJwk } })} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    it('does not show the re-run action when there is no provisioning error', () => {
+      navigateToVerify()
       expect(screen.queryByTestId('rerun-provisioning')).toBeNull()
     })
   })
@@ -288,11 +381,51 @@ describe('AddHostWizard', () => {
       const composeStep = screen.getByTestId('step-compose')
       expect(composeStep.textContent).toContain('AGENT_HOST_NAME: my-host')
     })
+
+    it('references the key in the compose without embedding it, and puts the real key in the .env', () => {
+      render(<AddHostWizard {...makeProps()} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      const composeStep = screen.getByTestId('step-compose')
+      expect(composeStep.textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
+      expect(composeStep.textContent).not.toContain('wizard-key-x')
+      expect(composeStep.textContent).not.toContain('"kty"')
+      // Advance to Configuration: the .env carries the real key.
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      const envStep = screen.getByTestId('step-env')
+      expect(envStep.textContent).toContain('AGENT_TRUSTED_PUBKEY={"kty":"OKP","crv":"Ed25519","x":"wizard-key-x"}')
+    })
+
+    it('shows a keypair spinner on the Compose step only while creation is in flight', () => {
+      const view = render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      view.rerender(<AddHostWizard {...makeProps({ pendingHost: null, isCreating: true })} />)
+      const loading = screen.getByTestId('step-compose-loading')
+      expect(loading.textContent).toContain("Generating this host's keypair")
+      expect(loading.querySelector('pre')).toBeNull()
+    })
+
+    it('shows an idle line on the Compose step when creation has not started', () => {
+      render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByText('The keypair is generated when you reach this step.')).toBeDefined()
+      expect(screen.queryByTestId('step-compose-loading')).toBeNull()
+    })
+
+    it('shows the create error without a spinner on the Compose step when creation failed', () => {
+      render(<AddHostWizard {...makeProps({ pendingHost: null, createError: 'Failed to generate agent keypair: disk full' })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByText(/Failed to generate agent keypair/)).toBeDefined()
+      expect(screen.queryByTestId('step-compose-loading')).toBeNull()
+    })
   })
 
   describe('error display', () => {
-    it('shows the error with a re-run action on the verify step when addError is set', () => {
-      render(<AddHostWizard {...makeProps({ addError: 'Connection refused' })} />)
+    it('shows the provisioning error with a re-run action on the verify step when provisionError is set', () => {
+      render(<AddHostWizard {...makeProps({ provisionError: 'Connection refused' })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -301,8 +434,8 @@ describe('AddHostWizard', () => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
 
-    it('does not show an error alert when addError is null', () => {
-      render(<AddHostWizard {...makeProps({ addError: null })} />)
+    it('does not show an error alert when createError and provisionError are null', () => {
+      render(<AddHostWizard {...makeProps()} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -323,6 +456,15 @@ describe('AddHostWizard', () => {
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
     })
 
+    it('discards the pending host on reset', () => {
+      const onDiscard = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onDiscard })} />)
+      enterHostName()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+      expect(onDiscard).toHaveBeenCalledTimes(1)
+    })
+
     it('clears the host name on reset', () => {
       render(<AddHostWizard {...makeProps()} />)
       enterHostName('dev-machine')
@@ -338,8 +480,8 @@ describe('AddHostWizard', () => {
       expect(screen.getByLabelText('ZFS capability').getAttribute('aria-checked')).toBe('false')
     })
 
-    it('Reset button is disabled while isAdding', () => {
-      render(<AddHostWizard {...makeProps({ isAdding: true })} />)
+    it('Reset button is disabled while creating or provisioning', () => {
+      render(<AddHostWizard {...makeProps({ isCreating: true })} />)
       const resetBtn = screen.getByRole('button', { name: 'Reset' })
       expect(resetBtn.hasAttribute('disabled')).toBe(true)
     })

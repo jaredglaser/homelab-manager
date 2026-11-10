@@ -103,10 +103,16 @@ export async function handleCheckHostHealth(
 
 export async function handleRemoveHost(
   deps: HostHandlerDeps & { keypairs: Pick<KeypairsDep, 'deleteForHost'> },
-  data: { hostId: number },
+  data: { hostId: number; expectStatus?: 'pending' },
 ): Promise<{ success: boolean }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  // The row just read is the arbiter: a wizard-driven removal must not delete a
+  // host whose status flipped after the client's snapshot was taken.
+  if (data.expectStatus && host.status !== data.expectStatus) {
+    throw new Error(`Host ${host.name} is no longer pending`);
+  }
 
   try {
     await deps.keypairs.deleteForHost(host.name);
@@ -167,31 +173,30 @@ export async function handleRotateHostKeypair(
 }
 
 /**
- * Register a user-managed agent. Generates an Ed25519 keypair and returns the
- * public JWK to the operator, who installs it in the agent's AGENT_TRUSTED_PUBKEY
- * env. Status is pending until the operator installs the pubkey and a follow-up
- * health check passes.
+ * Create (or reuse) the pending host record and its Ed25519 keypair, and return
+ * the public JWK. Called when the Add Host wizard enters the Compose File step,
+ * so the generated .env (referenced by the compose) carries the real
+ * AGENT_TRUSTED_PUBKEY and the agent boots already trusting the manager.
+ * Provisioning is a separate step (handleRotateHostTls) that runs once the
+ * operator has deployed the stack and entered the agent URL.
  */
-export async function handleVerifyHost(
-  deps: HostHandlerDeps & {
-    keypairs: KeypairsDep;
-    /** Must run after repo.create: the cert row has an FK on the host name. Flips the agent URL to https on success. */
-    provisionTls?: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
-  },
-  data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
-): Promise<AddHostResult> {
+export async function handleCreatePendingHost(
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+): Promise<{ host: HostListItem; publicJwk: JWK }> {
   const name = data.name.trim();
-  // The wizard re-runs verifyHost after a failed attempt, and the pending row
-  // from that attempt blocks a second create on the unique host name.
+  const capabilities = data.capabilities ?? { docker: false, zfs: false };
   const existing = await deps.repo.findByName(name);
   const host = existing ?? (await deps.repo.create({
     name,
-    agentUrl: data.agentUrl,
-    capabilities: data.capabilities,
+    // agent_url is NOT NULL but unknown at this point. The operator enters the
+    // URL on the Verify step, which persists it before provisioning runs.
+    agentUrl: '',
+    capabilities,
   }));
 
-  // A re-verify must reuse the enrolled keypair. Rotation is the explicit
-  // rotate-keypair action, never a side effect of verify.
+  // Get-or-create: re-entering the wizard must reuse the enrolled keypair. Rotating
+  // here would invalidate the AGENT_TRUSTED_PUBKEY the operator already deployed.
   let publicJwk: JWK | null;
   try {
     publicJwk = await deps.keypairs.getPublicJwkForHost(name);
@@ -201,42 +206,39 @@ export async function handleVerifyHost(
     throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
   }
 
-  if (deps.provisionTls) {
-    let provisioned: { agentUrl: string };
-    try {
-      provisioned = await deps.provisionTls(name, data.agentUrl);
-    } catch (err) {
-      // Provisioning cannot succeed before the operator installs the returned pubkey, so a failure here is expected first contact.
-      return {
-        host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
-        publicJwk,
-        provisioningError: err instanceof Error ? err.message : String(err),
-      };
-    }
-    const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
-    return {
-      host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
-      publicJwk,
-    };
+  // Capability toggles may have changed since creation. Keep the record honest, but
+  // only for pending hosts the wizard is still enrolling.
+  if (existing && host.status === 'pending'
+      && JSON.stringify(host.capabilities ?? {}) !== JSON.stringify(capabilities)) {
+    const updated = await deps.repo.update(host.id, { capabilities });
+    return { host: toHostListItem(updated), publicJwk };
   }
 
   return {
-    host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
+    host: toHostListItem(host, existing ? undefined : { agentVersion: null, status: 'pending' }),
     publicJwk,
   };
 }
 
-/** Re-runs TLS provisioning for an enrolled host. Failure leaves the host record and its enrolled keypair untouched. */
+/**
+ * Runs TLS provisioning for a host: the Add Host wizard's first contact, or a
+ * re-run for an enrolled host. Failure leaves the host record and its enrolled
+ * keypair untouched.
+ *
+ * An explicit `agentUrl` re-points the host: provisioning runs against it, and
+ * only a successful run (which flips the URL to https) is persisted. A failed
+ * attempt never writes, so a bad address cannot clobber a working one.
+ */
 export async function handleRotateHostTls(
   deps: HostHandlerDeps & {
     provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
   },
-  data: { hostId: number },
+  data: { hostId: number; agentUrl?: string },
 ): Promise<{ hostId: number; agentUrl: string }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const provisioned = await deps.provisionTls(host.name, host.agentUrl);
+  const provisioned = await deps.provisionTls(host.name, data.agentUrl ?? host.agentUrl);
   await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
   return { hostId: host.id, agentUrl: provisioned.agentUrl };
 }
