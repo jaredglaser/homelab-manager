@@ -88,8 +88,10 @@ async function runProvisionHostTls(
 
   // A rotation restarts the agent for up to ~10s (docker stop + start), so an
   // immediately following rotation can land inside that window and see the
-  // connection refused. Bound-retry the enrollment before giving up: the agent
-  // is very likely mid-restart, not gone.
+  // connection refused. A first-boot agent can also lose the enroll response
+  // to its own self-restart (connection reset, hang up, timeout) while the
+  // enrollment itself succeeded. Bound-retry the enrollment before giving up:
+  // the agent is very likely mid-restart, not gone.
   const ENROLL_RETRIES = 2;
   let enrolled: { certPem: string; selfRestartScheduled: boolean };
   let retried = false;
@@ -99,16 +101,21 @@ async function runProvisionHostTls(
       break;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (attempt < ENROLL_RETRIES && /unable to connect/i.test(message)) {
+      // Transport-level failures only: a terminal HTTP rejection (e.g.
+      // Unauthorized) must reach the wizard's key-mismatch mapping, so the
+      // retryable check is gated on the unreachable copy enrollCert wraps
+      // around network errors.
+      const retryable =
+        /the agent could not be reached/i.test(message) &&
+        (/unable to connect/i.test(message) || isRestartConnectionLoss(err));
+      if (attempt < ENROLL_RETRIES && retryable) {
         retried = true;
         await sleepFn(2000 + attempt * 2000);
         continue;
       }
-      // Only a connection failure gets the unreachable copy: a terminal HTTP
-      // rejection (e.g. Unauthorized) must reach the wizard's key-mismatch mapping.
-      if (retried && /unable to connect/i.test(message)) {
+      if (retried && retryable) {
         throw new Error(
-          'TLS enrollment failed: the agent was unreachable after 3 attempts. It may be restarting from a recent rotation. Retry in a few seconds.',
+          'TLS enrollment failed: the agent was unreachable after 3 attempts. It may be restarting from a recent rotation, or it may have already enrolled and restarted into TLS-only mode. Retry provisioning in a few seconds, and if it keeps failing, follow the TLS recovery steps in the self-hosting guide.',
         );
       }
       throw err;
@@ -252,7 +259,7 @@ export function isRestartConnectionLoss(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && /ECONNRESET|EPIPE|ECONNABORTED/i.test(code)) return true;
   const message = err instanceof Error ? err.message : String(err);
-  return /econnreset|connection reset|socket hang up|epipe|aborted|timeout/i.test(message);
+  return /econnreset|connection reset|socket hang up|epipe|aborted|timed out|timeout/i.test(message);
 }
 
 async function wrapFailure(reason: string, fn: () => Promise<void>): Promise<void> {

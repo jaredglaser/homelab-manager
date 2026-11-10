@@ -294,13 +294,55 @@ describe('provisionHostTls', () => {
     );
   });
 
-  it('reports a rotation-restart hint when enrollment retries are exhausted', async () => {
+  it('reports the rotation-restart and self-enroll hints when enrollment retries are exhausted', async () => {
     const connectError = new Error('Unable to connect. Is the computer able to access the url?');
     const { deps, delays } = makeDeps({
       fetchResponses: [connectError, connectError, connectError],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /was unreachable after 3 attempts/,
+      /was unreachable after 3 attempts\. It may be restarting from a recent rotation, or it may have already enrolled and restarted into TLS-only mode/,
+    );
+    expect(delays).toEqual([2000, 4000]);
+  });
+
+  it('retries the enrollment when the enroll response is lost to a self-restart and succeeds', async () => {
+    const { deps, fetchCalls, delays, healthCalls } = makeDeps({
+      fetchResponses: [
+        new Error('socket hang up'),
+        enrollResponse(),
+        new DOMException('The connection was closed.', 'AbortError'),
+      ],
+      healthResults: [true],
+    });
+    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(2);
+    expect(delays[0]).toBe(2000);
+    expect(healthCalls).toHaveLength(1);
+  });
+
+  it('retries the enrollment on an enroll timeout and succeeds', async () => {
+    const { deps, fetchCalls, delays } = makeDeps({
+      fetchResponses: [
+        new DOMException('The operation was timed out', 'TimeoutError'),
+        enrollResponse(),
+        new DOMException('The connection was closed.', 'AbortError'),
+      ],
+      healthResults: [true],
+    });
+    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(2);
+    expect(delays[0]).toBe(2000);
+  });
+
+  it('points at the recovery steps when enrollment retries are exhausted on response loss', async () => {
+    const reset = new Error('Connection reset by peer');
+    const { deps, delays } = makeDeps({
+      fetchResponses: [reset, reset, reset],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /was unreachable after 3 attempts\. It may be restarting from a recent rotation, or it may have already enrolled and restarted into TLS-only mode/,
     );
     expect(delays).toEqual([2000, 4000]);
   });
