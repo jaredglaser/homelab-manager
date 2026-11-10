@@ -5,19 +5,23 @@ import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 export interface KeypairsDep {
-  createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
+  createForHost: (hostName: string) => Promise<{ publicJwk: JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
-  getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
+  getPublicJwkForHost: (hostName: string) => Promise<JWK | null>;
+  getOrCreateForHost: (hostName: string) => Promise<JWK>;
 }
 
 export interface AddHostResult {
   host: HostListItem;
-  publicJwk?: import('jose').JWK;
+  publicJwk?: JWK;
+  /** Set when TLS provisioning failed but the keypair was still created and returned. The host stays pending. */
+  provisioningError?: string;
 }
 
 export type HostOperationResult =
@@ -140,7 +144,7 @@ export async function handleUpdateHost(
 export async function handleGetHostPublicJwk(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
-): Promise<{ publicJwk: import('jose').JWK }> {
+): Promise<{ publicJwk: JWK }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -154,7 +158,7 @@ export async function handleGetHostPublicJwk(
 export async function handleRotateHostKeypair(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
-): Promise<{ hostId: number; publicJwk: import('jose').JWK }> {
+): Promise<{ hostId: number; publicJwk: JWK }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -186,9 +190,12 @@ export async function handleVerifyHost(
     capabilities: data.capabilities,
   }));
 
-  let publicJwk;
+  // A re-verify must reuse the enrolled keypair. Rotation is the explicit
+  // rotate-keypair action, never a side effect of verify.
+  let publicJwk: JWK | null;
   try {
-    ({ publicJwk } = await deps.keypairs.createForHost(name));
+    publicJwk = await deps.keypairs.getPublicJwkForHost(name);
+    if (!publicJwk) publicJwk = await deps.keypairs.getOrCreateForHost(name);
   } catch (err) {
     if (!existing) await deps.repo.delete(host.id);
     throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
@@ -199,9 +206,12 @@ export async function handleVerifyHost(
     try {
       provisioned = await deps.provisionTls(name, data.agentUrl);
     } catch (err) {
-      // The host stays pending so the operator can fix the agent and re-run
-      // provisioning instead of losing the enrolled keypair with the record.
-      throw new Error(err instanceof Error ? err.message : String(err));
+      // Provisioning cannot succeed before the operator installs the returned pubkey, so a failure here is expected first contact.
+      return {
+        host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
+        publicJwk,
+        provisioningError: err instanceof Error ? err.message : String(err),
+      };
     }
     const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
     return {

@@ -66,10 +66,9 @@ let nextMockId = mockHosts.length + 1;
 export async function verifyHost(data: {
   name: string;
   agentUrl: string;
-  agentToken: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
 }): Promise<AddHostResult> {
-  return { host: buildHost(data) };
+  return { host: buildHost(data), publicJwk: MOCK_PUBLIC_JWK };
 }
 
 export async function updateHost(data: {
