@@ -82,30 +82,22 @@ describe('openAgentWebSocket', () => {
     );
   });
 
-  it('passes ws urls through to the platform constructor without tls', () => {
-    // Spy on the platform constructor: happy-dom's WebSocket would attempt a real
-    // connection and fire unhandled error events.
-    interface SpyWs {
-      url: string;
-      protocols?: unknown;
-    }
-    const constructed: SpyWs[] = [];
+  it('does not require a pinned cert on ws urls', () => {
+    // Pins the invariant asymmetry with the wss refusal tests above: ws agent
+    // URLs skip the cert requirement. The constructor is stubbed because
+    // happy-dom's real one would dial ws:// and fire unhandled error events;
+    // the Bun-specific header/tls arg shape is verified by the loopback probe,
+    // not here.
     const original = globalThis.WebSocket;
-    class WsSpy implements SpyWs {
-      constructor(public url: string, public protocols?: unknown) {
-        constructed.push(this);
-      }
+    class WsStub {
+      constructor(..._args: unknown[]) {}
     }
-    (globalThis as unknown as { WebSocket: unknown }).WebSocket = WsSpy;
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = WsStub;
     try {
-      const ws = openAgentWebSocket('ws://agent:9090/exec/x', {}, { caCertPem: null });
-      expect(ws).toBeInstanceOf(WsSpy);
-      expect(constructed).toHaveLength(1);
-      expect(constructed[0].protocols).toBeUndefined();
-
-      const withHeaders = openAgentWebSocket('ws://agent:9090/exec/x', { headers: { Authorization: 'Bearer t' } }, { caCertPem: null });
-      expect(withHeaders).toBeInstanceOf(WsSpy);
-      expect(constructed[1].protocols).toEqual({ headers: { Authorization: 'Bearer t' } });
+      expect(() =>
+        openAgentWebSocket('ws://agent:9090/exec/x', { headers: { Authorization: 'Bearer t' } }, { caCertPem: null }),
+      ).not.toThrow();
+      expect(() => openAgentWebSocket('ws://agent:9090/exec/x', {}, { caCertPem: null })).not.toThrow();
     } finally {
       (globalThis as unknown as { WebSocket: unknown }).WebSocket = original;
     }
