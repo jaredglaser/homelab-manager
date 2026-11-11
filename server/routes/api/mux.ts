@@ -1,5 +1,6 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
+import { agentFetch, isTlsUrl } from '../../../src/lib/clients/agent-http';
 import type { MuxFrameBody } from '../../../src/lib/mux/protocol';
 import type { MuxDropPolicyConfig, MuxWriteQueue } from '../../../src/lib/mux/drop-policy';
 import { PING_INTERVAL_MS, RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS } from '../../../src/lib/mux/keepalive';
@@ -181,6 +182,9 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   }
 
   const { AgentKeypairsRepository } = await import('../../../src/lib/database/repositories/agent-keypairs-repository');
+  const { AgentTlsCertificatesRepository } = await import(
+    '../../../src/lib/database/repositories/agent-tls-certificates-repository'
+  );
   const { loadMasterKeyring } = await import('../../../src/lib/crypto/master-key');
   const { signAgentJwt } = await import('../../../src/lib/crypto/agent-jwt');
   const keyring = await loadMasterKeyring();
@@ -188,6 +192,23 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   const privateKey = await keypairs.getPrivateKeyForHost(host);
   if (!privateKey) {
     emit({ topic, kind: 'error', payload: { message: `No agent keypair for host: ${host}`, gone: true } });
+    return;
+  }
+
+  // An https agent URL without a pinned cert fails TLS verification on every
+  // retry; that is a permanent config gap, so fail as gone instead of looping
+  // as a fake agent outage.
+  const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
+  const caCertPem = await tlsCerts.getCertForHost(host);
+  if (isTlsUrl(managedHost.agentUrl) && !caCertPem) {
+    emit({
+      topic,
+      kind: 'error',
+      payload: {
+        message: `No pinned TLS certificate for host: ${host}. Run TLS enrollment for the host, then retry.`,
+        gone: true,
+      },
+    });
     return;
   }
 
@@ -200,11 +221,11 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
     if (signal.aborted) return;
     attempt++;
     try {
-      const agentResponse = await fetch(agentUrl, {
+      const agentResponse = await agentFetch(agentUrl, {
         headers: { Authorization: 'Bearer ' + jwt },
         signal,
         redirect: 'manual',
-      });
+      }, { caCertPem });
       if (!agentResponse.ok || !agentResponse.body) {
         throw new Error(`Agent request failed with status ${agentResponse.status}`);
       }

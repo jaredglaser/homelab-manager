@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
-import { agentFetch, type AgentTlsContext } from '../agent-http';
+import { agentFetch, openAgentWebSocket, type AgentTlsContext } from '../agent-http';
 
 const PROBE_PATH = join(import.meta.dir, '../../test/agent-http-loopback-probe.ts');
 
@@ -66,6 +66,49 @@ describe('agentFetch', () => {
     };
     await agentFetch('not a url', {}, { caCertPem: 'PINNED' }, fakeFetch);
     expect((calls[0].init as RequestInitWithTls).tls).toBeUndefined();
+  });
+});
+
+describe('openAgentWebSocket', () => {
+  it('refuses a wss url without a pinned cert', () => {
+    expect(() => openAgentWebSocket('wss://agent:9090/exec/x', {}, { caCertPem: null })).toThrow(
+      'No pinned TLS certificate for this HTTPS agent URL: run TLS enrollment for the host, then retry',
+    );
+  });
+
+  it('treats a whitespace-only cert like an absent one on wss', () => {
+    expect(() => openAgentWebSocket('wss://agent:9090/exec/x', {}, { caCertPem: '   ' })).toThrow(
+      'No pinned TLS certificate for this HTTPS agent URL',
+    );
+  });
+
+  it('passes ws urls through to the platform constructor without tls', () => {
+    // Spy on the platform constructor: happy-dom's WebSocket would attempt a real
+    // connection and fire unhandled error events.
+    interface SpyWs {
+      url: string;
+      protocols?: unknown;
+    }
+    const constructed: SpyWs[] = [];
+    const original = globalThis.WebSocket;
+    class WsSpy implements SpyWs {
+      constructor(public url: string, public protocols?: unknown) {
+        constructed.push(this);
+      }
+    }
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = WsSpy;
+    try {
+      const ws = openAgentWebSocket('ws://agent:9090/exec/x', {}, { caCertPem: null });
+      expect(ws).toBeInstanceOf(WsSpy);
+      expect(constructed).toHaveLength(1);
+      expect(constructed[0].protocols).toBeUndefined();
+
+      const withHeaders = openAgentWebSocket('ws://agent:9090/exec/x', { headers: { Authorization: 'Bearer t' } }, { caCertPem: null });
+      expect(withHeaders).toBeInstanceOf(WsSpy);
+      expect(constructed[1].protocols).toEqual({ headers: { Authorization: 'Bearer t' } });
+    } finally {
+      (globalThis as unknown as { WebSocket: unknown }).WebSocket = original;
+    }
   });
 });
 

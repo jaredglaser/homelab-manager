@@ -13,6 +13,7 @@ describe('AgentClient', () => {
       signer: async () => 'mock-jwt',
       timeoutMs: 5000,
       fetchFn: fetchMock as unknown as typeof fetch,
+      caCertPem: null,
     });
   });
 
@@ -473,7 +474,7 @@ describe('AgentClient', () => {
           headers: { 'Content-Type': 'application/json' },
         }),
       ) as unknown as typeof fetch & { mock: { calls: Array<[string, RequestInit]> } };
-      const client = new AgentClient({ agentUrl: 'http://x', signer, fetchFn });
+      const client = new AgentClient({ agentUrl: 'http://x', signer, fetchFn, caCertPem: null });
       await client.health();
       await client.health();
       const headers0 = fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>;

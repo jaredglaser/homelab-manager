@@ -94,6 +94,17 @@ mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository'
   },
 }));
 
+const mockGetCertForHost = mock(async (_: string) => null as null | string);
+mockModule<typeof import('@/lib/database/repositories/agent-tls-certificates-repository')>(
+  '@/lib/database/repositories/agent-tls-certificates-repository',
+  (real) => ({
+    ...real,
+    AgentTlsCertificatesRepository: class {
+      getCertForHost = mockGetCertForHost;
+    },
+  }),
+);
+
 mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({
   ...real,
   loadMasterKeyring: async () => ({}),
@@ -559,6 +570,7 @@ describe('logs adapter pipe', () => {
   beforeEach(() => {
     mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'http://agent' }));
     mockGetPrivateKeyForHost.mockImplementation(async () => ({ kty: 'OKP' } as object));
+    mockGetCertForHost.mockImplementation(async () => 'FAKE-PEM');
   });
 
   afterEach(() => {
@@ -566,6 +578,7 @@ describe('logs adapter pipe', () => {
     (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
     mockFindByName.mockImplementation(async () => null);
     mockGetPrivateKeyForHost.mockImplementation(async () => null);
+    mockGetCertForHost.mockImplementation(async () => null);
   });
 
   it('re-emits agent frames as mux frames', async () => {
@@ -645,6 +658,27 @@ describe('logs adapter pipe', () => {
     expect(events[0].kind).toBe('error');
     expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
     expect((events[0].payload as { message?: string }).message).toContain('Unknown host');
+    h.close(peer as unknown as Peer);
+  });
+
+  it('emits a gone error when an https agent URL has no pinned TLS certificate', async () => {
+    mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent' }));
+    mockGetCertForHost.mockImplementation(async () => null);
+    (globalThis as unknown as Record<string, unknown>).fetch = mock(async () => {
+      throw new Error('should not fetch');
+    }) as unknown as typeof fetch;
+
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer('pipe-peer-4');
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['logs:server1/abc'], 1));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const events = peer.sent.filter((f) => f.type === 'event');
+    expect(events).toHaveLength(1);
+    expect(events[0].kind).toBe('error');
+    expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
+    expect((events[0].payload as { message?: string }).message).toContain('No pinned TLS certificate');
     h.close(peer as unknown as Peer);
   });
 });
