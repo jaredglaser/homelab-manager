@@ -41,7 +41,8 @@ describe('agentFetch', () => {
       return Promise.resolve(new Response('{}'));
     };
     await expect(agentFetch('https://agent:9090/info', {}, { caCertPem: null }, fakeFetch)).rejects.toThrow(
-      'No pinned TLS certificate for this HTTPS agent URL: run TLS enrollment for the host, then retry',
+      'No pinned TLS certificate for this HTTPS agent URL, so the manager cannot verify the agent. '
+      + 'See the agent TLS recovery steps in the self-hosting guide.',
     );
     expect(calls).toHaveLength(0);
   });
@@ -72,7 +73,8 @@ describe('agentFetch', () => {
 describe('openAgentWebSocket', () => {
   it('refuses a wss url without a pinned cert', () => {
     expect(() => openAgentWebSocket('wss://agent:9090/exec/x', {}, { caCertPem: null })).toThrow(
-      'No pinned TLS certificate for this HTTPS agent URL: run TLS enrollment for the host, then retry',
+      'No pinned TLS certificate for this HTTPS agent URL, so the manager cannot verify the agent. '
+      + 'See the agent TLS recovery steps in the self-hosting guide.',
     );
   });
 

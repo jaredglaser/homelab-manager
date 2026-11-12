@@ -48,9 +48,9 @@ interface AgentClientConfig {
   controlTimeoutMs?: number;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetchFn?: typeof fetch;
-  /** Pinned per-host TLS certificate (PEM) for https agent URLs. Required: pass null for http
-   *  agent URLs so every constructor call resolves the cert explicitly — an omitted cert would
-   *  make every https request fail TLS verification while looking like an agent outage. */
+  /** Pinned per-host TLS certificate (PEM) for https agent URLs. Required so every constructor
+   *  call resolves the cert explicitly. Pass null for http agent URLs. An omitted cert makes
+   *  every https request fail TLS verification while looking like an agent outage. */
   caCertPem: string | null;
 }
 

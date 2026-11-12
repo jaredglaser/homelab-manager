@@ -10,8 +10,14 @@ interface RequestInitWithTls extends RequestInit {
   tls?: { ca: string; rejectUnauthorized: boolean };
 }
 
+export const MISSING_PIN_RECOVERY_HINT = 'See the agent TLS recovery steps in the self-hosting guide.';
+
 const MISSING_CERT_MESSAGE =
-  'No pinned TLS certificate for this HTTPS agent URL: run TLS enrollment for the host, then retry';
+  `No pinned TLS certificate for this HTTPS agent URL, so the manager cannot verify the agent. ${MISSING_PIN_RECOVERY_HINT}`;
+
+export function missingPinMessage(host: string): string {
+  return `No pinned TLS certificate for host: ${host}. ${MISSING_PIN_RECOVERY_HINT}`;
+}
 
 /** True for URL schemes whose TLS handshake needs the pinned per-host certificate (https, wss). */
 export function isTlsUrl(url: string): boolean {
@@ -59,7 +65,7 @@ interface WebSocketOptionsWithTls extends AgentWebSocketOptions {
  * WebSocket counterpart of agentFetch for the server-to-agent hop (exec
  * terminal bridge). Same invariant: a wss agent URL requires the host's pinned
  * certificate, passed explicitly, or the handshake is refused up front. Bun's
- * WebSocket accepts the header/tls options object; the DOM lib types only
+ * WebSocket accepts the header/tls options object. The DOM lib types only
  * allow protocol strings, hence the cast.
  */
 export function openAgentWebSocket(url: string, options: AgentWebSocketOptions, tls: AgentTlsContext): WebSocket {

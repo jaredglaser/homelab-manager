@@ -265,7 +265,10 @@ describe('docker-exec websocket route', () => {
 
       expect(constructedWebSockets).toHaveLength(0);
       const closeMock = peer.close as unknown as ReturnType<typeof mock>;
-      expect(closeMock).toHaveBeenCalledWith(1011, expect.stringContaining('No pinned TLS certificate'));
+      expect(closeMock).toHaveBeenCalledWith(
+        1011,
+        'No pinned TLS certificate for host: server1. See the agent TLS recovery steps in the self-hosting guide.',
+      );
     });
 
     it('attaches the agent JWT as a Bearer Authorization header', async () => {

@@ -15,7 +15,7 @@ const tlsServer = Bun.serve({
   port: 0,
   tls: { cert: Bun.file(join(fixtureDir, 'agent-tls-fixture-cert.pem')), key: Bun.file(fixtureKeyPath) },
   fetch(req, server) {
-    // WebSocket upgrades must be taken here; the default response handler never upgrades.
+    // WebSocket upgrades must be taken here. The default response handler never upgrades.
     if (server.upgrade(req)) return undefined;
     return new Response(JSON.stringify({ ok: true }));
   },
@@ -24,7 +24,7 @@ const tlsServer = Bun.serve({
       ws.send('agent-hello');
     },
     message(ws) {
-      // Required by Bun's WebSocketHandler type; the probe never sends client frames.
+      // Required by Bun's WebSocketHandler type. The probe never sends client frames.
       ws.close(1000);
     },
   },
@@ -43,7 +43,7 @@ async function expectRejected(url: string, tls: { caCertPem?: string | null }): 
   throw new Error(`Expected fetch to ${url} to be rejected`);
 }
 
-/** Resolves on the agent's hello frame; rejects on error, wrong frame, or timeout. */
+/** Resolves on the agent's hello frame, and rejects on error, wrong frame, or timeout. */
 function expectWebSocketHello(url: string, tls: { caCertPem?: string | null }): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`expected hello frame from ${url}, timed out`)), 5000);

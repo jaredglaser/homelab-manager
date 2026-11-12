@@ -1,6 +1,6 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
-import { agentFetch, isTlsUrl } from '../../../src/lib/clients/agent-http';
+import { agentFetch, isTlsUrl, missingPinMessage } from '../../../src/lib/clients/agent-http';
 import type { MuxFrameBody } from '../../../src/lib/mux/protocol';
 import type { MuxDropPolicyConfig, MuxWriteQueue } from '../../../src/lib/mux/drop-policy';
 import { PING_INTERVAL_MS, RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS } from '../../../src/lib/mux/keepalive';
@@ -196,7 +196,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   }
 
   // An https agent URL without a pinned cert fails TLS verification on every
-  // retry; that is a permanent config gap, so fail as gone instead of looping
+  // retry. That is a permanent config gap, so fail as gone instead of looping
   // as a fake agent outage.
   const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
   const caCertPem = await tlsCerts.getCertForHost(host);
@@ -205,7 +205,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
       topic,
       kind: 'error',
       payload: {
-        message: `No pinned TLS certificate for host: ${host}. Run TLS enrollment for the host, then retry.`,
+        message: missingPinMessage(host),
         gone: true,
       },
     });

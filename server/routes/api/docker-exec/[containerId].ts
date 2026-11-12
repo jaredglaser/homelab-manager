@@ -1,6 +1,6 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
-import { isTlsUrl, openAgentWebSocket } from '../../../../src/lib/clients/agent-http';
+import { isTlsUrl, missingPinMessage, openAgentWebSocket } from '../../../../src/lib/clients/agent-http';
 
 // Maps peer.id to the upstream agent WebSocket so message/close can reach it.
 // Keyed by peer.id (string) because Nitro's crossws Peer has no typed connection object.
@@ -100,13 +100,15 @@ export default defineWebSocketHandler({
       const agentUrl = `${agentBase}/exec/${encodeURIComponent(containerId)}?shell=${encodeURIComponent(shell)}&cols=${cols}&rows=${rows}`;
 
       // A wss agent URL without a pinned cert fails the TLS handshake on every
-      // attempt; that is a permanent config gap, so close with an actionable
+      // attempt. That is a permanent config gap, so close with an actionable
       // reason instead of a generic 1011.
       const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
       const caCertPem = await tlsCerts.getCertForHost(host);
       if (isTlsUrl(agentBase) && !caCertPem) {
-        console.error('[docker-exec-ws] no pinned TLS certificate for host:', host);
-        try { peer.close(1011, `No pinned TLS certificate for host: ${host}. Run TLS enrollment, then retry.`); } catch { /* not open yet */ }
+        const reason = missingPinMessage(host);
+        console.error('[docker-exec-ws] no pinned TLS certificate for host:', host, reason);
+        // A WebSocket close reason is capped at 123 bytes, so a long host name must not push this past the limit.
+        try { peer.close(1011, reason.slice(0, 120)); } catch { /* not open yet */ }
         return;
       }
 

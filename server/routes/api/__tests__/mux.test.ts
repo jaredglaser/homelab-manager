@@ -678,7 +678,9 @@ describe('logs adapter pipe', () => {
     expect(events).toHaveLength(1);
     expect(events[0].kind).toBe('error');
     expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
-    expect((events[0].payload as { message?: string }).message).toContain('No pinned TLS certificate');
+    expect((events[0].payload as { message?: string }).message).toBe(
+      'No pinned TLS certificate for host: server1. See the agent TLS recovery steps in the self-hosting guide.',
+    );
     h.close(peer as unknown as Peer);
   });
 });
