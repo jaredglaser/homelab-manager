@@ -1,22 +1,24 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeAll } from 'bun:test';
 import { generateKeyPair, exportJWK } from 'jose';
 import { mkdirSync, mkdtempSync, readdirSync, statSync, readFileSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   buildSubjectAltName,
-  ENROLL_MARKER_NAME,
+  enrollmentPayload,
+  handleTlsChallenge,
   handleTlsEnroll,
   HTTP_ENROLLMENT_ALLOWED_PATHS,
   HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT,
   isAllowedOverPlainHttp,
+  issueChallenge,
   parseAndValidateSans,
-  parseTlsHttpFallback,
   resolveTlsStartup,
   TlsEnrollError,
   type SpawnFn,
+  type TlsEnrollOptions,
 } from '../tls-enroll';
-import { AUTH_BYPASS_PATH, authenticateRequest } from '../../middleware';
+import { AUTH_BYPASS_PATHS, authenticateRequest } from '../../middleware';
 import { loadTrustedPublicKey } from '../jwt-auth';
 
 interface SpawnCall {
@@ -38,18 +40,72 @@ function fakeSpawn(outputs: { stdout?: string; stderr?: string; exitCode?: numbe
   return { spawnFn, calls };
 }
 
-const KEY_PEM = '-----BEGIN PRIVATE KEY-----\nFAKEKEY\n-----END PRIVATE KEY-----\n';
+const KEY_PEM = '[REDACTED PRIVATE KEY]\n';
 const CERT_PEM = '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----\n';
 
-function enrollRequest(sans: string[]): Request {
+// The agent's host name as the manager sees it: it is mixed into the signed
+// payload, so a body signed for another host must not verify here.
+const HOST_NAME = 'agent-1.lan';
+
+let trustedPublicKey: CryptoKey;
+let signPayload: (payload: string) => Promise<string>;
+
+beforeAll(async () => {
+  const { publicKey, privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
+  trustedPublicKey = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
+  const signingKey = await crypto.subtle.importKey(
+    'jwk',
+    await exportJWK(privateKey),
+    { name: 'Ed25519' },
+    false,
+    ['sign'],
+  );
+  signPayload = async (payload) =>
+    Buffer.from(await crypto.subtle.sign('Ed25519', signingKey, new TextEncoder().encode(payload))).toString('base64');
+});
+
+function enrollOptions(stacksDir: string, extra: Partial<TlsEnrollOptions> = {}): TlsEnrollOptions {
+  return { stacksDir, trustedPublicKey, hostName: HOST_NAME, ...extra };
+}
+
+/**
+ * Mints a fresh challenge and signs the payload the manager would sign. `signSans`
+ * defaults to the submitted list, and passing a different list models a body whose
+ * signature does not cover what was actually submitted.
+ */
+async function signedBody(
+  sans: string[],
+  signSans: string[] = sans,
+  nonce: string = issueChallenge().nonce,
+): Promise<{ sans: string[]; nonce: string; signature: string }> {
+  return { sans, nonce, signature: await signPayload(enrollmentPayload(nonce, HOST_NAME, signSans)) };
+}
+
+function enrollRequest(body: unknown): Request {
   return new Request('http://localhost/tls/enroll', {
     method: 'POST',
-    body: JSON.stringify({ sans }),
+    body: JSON.stringify(body),
     headers: { 'Content-Type': 'application/json' },
   });
 }
 
+async function enrollRequestFor(sans: string[]): Promise<Request> {
+  return enrollRequest(await signedBody(sans));
+}
+
 describe('tls-enroll', () => {
+  describe('enrollmentPayload', () => {
+    it('pins the nonce/host/sans format shared with the manager', () => {
+      // The manager builds the same string in src/lib/crypto/agent-jwt.ts, and each
+      // side pins it so the two cannot drift apart silently.
+      // Same fixture as the manager's copy of this test, so a change on either
+      // builder fails both suites instead of only failing at runtime.
+      expect(enrollmentPayload('nonce-1', 'agent-1.lan', ['agent-1.lan', '10.0.0.5', 'localhost'])).toBe(
+        'nonce-1\nagent-1.lan\nagent-1.lan,10.0.0.5,localhost',
+      );
+    });
+  });
+
   describe('parseAndValidateSans', () => {
     it('accepts DNS names and IP literals and dedupes case-insensitively', () => {
       expect(parseAndValidateSans({ sans: ['myhost.lan', '192.168.1.10', 'MyHost.LAN'] })).toEqual([
@@ -103,12 +159,25 @@ describe('tls-enroll', () => {
     });
   });
 
+  describe('handleTlsChallenge', () => {
+    it('issues a nonce with a future expiry', async () => {
+      const response = handleTlsChallenge();
+      const body = (await response.json()) as { nonce: string; expiresAt: number };
+      expect(typeof body.nonce).toBe('string');
+      expect(body.nonce.length).toBeGreaterThan(0);
+      expect(body.expiresAt).toBeGreaterThan(Date.now());
+    });
+  });
+
   describe('handleTlsEnroll', () => {
     it('generates the key, signs the cert with the requested SANs, writes both files mode 0600, and returns the cert PEM', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
       try {
         const { spawnFn, calls } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
-        const response = await handleTlsEnroll(enrollRequest(['myhost.lan', '192.168.1.10']), dir, spawnFn);
+        const response = await handleTlsEnroll(
+          await enrollRequestFor(['myhost.lan', '192.168.1.10']),
+          enrollOptions(dir, { spawnFn }),
+        );
         expect(response.status).toBe(200);
         const body = (await response.json()) as { certPem: string };
         expect(body.certPem).toBe(CERT_PEM);
@@ -127,7 +196,8 @@ describe('tls-enroll', () => {
         expect(statSync(keyPath).mode & 0o777).toBe(0o600);
         expect(readFileSync(certPath, 'utf8')).toBe(CERT_PEM);
         expect(readFileSync(keyPath, 'utf8')).toBe(KEY_PEM);
-        expect(existsSync(join(dir, 'hlm-agent-tls', ENROLL_MARKER_NAME))).toBe(true);
+        // Enrollment writes exactly the pair: no marker file, no staging leftovers.
+        expect(readdirSync(join(dir, 'hlm-agent-tls')).sort()).toEqual(['cert.pem', 'key.pem']);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -139,21 +209,22 @@ describe('tls-enroll', () => {
         const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
         let restartCalls = 0;
         const response = await handleTlsEnroll(
-          enrollRequest(['myhost.lan']),
-          dir,
-          spawnFn,
-          () => {
-            restartCalls += 1;
-            return true;
-          },
+          await enrollRequestFor(['myhost.lan']),
+          enrollOptions(dir, {
+            spawnFn,
+            scheduleRestart: () => {
+              restartCalls += 1;
+              return true;
+            },
+          }),
         );
         expect(response.status).toBe(200);
         const body = (await response.json()) as { certPem: string; selfRestartScheduled: boolean };
         expect(body.certPem).toBe(CERT_PEM);
         expect(body.selfRestartScheduled).toBe(true);
-        // Scheduled only after the cert, key and marker are in place.
+        // Scheduled only after the cert and key are in place.
         expect(restartCalls).toBe(1);
-        expect(existsSync(join(dir, 'hlm-agent-tls', ENROLL_MARKER_NAME))).toBe(true);
+        expect(readdirSync(join(dir, 'hlm-agent-tls')).sort()).toEqual(['cert.pem', 'key.pem']);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -165,7 +236,7 @@ describe('tls-enroll', () => {
       const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
       try {
         const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
-        const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), dir, spawnFn);
+        const response = await handleTlsEnroll(await enrollRequestFor(['myhost.lan']), enrollOptions(dir, { spawnFn }));
         expect(response.status).toBe(200);
         const body = (await response.json()) as { selfRestartScheduled: boolean };
         expect(body.selfRestartScheduled).toBe(false);
@@ -177,10 +248,16 @@ describe('tls-enroll', () => {
     it('does not schedule a restart when the enrollment fails', async () => {
       const { spawnFn } = fakeSpawn([{ stderr: 'openssl exploded', exitCode: 1 }]);
       let restartCalls = 0;
-      const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), '/tmp', spawnFn, () => {
-        restartCalls += 1;
-        return true;
-      });
+      const response = await handleTlsEnroll(
+        await enrollRequestFor(['myhost.lan']),
+        enrollOptions('/tmp', {
+          spawnFn,
+          scheduleRestart: () => {
+            restartCalls += 1;
+            return true;
+          },
+        }),
+      );
       expect(response.status).toBe(500);
       const body = (await response.json()) as { selfRestartScheduled?: boolean };
       expect(body.selfRestartScheduled).toBeUndefined();
@@ -193,9 +270,15 @@ describe('tls-enroll', () => {
       const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
       try {
         const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
-        const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), dir, spawnFn, () => {
-          throw new Error('docker unavailable');
-        });
+        const response = await handleTlsEnroll(
+          await enrollRequestFor(['myhost.lan']),
+          enrollOptions(dir, {
+            spawnFn,
+            scheduleRestart: () => {
+              throw new Error('docker unavailable');
+            },
+          }),
+        );
         expect(response.status).toBe(200);
         const body = (await response.json()) as { certPem: string; selfRestartScheduled: boolean };
         expect(body.certPem).toBe(CERT_PEM);
@@ -207,14 +290,17 @@ describe('tls-enroll', () => {
 
     it('returns 400 for a malformed JSON body', async () => {
       const request = new Request('http://localhost/tls/enroll', { method: 'POST', body: 'not json' });
-      const response = await handleTlsEnroll(request, '/tmp', async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+      const response = await handleTlsEnroll(request, enrollOptions('/tmp'));
       expect(response.status).toBe(400);
     });
 
     it('generates a real certificate through the default openssl spawn', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
       try {
-        const response = await handleTlsEnroll(enrollRequest(['myhost.lan', '192.168.1.10']), dir);
+        const response = await handleTlsEnroll(
+          await enrollRequestFor(['myhost.lan', '192.168.1.10']),
+          enrollOptions(dir),
+        );
         expect(response.status).toBe(200);
         const body = (await response.json()) as { certPem: string };
         expect(body.certPem).toContain('BEGIN CERTIFICATE');
@@ -228,9 +314,8 @@ describe('tls-enroll', () => {
     it('caps the SAN list at 32 entries', async () => {
       const { spawnFn, calls } = fakeSpawn([]);
       const response = await handleTlsEnroll(
-        enrollRequest(Array.from({ length: 33 }, (_, i) => `host${i}.lan`)),
-        '/tmp',
-        spawnFn,
+        enrollRequest({ sans: Array.from({ length: 33 }, (_, i) => `host${i}.lan`) }),
+        enrollOptions('/tmp', { spawnFn }),
       );
       expect(response.status).toBe(400);
       expect(calls).toHaveLength(0);
@@ -240,7 +325,7 @@ describe('tls-enroll', () => {
       const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
       try {
         const { spawnFn } = fakeSpawn([{ stderr: 'keygen broke', exitCode: 1 }]);
-        const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), dir, spawnFn);
+        const response = await handleTlsEnroll(await enrollRequestFor(['myhost.lan']), enrollOptions(dir, { spawnFn }));
         expect(response.status).toBe(500);
         const body = (await response.json()) as { error: string };
         expect(body.error).toContain('Could not generate the TLS private key');
@@ -252,7 +337,7 @@ describe('tls-enroll', () => {
 
     it('returns 400 without spawning openssl when a SAN fails validation', async () => {
       const { spawnFn, calls } = fakeSpawn([]);
-      const response = await handleTlsEnroll(enrollRequest(['../escape']), '/tmp', spawnFn);
+      const response = await handleTlsEnroll(enrollRequest({ sans: ['../escape'] }), enrollOptions('/tmp', { spawnFn }));
       expect(response.status).toBe(400);
       expect(calls).toHaveLength(0);
       const body = (await response.json()) as { error: string };
@@ -270,13 +355,12 @@ describe('tls-enroll', () => {
         writeFileSync(join(tlsDir, 'cert.pem'), previousCert);
 
         const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stderr: 'signing broke', exitCode: 1 }]);
-        const response = await handleTlsEnroll(enrollRequest(['myhost.lan']), dir, spawnFn);
+        const response = await handleTlsEnroll(await enrollRequestFor(['myhost.lan']), enrollOptions(dir, { spawnFn }));
         expect(response.status).toBe(500);
         const body = (await response.json()) as { error: string };
         expect(body.error).toContain('TLS certificate signing failed');
         expect(readFileSync(join(tlsDir, 'key.pem'), 'utf8')).toBe(previousKey);
         expect(readFileSync(join(tlsDir, 'cert.pem'), 'utf8')).toBe(previousCert);
-        expect(existsSync(join(tlsDir, ENROLL_MARKER_NAME))).toBe(false);
         const leftovers = readdirSync(tlsDir).filter((name) => name.endsWith('.tmp'));
         expect(leftovers).toEqual([]);
       } finally {
@@ -293,8 +377,8 @@ describe('tls-enroll', () => {
           { stdout: KEY_PEM }, { stdout: CERT_A }, { stdout: KEY_PEM }, { stdout: CERT_B },
         ]);
         const [first, second] = await Promise.all([
-          handleTlsEnroll(enrollRequest(['a.lan']), dir, spawnFn),
-          handleTlsEnroll(enrollRequest(['b.lan']), dir, spawnFn),
+          handleTlsEnroll(await enrollRequestFor(['a.lan']), enrollOptions(dir, { spawnFn })),
+          handleTlsEnroll(await enrollRequestFor(['b.lan']), enrollOptions(dir, { spawnFn })),
         ]);
         expect(first.status).toBe(200);
         expect(second.status).toBe(200);
@@ -307,8 +391,7 @@ describe('tls-enroll', () => {
         const tlsDir = join(dir, 'hlm-agent-tls');
         const key = readFileSync(join(tlsDir, 'key.pem'), 'utf8');
         const cert = readFileSync(join(tlsDir, 'cert.pem'), 'utf8');
-        expect((await second.json())).toEqual({ certPem: cert, selfRestartScheduled: false });
-        expect(existsSync(join(tlsDir, ENROLL_MARKER_NAME))).toBe(true);
+        expect(await second.json()).toEqual({ certPem: cert, selfRestartScheduled: false });
         expect(key.length).toBeGreaterThan(0);
       } finally {
         rmSync(dir, { recursive: true, force: true });
@@ -316,26 +399,114 @@ describe('tls-enroll', () => {
     });
   });
 
-  describe('parseTlsHttpFallback', () => {
-    it('accepts true, false, and undefined', () => {
-      expect(parseTlsHttpFallback(undefined)).toBe(false);
-      expect(parseTlsHttpFallback('true')).toBe(true);
-      expect(parseTlsHttpFallback('false')).toBe(false);
+  describe('handleTlsEnroll enrollment proof', () => {
+    it('returns 400 when the nonce and signature are missing', async () => {
+      const missing = await handleTlsEnroll(enrollRequest({ sans: ['myhost.lan'] }), enrollOptions('/tmp'));
+      expect(missing.status).toBe(400);
+
+      const blank = await handleTlsEnroll(
+        enrollRequest({ sans: ['myhost.lan'], nonce: '', signature: '' }),
+        enrollOptions('/tmp'),
+      );
+      expect(blank.status).toBe(400);
+      const body = (await blank.json()) as { error: string };
+      expect(body.error).toContain('nonce');
     });
 
-    it('rejects malformed values', () => {
-      for (const bad of ['TRUE', '1', 'yes', '']) {
-        expect(() => parseTlsHttpFallback(bad)).toThrow(/Invalid HLM_TLS_HTTP_FALLBACK/);
+    it('returns 401 when the signature covers a different sans list than the one submitted', async () => {
+      const response = await handleTlsEnroll(
+        enrollRequest(await signedBody(['submitted.lan'], ['other.lan'])),
+        enrollOptions('/tmp'),
+      );
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toContain('does not verify');
+    });
+
+    it('returns 401 for a garbage signature', async () => {
+      const sans = ['myhost.lan'];
+      const nonce = issueChallenge().nonce;
+      // Valid base64 of the right length, but not a signature over the payload.
+      const response = await handleTlsEnroll(
+        enrollRequest({ sans, nonce, signature: Buffer.alloc(64).toString('base64') }),
+        enrollOptions('/tmp'),
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('returns 401 for a nonce this agent never issued', async () => {
+      const sans = ['myhost.lan'];
+      const nonce = 'a'.repeat(32);
+      const response = await handleTlsEnroll(
+        enrollRequest({ sans, nonce, signature: await signPayload(enrollmentPayload(nonce, HOST_NAME, sans)) }),
+        enrollOptions('/tmp'),
+      );
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toContain('unknown or has expired');
+    });
+
+    it('returns 401 when the challenge has expired', async () => {
+      const sans = ['myhost.lan'];
+      // Minted a minute and a second ago, so its 60s TTL is already past.
+      const { nonce } = issueChallenge(Date.now() - 61_000);
+      const response = await handleTlsEnroll(
+        enrollRequest({ sans, nonce, signature: await signPayload(enrollmentPayload(nonce, HOST_NAME, sans)) }),
+        enrollOptions('/tmp'),
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects a replayed body because the nonce is single-use', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
+      try {
+        const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
+        const body = await signedBody(['myhost.lan']);
+
+        const first = await handleTlsEnroll(enrollRequest(body), enrollOptions(dir, { spawnFn }));
+        expect(first.status).toBe(200);
+
+        const replay = await handleTlsEnroll(enrollRequest(body), enrollOptions(dir, { spawnFn }));
+        expect(replay.status).toBe(401);
+        const replayBody = (await replay.json()) as { error: string };
+        expect(replayBody.error).toContain('already been used');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('records a nonce as used only once its signature verifies', async () => {
+      // Only verified enrollments grow the used set, which is what stops an
+      // unauthenticated caller from filling it to block a real enrollment.
+      const sans = ['myhost.lan'];
+      const nonce = issueChallenge().nonce;
+
+      const forged = await handleTlsEnroll(
+        enrollRequest({ sans, nonce, signature: await signPayload(enrollmentPayload(nonce, HOST_NAME, ['other.lan'])) }),
+        enrollOptions('/tmp'),
+      );
+      expect(forged.status).toBe(401);
+
+      const dir = mkdtempSync(join(tmpdir(), 'hlm-enroll-'));
+      try {
+        const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stdout: CERT_PEM }]);
+        const retry = await handleTlsEnroll(
+          enrollRequest({ sans, nonce, signature: await signPayload(enrollmentPayload(nonce, HOST_NAME, sans)) }),
+          enrollOptions(dir, { spawnFn }),
+        );
+        expect(retry.status).toBe(200);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
       }
     });
   });
 
   describe('resolveTlsStartup', () => {
-    const readable = () => true;
-    const unreadable = () => false;
+    const allReadable = () => true;
+    const nothingReadable = () => false;
 
     it('serves TLS when both files are readable', () => {
-      expect(resolveTlsStartup('/c.pem', '/k.pem', false, readable, () => true)).toEqual({
+      expect(resolveTlsStartup('/c.pem', '/k.pem', allReadable)).toEqual({
         mode: 'tls',
         certPath: '/c.pem',
         keyPath: '/k.pem',
@@ -343,46 +514,32 @@ describe('tls-enroll', () => {
     });
 
     it('serves plain HTTP without a warning when TLS is not configured', () => {
-      expect(resolveTlsStartup(undefined, undefined, false, readable, () => false)).toEqual({ mode: 'http', restricted: false });
+      expect(resolveTlsStartup(undefined, undefined, allReadable)).toEqual({ mode: 'http', restricted: false });
     });
 
     it('is fatal when only one path is set', () => {
-      expect(resolveTlsStartup('/c.pem', undefined, false, readable, () => false).mode).toBe('fatal');
-      expect(resolveTlsStartup(undefined, '/k.pem', true, readable, () => false).mode).toBe('fatal');
+      // Misconfiguration, not a recoverable state: enrollment writes to the
+      // canonical paths under STACKS_DIR, which is not the path that is wrong here.
+      expect(resolveTlsStartup('/c.pem', undefined, allReadable).mode).toBe('fatal');
+      expect(resolveTlsStartup(undefined, '/k.pem', allReadable).mode).toBe('fatal');
     });
 
-    it('is fatal when an enrolled host loses its cert and no fallback is set', () => {
-      const decision = resolveTlsStartup('/c.pem', '/k.pem', false, unreadable, () => true);
-      expect(decision.mode).toBe('fatal');
-      if (decision.mode === 'fatal') {
-        expect(decision.error).toContain('HLM_TLS_HTTP_FALLBACK=true');
-        expect(decision.error).toContain('/c.pem');
-      }
-    });
-
-    it('is fatal when only the key is unreadable', () => {
-      const decision = resolveTlsStartup('/c.pem', '/k.pem', false, (p) => p === '/c.pem', () => true);
-      expect(decision.mode).toBe('fatal');
-    });
-
-    it('serves HTTP with a loud warning when the fallback opt-in is set', () => {
-      const decision = resolveTlsStartup('/c.pem', '/k.pem', true, unreadable, () => true);
+    it('falls back to restricted plain HTTP, naming the paths, when the certificate is unreadable', () => {
+      // There is no marker file: a host whose certificates were removed is
+      // treated like a first boot, so the manager can re-enroll it.
+      const decision = resolveTlsStartup('/c.pem', '/k.pem', nothingReadable);
       expect(decision.mode).toBe('http');
       if (decision.mode === 'http') {
-        expect(decision.warning).toContain('HLM_TLS_HTTP_FALLBACK=true');
-        expect(decision.warning).toContain('without TLS');
         expect(decision.restricted).toBe(true);
+        expect(decision.warning).toContain("'/c.pem' / '/k.pem'");
+        expect(decision.warning).toContain('enroll');
       }
     });
 
-    it('serves HTTP with a warning on a first boot before enrollment', () => {
-      const decision = resolveTlsStartup('/c.pem', '/k.pem', false, unreadable, () => false);
+    it('falls back to restricted plain HTTP when only the key is unreadable', () => {
+      const decision = resolveTlsStartup('/c.pem', '/k.pem', (path) => path === '/c.pem');
       expect(decision.mode).toBe('http');
-      if (decision.mode === 'http') {
-        expect(decision.warning).toContain('first boot');
-        expect(decision.warning).toContain('Re-run TLS provisioning');
-        expect(decision.restricted).toBe(true);
-      }
+      if (decision.mode === 'http') expect(decision.restricted).toBe(true);
     });
 
     it('allows only the enrollment endpoints over restricted plain HTTP', () => {
@@ -390,6 +547,7 @@ describe('tls-enroll', () => {
       // boot could never provision a certificate.
       expect(isAllowedOverPlainHttp('/health')).toBe(true);
       expect(isAllowedOverPlainHttp('/auth/verify')).toBe(true);
+      expect(isAllowedOverPlainHttp('/tls/challenge')).toBe(true);
       expect(isAllowedOverPlainHttp('/tls/enroll')).toBe(true);
 
       // The derived-text test pins the Set's exact contents, so these guard
@@ -399,21 +557,27 @@ describe('tls-enroll', () => {
       expect(isAllowedOverPlainHttp('/health/x')).toBe(false);
     });
 
-    it('keeps the JWT-bypassed liveness path inside the plain-HTTP allowlist', () => {
-      // authenticateRequest skips JWT for AUTH_BYPASS_PATH; if it were ever
-      // removed from the allowlist, restricted mode would 403 the health check.
-      expect(HTTP_ENROLLMENT_ALLOWED_PATHS.has(AUTH_BYPASS_PATH)).toBe(true);
-      expect(HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT).toBe('/health, /auth/verify, /tls/enroll');
+    it('keeps every JWT-bypassed path inside the plain-HTTP allowlist', () => {
+      // authenticateRequest skips JWT for AUTH_BYPASS_PATHS, so a path dropped from
+      // the allowlist would be 403ed in restricted mode.
+      for (const path of AUTH_BYPASS_PATHS) {
+        expect(HTTP_ENROLLMENT_ALLOWED_PATHS.has(path)).toBe(true);
+      }
+      expect(HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT).toBe('/health, /auth/verify, /tls/challenge, /tls/enroll');
     });
   });
 
   describe('JWT enforcement', () => {
-    it('rejects an unauthenticated request to /tls/enroll', async () => {
-      const { publicKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
-      const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
-      const rejection = await authenticateRequest(new Headers(), trusted, '/tls/enroll', 'myhost');
-      expect(rejection).not.toBeNull();
-      expect(rejection?.status).toBe(401);
+    it('bypasses JWT for /tls/enroll while a non-bypassed path still requires a token', async () => {
+      // Enrollment is no longer JWT-gated: it authorizes itself with a signature
+      // over a single-use nonce, which is the only thing that can work over plain HTTP.
+      expect(AUTH_BYPASS_PATHS.has('/tls/enroll')).toBe(true);
+
+      const bypassed = await authenticateRequest(new Headers(), trustedPublicKey, '/tls/enroll', HOST_NAME);
+      expect(bypassed).toBeNull();
+
+      const gated = await authenticateRequest(new Headers(), trustedPublicKey, '/stats', HOST_NAME);
+      expect(gated?.status).toBe(401);
     });
   });
 });

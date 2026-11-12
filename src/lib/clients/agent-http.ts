@@ -83,3 +83,15 @@ export function openAgentWebSocket(url: string, options: AgentWebSocketOptions, 
   };
   return new WebSocket(url, optionsWithTls as unknown as string[]);
 }
+
+/** True for the refusal agentFetch throws when a TLS agent URL has no pinned certificate. */
+export function isMissingPinError(err: unknown): boolean {
+  return err instanceof Error && err.message.startsWith('No pinned TLS certificate');
+}
+
+/** The plain-HTTP sibling of a TLS agent URL, which is the address an agent without a certificate serves. */
+export function toPlainHttpUrl(parsed: URL): string {
+  const http = new URL(parsed.toString());
+  http.protocol = 'http:';
+  return http.toString().replace(/\/$/, '');
+}

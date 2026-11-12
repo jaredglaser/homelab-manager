@@ -110,11 +110,11 @@ function makeKeypairsDep(
 function makeProvisionTls(
   keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
   tlsCerts: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository,
-): (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }> {
+): (hostName: string, agentUrl: string) => Promise<{ agentUrl: string; enrolledOverPlainHttp: boolean }> {
   return async (hostName, agentUrl) => {
     const { provisionHostTls } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+    const { signAgentJwt, signAgentPayload } = await import('@/lib/crypto/agent-jwt');
     const privateKey = await keypairs.getPrivateKeyForHost(hostName);
     if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
     let caCertPem: string | null = null;
@@ -125,6 +125,7 @@ function makeProvisionTls(
     }
     return provisionHostTls(hostName, agentUrl, {
       getSigner: () => signAgentJwt(privateKey, hostName),
+      signEnrollmentPayload: (payload) => signAgentPayload(privateKey, payload),
       storeCert: (name, certPem) => tlsCerts.createForHost(name, certPem),
       checkHealth: (url, probeHostName, pin) =>
         checkAgentHealth(url, undefined, fetch, () => signAgentJwt(privateKey, probeHostName), pin),
@@ -229,7 +230,7 @@ export const rotateHostKeypair = createServerFn()
 export const rotateHostTls = createServerFn()
   .middleware([authMiddleware])
   .validator(rotateHostTlsSchema)
-  .handler(async ({ data, context }): Promise<{ hostId: number; agentUrl: string }> => {
+  .handler(async ({ data, context }): Promise<{ hostId: number; agentUrl: string; enrolledOverPlainHttp: boolean }> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();

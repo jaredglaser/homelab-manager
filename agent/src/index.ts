@@ -12,7 +12,7 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
-import { enrollMarkerPath, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, parseTlsHttpFallback, resolveTlsStartup } from './lib/tls-enroll';
+import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, resolveTlsStartup } from './lib/tls-enroll';
 import { scheduleSelfRestart } from './lib/self-restart';
 
 function isFileReadable(path: string): boolean {
@@ -39,11 +39,12 @@ const AGENT_TRUSTED_PUBKEY_FILE = process.env.AGENT_TRUSTED_PUBKEY_FILE;
 const AGENT_TRUSTED_PUBKEY_ENV = process.env.AGENT_TRUSTED_PUBKEY;
 // Managed host name; manager JWTs carry it as aud, so a token minted for
 // another host is rejected even if the keypair was reused.
-const AGENT_HOST_NAME = process.env.AGENT_HOST_NAME?.trim();
-if (!AGENT_HOST_NAME) {
+const configuredHostName = process.env.AGENT_HOST_NAME?.trim();
+if (!configuredHostName) {
   console.error('AGENT_HOST_NAME environment variable is required');
   process.exit(1);
 }
+const AGENT_HOST_NAME: string = configuredHostName;
 const DOCKER_HOST = process.env.DOCKER_HOST;
 
 let trustedPubkeyJson: string;
@@ -94,18 +95,7 @@ try {
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH;
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH;
 
-const tlsHttpFallback = (() => {
-  try {
-    return parseTlsHttpFallback(process.env.HLM_TLS_HTTP_FALLBACK);
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  }
-})();
-
-const tlsDecision = resolveTlsStartup(TLS_CERT_PATH, TLS_KEY_PATH, tlsHttpFallback, isFileReadable, () =>
-  isFileReadable(enrollMarkerPath(STACKS_DIR)),
-);
+const tlsDecision = resolveTlsStartup(TLS_CERT_PATH, TLS_KEY_PATH, isFileReadable);
 if (tlsDecision.mode === 'fatal') {
   console.error(tlsDecision.error);
   process.exit(1);
@@ -190,12 +180,21 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
     return handleAgentUpdate(docker, AGENT_CONTAINER_NAME, PORT, request);
   }
 
+  if (url.pathname === '/tls/challenge' && request.method === 'GET') {
+    return handleTlsChallenge();
+  }
+
   if (url.pathname === '/tls/enroll' && request.method === 'POST') {
     // Restricted mode only: the gate 403s the manager's restart request, so the agent restarts itself.
     const scheduleRestart = tlsDecision.mode === 'http' && tlsDecision.restricted
       ? () => scheduleSelfRestart(docker, AGENT_CONTAINER_NAME)
       : undefined;
-    return handleTlsEnroll(request, STACKS_DIR, undefined, scheduleRestart);
+    return handleTlsEnroll(request, {
+      stacksDir: STACKS_DIR,
+      trustedPublicKey: TRUSTED_PUBKEY,
+      hostName: AGENT_HOST_NAME,
+      scheduleRestart,
+    });
   }
 
   return null;
