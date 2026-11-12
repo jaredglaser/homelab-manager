@@ -40,21 +40,36 @@ const WS_MUX_SSE_TRIPWIRE = {
     'createSseStream is the deleted web SSE seam. Stream over the WS mux (src/lib/mux). The only sanctioned createSseStream is the agent-side seam agent/src/lib/sse-stream.ts for web-to-agent hops.',
 };
 
-// Agent TLS seam: every server-side call to an agent URL must carry the host's
-// pinned per-host certificate (agentFetch / openAgentWebSocket / AgentClient
-// with an explicit caCertPem). A raw fetch or WebSocket built from an
-// agent-URL variable fails TLS verification against the per-host self-signed
-// certificate and the adapter retries forever as a fake agent outage.
-// Call-site signatures: identifiers named agent/agentBase/agentBaseUrl/
-// agentUrl and members .agentUrl/.agentBaseUrl.
+// Agent TLS seam: a raw fetch or WebSocket built from an agent-URL variable fails the per-host
+// certificate check and the caller retries it as a fake agent outage. Matched argument shapes:
+// identifiers named agent/agentBase/agentBaseUrl/agentUrl and their .agentUrl-style and computed
+// members. A URL held under another name, or reached through an alias of fetch, still escapes.
 const AGENT_TLS_URL_NAME = "/^agent(?:Base)?(?:Url)?$/i";
+const AGENT_TLS_CALLEES = {
+  fetch: [
+    `CallExpression[callee.name='fetch']`,
+    `CallExpression[callee.object.name=/^(globalThis|window|self)$/][callee.property.name='fetch']`,
+  ],
+  websocket: [
+    `NewExpression[callee.name='WebSocket']`,
+    `NewExpression[callee.object.name=/^(globalThis|window|self)$/][callee.property.name='WebSocket']`,
+  ],
+};
+const AGENT_TLS_URL_ARGS = [
+  `Identifier[name=${AGENT_TLS_URL_NAME}]`,
+  `MemberExpression[property.name=${AGENT_TLS_URL_NAME}]`,
+  `MemberExpression[computed=true][property.value=${AGENT_TLS_URL_NAME}]`,
+];
+function agentTlsSelector(callees) {
+  return callees.flatMap((callee) => AGENT_TLS_URL_ARGS.map((arg) => `${callee} ${arg}`)).join(', ');
+}
 const AGENT_TLS_FETCH = {
-  selector: `CallExpression[callee.name='fetch'] Identifier[name=${AGENT_TLS_URL_NAME}], CallExpression[callee.name='fetch'] MemberExpression[property.name=${AGENT_TLS_URL_NAME}]`,
+  selector: agentTlsSelector(AGENT_TLS_CALLEES.fetch),
   message:
     'Raw fetch() to an agent URL bypasses the pinned per-host TLS certificate and fails with "self signed certificate" on https agents while the caller retries forever. Use agentFetch from src/lib/clients/agent-http.ts with the host caCertPem (null for http URLs).',
 };
 const AGENT_TLS_WEBSOCKET = {
-  selector: `NewExpression[callee.name='WebSocket'] Identifier[name=${AGENT_TLS_URL_NAME}], NewExpression[callee.name='WebSocket'] MemberExpression[property.name=${AGENT_TLS_URL_NAME}]`,
+  selector: agentTlsSelector(AGENT_TLS_CALLEES.websocket),
   message:
     'Raw WebSocket() to an agent URL bypasses the pinned per-host TLS certificate and fails the TLS handshake on wss agents. Use openAgentWebSocket from src/lib/clients/agent-http.ts with the host caCertPem (null for ws URLs).',
 };

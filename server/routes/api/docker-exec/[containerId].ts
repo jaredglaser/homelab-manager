@@ -1,6 +1,6 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
-import { isTlsUrl, missingPinMessage, openAgentWebSocket } from '../../../../src/lib/clients/agent-http';
+import { isTlsUrl, MISSING_PIN_CLOSE_REASON, openAgentWebSocket } from '../../../../src/lib/clients/agent-http';
 
 // Maps peer.id to the upstream agent WebSocket so message/close can reach it.
 // Keyed by peer.id (string) because Nitro's crossws Peer has no typed connection object.
@@ -99,16 +99,14 @@ export default defineWebSocketHandler({
       const agentBase = managedHost.agentUrl.replace(/^https?/, (m) => m === 'https' ? 'wss' : 'ws');
       const agentUrl = `${agentBase}/exec/${encodeURIComponent(containerId)}?shell=${encodeURIComponent(shell)}&cols=${cols}&rows=${rows}`;
 
-      // A wss agent URL without a pinned cert fails the TLS handshake on every
-      // attempt. That is a permanent config gap, so close with an actionable
-      // reason instead of a generic 1011.
+      // A missing pin is permanent, so close with an actionable reason instead of a generic 1011.
       const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
-      const caCertPem = await tlsCerts.getCertForHost(host);
+      const caCertPem = (await tlsCerts.getCertForHost(host))?.trim() || null;
       if (isTlsUrl(agentBase) && !caCertPem) {
-        const reason = missingPinMessage(host);
-        console.error('[docker-exec-ws] no pinned TLS certificate for host:', host, reason);
-        // A WebSocket close reason is capped at 123 bytes, so a long host name must not push this past the limit.
-        try { peer.close(1011, reason.slice(0, 120)); } catch { /* not open yet */ }
+        // The close reason is capped at 123 bytes, so it carries the recovery hint rather than the
+        // host name the terminal pane and server log already show.
+        console.error('[docker-exec-ws] no pinned TLS certificate for host:', host);
+        try { peer.close(1011, MISSING_PIN_CLOSE_REASON); } catch { /* not open yet */ }
         return;
       }
 

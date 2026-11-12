@@ -195,11 +195,9 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
     return;
   }
 
-  // An https agent URL without a pinned cert fails TLS verification on every
-  // retry. That is a permanent config gap, so fail as gone instead of looping
-  // as a fake agent outage.
+  // A missing pin is permanent, so fail as gone instead of looping as a fake agent outage.
   const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
-  const caCertPem = await tlsCerts.getCertForHost(host);
+  const caCertPem = (await tlsCerts.getCertForHost(host))?.trim() || null;
   if (isTlsUrl(managedHost.agentUrl) && !caCertPem) {
     emit({
       topic,

@@ -255,7 +255,7 @@ describe('docker-exec websocket route', () => {
       expect(init.tls?.rejectUnauthorized).toBe(true);
     });
 
-    it('closes with 1011 naming TLS enrollment when a wss agent URL has no pinned cert', async () => {
+    it('closes with 1011 naming the TLS recovery steps when a wss agent URL has no pinned cert', async () => {
       mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent.example.com' }));
       mockGetPrivateKeyForHost.mockImplementation(async () => ({}));
       mockGetCertForHost.mockImplementation(async () => null);
@@ -267,8 +267,21 @@ describe('docker-exec websocket route', () => {
       const closeMock = peer.close as unknown as ReturnType<typeof mock>;
       expect(closeMock).toHaveBeenCalledWith(
         1011,
-        'No pinned TLS certificate for host: server1. See the agent TLS recovery steps in the self-hosting guide.',
+        'No pinned TLS certificate. See the agent TLS recovery steps in the self-hosting guide.',
       );
+    });
+
+    it('closes with 1011 when the stored certificate is whitespace only', async () => {
+      mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent.example.com' }));
+      mockGetPrivateKeyForHost.mockImplementation(async () => ({}));
+      mockGetCertForHost.mockImplementation(async () => '   ');
+      const peer = makePeer({ url: 'http://localhost:3000/api/docker-exec/abc123?host=server1' });
+
+      await handler.open(peer);
+
+      expect(constructedWebSockets).toHaveLength(0);
+      const closeMock = peer.close as unknown as ReturnType<typeof mock>;
+      expect(closeMock).toHaveBeenCalledWith(1011, expect.stringContaining('No pinned TLS certificate'));
     });
 
     it('attaches the agent JWT as a Bearer Authorization header', async () => {

@@ -118,8 +118,7 @@ export const controlContainer = createServerFn({ method: 'POST' })
     if (!privateKey) throw new Error(`No agent keypair for host "${managedHost.name}". Re-enroll the agent.`);
 
     const signer = () => signAgentJwt(privateKey, managedHost.name);
-    // Pinned per-host TLS cert: an https agent URL without it fails TLS verification
-    // on every attempt and the control action reads as an agent outage.
+    // Without the pin an https control call fails verification and reads as an agent outage.
     const { AgentTlsCertificatesRepository } = await import(
       '@/lib/database/repositories/agent-tls-certificates-repository'
     );

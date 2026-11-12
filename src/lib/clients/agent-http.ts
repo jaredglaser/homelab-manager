@@ -19,6 +19,8 @@ export function missingPinMessage(host: string): string {
   return `No pinned TLS certificate for host: ${host}. ${MISSING_PIN_RECOVERY_HINT}`;
 }
 
+export const MISSING_PIN_CLOSE_REASON = `No pinned TLS certificate. ${MISSING_PIN_RECOVERY_HINT}`;
+
 /** True for URL schemes whose TLS handshake needs the pinned per-host certificate (https, wss). */
 export function isTlsUrl(url: string): boolean {
   try {
@@ -30,11 +32,9 @@ export function isTlsUrl(url: string): boolean {
 }
 
 /**
- * The only sanctioned way to fetch an agent URL. Every call site must pass an
- * explicit AgentTlsContext (the host's pinned certificate, or null for http
- * agent URLs) so a caller cannot silently skip TLS pinning: an https URL
- * without a pinned cert throws instead of failing TLS verification deep in
- * the stack while the adapter retries forever as a fake agent outage.
+ * The only sanctioned way to fetch an agent URL. An https URL with no pinned cert throws here
+ * instead of failing TLS verification deeper in the stack, which the caller retries as a fake
+ * agent outage.
  */
 export async function agentFetch(
   url: string,
@@ -62,11 +62,8 @@ interface WebSocketOptionsWithTls extends AgentWebSocketOptions {
 }
 
 /**
- * WebSocket counterpart of agentFetch for the server-to-agent hop (exec
- * terminal bridge). Same invariant: a wss agent URL requires the host's pinned
- * certificate, passed explicitly, or the handshake is refused up front. Bun's
- * WebSocket accepts the header/tls options object. The DOM lib types only
- * allow protocol strings, hence the cast.
+ * WebSocket counterpart of agentFetch with the same wss-pinning invariant. Bun accepts the
+ * header/tls options object here, and the DOM lib types only allow protocol strings, hence the cast.
  */
 export function openAgentWebSocket(url: string, options: AgentWebSocketOptions, tls: AgentTlsContext): WebSocket {
   const caCertPem = tls.caCertPem?.trim();

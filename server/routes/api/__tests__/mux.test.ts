@@ -683,6 +683,25 @@ describe('logs adapter pipe', () => {
     );
     h.close(peer as unknown as Peer);
   });
+
+  it('emits a gone error when the stored certificate is whitespace only', async () => {
+    mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent' }));
+    mockGetCertForHost.mockImplementation(async () => '   ');
+    (globalThis as unknown as Record<string, unknown>).fetch = mock(async () => {
+      throw new Error('should not fetch');
+    }) as unknown as typeof fetch;
+
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer('pipe-peer-5');
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['logs:server1/abc'], 1));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const events = peer.sent.filter((f) => f.type === 'event');
+    expect(events).toHaveLength(1);
+    expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
+    h.close(peer as unknown as Peer);
+  });
 });
 
 type SentFrame = FakePeer['sent'][number];
