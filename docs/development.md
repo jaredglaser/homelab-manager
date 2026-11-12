@@ -331,9 +331,10 @@ rotate a certificate.
 Before its first enrollment the agent serves plain HTTP with a warning in its
 logs (tracked by an `.enrolled` marker next to the certificate files), so the
 manager can reach it to enroll a certificate. In that state the plain-HTTP
-surface is restricted to `/health`, `/auth/verify` and `/tls/enroll`; every
-other endpoint returns `403`, because over plaintext the bearer-token auth is
-defeated by any network observer. After enrollment a missing or unreadable
+surface is restricted to `/health`, `/auth/verify` and `/tls/enroll`, and
+every other endpoint is refused (`403` for an authenticated request, `401`
+otherwise), because over plaintext the bearer-token auth is defeated by any
+network observer. After enrollment a missing or unreadable
 certificate or key file is fatal: the agent refuses to start.
 
 Agents with no `TLS_CERT_PATH`/`TLS_KEY_PATH` at all keep the full API over
@@ -347,6 +348,11 @@ be exactly `true` or `false`. Anything else stops the agent at startup. The
 plain-HTTP surface stays restricted to the enrollment endpoints in this mode
 too, so a forgotten fallback flag cannot quietly reopen the full API over
 plaintext.
+
+If the manager loses its pinned certificate record, enrollment over the existing
+https URL cannot succeed, because the manager cannot verify the agent it is
+enrolling with. The recovery steps are in the Self-Hosting Guide:
+[Agent TLS recovery](../self-hosting/README.md#agent-tls-recovery-the-manager-lost-its-pinned-certificate).
 
 ## Editor Setup (Zed)
 
