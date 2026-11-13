@@ -188,9 +188,14 @@ async function fetchChallenge(
     const detail = await readErrorBody(response);
     throw new Error(`TLS enrollment failed: the agent refused the enrollment challenge (${detail}).`);
   }
-  const body = (await response.json().catch(() => null)) as { nonce?: unknown } | null;
+  const body = (await response.json().catch(() => null)) as { nonce?: unknown; tlsConfigured?: unknown } | null;
   if (typeof body?.nonce !== 'string' || body.nonce === '') {
     throw new Error('TLS enrollment failed: the agent returned no usable enrollment challenge.');
+  }
+  if (body.tlsConfigured === false) {
+    throw new Error(
+      'This agent is not configured for TLS, so it cannot serve HTTPS. Set TLS_CERT_PATH and TLS_KEY_PATH on the agent service, restart it, and retry.',
+    );
   }
   return body.nonce;
 }
@@ -226,7 +231,9 @@ async function enrollCert(
   if (!response.ok) {
     const detail = await readErrorBody(response);
     throw new Error(
-      `TLS enrollment failed: the agent rejected the certificate request (${detail}).`,
+      response.status >= 500
+        ? `TLS enrollment failed: the agent could not create the certificate (${detail}).`
+        : `TLS enrollment failed: the agent rejected the certificate request (${detail}).`,
     );
   }
   const body = (await response.json().catch(() => null)) as
@@ -274,6 +281,13 @@ async function requestRestart(
       // First-boot restricted gate rejects the restart by design. Agents new enough self-restart on their own.
       // The https poll below is the real verdict, and its timeout message carries the manual-restart step.
       return;
+    }
+    if (response.status === 404) {
+      // The container routes only exist when the agent has Docker, so this is capability, not refusal.
+      throw new Error(
+        'This agent has no Docker capability, so it cannot restart itself. Restart it manually '
+          + '(docker restart hlm-agent on the agent host) and retry provisioning.',
+      );
     }
     throw new Error(
       `TLS restart failed: the agent rejected the restart request (${detail}).`,
