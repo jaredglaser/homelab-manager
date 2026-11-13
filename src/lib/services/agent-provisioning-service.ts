@@ -2,6 +2,7 @@ import { agentFetch, isTlsUrl, toPlainHttpUrl } from '@/lib/clients/agent-http';
 import { enrollmentPayload } from '@/lib/crypto/agent-jwt';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import { isTlsFailureCode, type TlsFailureCode } from '@homelab-manager/agent/types';
 
 /** The compose healthcheck fetches https://localhost, so the cert must verify for it. */
 const HEALTHCHECK_EXTRA_SANS = ['localhost'] as const;
@@ -33,8 +34,20 @@ export interface TlsProvisionResult {
 /** A transport-level failure. It may mean the agent serves the other scheme, so it is worth trying. */
 class AgentChannelError extends Error {}
 
-/** Thrown before anything changes, when the enrollment would run over plain HTTP without confirmation. */
-export class PlaintextEnrollmentConfirmationRequired extends Error {}
+/**
+ * A failure the operator can act on: the code says what to do and the message says why. The server
+ * function turns these into a discriminated result, so the UI maps a code to its fix instead of
+ * matching on prose that a later reword would silently break.
+ */
+export class TlsProvisionFailure extends Error {
+  readonly code: TlsFailureCode;
+
+  constructor(code: TlsFailureCode, message: string) {
+    super(message);
+    this.name = 'TlsProvisionFailure';
+    this.code = code;
+  }
+}
 
 export interface ProvisionHostTlsDeps {
   getSigner: () => Promise<string>;
@@ -91,7 +104,7 @@ async function runProvisionHostTls(
 ): Promise<TlsProvisionResult> {
   const parsed = new URL(agentUrl);
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Agent URL must use http or https, got '${parsed.protocol}'`);
+    throw new TlsProvisionFailure('invalid_request', `Agent URL must use http or https, got '${parsed.protocol}'`);
   }
   const baseUrl = agentUrl.replace(/\/+$/, '');
   const pin = deps.caCertPem ?? null;
@@ -140,12 +153,13 @@ async function runProvisionHostTls(
       // Store the pin only after the https probe proves the agent serves the
       // new certificate, so a failed rotation never leaves the DB pin pointing
       // at a certificate the agent is not serving.
-      await wrapFailure('the certificate could not be stored', () => deps.storeCert(hostName, certPem));
+      await wrapFailure('store_failed', 'the certificate could not be stored', () => deps.storeCert(hostName, certPem));
       return { agentUrl: httpsUrl, certPem, enrolledOverPlainHttp, fingerprint: certificateFingerprint(certPem) };
     }
   }
 
-  throw new Error(
+  throw new TlsProvisionFailure(
+    'poll_timeout',
     `TLS provisioning failed: the agent did not serve the new certificate over HTTPS within the retry window (${lastResult.error}). `
       + 'If the agent could not restart itself (no Docker capability, or an agent version too old to self-restart), '
       + 'restart it manually (docker restart hlm-agent on the agent host) and retry provisioning.',
@@ -185,15 +199,22 @@ async function fetchChallenge(
     );
   }
   if (!response.ok) {
-    const detail = await readErrorBody(response);
-    throw new Error(`TLS enrollment failed: the agent refused the enrollment challenge (${detail}).`);
+    const detail = await readErrorDetail(response);
+    throw new TlsProvisionFailure(
+      detail.code ?? 'unexpected_agent_response',
+      `TLS enrollment failed: the agent refused the enrollment challenge (${detail.message}).`,
+    );
   }
   const body = (await response.json().catch(() => null)) as { nonce?: unknown; tlsConfigured?: unknown } | null;
   if (typeof body?.nonce !== 'string' || body.nonce === '') {
-    throw new Error('TLS enrollment failed: the agent returned no usable enrollment challenge.');
+    throw new TlsProvisionFailure(
+      'unexpected_agent_response',
+      'TLS enrollment failed: the agent returned no usable enrollment challenge.',
+    );
   }
   if (body.tlsConfigured === false) {
-    throw new Error(
+    throw new TlsProvisionFailure(
+      'not_configured_for_tls',
       'This agent is not configured for TLS, so it cannot serve HTTPS. Set TLS_CERT_PATH and TLS_KEY_PATH on the agent service, restart it, and retry.',
     );
   }
@@ -229,18 +250,22 @@ async function enrollCert(
     );
   }
   if (!response.ok) {
-    const detail = await readErrorBody(response);
-    throw new Error(
-      response.status >= 500
-        ? `TLS enrollment failed: the agent could not create the certificate (${detail}).`
-        : `TLS enrollment failed: the agent rejected the certificate request (${detail}).`,
+    const detail = await readErrorDetail(response);
+    // The agent names the failure now, so the manager no longer guesses from the status code: a 500
+    // used to read as a rejected request, and a 4xx as a refusal, whatever had actually gone wrong.
+    throw new TlsProvisionFailure(
+      detail.code ?? 'unexpected_agent_response',
+      `TLS enrollment failed: ${detail.message}`,
     );
   }
   const body = (await response.json().catch(() => null)) as
     | { certPem?: unknown; selfRestartScheduled?: unknown }
     | null;
   if (typeof body?.certPem !== 'string' || !body.certPem.includes('BEGIN CERTIFICATE')) {
-    throw new Error('TLS enrollment failed: the agent returned no usable certificate.');
+    throw new TlsProvisionFailure(
+      'no_cert_returned',
+      'TLS enrollment failed: the agent returned no usable certificate.',
+    );
   }
   return { certPem: body.certPem, selfRestartScheduled: body.selfRestartScheduled === true };
 }
@@ -271,26 +296,29 @@ async function requestRestart(
       // the https poll below is the real verdict.
       return;
     }
-    throw new Error(
+    throw new TlsProvisionFailure(
+      'agent_unreachable',
       `TLS restart failed: could not reach the agent to restart it (${err instanceof Error ? err.message : err}).`,
     );
   }
   if (!response.ok) {
-    const detail = await readErrorBody(response);
-    if (response.status === 403 && detail.startsWith('Agent TLS is configured but no certificate is enrolled yet')) {
+    const detail = await readErrorDetail(response);
+    if (response.status === 403 && detail.message.startsWith('Agent TLS is configured but no certificate is enrolled yet')) {
       // First-boot restricted gate rejects the restart by design. Agents new enough self-restart on their own.
       // The https poll below is the real verdict, and its timeout message carries the manual-restart step.
       return;
     }
     if (response.status === 404) {
       // The container routes only exist when the agent has Docker, so this is capability, not refusal.
-      throw new Error(
+      throw new TlsProvisionFailure(
+        'restart_unavailable',
         'This agent has no Docker capability, so it cannot restart itself. Restart it manually '
           + '(docker restart hlm-agent on the agent host) and retry provisioning.',
       );
     }
-    throw new Error(
-      `TLS restart failed: the agent rejected the restart request (${detail}).`,
+    throw new TlsProvisionFailure(
+      detail.code ?? 'unexpected_agent_response',
+      `TLS restart failed: the agent rejected the restart request (${detail.message}).`,
     );
   }
 }
@@ -310,25 +338,36 @@ export function isRestartConnectionLoss(err: unknown): boolean {
   return /econnreset|connection reset|socket hang up|epipe|aborted|timeout/i.test(message);
 }
 
-async function wrapFailure(reason: string, fn: () => Promise<void>): Promise<void> {
+async function wrapFailure(code: TlsFailureCode, reason: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (err) {
-    throw new Error(
+    throw new TlsProvisionFailure(
+      code,
       `TLS provisioning failed: ${reason} (${err instanceof Error ? err.message : err}).`,
     );
   }
 }
 
-async function readErrorBody(response: Response): Promise<string> {
+interface AgentErrorDetail {
+  message: string;
+  /** The agent's machine-readable reason. Absent when it sent prose only, or a code this manager does not know. */
+  code?: TlsFailureCode;
+}
+
+async function readErrorDetail(response: Response): Promise<AgentErrorDetail> {
   const raw = await response.text().catch(() => '');
   try {
-    const parsed = JSON.parse(raw) as { error?: unknown };
-    if (typeof parsed?.error === 'string') return parsed.error;
+    const parsed = JSON.parse(raw) as { error?: unknown; code?: unknown };
+    if (typeof parsed?.error === 'string') {
+      return isTlsFailureCode(parsed.code)
+        ? { message: parsed.error, code: parsed.code }
+        : { message: parsed.error };
+    }
   } catch {
     // Body was not JSON. Keep the raw text.
   }
-  return raw || `unexpected status ${response.status}`;
+  return { message: raw || `unexpected status ${response.status}` };
 }
 
 /**
@@ -351,7 +390,8 @@ async function enrollAgainstCandidates(
     // The plaintext sibling only happens for a host the manager already knows, and it trusts whatever
     // certificate comes back, so it needs an explicit confirmation before anything is changed.
     if (index > 0 && !deps.allowPlaintextEnrollment) {
-      throw new PlaintextEnrollmentConfirmationRequired(
+      throw new TlsProvisionFailure(
+        'plaintext_confirmation_required',
         `Plaintext enrollment confirmation required: host '${hostName}' is serving plain HTTP, so the certificate it presents would be accepted on first use.`,
       );
     }
@@ -373,9 +413,13 @@ async function enrollAgainstCandidates(
     }
   }
   if (!pinHeld) {
-    throw new Error(missingPinRecovery(hostName, candidates[candidates.length - 1] ?? 'the agent'));
+    throw new TlsProvisionFailure(
+      'pin_missing',
+      missingPinRecovery(hostName, candidates[candidates.length - 1] ?? 'the agent'),
+    );
   }
-  throw new Error(
+  throw new TlsProvisionFailure(
+    'agent_unreachable',
     'TLS enrollment failed: the agent was unreachable on every scheme it could be reached on. It may be restarting from a recent rotation. Retry in a few seconds.',
   );
 }

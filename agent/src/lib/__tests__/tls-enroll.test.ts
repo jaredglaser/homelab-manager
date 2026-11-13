@@ -332,7 +332,8 @@ describe('tls-enroll', () => {
         const { spawnFn } = fakeSpawn([{ stderr: 'keygen broke', exitCode: 1 }]);
         const response = await handleTlsEnroll(await enrollRequestFor(['myhost.lan']), enrollOptions(dir, { spawnFn }));
         expect(response.status).toBe(500);
-        const body = (await response.json()) as { error: string };
+        const body = (await response.json()) as { error: string; code: string };
+      expect(body.code).toBe('key_generation_failed');
         expect(body.error).toContain('Could not generate the TLS private key');
         expect(existsSync(join(dir, 'hlm-agent-tls'))).toBe(false);
       } finally {
@@ -345,7 +346,8 @@ describe('tls-enroll', () => {
       const response = await handleTlsEnroll(enrollRequest({ sans: ['../escape'] }), enrollOptions('/tmp', { spawnFn }));
       expect(response.status).toBe(400);
       expect(calls).toHaveLength(0);
-      const body = (await response.json()) as { error: string };
+      const body = (await response.json()) as { error: string; code: string };
+      expect(body.code).toBe('invalid_request');
       expect(body.error).toContain('Invalid SAN');
     });
 
@@ -362,7 +364,8 @@ describe('tls-enroll', () => {
         const { spawnFn } = fakeSpawn([{ stdout: KEY_PEM }, { stderr: 'signing broke', exitCode: 1 }]);
         const response = await handleTlsEnroll(await enrollRequestFor(['myhost.lan']), enrollOptions(dir, { spawnFn }));
         expect(response.status).toBe(500);
-        const body = (await response.json()) as { error: string };
+        const body = (await response.json()) as { error: string; code: string };
+      expect(body.code).toBe('cert_sign_failed');
         expect(body.error).toContain('TLS certificate signing failed');
         expect(readFileSync(join(tlsDir, 'key.pem'), 'utf8')).toBe(previousKey);
         expect(readFileSync(join(tlsDir, 'cert.pem'), 'utf8')).toBe(previousCert);
@@ -412,7 +415,8 @@ describe('tls-enroll', () => {
         enrollOptions('/tmp', { tlsConfigured: false }),
       );
       expect(response.status).toBe(409);
-      const json = (await response.json()) as { error: string };
+      const json = (await response.json()) as { error: string; code: string };
+      expect(json.code).toBe('not_configured_for_tls');
       expect(json.error).toContain('no TLS configured');
     });
 
@@ -425,7 +429,8 @@ describe('tls-enroll', () => {
         enrollOptions('/tmp'),
       );
       expect(blank.status).toBe(400);
-      const body = (await blank.json()) as { error: string };
+      const body = (await blank.json()) as { error: string; code: string };
+      expect(body.code).toBe('invalid_request');
       expect(body.error).toContain('nonce');
     });
 
@@ -435,7 +440,8 @@ describe('tls-enroll', () => {
         enrollOptions('/tmp'),
       );
       expect(response.status).toBe(401);
-      const body = (await response.json()) as { error: string };
+      const body = (await response.json()) as { error: string; code: string };
+      expect(body.code).toBe('signature_invalid');
       expect(body.error).toContain('does not verify');
     });
 
@@ -458,7 +464,8 @@ describe('tls-enroll', () => {
         enrollOptions('/tmp'),
       );
       expect(response.status).toBe(401);
-      const body = (await response.json()) as { error: string };
+      const body = (await response.json()) as { error: string; code: string };
+      expect(body.code).toBe('challenge_expired');
       expect(body.error).toContain('unknown or has expired');
     });
 
@@ -471,6 +478,7 @@ describe('tls-enroll', () => {
         enrollOptions('/tmp'),
       );
       expect(response.status).toBe(401);
+      expect(((await response.json()) as { code: string }).code).toBe('challenge_expired');
     });
 
     it('rejects a replayed body because the nonce is single-use', async () => {
@@ -484,7 +492,8 @@ describe('tls-enroll', () => {
 
         const replay = await handleTlsEnroll(enrollRequest(body), enrollOptions(dir, { spawnFn }));
         expect(replay.status).toBe(401);
-        const replayBody = (await replay.json()) as { error: string };
+        const replayBody = (await replay.json()) as { error: string; code: string };
+        expect(replayBody.code).toBe('challenge_reused');
         expect(replayBody.error).toContain('already been used');
       } finally {
         rmSync(dir, { recursive: true, force: true });

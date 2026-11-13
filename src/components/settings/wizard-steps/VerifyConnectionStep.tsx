@@ -4,13 +4,15 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
+import { DocLink } from '@/components/shared/DocLink'
+import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 
 interface VerifyConnectionStepProps {
   agentHost: string
   agentPort: string
   isProvisioning: boolean
   canVerify: boolean
-  error: string | null
+  error: TlsFailureGuidance | null
   onAgentHostChange: (value: string) => void
   onAgentPortChange: (value: string) => void
   onVerify: () => void
@@ -79,7 +81,12 @@ export default function VerifyConnectionStep({
       {error && (
         <Alert variant="error" className="mt-2">
           <AlertDescription className="w-full">
-            <p className="text-sm mb-2">{error}</p>
+            <p className="text-sm mb-2">{error.message}</p>
+            {error.docAnchor && (
+              <p className="text-sm mb-2">
+                See the <DocLink anchor={error.docAnchor}>TLS recovery steps</DocLink> in the self-hosting guide.
+              </p>
+            )}
             <Button size="sm" variant="outline" onClick={onVerify} disabled={isProvisioning} data-testid="rerun-provisioning">
               {isProvisioning ? <Spinner className="size-3.5" /> : <Plus size={14} />}
               Re-run provisioning

@@ -1,8 +1,9 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { provisionHostTls, isRestartConnectionLoss, toHttpsAgentUrl } from '../agent-provisioning-service';
+import { provisionHostTls, isRestartConnectionLoss, toHttpsAgentUrl, TlsProvisionFailure } from '../agent-provisioning-service';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { enrollmentPayload } from '../../crypto/agent-jwt';
+import type { TlsFailureCode } from '@homelab-manager/agent/types';
 
 const CERT_PEM = '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----\n';
 const OLD_CERT_PEM = '-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n';
@@ -21,6 +22,18 @@ function jsonResponse(body: unknown, status = 200): Response {
 /** The GET /tls/challenge reply that opens every enrollment handshake. */
 function challengeResponse(nonce: string = TEST_NONCE): Response {
   return jsonResponse({ nonce, expiresAt: Date.now() + 60_000 });
+}
+
+/** Asserts the failure code, so a reworded message cannot quietly change what the UI does with it. */
+async function expectFailure(promise: Promise<unknown>, code: TlsFailureCode): Promise<TlsProvisionFailure> {
+  try {
+    await promise;
+  } catch (err) {
+    expect(err).toBeInstanceOf(TlsProvisionFailure);
+    expect((err as TlsProvisionFailure).code).toBe(code);
+    return err as TlsProvisionFailure;
+  }
+  throw new Error(`Expected a failure with code '${code}', but the call resolved`);
 }
 
 interface DepsOptions {
@@ -278,14 +291,28 @@ describe('provisionHostTls', () => {
     expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual(['2001:db8::1', 'localhost']);
   });
 
-  it('wraps an enroll HTTP error with the agent-provided detail', async () => {
+  it('carries the agent-provided detail and code through an enroll HTTP error', async () => {
     const { deps, storeCert } = makeDeps({
+      fetchResponses: [
+        challengeResponse(),
+        jsonResponse({ error: 'Invalid SAN', code: 'invalid_request' }, 400),
+      ],
+    });
+    const err = await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'invalid_request');
+    expect(err.message).toBe('TLS enrollment failed: Invalid SAN');
+    expect(storeCert).not.toHaveBeenCalled();
+  });
+
+  it('degrades to unexpected_agent_response when the agent sends no code', async () => {
+    // An older agent, or a body this manager cannot classify, must not be reported as a known failure.
+    const { deps } = makeDeps({
       fetchResponses: [challengeResponse(), jsonResponse({ error: 'Invalid SAN' }, 400)],
     });
-    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /TLS enrollment failed: the agent rejected the certificate request \(Invalid SAN\)/,
+    const err = await expectFailure(
+      provisionHostTls('myhost', 'http://myhost.lan:9090', deps),
+      'unexpected_agent_response',
     );
-    expect(storeCert).not.toHaveBeenCalled();
+    expect(err.message).toBe('TLS enrollment failed: Invalid SAN');
   });
 
   it('reports the recovery steps when the enroll request itself cannot connect', async () => {
@@ -329,12 +356,11 @@ describe('provisionHostTls', () => {
         connectError,
         connectError,
         challengeResponse(),
-        jsonResponse({ error: 'Unauthorized' }, 401),
+        jsonResponse({ error: 'Unauthorized', code: 'signature_invalid' }, 401),
       ],
     });
-    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /the agent rejected the certificate request \(Unauthorized\)/,
-    );
+    const err = await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'signature_invalid');
+    expect(err.message).toBe('TLS enrollment failed: Unauthorized');
   });
 
   it('reports a rotation-restart hint when enrollment retries are exhausted on both schemes', async () => {
@@ -353,15 +379,13 @@ describe('provisionHostTls', () => {
     const { deps, fetchCalls } = makeDeps({
       fetchResponses: [
         challengeResponse(),
-        jsonResponse({ error: 'Invalid SAN' }, 400),
+        jsonResponse({ error: 'Invalid SAN', code: 'invalid_request' }, 400),
         challengeResponse(),
         enrollResponse(),
       ],
       healthResults: [true],
     });
-    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /the agent rejected the certificate request \(Invalid SAN\)/,
-    );
+    await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'invalid_request');
     const second = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
     expect(second.agentUrl).toBe('https://myhost.lan:9090');
     expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(2);

@@ -14,6 +14,8 @@ import {
   handleRotateHostTls,
   handleUpdateAgent,
 } from '../handlers';
+import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
+import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 
 const MOCK_JWK: JWK = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' };
 
@@ -330,7 +332,7 @@ describe('handleRotateHostTls', () => {
       allowPlaintextEnrollment: false,
     });
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
-    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
+    expect(result).toEqual({ ok: true, hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
   });
 
   it('provisions against an explicit agentUrl override and persists only the flipped https URL', async () => {
@@ -344,7 +346,7 @@ describe('handleRotateHostTls', () => {
       allowPlaintextEnrollment: false,
     });
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
-    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
+    expect(result).toEqual({ ok: true, hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
   });
 
   it('never writes the row when provisioning with an agentUrl override fails', async () => {
@@ -362,7 +364,7 @@ describe('handleRotateHostTls', () => {
     expect(repo.delete).not.toHaveBeenCalled();
   });
 
-  it('propagates the provisioning error without touching the host record', async () => {
+  it('propagates an uncoded provisioning error without touching the host record', async () => {
     const repo = mockRepo();
     const deps = {
       repo,
@@ -373,6 +375,35 @@ describe('handleRotateHostTls', () => {
     await expect(handleRotateHostTls(deps, { hostId: 1 })).rejects.toThrow(/TLS provisioning failed/);
     expect(repo.update).not.toHaveBeenCalled();
     expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('returns the failure code as data instead of throwing, so the UI can map it', async () => {
+    const repo = mockRepo();
+    const deps = {
+      repo,
+      provisionTls: mock(async () => {
+        throw new TlsProvisionFailure('signature_invalid', 'the agent does not trust this keypair');
+      }),
+    };
+    expect(await handleRotateHostTls(deps, { hostId: 1 })).toEqual({
+      ok: false,
+      code: 'signature_invalid',
+      message: 'the agent does not trust this keypair',
+    });
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('maps a missing keypair to no_keypair rather than a throw', async () => {
+    const repo = mockRepo();
+    const deps = {
+      repo,
+      provisionTls: mock(async () => {
+        throw missingAgentKeypairError('test-host');
+      }),
+    };
+    const result = await handleRotateHostTls(deps, { hostId: 1 });
+    expect(result).toMatchObject({ ok: false, code: 'no_keypair' });
+    expect(repo.update).not.toHaveBeenCalled();
   });
 });
 describe('handleUpdateHost', () => {
@@ -549,7 +580,6 @@ describe('handleUpdateAgent', () => {
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.error).toBe('Could not resolve the agent image digest from the registry');
-        expect(result.suggestions).toContain('Verify ghcr.io/jaredglaser/homelab-manager-agent is reachable and public');
       }
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -602,7 +632,7 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('reports a keypair failure with suggestions when the signer throws', async () => {
+  it('reports a keypair failure when the signer throws', async () => {
     const deps = {
       ...updateDeps(),
       getSigner: mock(async () => {
@@ -613,11 +643,10 @@ describe('handleUpdateAgent', () => {
     expect(result.healthy).toBe(false);
     if (!result.healthy) {
       expect(result.error).toBe('Could not retrieve agent keypair');
-      expect(result.suggestions).toContain('Verify the agent has been enrolled with a generated public JWK');
     }
   });
 
-  it('reports a signing failure with suggestions when the signer call throws', async () => {
+  it('reports a signing failure when the signer call throws', async () => {
     const signingSigner = mock(async () => {
       throw new Error('key encoding failed');
     });
@@ -631,7 +660,6 @@ describe('handleUpdateAgent', () => {
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.error).toBe('Could not sign the agent request token');
-        expect(result.suggestions).toContain('Verify the agent has been enrolled with a generated public JWK');
       }
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -726,7 +754,6 @@ describe('handleUpdateAgent', () => {
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.error).toBe('The agent is still running its previous image, so the update was interrupted before it completed');
-        expect(result.suggestions).toContain('Check free disk space on the host, then retry the update');
       }
     } finally {
       timers.restore();
@@ -811,7 +838,6 @@ describe('handleUpdateAgent', () => {
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.error).toBe('The agent stayed reachable throughout the update window, so its restart could not be confirmed');
-        expect(result.suggestions).toContain('Re-run the update after the current attempt settles');
       }
     } finally {
       timers.restore();

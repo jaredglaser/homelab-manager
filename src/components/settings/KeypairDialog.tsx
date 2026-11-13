@@ -17,6 +17,8 @@ interface KeypairDialogProps {
   open: boolean
   host: HostListItem | null
   publicJwkJson: string | null
+  /** Absent when the caller has no certificate store, or the host has no pinned certificate. */
+  fingerprint?: string | null
   isLoading: boolean
   isRotating: boolean
   onView: (hostId: number) => void
@@ -28,6 +30,7 @@ export function KeypairDialog({
   open,
   host,
   publicJwkJson,
+  fingerprint,
   isLoading,
   isRotating,
   onView,
@@ -98,6 +101,22 @@ export function KeypairDialog({
                   <CopyButton text={publicJwkJson} label="public key" />
                 </AlertDescription>
               </Alert>
+              {fingerprint && (
+                <Alert variant="info">
+                  <AlertDescription className="w-full">
+                    <p className="text-xs mb-1">
+                      Pinned certificate fingerprint. Compare it with the one the agent prints at startup
+                      (docker logs hlm-agent).
+                    </p>
+                    <pre
+                      className="text-xs w-full overflow-auto p-2 rounded bg-level1 text-foreground"
+                      data-testid="host-fingerprint-display"
+                    >
+                      {fingerprint}
+                    </pre>
+                  </AlertDescription>
+                </Alert>
+              )}
               {confirmingRotate && (
                 <Alert variant="error">
                   <AlertDescription>
