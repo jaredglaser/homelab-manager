@@ -1,5 +1,6 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
+import { isTlsUrl, MISSING_PIN_CLOSE_REASON, openAgentWebSocket } from '../../../../src/lib/clients/agent-http';
 
 // Maps peer.id to the upstream agent WebSocket so message/close can reach it.
 // Keyed by peer.id (string) because Nitro's crossws Peer has no typed connection object.
@@ -78,6 +79,9 @@ export default defineWebSocketHandler({
       }
 
       const { AgentKeypairsRepository } = await import('../../../../src/lib/database/repositories/agent-keypairs-repository');
+      const { AgentTlsCertificatesRepository } = await import(
+        '../../../../src/lib/database/repositories/agent-tls-certificates-repository'
+      );
       const { loadMasterKeyring } = await import('../../../../src/lib/crypto/master-key');
       const { signAgentJwt } = await import('../../../../src/lib/crypto/agent-jwt');
       const keyring = await loadMasterKeyring();
@@ -95,11 +99,27 @@ export default defineWebSocketHandler({
       const agentBase = managedHost.agentUrl.replace(/^https?/, (m) => m === 'https' ? 'wss' : 'ws');
       const agentUrl = `${agentBase}/exec/${encodeURIComponent(containerId)}?shell=${encodeURIComponent(shell)}&cols=${cols}&rows=${rows}`;
 
-      // The second argument to WebSocket is a Bun-specific extension for custom headers.
-      // Standard WebSocket only accepts a protocols string array, so we cast to satisfy TS.
-      const agentWs = new WebSocket(agentUrl, {
-        headers: { Authorization: `Bearer ${jwt}` },
-      } as unknown as string[]);
+      // A missing pin is permanent, so close with an actionable reason instead of a generic 1011.
+      const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
+      const caCertPem = (await tlsCerts.getCertForHost(host))?.trim() || null;
+      if (isTlsUrl(agentBase) && !caCertPem) {
+        // The close reason is capped at 123 bytes, so it carries the recovery hint rather than the
+        // host name the terminal pane and server log already show.
+        console.error('[docker-exec-ws] no pinned TLS certificate for host:', host);
+        try { peer.close(1011, MISSING_PIN_CLOSE_REASON); } catch { /* not open yet */ }
+        return;
+      }
+
+      // openAgentWebSocket is the sanctioned agent-socket seam: it pins the host's
+      // TLS certificate for wss agent URLs (a raw WebSocket here fails the TLS
+      // handshake on self-signed agents) and accepts the header object Bun needs.
+      const agentWs = openAgentWebSocket(
+        agentUrl,
+        {
+          headers: { Authorization: `Bearer ${jwt}` },
+        },
+        { caCertPem },
+      );
 
       agentConnections.set(peer.id, agentWs);
       agentWs.binaryType = 'arraybuffer';

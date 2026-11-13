@@ -40,6 +40,40 @@ const WS_MUX_SSE_TRIPWIRE = {
     'createSseStream is the deleted web SSE seam. Stream over the WS mux (src/lib/mux). The only sanctioned createSseStream is the agent-side seam agent/src/lib/sse-stream.ts for web-to-agent hops.',
 };
 
+// Agent TLS seam: a raw fetch or WebSocket built from an agent-URL variable fails the per-host
+// certificate check and the caller retries it as a fake agent outage. Matched argument shapes:
+// identifiers named agent/agentBase/agentBaseUrl/agentUrl and their .agentUrl-style and computed
+// members. A URL held under another name, or reached through an alias of fetch, still escapes.
+const AGENT_TLS_URL_NAME = "/^agent(?:Base)?(?:Url)?$/i";
+const AGENT_TLS_CALLEES = {
+  fetch: [
+    `CallExpression[callee.name='fetch']`,
+    `CallExpression[callee.object.name=/^(globalThis|window|self)$/][callee.property.name='fetch']`,
+  ],
+  websocket: [
+    `NewExpression[callee.name='WebSocket']`,
+    `NewExpression[callee.object.name=/^(globalThis|window|self)$/][callee.property.name='WebSocket']`,
+  ],
+};
+const AGENT_TLS_URL_ARGS = [
+  `Identifier[name=${AGENT_TLS_URL_NAME}]`,
+  `MemberExpression[property.name=${AGENT_TLS_URL_NAME}]`,
+  `MemberExpression[computed=true][property.value=${AGENT_TLS_URL_NAME}]`,
+];
+function agentTlsSelector(callees) {
+  return callees.flatMap((callee) => AGENT_TLS_URL_ARGS.map((arg) => `${callee} ${arg}`)).join(', ');
+}
+const AGENT_TLS_FETCH = {
+  selector: agentTlsSelector(AGENT_TLS_CALLEES.fetch),
+  message:
+    'Raw fetch() to an agent URL bypasses the pinned per-host TLS certificate and fails with "self signed certificate" on https agents while the caller retries forever. Use agentFetch from src/lib/clients/agent-http.ts with the host caCertPem (null for http URLs).',
+};
+const AGENT_TLS_WEBSOCKET = {
+  selector: agentTlsSelector(AGENT_TLS_CALLEES.websocket),
+  message:
+    'Raw WebSocket() to an agent URL bypasses the pinned per-host TLS certificate and fails the TLS handshake on wss agents. Use openAgentWebSocket from src/lib/clients/agent-http.ts with the host caCertPem (null for ws URLs).',
+};
+
 export const WS_MUX_SEAM_RESTRICTIONS = [
   WS_MUX_SOCKET,
   WS_MUX_FRAME,
@@ -227,6 +261,7 @@ export default tseslint.config(
       'src/lib/mock/**',
       'src/lib/test/**',
       'src/hooks/useContainerTerminal.ts',
+      'src/lib/clients/agent-http.ts',
       'server/routes/api/docker-exec/**',
       'server/routes/api/mux.ts',
     ],
@@ -238,6 +273,8 @@ export default tseslint.config(
         WS_MUX_TIMING_LITERAL,
         WS_MUX_TIMING_CONST,
         WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
       ],
     },
   },
@@ -247,7 +284,7 @@ export default tseslint.config(
     files: ['src/lib/mux/**/*.ts', 'src/lib/mock/**/*.ts', 'src/lib/test/**/*.ts'],
     ignores: ['**/__tests__/**', 'src/lib/mux/mux-connection.ts'],
     rules: {
-      'no-restricted-syntax': ['error', WS_MUX_SOCKET, WS_MUX_SSE_TRIPWIRE],
+      'no-restricted-syntax': ['error', WS_MUX_SOCKET, WS_MUX_SSE_TRIPWIRE, AGENT_TLS_FETCH, AGENT_TLS_WEBSOCKET],
     },
   },
   // mux-connection.ts is the sanctioned client WebSocket site and imports its
@@ -255,7 +292,31 @@ export default tseslint.config(
   {
     files: ['src/lib/mux/mux-connection.ts'],
     rules: {
-      'no-restricted-syntax': ['error', WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
+      ],
+    },
+  },
+  // agent-http.ts is the sanctioned server-to-agent socket seam: openAgentWebSocket
+  // wraps Bun's WebSocket with the pinned per-host TLS certificate, so the socket
+  // rule is lifted here while the rest still bind.
+  {
+    files: ['src/lib/clients/agent-http.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_FRAME,
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
+      ],
     },
   },
   // The exec terminal keeps a direct socket end to end (hook plus server bridge).
@@ -263,7 +324,15 @@ export default tseslint.config(
     files: ['src/hooks/useContainerTerminal.ts', 'server/routes/api/docker-exec/**/*.ts'],
     ignores: ['**/__tests__/**'],
     rules: {
-      'no-restricted-syntax': ['error', WS_MUX_FRAME, WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_FRAME,
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
+      ],
     },
   },
   // The server endpoint originates ack and event frames and imports its timing
@@ -271,7 +340,15 @@ export default tseslint.config(
   {
     files: ['server/routes/api/mux.ts'],
     rules: {
-      'no-restricted-syntax': ['error', WS_MUX_SOCKET, WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_SOCKET,
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
+      ],
     },
   },
 

@@ -34,11 +34,22 @@ mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/
   },
 }));
 
-mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
+mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real,
   AgentKeypairsRepository: class {
     getPrivateKeyForHost = mockGetPrivateKeyForHost;
   },
 }));
+
+const mockGetCertForHost = mock(async (_: string) => null as null | string);
+mockModule<typeof import('@/lib/database/repositories/agent-tls-certificates-repository')>(
+  '@/lib/database/repositories/agent-tls-certificates-repository',
+  (real) => ({
+    ...real,
+    AgentTlsCertificatesRepository: class {
+      getCertForHost = mockGetCertForHost;
+    },
+  }),
+);
 
 mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
   loadMasterKeyring: async () => ({}),
@@ -128,9 +139,11 @@ beforeEach(() => {
   mockFindByName.mockReset();
   mockGetPrivateKeyForHost.mockReset();
   mockSignAgentJwt.mockClear();
+  mockGetCertForHost.mockReset();
   mockFindByName.mockImplementation(async () => null);
   mockGetPrivateKeyForHost.mockImplementation(async () => null);
   mockSignAgentJwt.mockImplementation(async () => 'fake.jwt.token');
+  mockGetCertForHost.mockImplementation(async () => 'FAKE-PEM');
   authResult = authUser('operator');
 });
 
@@ -237,6 +250,38 @@ describe('docker-exec websocket route', () => {
       await handler.open(peer);
 
       expect(constructedWebSockets[0]!.url.startsWith('wss://agent.example.com/exec/')).toBe(true);
+      const init = constructedWebSockets[0]!.init as { tls?: { ca?: string; rejectUnauthorized?: boolean } };
+      expect(init.tls?.ca).toBe('FAKE-PEM');
+      expect(init.tls?.rejectUnauthorized).toBe(true);
+    });
+
+    it('closes with 1011 naming the TLS recovery steps when a wss agent URL has no pinned cert', async () => {
+      mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent.example.com' }));
+      mockGetPrivateKeyForHost.mockImplementation(async () => ({}));
+      mockGetCertForHost.mockImplementation(async () => null);
+      const peer = makePeer({ url: 'http://localhost:3000/api/docker-exec/abc123?host=server1' });
+
+      await handler.open(peer);
+
+      expect(constructedWebSockets).toHaveLength(0);
+      const closeMock = peer.close as unknown as ReturnType<typeof mock>;
+      expect(closeMock).toHaveBeenCalledWith(
+        1011,
+        'No pinned TLS certificate. See the agent TLS recovery steps in the self-hosting guide.',
+      );
+    });
+
+    it('closes with 1011 when the stored certificate is whitespace only', async () => {
+      mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent.example.com' }));
+      mockGetPrivateKeyForHost.mockImplementation(async () => ({}));
+      mockGetCertForHost.mockImplementation(async () => '   ');
+      const peer = makePeer({ url: 'http://localhost:3000/api/docker-exec/abc123?host=server1' });
+
+      await handler.open(peer);
+
+      expect(constructedWebSockets).toHaveLength(0);
+      const closeMock = peer.close as unknown as ReturnType<typeof mock>;
+      expect(closeMock).toHaveBeenCalledWith(1011, expect.stringContaining('No pinned TLS certificate'));
     });
 
     it('attaches the agent JWT as a Bearer Authorization header', async () => {
