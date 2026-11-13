@@ -453,7 +453,7 @@ describe('handleGetHostPublicJwk', () => {
       ...baseDeps(),
       keypairs: { ...makeKeypairsMock(), getPublicJwkForHost: mock(async () => null) },
     };
-    await expect(handleGetHostPublicJwk(deps, { hostId: 1 })).rejects.toThrow(/No agent keypair/);
+    await expect(handleGetHostPublicJwk(deps, { hostId: 1 })).rejects.toThrow(/no keypair for host/);
   });
 });
 

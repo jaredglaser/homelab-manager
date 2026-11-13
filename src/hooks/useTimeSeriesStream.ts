@@ -171,7 +171,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     if (debug) console.log('[useTimeSeriesStream] Starting preload...');
     let preloadTimeoutId: ReturnType<typeof setTimeout> | undefined;
     const preloadTimeout = new Promise<never>((_, reject) => {
-      preloadTimeoutId = setTimeout(() => reject(new Error('Database unavailable')), PRELOAD_TIMEOUT_MS);
+      preloadTimeoutId = setTimeout(() => reject(new Error('Stats stream unavailable')), PRELOAD_TIMEOUT_MS);
     });
     Promise.race([preloadFnRef.current(), preloadTimeout])
       .then((raw) => {
@@ -229,7 +229,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     onData: handleData,
     onDropped: handleDropped,
     onReconnect,
-    serviceErrorMessage: 'Database unavailable',
+    serviceErrorMessage: 'Stats stream unavailable',
   });
 
   const error = channelError ?? preloadError;

@@ -95,6 +95,8 @@ try {
 
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH;
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH;
+// Neither path means this agent serves plain HTTP by configuration and never reads a certificate.
+const tlsConfigured = Boolean(TLS_CERT_PATH && TLS_KEY_PATH);
 
 const tlsDecision = resolveTlsStartup(TLS_CERT_PATH, TLS_KEY_PATH, isFileReadable);
 if (tlsDecision.mode === 'fatal') {
@@ -189,7 +191,7 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   }
 
   if (url.pathname === '/tls/challenge' && request.method === 'GET') {
-    return handleTlsChallenge();
+    return handleTlsChallenge(tlsConfigured);
   }
 
   if (url.pathname === '/tls/enroll' && request.method === 'POST') {
@@ -201,6 +203,7 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
       stacksDir: STACKS_DIR,
       trustedPublicKey: TRUSTED_PUBKEY,
       hostName: AGENT_HOST_NAME,
+      tlsConfigured,
       scheduleRestart,
     });
   }

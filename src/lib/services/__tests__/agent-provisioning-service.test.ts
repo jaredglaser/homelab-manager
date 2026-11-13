@@ -412,12 +412,24 @@ describe('provisionHostTls', () => {
     );
   });
 
+  it('names the missing Docker capability when the restart route is absent', async () => {
+    // The container routes are only registered when the agent has Docker, so a 404 here is capability.
+    // An https rotation, because a plaintext channel never sends the restart request at all.
+    const { deps } = makeDeps({
+      fetchResponses: [challengeResponse(), enrollResponse(), jsonResponse({ error: 'Not Found' }, 404)],
+      caCertPem: CERT_PEM,
+    });
+    await expect(provisionHostTls('myhost', 'https://myhost.lan:9090', deps)).rejects.toThrow(
+      /no Docker capability, so it cannot restart itself/,
+    );
+  });
+
   it('fails with the agent-provided detail when the restart request answers an HTTP error', async () => {
     const { deps, checkHealth } = makeDeps({
       fetchResponses: [
         challengeResponse(),
         enrollResponse(),
-        jsonResponse({ error: 'Container not found: hlm-agent' }, 404),
+        jsonResponse({ error: 'Container not found: hlm-agent' }, 500),
       ],
       caCertPem: OLD_CERT_PEM,
     });
@@ -634,6 +646,20 @@ describe('provisionHostTls enrollment handshake', () => {
     });
     await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
     expect(fetchCalls.map((c) => c.url)).toContain('https://myhost.lan:9090/containers/hlm-agent/restart');
+  });
+
+  it('refuses when the agent reports it has no TLS configured, without enrolling', async () => {
+    // A plain-HTTP agent with no TLS paths writes a certificate it never reads, so say so at once
+    // instead of polling HTTPS against a listener that does not exist.
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [
+        jsonResponse({ nonce: TEST_NONCE, expiresAt: Date.now() + 60_000, tlsConfigured: false }),
+      ],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /not configured for TLS, so it cannot serve HTTPS/,
+    );
+    expect(fetchCalls.some((c) => c.url.endsWith('/tls/enroll'))).toBe(false);
   });
 
   it('reports the recovery steps and never enrolls when the challenge cannot be reached', async () => {
