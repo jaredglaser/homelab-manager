@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.0](https://github.com/jaredglaser/homelab-manager/compare/v0.3.0...v0.4.0) (2026-11-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agents:** sign the TLS enrollment challenge instead of sending a bearer token ([#612](https://github.com/jaredglaser/homelab-manager/issues/612))
+
+### Features
+
+* **agents:** sign the TLS enrollment challenge instead of sending a bearer token ([#612](https://github.com/jaredglaser/homelab-manager/issues/612)) ([b17b00f](https://github.com/jaredglaser/homelab-manager/commit/b17b00f61d7d10b146682f5cfbd745f8a699c6f5))
+* **auth:** allow operators to mint and manage their own git tokens ([#599](https://github.com/jaredglaser/homelab-manager/issues/599)) ([4207b7d](https://github.com/jaredglaser/homelab-manager/commit/4207b7d25f6f0a8435571306656c627b8dd995d7))
+* **hosts:** show the agent key before verification: compose embeds it, verify only provisions ([#602](https://github.com/jaredglaser/homelab-manager/issues/602)) ([09660da](https://github.com/jaredglaser/homelab-manager/commit/09660dad7474461700ced50c626e4d93aa37b8b3))
+
+
+### Bug Fixes
+
+* **agent:** restrict plain HTTP to TLS enrollment endpoints; skip http:// agents in worker ([#600](https://github.com/jaredglaser/homelab-manager/issues/600)) ([90c3d7c](https://github.com/jaredglaser/homelab-manager/commit/90c3d7ccf673b3c8bc1513fe2d41f12841c5df0a))
+* **agents:** pin the host TLS cert on every agent call and enforce the seam ([#610](https://github.com/jaredglaser/homelab-manager/issues/610)) ([6166ee7](https://github.com/jaredglaser/homelab-manager/commit/6166ee7364205e4558a5c1dd6a99d4d87d366690))
+* **hosts:** agent restarts itself after TLS enrollment to unblock first-contact provisioning ([#605](https://github.com/jaredglaser/homelab-manager/issues/605)) ([f8e24b3](https://github.com/jaredglaser/homelab-manager/commit/f8e24b31c9f1a942ea993ccae8401b65f3bdd05d))
+* **hosts:** break the first-contact enrollment deadlock in the Add Host wizard ([#601](https://github.com/jaredglaser/homelab-manager/issues/601)) ([0750595](https://github.com/jaredglaser/homelab-manager/commit/0750595894342991656b16b881c2edc61707af89))
+* **self-hosting:** fail fast on missing config, fix backup/restore and diagnostics, drop fixed container names ([#596](https://github.com/jaredglaser/homelab-manager/issues/596)) ([ae391c6](https://github.com/jaredglaser/homelab-manager/commit/ae391c60a967dca2c5278a7ef4e1d3f3dc1e4a60))
+
 ## [0.3.0](https://github.com/jaredglaser/homelab-manager/compare/v0.2.4...v0.3.0) (2026-11-03)
 
 
