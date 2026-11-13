@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
+import { missingAgentKeypairMessage } from '@/lib/errors/agent-messages';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import { removeHostSchema, checkHostHealthSchema, createPendingHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, rotateHostTlsSchema, updateAgentSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
@@ -63,7 +64,7 @@ async function buildCheckHealth(
     }
     return checkAgentHealth(url, undefined, fetch, async () => {
       const privateKey = await keypairs.getPrivateKeyForHost(hostName);
-      if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
+      if (!privateKey) throw new Error(missingAgentKeypairMessage(hostName));
       return signAgentJwt(privateKey, hostName);
     }, caCertPem);
   };
@@ -120,7 +121,7 @@ function makeProvisionTls(
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     const { signAgentJwt, signAgentPayload } = await import('@/lib/crypto/agent-jwt');
     const privateKey = await keypairs.getPrivateKeyForHost(hostName);
-    if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
+    if (!privateKey) throw new Error(missingAgentKeypairMessage(hostName));
     let caCertPem: string | null = null;
     try {
       caCertPem = await tlsCerts.getCertForHost(hostName);
@@ -259,7 +260,7 @@ export const updateAgent = createServerFn()
       ...baseDeps,
       getSigner: async (hostname) => {
         const privateKey = await keypairs.getPrivateKeyForHost(hostname);
-        if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
+        if (!privateKey) throw new Error(missingAgentKeypairMessage(hostname));
         return () => signAgentJwt(privateKey, hostname);
       },
       checkHealth: await buildCheckHealth(keypairs, tlsCerts),
