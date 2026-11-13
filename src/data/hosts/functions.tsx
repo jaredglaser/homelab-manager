@@ -110,8 +110,12 @@ function makeKeypairsDep(
 function makeProvisionTls(
   keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
   tlsCerts: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository,
-): (hostName: string, agentUrl: string) => Promise<{ agentUrl: string; enrolledOverPlainHttp: boolean }> {
-  return async (hostName, agentUrl) => {
+): (
+  hostName: string,
+  agentUrl: string,
+  options: { allowPlaintextEnrollment: boolean },
+) => Promise<{ agentUrl: string; enrolledOverPlainHttp: boolean; fingerprint: string }> {
+  return async (hostName, agentUrl, options) => {
     const { provisionHostTls } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     const { signAgentJwt, signAgentPayload } = await import('@/lib/crypto/agent-jwt');
@@ -126,6 +130,7 @@ function makeProvisionTls(
     return provisionHostTls(hostName, agentUrl, {
       getSigner: () => signAgentJwt(privateKey, hostName),
       signEnrollmentPayload: (payload) => signAgentPayload(privateKey, payload),
+      allowPlaintextEnrollment: options.allowPlaintextEnrollment,
       storeCert: (name, certPem) => tlsCerts.createForHost(name, certPem),
       checkHealth: (url, probeHostName, pin) =>
         checkAgentHealth(url, undefined, fetch, () => signAgentJwt(privateKey, probeHostName), pin),
@@ -230,7 +235,7 @@ export const rotateHostKeypair = createServerFn()
 export const rotateHostTls = createServerFn()
   .middleware([authMiddleware])
   .validator(rotateHostTlsSchema)
-  .handler(async ({ data, context }): Promise<{ hostId: number; agentUrl: string; enrolledOverPlainHttp: boolean }> => {
+  .handler(async ({ data, context }): Promise<{ hostId: number; agentUrl: string; enrolledOverPlainHttp: boolean; fingerprint: string }> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();

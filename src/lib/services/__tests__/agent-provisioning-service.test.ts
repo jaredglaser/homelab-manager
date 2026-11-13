@@ -1,5 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { provisionHostTls, isRestartConnectionLoss, toHttpsAgentUrl } from '../agent-provisioning-service';
+import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { enrollmentPayload } from '../../crypto/agent-jwt';
 
 const CERT_PEM = '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----\n';
@@ -28,6 +30,7 @@ interface DepsOptions {
   caCertPem?: string | null;
   storeCertError?: Error;
   signEnrollmentPayload?: (payload: string) => Promise<string>;
+  allowPlaintextEnrollment?: boolean;
 }
 
 function makeDeps(options: DepsOptions = {}) {
@@ -76,6 +79,9 @@ function makeDeps(options: DepsOptions = {}) {
     sleepFn,
     resolveIp: options.resolveIp,
     caCertPem: options.caCertPem,
+    // Default to confirmed: these tests exercise the path after the operator accepted a plaintext
+    // enrollment. The gate itself has its own test below.
+    allowPlaintextEnrollment: options.allowPlaintextEnrollment ?? true,
   };
 
   return { deps, fetchCalls, fetchFn, healthCalls, delays, stored, storeCert, checkHealth, signEnrollmentPayload };
@@ -432,6 +438,19 @@ describe('provisionHostTls', () => {
     expect(enrollInit.tls?.ca).toContain('OLD');
   });
 
+  it('refuses a plaintext enrollment of a known host until the operator confirms it', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [new Error('Was there a typo in the url or port?')],
+      caCertPem: CERT_PEM,
+      allowPlaintextEnrollment: false,
+    });
+    await expect(provisionHostTls('myhost', 'https://myhost.lan:9090', deps)).rejects.toThrow(
+      /Plaintext enrollment confirmation required/,
+    );
+    // Nothing was enrolled and nothing was stored, so the host is exactly as it was.
+    expect(fetchCalls.some((c) => c.url.endsWith('/tls/enroll'))).toBe(false);
+  });
+
   it('sends no TLS pin over the plain http enrollment channel', async () => {
     const { deps, fetchCalls } = makeDeps({
       fetchResponses: [challengeResponse(), enrollResponse()],
@@ -536,6 +555,12 @@ describe('provisionHostTls', () => {
 });
 
 describe('provisionHostTls enrollment handshake', () => {
+  it('digests a certificate the way the agent prints it', () => {
+    const pem = `-----BEGIN CERTIFICATE-----\n${Buffer.from('hello').toString('base64')}\n-----END CERTIFICATE-----\n`;
+    const expected = 'SHA256:' + createHash('sha256').update('hello').digest('base64').replace(/=+$/, '');
+    expect(certificateFingerprint(pem)).toBe(expected);
+  });
+
   it('pins the enrollment payload format the agent rebuilds', () => {
     // Same fixture as the agent's copy of this test, so a change on either
     // builder fails both suites instead of only failing at runtime.

@@ -36,11 +36,13 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
 
 type RotateTlsResult = { hostId: number; agentUrl: string }
 let rotateTlsResult: Promise<RotateTlsResult> = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
-let rotateTlsCalls: Array<{ data: { hostId: number; agentUrl?: string } }> = []
+let rotateTlsCalls: Array<{ data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean } }> = []
 // When set, rotateHostTls returns this manually-settled promise instead.
 let rotateTlsGate: Promise<RotateTlsResult> | null = null
 
-const rotateHostTls = (data: { data: { hostId: number; agentUrl?: string } }): Promise<RotateTlsResult> => {
+const rotateHostTls = (data: {
+  data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean }
+}): Promise<RotateTlsResult> => {
   rotateTlsCalls.push(data)
   return rotateTlsGate ?? rotateTlsResult
 }
@@ -90,7 +92,8 @@ mock.module('@/data/hosts/functions', () => ({
   updateHost,
   getHostPublicJwk: () => Promise.resolve({ publicJwk: {} }),
   rotateHostKeypair: () => Promise.resolve({ hostId: 1, publicJwk: {} }),
-  rotateHostTls: (data: { data: { hostId: number } }) => rotateHostTls(data),
+  rotateHostTls: (data: { data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean } }) =>
+    rotateHostTls(data),
 }))
 
 let lastQueryClient: QueryClient | null = null
@@ -210,7 +213,9 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     await waitFor(() => {
-      expect(rotateTlsCalls).toEqual([{ data: { hostId: 1, agentUrl: 'http://10.1.1.99:9090' } }])
+      expect(rotateTlsCalls).toEqual([
+        { data: { hostId: 1, agentUrl: 'http://10.1.1.99:9090', acceptPlaintextEnrollment: false } },
+      ])
     })
     expect(updateHostCalls).toEqual([])
     expect(toasts.some((t) => t.message.startsWith('Host verified.'))).toBe(true)
