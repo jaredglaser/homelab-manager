@@ -426,6 +426,22 @@ export default tseslint.config(
     },
   },
 
+  // The server-function context is typed end to end, so this family has zero
+  // findings under src/data and src/middleware. Scoped to those two trees: the
+  // rest of the repo still carries violations and stays at warn.
+  {
+    files: ['src/data/**/*.{ts,tsx}', 'src/middleware/**/*.{ts,tsx}'],
+    ignores: ['**/__tests__/**'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unsafe-assignment': 'error',
+      '@typescript-eslint/no-unsafe-member-access': 'error',
+      '@typescript-eslint/no-unsafe-argument': 'error',
+      '@typescript-eslint/no-unsafe-call': 'error',
+      '@typescript-eslint/no-unsafe-return': 'error',
+    },
+  },
+
   // Must stay last so it wins over the rule blocks above. No tsconfig reaches these files:
   // the root tsconfig's `**/*.ts` skips dot-directories and .js is outside `include`, so a
   // type-aware rule here is a hard crash rather than a finding.
