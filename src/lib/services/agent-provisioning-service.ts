@@ -1,5 +1,6 @@
 import { agentFetch, isTlsUrl, toPlainHttpUrl } from '@/lib/clients/agent-http';
 import { enrollmentPayload } from '@/lib/crypto/agent-jwt';
+import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
 /** The compose healthcheck fetches https://localhost, so the cert must verify for it. */
@@ -25,15 +26,22 @@ export interface TlsProvisionResult {
   certPem: string;
   /** True when the enrollment ran over plain HTTP, so the certificate was accepted on first use. */
   enrolledOverPlainHttp: boolean;
+  /** Digest of the enrolled certificate, for comparison with the fingerprint the agent logs at startup. */
+  fingerprint: string;
 }
 
 /** A transport-level failure. It may mean the agent serves the other scheme, so it is worth trying. */
 class AgentChannelError extends Error {}
 
+/** Thrown before anything changes, when the enrollment would run over plain HTTP without confirmation. */
+export class PlaintextEnrollmentConfirmationRequired extends Error {}
+
 export interface ProvisionHostTlsDeps {
   getSigner: () => Promise<string>;
   /** Detached signature over the enrollment payload, which replaces the bearer token on the enrollment call. */
   signEnrollmentPayload: (payload: string) => Promise<string>;
+  /** Set once the operator has accepted that a plaintext enrollment trusts whatever certificate the agent presents. */
+  allowPlaintextEnrollment?: boolean;
   storeCert: (hostName: string, certPem: string) => Promise<void>;
   checkHealth: (url: string, hostName: string, caCertPem: string | null) => Promise<HealthCheckOutcome>;
   fetchFn?: typeof fetch;
@@ -133,7 +141,7 @@ async function runProvisionHostTls(
       // new certificate, so a failed rotation never leaves the DB pin pointing
       // at a certificate the agent is not serving.
       await wrapFailure('the certificate could not be stored', () => deps.storeCert(hostName, certPem));
-      return { agentUrl: httpsUrl, certPem, enrolledOverPlainHttp };
+      return { agentUrl: httpsUrl, certPem, enrolledOverPlainHttp, fingerprint: certificateFingerprint(certPem) };
     }
   }
 
@@ -325,7 +333,14 @@ async function enrollAgainstCandidates(
   // A rotation restarts the agent for up to ~10s (docker stop + start), so an immediately following
   // rotation can land inside that window and see the connection refused.
   const ENROLL_RETRIES = 2;
-  for (const candidate of candidates) {
+  for (const [index, candidate] of candidates.entries()) {
+    // The plaintext sibling only happens for a host the manager already knows, and it trusts whatever
+    // certificate comes back, so it needs an explicit confirmation before anything is changed.
+    if (index > 0 && !deps.allowPlaintextEnrollment) {
+      throw new PlaintextEnrollmentConfirmationRequired(
+        `Plaintext enrollment confirmation required: host '${hostName}' is serving plain HTTP, so the certificate it presents would be accepted on first use.`,
+      );
+    }
     for (let attempt = 0; ; attempt++) {
       try {
         const enrolled = await enrollCert(candidate, sans, hostName, deps, fetchFn);
