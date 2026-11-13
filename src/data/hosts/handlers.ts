@@ -1,5 +1,6 @@
 import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
+import { missingAgentKeypairMessage } from '@/lib/errors/agent-messages';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
@@ -156,7 +157,7 @@ export async function handleGetHostPublicJwk(
 
   const publicJwk = await deps.keypairs.getPublicJwkForHost(host.name);
   if (!publicJwk) {
-    throw new Error(`No agent keypair found for host ${host.name}`);
+    throw new Error(missingAgentKeypairMessage(host.name));
   }
   return { publicJwk };
 }
