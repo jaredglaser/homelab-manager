@@ -231,16 +231,20 @@ export async function handleCreatePendingHost(
  */
 export async function handleRotateHostTls(
   deps: HostHandlerDeps & {
-    provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
+    provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string; enrolledOverPlainHttp?: boolean }>;
   },
   data: { hostId: number; agentUrl?: string },
-): Promise<{ hostId: number; agentUrl: string }> {
+): Promise<{ hostId: number; agentUrl: string; enrolledOverPlainHttp: boolean }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   const provisioned = await deps.provisionTls(host.name, data.agentUrl ?? host.agentUrl);
   await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
-  return { hostId: host.id, agentUrl: provisioned.agentUrl };
+  return {
+    hostId: host.id,
+    agentUrl: provisioned.agentUrl,
+    enrolledOverPlainHttp: provisioned.enrolledOverPlainHttp === true,
+  };
 }
 
 // Scoped to this host's agentUrl. Never touches any other host.

@@ -19,6 +19,41 @@ function infoBody(agentVersion = '0.1.0', dockerVersion = '24.0.7'): string {
 
 describe('agent-health-service', () => {
   describe('checkAgentHealth', () => {
+    it('reports awaiting-enrollment when the agent answers on plain HTTP but no pin matches the https URL', async () => {
+      const calls: string[] = [];
+      const fetchFn = mock(async (url: string) => {
+        calls.push(url);
+        return new Response(healthBody, { status: 200 });
+      }) as unknown as typeof fetch;
+
+      // agentFetch refuses an https URL with no pin before touching fetchFn, so the
+      // only call the probe makes is the plain-HTTP sibling.
+      const result = await checkAgentHealth('https://agent:9090', undefined, fetchFn, undefined, null);
+
+      expect(calls).toEqual(['http://agent:9090/health']);
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.reason).toBe('awaiting-enrollment');
+        expect(result.error).toBe(
+          'The agent is serving plain HTTP awaiting TLS enrollment, so the manager cannot verify it over https. Run Rotate TLS to enroll a replacement certificate.',
+        );
+      }
+    });
+
+    it('stays offline when no pin matches and nothing answers on plain HTTP', async () => {
+      const fetchFn = mock(async () => {
+        throw new Error('ECONNREFUSED');
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('https://agent:9090', undefined, fetchFn, undefined, null);
+
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.reason).toBe('offline');
+        expect(result.error).toContain('No pinned TLS certificate');
+      }
+    });
+
     it('returns healthy result when agent responds with 200', async () => {
       const fetchFn = mock(async () =>
         new Response(healthBody, { status: 200 })

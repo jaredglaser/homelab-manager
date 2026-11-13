@@ -90,7 +90,12 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       if (generation !== provisionGenerationRef.current) return
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setProvisionError(null)
-      showToast(`Host verified. The agent is served over ${result.agentUrl}.`, 'success')
+      showToast(
+        result.enrolledOverPlainHttp
+          ? `Host verified. The agent is served over ${result.agentUrl}. It had no certificate, so the new one was accepted on first use over plain HTTP.`
+          : `Host verified. The agent is served over ${result.agentUrl}.`,
+        result.enrolledOverPlainHttp ? 'warning' : 'success',
+      )
     },
     onError: (err: unknown) => {
       const generation = (err as { provisionGeneration?: number }).provisionGeneration ?? 0

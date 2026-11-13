@@ -9,7 +9,7 @@ import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
  * - unreachable: something answered HTTP but not a healthy agent (error status, redirect, non-JSON).
  * - unknown: the host is still 'pending' (never verified) and the probe failed.
  */
-export type AgentInventoryStatus = 'online' | 'offline' | 'unreachable' | 'unknown';
+export type AgentInventoryStatus = 'online' | 'offline' | 'unreachable' | 'awaiting-enrollment' | 'unknown';
 
 export type AgentVersionSource = 'live' | 'stored' | 'unknown';
 
@@ -50,6 +50,7 @@ function failureStatus(
   reason: AgentInventoryFailureReason | undefined,
 ): AgentInventoryStatus {
   if (hostStatus === 'pending') return 'unknown';
+  if (reason === 'awaiting-enrollment') return 'awaiting-enrollment';
   return reason === 'unreachable' ? 'unreachable' : 'offline';
 }
 

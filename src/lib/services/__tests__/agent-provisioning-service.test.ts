@@ -1,7 +1,11 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { provisionHostTls, isRestartConnectionLoss, toHttpsAgentUrl } from '../agent-provisioning-service';
+import { enrollmentPayload } from '../../crypto/agent-jwt';
 
 const CERT_PEM = '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----\n';
+const OLD_CERT_PEM = '-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n';
+const TEST_NONCE = 'test-nonce';
+const TEST_SIGNATURE = 'test-signature';
 
 interface FetchCall {
   url: string;
@@ -12,12 +16,18 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
+/** The GET /tls/challenge reply that opens every enrollment handshake. */
+function challengeResponse(nonce: string = TEST_NONCE): Response {
+  return jsonResponse({ nonce, expiresAt: Date.now() + 60_000 });
+}
+
 interface DepsOptions {
   fetchResponses?: Array<Response | Error>;
   healthResults?: Array<boolean>;
   resolveIp?: (hostname: string) => Promise<string | null>;
   caCertPem?: string | null;
   storeCertError?: Error;
+  signEnrollmentPayload?: (payload: string) => Promise<string>;
 }
 
 function makeDeps(options: DepsOptions = {}) {
@@ -51,8 +61,15 @@ function makeDeps(options: DepsOptions = {}) {
     stored.push([hostName, certPem]);
   });
 
+  // Detached-signature stub. The default is a constant so posted bodies stay easy to
+  // assert, and tests that pin the payload/signature wiring inject their own signer.
+  const signEnrollmentPayload = mock(
+    options.signEnrollmentPayload ?? (async (_payload: string) => TEST_SIGNATURE),
+  );
+
   const deps = {
     getSigner: mock(async () => 'JWT-TOKEN'),
+    signEnrollmentPayload,
     storeCert,
     checkHealth,
     fetchFn,
@@ -61,7 +78,7 @@ function makeDeps(options: DepsOptions = {}) {
     caCertPem: options.caCertPem,
   };
 
-  return { deps, fetchCalls, fetchFn, healthCalls, delays, stored, storeCert, checkHealth };
+  return { deps, fetchCalls, fetchFn, healthCalls, delays, stored, storeCert, checkHealth, signEnrollmentPayload };
 }
 
 function enrollResponse(): Response {
@@ -84,25 +101,28 @@ function restrictedModeRestartRejection(): Response {
 }
 
 describe('provisionHostTls', () => {
-  it('enrolls, stores the cert, survives the restart connection loss, and polls https before returning the https URL', async () => {
+  it('enrolls over https, stores the cert, survives the restart connection loss, and polls https before returning the https URL', async () => {
     const { deps, fetchCalls, healthCalls, stored, delays } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse(), new Error('Connection reset by peer')],
       healthResults: [false, true],
       resolveIp: async () => '192.168.1.10',
+      caCertPem: OLD_CERT_PEM,
     });
-    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
     expect(result.agentUrl).toBe('https://myhost.lan:9090');
     expect(result.certPem).toBe(CERT_PEM);
 
-    expect(fetchCalls[0].url).toBe('http://myhost.lan:9090/tls/enroll');
-    const enrollInit = fetchCalls[0].init as RequestInit & { body?: string };
+    expect(fetchCalls[0].url).toBe('https://myhost.lan:9090/tls/challenge');
+    expect(fetchCalls[1].url).toBe('https://myhost.lan:9090/tls/enroll');
+    const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
     expect(enrollInit.method).toBe('POST');
-    expect((enrollInit.headers as Record<string, string>).Authorization).toBe('Bearer ' + 'JWT-TOKEN');
     expect(JSON.parse(enrollInit.body ?? '{}')).toEqual({
       sans: ['myhost.lan', '192.168.1.10', 'localhost'],
+      nonce: TEST_NONCE,
+      signature: TEST_SIGNATURE,
     });
 
-    expect(fetchCalls[1].url).toBe('http://myhost.lan:9090/containers/hlm-agent/restart');
+    expect(fetchCalls[2].url).toBe('https://myhost.lan:9090/containers/hlm-agent/restart');
 
     expect(stored).toEqual([['myhost', CERT_PEM]]);
     expect(healthCalls).toEqual([
@@ -115,10 +135,11 @@ describe('provisionHostTls', () => {
   it('treats a restart timeout as success-unknown and keeps polling', async () => {
     const timeout = new DOMException('The operation timed out', 'TimeoutError');
     const { deps, healthCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), timeout],
+      fetchResponses: [challengeResponse(), enrollResponse(), timeout],
       healthResults: [true],
+      caCertPem: OLD_CERT_PEM,
     });
-    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
     expect(result.agentUrl).toBe('https://myhost.lan:9090');
     expect(healthCalls).toHaveLength(1);
   });
@@ -127,23 +148,26 @@ describe('provisionHostTls', () => {
     const closed = new DOMException('The connection was closed.', 'AbortError');
     const { deps, fetchCalls } = makeDeps({
       fetchResponses: [
-        enrollResponse(), closed, // rotation 1: enroll, restart (connection loss tolerated)
-        enrollResponse(), closed, // rotation 2 queues behind 1, then enroll, restart
+        challengeResponse(), enrollResponse(), closed, // rotation 1: challenge, enroll, restart (connection loss tolerated)
+        challengeResponse(), enrollResponse(), closed, // rotation 2 queues behind 1, then challenge, enroll, restart
       ],
       healthResults: [true, true],
+      caCertPem: OLD_CERT_PEM,
     });
     const [first, second] = await Promise.all([
-      provisionHostTls('myhost', 'http://myhost.lan:9090', deps),
-      provisionHostTls('myhost', 'http://myhost.lan:9090', deps),
+      provisionHostTls('myhost', 'https://myhost.lan:9090', deps),
+      provisionHostTls('myhost', 'https://myhost.lan:9090', deps),
     ]);
     expect(first.agentUrl).toBe('https://myhost.lan:9090');
     expect(second.agentUrl).toBe('https://myhost.lan:9090');
-    // Serialized order: enroll, restart, enroll, restart. Rotation 2's enroll never lands in rotation 1's restart window.
+    // Serialized order: challenge, enroll, restart, challenge, enroll, restart. Rotation 2's enroll never lands in rotation 1's restart window.
     expect(fetchCalls.map((c) => c.url)).toEqual([
-      'http://myhost.lan:9090/tls/enroll',
-      'http://myhost.lan:9090/containers/hlm-agent/restart',
-      'http://myhost.lan:9090/tls/enroll',
-      'http://myhost.lan:9090/containers/hlm-agent/restart',
+      'https://myhost.lan:9090/tls/challenge',
+      'https://myhost.lan:9090/tls/enroll',
+      'https://myhost.lan:9090/containers/hlm-agent/restart',
+      'https://myhost.lan:9090/tls/challenge',
+      'https://myhost.lan:9090/tls/enroll',
+      'https://myhost.lan:9090/containers/hlm-agent/restart',
     ]);
   });
 
@@ -152,42 +176,47 @@ describe('provisionHostTls', () => {
     // The older TimeoutError pattern does not catch it.
     const closed = new DOMException('The connection was closed.', 'AbortError');
     const { deps, healthCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), closed],
+      fetchResponses: [challengeResponse(), enrollResponse(), closed],
       healthResults: [true],
+      caCertPem: OLD_CERT_PEM,
     });
-    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
     expect(result.agentUrl).toBe('https://myhost.lan:9090');
     expect(healthCalls).toHaveLength(1);
   });
 
   it('skips the restart request when the agent reports a scheduled self-restart', async () => {
     const { deps, fetchCalls, stored } = makeDeps({
-      fetchResponses: [selfRestartEnrollResponse()],
+      fetchResponses: [challengeResponse(), selfRestartEnrollResponse()],
       healthResults: [true],
       resolveIp: async () => '192.168.1.10',
     });
     const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
     expect(result.agentUrl).toBe('https://myhost.lan:9090');
     // The agent restarts itself after enroll. The manager goes straight to the https poll.
-    expect(fetchCalls.map((c) => c.url)).toEqual(['http://myhost.lan:9090/tls/enroll']);
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      'http://myhost.lan:9090/tls/challenge',
+      'http://myhost.lan:9090/tls/enroll',
+    ]);
     expect(stored).toEqual([['myhost', CERT_PEM]]);
   });
 
   it('tolerates the restricted-mode 403 on the restart request and lets the https poll decide', async () => {
     // First-boot restricted gate: agent too old to self-restart, or Docker capability off.
     const { deps, fetchCalls, healthCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), restrictedModeRestartRejection()],
+      fetchResponses: [challengeResponse(), enrollResponse(), restrictedModeRestartRejection()],
       healthResults: [true],
+      caCertPem: OLD_CERT_PEM,
     });
-    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
     expect(result.agentUrl).toBe('https://myhost.lan:9090');
-    expect(fetchCalls).toHaveLength(2);
+    expect(fetchCalls).toHaveLength(3);
     expect(healthCalls).toHaveLength(1);
   });
 
   it('names the manual restart step in the poll-timeout error', async () => {
     const { deps, stored } = makeDeps({
-      fetchResponses: [enrollResponse(), restrictedModeRestartRejection()],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [false, false, false, false, false, false, false, false],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
@@ -198,7 +227,7 @@ describe('provisionHostTls', () => {
 
   it('fails with the actionable copy when the agent never becomes healthy over https', async () => {
     const { deps, stored } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('socket hang up')],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [false, false, false, false, false, false, false, false],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
@@ -209,7 +238,7 @@ describe('provisionHostTls', () => {
 
   it('stores the cert only after the first https probe succeeds', async () => {
     const { deps, stored, fetchCalls, healthCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('socket hang up')],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [true],
     });
     await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
@@ -219,13 +248,14 @@ describe('provisionHostTls', () => {
     expect(stored).toEqual([['myhost', CERT_PEM]]);
   });
 
-  it('bounds the enroll and restart fetches with abort signals', async () => {
+  it('bounds the challenge, enroll, and restart fetches with abort signals', async () => {
     const { deps, fetchCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse(), new Error('Connection reset by peer')],
       healthResults: [true],
+      caCertPem: OLD_CERT_PEM,
     });
-    await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
-    expect(fetchCalls).toHaveLength(2);
+    await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
+    expect(fetchCalls).toHaveLength(3);
     for (const call of fetchCalls) {
       expect(call.init.signal).toBeInstanceOf(AbortSignal);
     }
@@ -233,18 +263,18 @@ describe('provisionHostTls', () => {
 
   it('strips brackets from an IPv6 literal agent URL before building SANs', async () => {
     const { deps, fetchCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [true],
     });
     const result = await provisionHostTls('myhost', 'http://[2001:db8::1]:9090', deps);
     expect(result.agentUrl).toBe('https://[2001:db8::1]:9090');
-    const enrollInit = fetchCalls[0].init as RequestInit & { body?: string };
-    expect(JSON.parse(enrollInit.body ?? '{}')).toEqual({ sans: ['2001:db8::1', 'localhost'] });
+    const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
+    expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual(['2001:db8::1', 'localhost']);
   });
 
   it('wraps an enroll HTTP error with the agent-provided detail', async () => {
     const { deps, storeCert } = makeDeps({
-      fetchResponses: [jsonResponse({ error: 'Invalid SAN' }, 400)],
+      fetchResponses: [challengeResponse(), jsonResponse({ error: 'Invalid SAN' }, 400)],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
       /TLS enrollment failed: the agent rejected the certificate request \(Invalid SAN\)/,
@@ -252,12 +282,14 @@ describe('provisionHostTls', () => {
     expect(storeCert).not.toHaveBeenCalled();
   });
 
-  it('wraps an enroll network error', async () => {
+  it('reports the recovery steps when the enroll request itself cannot connect', async () => {
+    // The challenge answered, so this is not "unreachable": it lands on the
+    // bootstrap recovery copy, which is the one action that helps either way.
     const { deps } = makeDeps({
-      fetchResponses: [new Error('ECONNREFUSED')],
+      fetchResponses: [challengeResponse(), new Error('ECONNREFUSED')],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /TLS enrollment failed: the agent could not be reached/,
+      /no pinned certificate for host 'myhost', and the enrollment could not be completed on http:\/\/myhost\.lan:9090/,
     );
   });
 
@@ -267,14 +299,18 @@ describe('provisionHostTls', () => {
       fetchResponses: [
         connectError,
         connectError,
+        challengeResponse(),
         enrollResponse(),
         new DOMException('The connection was closed.', 'AbortError'),
       ],
       healthResults: [true],
+      caCertPem: OLD_CERT_PEM,
     });
-    const result = await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
     expect(result.agentUrl).toBe('https://myhost.lan:9090');
-    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(3);
+    // The whole two-request handshake is retried: two failed challenges, then one that enrolls.
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/challenge'))).toHaveLength(3);
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(1);
     // The first two delays are the enrollment backoffs. The trailing 500ms is the first https health poll.
     expect(delays.slice(0, 2)).toEqual([2000, 4000]);
     expect(healthCalls).toHaveLength(1);
@@ -286,6 +322,7 @@ describe('provisionHostTls', () => {
       fetchResponses: [
         connectError,
         connectError,
+        challengeResponse(),
         jsonResponse({ error: 'Unauthorized' }, 401),
       ],
     });
@@ -294,23 +331,25 @@ describe('provisionHostTls', () => {
     );
   });
 
-  it('reports a rotation-restart hint when enrollment retries are exhausted', async () => {
+  it('reports a rotation-restart hint when enrollment retries are exhausted on both schemes', async () => {
     const connectError = new Error('Unable to connect. Is the computer able to access the url?');
     const { deps, delays } = makeDeps({
-      fetchResponses: [connectError, connectError, connectError],
+      fetchResponses: [connectError, connectError, connectError, connectError, connectError, connectError],
+      caCertPem: CERT_PEM,
     });
-    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
-      /was unreachable after 3 attempts/,
+    await expect(provisionHostTls('myhost', 'https://myhost.lan:9090', deps)).rejects.toThrow(
+      /was unreachable on every scheme it could be reached on/,
     );
-    expect(delays).toEqual([2000, 4000]);
+    expect(delays).toEqual([2000, 4000, 2000, 4000]);
   });
 
   it('a failed rotation does not block the next one for the same host', async () => {
     const { deps, fetchCalls } = makeDeps({
       fetchResponses: [
+        challengeResponse(),
         jsonResponse({ error: 'Invalid SAN' }, 400),
+        challengeResponse(),
         enrollResponse(),
-        new Error('Connection reset by peer'),
       ],
       healthResults: [true],
     });
@@ -324,7 +363,7 @@ describe('provisionHostTls', () => {
 
   it('refuses to store or poll when the agent returns no usable certificate', async () => {
     const { deps, storeCert } = makeDeps({
-      fetchResponses: [jsonResponse({ certPem: 'not a pem' })],
+      fetchResponses: [challengeResponse(), jsonResponse({ certPem: 'not a pem' })],
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
       /the agent returned no usable certificate/,
@@ -334,9 +373,14 @@ describe('provisionHostTls', () => {
 
   it('fails on a restart transport error that is not connection loss', async () => {
     const { deps, checkHealth } = makeDeps({
-      fetchResponses: [enrollResponse(), Object.assign(new Error('permission denied'), { code: 'EACCES' })],
+      fetchResponses: [
+        challengeResponse(),
+        enrollResponse(),
+        Object.assign(new Error('permission denied'), { code: 'EACCES' }),
+      ],
+      caCertPem: OLD_CERT_PEM,
     });
-    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+    await expect(provisionHostTls('myhost', 'https://myhost.lan:9090', deps)).rejects.toThrow(
       /TLS restart failed: could not reach the agent to restart it \(permission denied\)/,
     );
     expect(checkHealth).not.toHaveBeenCalled();
@@ -344,16 +388,17 @@ describe('provisionHostTls', () => {
 
   it('surfaces a plain-text restart error body', async () => {
     const { deps } = makeDeps({
-      fetchResponses: [enrollResponse(), new Response('docker daemon down', { status: 500 })],
+      fetchResponses: [challengeResponse(), enrollResponse(), new Response('docker daemon down', { status: 500 })],
+      caCertPem: OLD_CERT_PEM,
     });
-    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+    await expect(provisionHostTls('myhost', 'https://myhost.lan:9090', deps)).rejects.toThrow(
       /TLS restart failed: the agent rejected the restart request \(docker daemon down\)/,
     );
   });
 
   it('wraps a storeCert failure', async () => {
     const { deps } = makeDeps({
-      fetchResponses: [enrollResponse()],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       storeCertError: new Error('db down'),
     });
     await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
@@ -363,9 +408,14 @@ describe('provisionHostTls', () => {
 
   it('fails with the agent-provided detail when the restart request answers an HTTP error', async () => {
     const { deps, checkHealth } = makeDeps({
-      fetchResponses: [enrollResponse(), jsonResponse({ error: 'Container not found: hlm-agent' }, 404)],
+      fetchResponses: [
+        challengeResponse(),
+        enrollResponse(),
+        jsonResponse({ error: 'Container not found: hlm-agent' }, 404),
+      ],
+      caCertPem: OLD_CERT_PEM,
     });
-    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+    await expect(provisionHostTls('myhost', 'https://myhost.lan:9090', deps)).rejects.toThrow(
       /TLS restart failed: the agent rejected the restart request \(Container not found: hlm-agent\)/,
     );
     expect(checkHealth).not.toHaveBeenCalled();
@@ -373,46 +423,74 @@ describe('provisionHostTls', () => {
 
   it('enrolls over https with the currently pinned cert during rotation', async () => {
     const { deps, fetchCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse(), new Error('Connection reset by peer')],
       healthResults: [true],
-      caCertPem: '-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n',
+      caCertPem: OLD_CERT_PEM,
     });
     await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
-    const enrollInit = fetchCalls[0].init as RequestInit & { tls?: { ca: string } };
+    const enrollInit = fetchCalls[1].init as RequestInit & { tls?: { ca: string } };
     expect(enrollInit.tls?.ca).toContain('OLD');
   });
 
   it('sends no TLS pin over the plain http enrollment channel', async () => {
     const { deps, fetchCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [true],
     });
     await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
-    const enrollInit = fetchCalls[0].init as RequestInit & { tls?: { ca: string } };
+    const enrollInit = fetchCalls[1].init as RequestInit & { tls?: { ca: string } };
     expect(enrollInit.tls).toBeUndefined();
+  });
+
+  it('bootstraps over the plain-HTTP sibling when the stored https URL holds no pin', async () => {
+    // The stored https URL cannot verify the agent it is meant to enrol, so the
+    // enrollment goes to the address the agent serves while it has no certificate.
+    const { deps, fetchCalls, stored } = makeDeps({
+      fetchResponses: [challengeResponse(), enrollResponse()],
+      healthResults: [true],
+      caCertPem: null,
+    });
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
+
+    expect(fetchCalls[0].url).toBe('http://myhost.lan:9090/tls/challenge');
+    expect(fetchCalls[1].url).toBe('http://myhost.lan:9090/tls/enroll');
+    expect((fetchCalls[1].init as RequestInit & { tls?: unknown }).tls).toBeUndefined();
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    expect(stored).toEqual([['myhost', CERT_PEM]]);
+  });
+
+  it('reports the recovery steps when no pin is held and nothing answers on plain HTTP', async () => {
+    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const { deps } = makeDeps({
+      fetchResponses: [connectError, connectError, connectError],
+      caCertPem: null,
+    });
+    await expect(provisionHostTls('myhost', 'https://myhost.lan:9090', deps)).rejects.toThrow(
+      /no pinned certificate for host 'myhost', and the enrollment could not be completed on http:\/\/myhost\.lan:9090/,
+    );
   });
 
   it('omits the IP SAN when resolution fails or rejects, keeping the poll healthy', async () => {
     for (const resolveIp of [async () => null, async () => { throw new Error('resolver down'); }]) {
       const { deps, fetchCalls } = makeDeps({
-        fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+        fetchResponses: [challengeResponse(), enrollResponse()],
         healthResults: [true],
         resolveIp,
       });
       await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
-      const enrollInit = fetchCalls[0].init as RequestInit & { body?: string };
-      expect(JSON.parse(enrollInit.body ?? '{}')).toEqual({ sans: ['myhost.lan', 'localhost'] });
+      const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
+      expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual(['myhost.lan', 'localhost']);
     }
   });
 
   it('uses the agent URL hostname itself as an IP SAN for an IP-literal URL', async () => {
     const { deps, fetchCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [true],
     });
     await provisionHostTls('myhost', 'http://192.168.1.10:9090', deps);
-    const enrollInit = fetchCalls[0].init as RequestInit & { body?: string };
-    expect(JSON.parse(enrollInit.body ?? '{}')).toEqual({ sans: ['192.168.1.10', 'localhost'] });
+    const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
+    expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual(['192.168.1.10', 'localhost']);
   });
 
   it('rejects agent URLs with unsupported schemes', async () => {
@@ -424,7 +502,7 @@ describe('provisionHostTls', () => {
 
   it('keeps a non-default port and strips a trailing slash on the https flip', async () => {
     const { deps } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [true],
     });
     const result = await provisionHostTls('myhost', 'http://myhost.lan:8443/', deps);
@@ -433,11 +511,11 @@ describe('provisionHostTls', () => {
 
   it('the default IP resolver resolves localhost', async () => {
     const { deps, fetchCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [true],
     });
     await provisionHostTls('myhost', 'http://localhost:9090', deps);
-    const enrollInit = fetchCalls[0].init as RequestInit & { body?: string };
+    const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
     const sans = JSON.parse(enrollInit.body ?? '{}').sans as string[];
     expect(sans).toContain('localhost');
     expect(sans.filter((san) => san === 'localhost')).toHaveLength(1);
@@ -445,16 +523,123 @@ describe('provisionHostTls', () => {
 
   it('the default IP resolver returns null for an unresolvable name', async () => {
     const { deps, fetchCalls } = makeDeps({
-      fetchResponses: [enrollResponse(), new Error('Connection reset by peer')],
+      fetchResponses: [challengeResponse(), enrollResponse()],
       healthResults: [true],
     });
     await provisionHostTls('myhost', 'http://host-that-does-not-resolve.invalid:9090', deps);
-    const enrollInit = fetchCalls[0].init as RequestInit & { body?: string };
+    const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
     expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual([
       'host-that-does-not-resolve.invalid',
       'localhost',
     ]);
   }, 20000);
+});
+
+describe('provisionHostTls enrollment handshake', () => {
+  it('pins the enrollment payload format the agent rebuilds', () => {
+    // Same fixture as the agent's copy of this test, so a change on either
+    // builder fails both suites instead of only failing at runtime.
+    expect(enrollmentPayload('nonce-1', 'agent-1.lan', ['agent-1.lan', '10.0.0.5', 'localhost'])).toBe(
+      'nonce-1\nagent-1.lan\nagent-1.lan,10.0.0.5,localhost',
+    );
+  });
+
+  it('sends no Authorization header on the enrollment handshake, but the restart over https carries the bearer', async () => {
+    // Plaintext enrollment: neither request may carry the bearer token.
+    const plain = makeDeps({
+      fetchResponses: [challengeResponse(), enrollResponse()],
+      healthResults: [true],
+    });
+    await provisionHostTls('myhost', 'http://myhost.lan:9090', plain.deps);
+    const plainEnroll = plain.fetchCalls.find((c) => c.url.endsWith('/tls/enroll'))!;
+    expect((plainEnroll.init.headers as Record<string, string>).Authorization).toBeUndefined();
+
+    // https rotation: the enrollment still carries no token, but the restart does.
+    const tls = makeDeps({
+      fetchResponses: [challengeResponse(), enrollResponse(), new Error('Connection reset by peer')],
+      healthResults: [true],
+      caCertPem: OLD_CERT_PEM,
+    });
+    await provisionHostTls('myhost', 'https://myhost.lan:9090', tls.deps);
+    const tlsEnroll = tls.fetchCalls.find((c) => c.url.endsWith('/tls/enroll'))!;
+    expect((tlsEnroll.init.headers as Record<string, string>).Authorization).toBeUndefined();
+    const restart = tls.fetchCalls.find((c) => c.url.endsWith('/containers/hlm-agent/restart'))!;
+    expect((restart.init.headers as Record<string, string>).Authorization).toBe('Bearer JWT-TOKEN');
+  });
+
+  it('signs the challenge nonce and posts the exact signature with the returned nonce', async () => {
+    let signedPayload: string | null = null;
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [challengeResponse('server-nonce-42'), enrollResponse()],
+      healthResults: [true],
+      resolveIp: async () => '10.0.0.5',
+      signEnrollmentPayload: async (payload) => {
+        signedPayload = payload;
+        return 'DETACHED-SIG';
+      },
+    });
+    await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+
+    const sans = ['myhost.lan', '10.0.0.5', 'localhost'];
+    const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
+    const body = JSON.parse(enrollInit.body ?? '{}');
+    expect(body.sans).toEqual(sans);
+    expect(body.nonce).toBe('server-nonce-42');
+    expect(signedPayload as string | null).toBe(enrollmentPayload('server-nonce-42', 'myhost', sans));
+    expect(body.signature).toBe('DETACHED-SIG');
+  });
+
+  it('does not send a restart request over a plaintext enrollment channel', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [challengeResponse(), enrollResponse()],
+      healthResults: [true],
+    });
+    await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      'http://myhost.lan:9090/tls/challenge',
+      'http://myhost.lan:9090/tls/enroll',
+    ]);
+  });
+
+  it('sends a restart request over an https rotation', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [challengeResponse(), enrollResponse(), new Error('Connection reset by peer')],
+      healthResults: [true],
+      caCertPem: OLD_CERT_PEM,
+    });
+    await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
+    expect(fetchCalls.map((c) => c.url)).toContain('https://myhost.lan:9090/containers/hlm-agent/restart');
+  });
+
+  it('reports the recovery steps and never enrolls when the challenge cannot be reached', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [new Error('boom')],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /no pinned certificate for host 'myhost', and the enrollment could not be completed on http:\/\/myhost\.lan:9090\. The agent is either not running, or serving HTTPS with a certificate the manager no longer holds\. If it is running, remove its certificate files on the host, restart it, then run Rotate TLS again\. See the agent TLS recovery steps in the self-hosting guide\./,
+    );
+    expect(fetchCalls.some((c) => c.url.endsWith('/tls/enroll'))).toBe(false);
+  });
+
+  it('fails with the challenge copy and never enrolls when the challenge is rejected', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [jsonResponse({ error: 'nope' }, 503)],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /TLS enrollment failed: the agent refused the enrollment challenge \(nope\)/,
+    );
+    expect(fetchCalls.some((c) => c.url.endsWith('/tls/enroll'))).toBe(false);
+  });
+
+  it('fails with the challenge copy and never enrolls when the challenge carries no nonce', async () => {
+    const { deps, fetchCalls } = makeDeps({
+      fetchResponses: [jsonResponse({ expiresAt: Date.now() + 1000 })],
+    });
+    await expect(provisionHostTls('myhost', 'http://myhost.lan:9090', deps)).rejects.toThrow(
+      /TLS enrollment failed: the agent returned no usable enrollment challenge/,
+    );
+    expect(fetchCalls.some((c) => c.url.endsWith('/tls/enroll'))).toBe(false);
+  });
 });
 
 describe('isRestartConnectionLoss', () => {

@@ -1,4 +1,5 @@
-import { agentFetch } from '@/lib/clients/agent-http';
+import { agentFetch, isTlsUrl, toPlainHttpUrl } from '@/lib/clients/agent-http';
+import { enrollmentPayload } from '@/lib/crypto/agent-jwt';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
 /** The compose healthcheck fetches https://localhost, so the cert must verify for it. */
@@ -22,10 +23,17 @@ export interface TlsProvisionResult {
   /** https agent URL to store on the host record. Flipped only after a successful https probe. */
   agentUrl: string;
   certPem: string;
+  /** True when the enrollment ran over plain HTTP, so the certificate was accepted on first use. */
+  enrolledOverPlainHttp: boolean;
 }
+
+/** A transport-level failure. It may mean the agent serves the other scheme, so it is worth trying. */
+class AgentChannelError extends Error {}
 
 export interface ProvisionHostTlsDeps {
   getSigner: () => Promise<string>;
+  /** Detached signature over the enrollment payload, which replaces the bearer token on the enrollment call. */
+  signEnrollmentPayload: (payload: string) => Promise<string>;
   storeCert: (hostName: string, certPem: string) => Promise<void>;
   checkHealth: (url: string, hostName: string, caCertPem: string | null) => Promise<HealthCheckOutcome>;
   fetchFn?: typeof fetch;
@@ -78,6 +86,11 @@ async function runProvisionHostTls(
     throw new Error(`Agent URL must use http or https, got '${parsed.protocol}'`);
   }
   const baseUrl = agentUrl.replace(/\/+$/, '');
+  const pin = deps.caCertPem ?? null;
+  // The stored URL is tried first, then its plain-HTTP sibling. An agent serving no certificate
+  // listens on that scheme, and a pin the manager no longer holds cannot reach either one, so
+  // whichever answers is the one that enrolls.
+  const enrollmentCandidates = parsed.protocol === 'https:' ? [baseUrl, toPlainHttpUrl(parsed)] : [baseUrl];
   // A URL like http://[::1]:9090 carries brackets in hostname. SANs take the bare literal.
   const hostname = parsed.hostname.replace(/^\[(.+)\]$/, '$1');
   const fetchFn = deps.fetchFn ?? fetch;
@@ -86,38 +99,26 @@ async function runProvisionHostTls(
   const ip = await resolveHostIp(hostname, deps.resolveIp ?? defaultResolveIp);
   const sans = buildSans(hostname, ip);
 
-  // A rotation restarts the agent for up to ~10s (docker stop + start), so an
-  // immediately following rotation can land inside that window and see the
-  // connection refused. Bound-retry the enrollment before giving up: the agent
-  // is very likely mid-restart, not gone.
-  const ENROLL_RETRIES = 2;
-  let enrolled: { certPem: string; selfRestartScheduled: boolean };
-  let retried = false;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      enrolled = await enrollCert(baseUrl, sans, deps, fetchFn);
-      break;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (attempt < ENROLL_RETRIES && /unable to connect/i.test(message)) {
-        retried = true;
-        await sleepFn(2000 + attempt * 2000);
-        continue;
-      }
-      // Only a connection failure gets the unreachable copy: a terminal HTTP
-      // rejection (e.g. Unauthorized) must reach the wizard's key-mismatch mapping.
-      if (retried && /unable to connect/i.test(message)) {
-        throw new Error(
-          'TLS enrollment failed: the agent was unreachable after 3 attempts. It may be restarting from a recent rotation. Retry in a few seconds.',
-        );
-      }
-      throw err;
-    }
+  const enrolled = await enrollAgainstCandidates(
+    enrollmentCandidates,
+    sans,
+    hostName,
+    deps,
+    fetchFn,
+    sleepFn,
+    pin !== null,
+  );
+  const enrolledOverPlainHttp = enrolled.baseUrl !== baseUrl;
+  if (enrolledOverPlainHttp) {
+    console.warn(
+      `[hosts] enrolled host '${hostName}' over plain HTTP: the agent served no certificate on ${baseUrl}, so the certificate it returned was accepted on first use.`,
+    );
   }
 
-  // A self-restarting agent needs no restart request. The restricted gate would 403 it on a first boot anyway.
-  if (!enrolled.selfRestartScheduled) {
-    await requestRestart(baseUrl, deps, fetchFn);
+  // A self-restarting agent needs no restart request, and the restricted gate would 403 it on a first
+  // boot anyway. Skipped entirely on a plaintext channel, which must never carry the bearer token.
+  if (!enrolled.selfRestartScheduled && isTlsUrl(enrolled.baseUrl)) {
+    await requestRestart(enrolled.baseUrl, deps, fetchFn);
   }
 
   const httpsUrl = toHttpsAgentUrl(parsed);
@@ -132,7 +133,7 @@ async function runProvisionHostTls(
       // new certificate, so a failed rotation never leaves the DB pin pointing
       // at a certificate the agent is not serving.
       await wrapFailure('the certificate could not be stored', () => deps.storeCert(hostName, certPem));
-      return { agentUrl: httpsUrl, certPem };
+      return { agentUrl: httpsUrl, certPem, enrolledOverPlainHttp };
     }
   }
 
@@ -156,21 +157,53 @@ function buildSans(hostname: string, ip: string | null): string[] {
   return sans;
 }
 
+/** No bearer token here: for a host with no certificate this runs over plain HTTP. */
+async function fetchChallenge(
+  baseUrl: string,
+  deps: ProvisionHostTlsDeps,
+  fetchFn: typeof fetch,
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await agentFetch(
+      `${baseUrl}/tls/challenge`,
+      { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(ENROLL_TIMEOUT_MS) },
+      { caCertPem: deps.caCertPem ?? null },
+      fetchFn,
+    );
+  } catch (err) {
+    throw new AgentChannelError(
+      `TLS enrollment failed: the agent could not be reached for a challenge (${err instanceof Error ? err.message : err}).`,
+    );
+  }
+  if (!response.ok) {
+    const detail = await readErrorBody(response);
+    throw new Error(`TLS enrollment failed: the agent refused the enrollment challenge (${detail}).`);
+  }
+  const body = (await response.json().catch(() => null)) as { nonce?: unknown } | null;
+  if (typeof body?.nonce !== 'string' || body.nonce === '') {
+    throw new Error('TLS enrollment failed: the agent returned no usable enrollment challenge.');
+  }
+  return body.nonce;
+}
+
 async function enrollCert(
   baseUrl: string,
   sans: string[],
+  hostName: string,
   deps: ProvisionHostTlsDeps,
   fetchFn: typeof fetch,
 ): Promise<{ certPem: string; selfRestartScheduled: boolean }> {
+  const nonce = await fetchChallenge(baseUrl, deps, fetchFn);
+  const signature = await deps.signEnrollmentPayload(enrollmentPayload(nonce, hostName, sans));
   let response: Response;
-  const jwt = await deps.getSigner();
   try {
     response = await agentFetch(
       `${baseUrl}/tls/enroll`,
       {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sans }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sans, nonce, signature }),
         redirect: 'manual',
         signal: AbortSignal.timeout(ENROLL_TIMEOUT_MS),
       },
@@ -178,7 +211,7 @@ async function enrollCert(
       fetchFn,
     );
   } catch (err) {
-    throw new Error(
+    throw new AgentChannelError(
       `TLS enrollment failed: the agent could not be reached (${err instanceof Error ? err.message : err}).`,
     );
   }
@@ -274,6 +307,56 @@ async function readErrorBody(response: Response): Promise<string> {
     // Body was not JSON. Keep the raw text.
   }
   return raw || `unexpected status ${response.status}`;
+}
+
+/**
+ * Enrolls on the first channel that answers. A host whose certificate was removed serves plain HTTP,
+ * so a connection-shaped failure on one candidate means the other scheme is worth trying.
+ */
+async function enrollAgainstCandidates(
+  candidates: string[],
+  sans: string[],
+  hostName: string,
+  deps: ProvisionHostTlsDeps,
+  fetchFn: typeof fetch,
+  sleepFn: (ms: number) => Promise<void>,
+  pinHeld: boolean,
+): Promise<{ certPem: string; selfRestartScheduled: boolean; baseUrl: string }> {
+  // A rotation restarts the agent for up to ~10s (docker stop + start), so an immediately following
+  // rotation can land inside that window and see the connection refused.
+  const ENROLL_RETRIES = 2;
+  for (const candidate of candidates) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const enrolled = await enrollCert(candidate, sans, hostName, deps, fetchFn);
+        return { ...enrolled, baseUrl: candidate };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (attempt < ENROLL_RETRIES && /unable to connect/i.test(message)) {
+          await sleepFn(2000 + attempt * 2000);
+          continue;
+        }
+        // A terminal HTTP rejection must reach the wizard's key-mismatch mapping rather than being
+        // retried against another scheme.
+        if (!(err instanceof AgentChannelError)) throw err;
+        break;
+      }
+    }
+  }
+  if (!pinHeld) {
+    throw new Error(missingPinRecovery(hostName, candidates[candidates.length - 1] ?? 'the agent'));
+  }
+  throw new Error(
+    'TLS enrollment failed: the agent was unreachable on every scheme it could be reached on. It may be restarting from a recent rotation. Retry in a few seconds.',
+  );
+}
+
+/** A missing pin is the one failure retrying cannot fix: the agent is either down or serving a certificate the manager no longer holds. */
+function missingPinRecovery(hostName: string, plainHttpUrl: string): string {
+  return `The manager has no pinned certificate for host '${hostName}', and the enrollment could not be completed on ${plainHttpUrl}. `
+    + 'The agent is either not running, or serving HTTPS with a certificate the manager no longer holds. '
+    + 'If it is running, remove its certificate files on the host, restart it, then run Rotate TLS again. '
+    + 'See the agent TLS recovery steps in the self-hosting guide.';
 }
 
 export function toHttpsAgentUrl(parsed: URL): string {

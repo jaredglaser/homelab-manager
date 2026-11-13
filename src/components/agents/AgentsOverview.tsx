@@ -38,6 +38,7 @@ const STATUS_BADGE: Record<AgentInventoryEntry['status'], { label: string; varia
   online: { label: 'Online', variant: 'success' },
   offline: { label: 'Offline', variant: 'destructive' },
   unreachable: { label: 'Unreachable', variant: 'warning' },
+  'awaiting-enrollment': { label: 'Awaiting enrollment', variant: 'warning' },
   unknown: { label: 'Unknown', variant: 'outline' },
 }
 

@@ -1,5 +1,5 @@
 import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
-import { agentFetch } from '@/lib/clients/agent-http';
+import { agentFetch, isMissingPinError, toPlainHttpUrl } from '@/lib/clients/agent-http';
 
 export interface AgentInfoDetail {
   version?: string;
@@ -10,8 +10,12 @@ export interface AgentInfoDetail {
   infoSupported?: boolean;
 }
 
-/** Why a health check failed. offline = nothing answered at the network level; unreachable = something answered but not a healthy agent. */
-export type AgentHealthFailureReason = 'offline' | 'unreachable';
+/**
+ * Why a health check failed. `offline` means nothing answered at the network level. `unreachable`
+ * means something answered but is not a healthy agent. `awaiting-enrollment` means the agent
+ * answered on plain HTTP because it holds no certificate, so no https pin can match it.
+ */
+export type AgentHealthFailureReason = 'offline' | 'unreachable' | 'awaiting-enrollment';
 
 export type AgentHealthResult =
   | ({ healthy: true } & AgentInfoDetail)
@@ -152,10 +156,44 @@ export async function checkAgentHealth(
       };
     }
 
+    if (isMissingPinError(err)) {
+      const restricted = await probePlainHttpAgent(agentUrl, timeoutMs, fetchFn);
+      if (restricted) {
+        return {
+          healthy: false,
+          reason: 'awaiting-enrollment',
+          error:
+            'The agent is serving plain HTTP awaiting TLS enrollment, so the manager cannot verify it over https. Run Rotate TLS to enroll a replacement certificate.',
+        };
+      }
+    }
+
     return {
       healthy: false,
       reason: 'offline',
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+/** A plain-HTTP /health body carrying a status field identifies the agent, whether it reports healthy or not. */
+async function probePlainHttpAgent(agentUrl: string, timeoutMs: number, fetchFn: typeof fetch): Promise<boolean> {
+  let plainHttpUrl: string;
+  try {
+    const parsed = new URL(agentUrl);
+    if (parsed.protocol !== 'https:') return false;
+    plainHttpUrl = toPlainHttpUrl(parsed);
+  } catch {
+    return false;
+  }
+  try {
+    const response = await fetchFn(`${plainHttpUrl}/health`, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body = (await response.json().catch(() => null)) as { status?: unknown } | null;
+    return typeof body?.status === 'string';
+  } catch {
+    return false;
   }
 }

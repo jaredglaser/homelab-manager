@@ -1,12 +1,10 @@
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { verifyPayloadSignature } from './jwt-auth';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const TLS_DIR_NAME = 'hlm-agent-tls';
-// Presence of this dot-file next to the certs separates a first boot before
-// enrollment (serve HTTP) from an enrolled host that lost its cert (fatal).
-export const ENROLL_MARKER_NAME = '.enrolled';
 
 const COMMON_NAME = 'hlm-agent-tls';
 const KEY_BITS = '2048';
@@ -40,29 +38,26 @@ const realSpawn: SpawnFn = (command, args) =>
     });
   });
 
-export function parseTlsHttpFallback(value: string | undefined): boolean {
-  if (value === undefined) return false;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  throw new Error(`Invalid HLM_TLS_HTTP_FALLBACK: '${value}'. Must be 'true' or 'false'.`);
-}
-
 export type TlsStartupDecision =
   | { mode: 'tls'; certPath: string; keyPath: string }
   | { mode: 'http'; warning?: string; /** TLS was configured but no certificate is being served: only the enrollment endpoints may be served over plain HTTP. */ restricted: boolean }
   | { mode: 'fatal'; error: string };
 
 /**
- * Paths an agent may serve while it is in restricted plain-HTTP mode (TLS
- * configured but no certificate yet). Everything else gets a 403, because
- * over plain HTTP the bearer-token auth is defeated by any network observer:
- * a sniffer can read and replay tokens, and deploy payloads carry resolved
- * secret values. Keeping the surface down to enrollment plus liveness means
- * the unencrypted window can only ever carry the enrollment handshake itself,
- * whose request body is a SAN list and whose response is the public
- * certificate - the private key is generated on the agent and never leaves it.
+ * Paths an agent may serve while it is in restricted plain-HTTP mode (no
+ * readable certificate). Everything else gets a 403, because over plain HTTP
+ * the bearer-token auth is defeated by any network observer: a sniffer can read
+ * and replay tokens, and deploy payloads carry resolved secret values. The
+ * enrollment handshake carries no reusable credential, since the manager signs a
+ * single-use nonce and the response is the public certificate. The private key
+ * is generated on the agent and never leaves it.
  */
-export const HTTP_ENROLLMENT_ALLOWED_PATHS: ReadonlySet<string> = new Set(['/health', '/auth/verify', '/tls/enroll']);
+export const HTTP_ENROLLMENT_ALLOWED_PATHS: ReadonlySet<string> = new Set([
+  '/health',
+  '/auth/verify',
+  '/tls/challenge',
+  '/tls/enroll',
+]);
 
 export function isAllowedOverPlainHttp(pathname: string): boolean {
   return HTTP_ENROLLMENT_ALLOWED_PATHS.has(pathname);
@@ -72,43 +67,27 @@ export function isAllowedOverPlainHttp(pathname: string): boolean {
 // from the actual allowlist when a path is added or renamed.
 export const HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT = [...HTTP_ENROLLMENT_ALLOWED_PATHS].join(', ');
 
-/** Missing cert plus no enrollment marker is a first boot served over HTTP with a warning. An enrolled host that lost its cert stays fatal, because silently serving HTTP under a pinned https URL breaks every connection unexplained. */
+/** A missing certificate must fall back to the restricted surface, since that is how the manager
+ *  enrolls one. Only a half-configured path pair is fatal. */
 export function resolveTlsStartup(
   certPath: string | undefined,
   keyPath: string | undefined,
-  fallback: boolean,
   isReadable: (path: string) => boolean,
-  isEnrolled: () => boolean,
 ): TlsStartupDecision {
   if (!certPath && !keyPath) return { mode: 'http', restricted: false };
   if (!certPath || !keyPath) {
     return {
       mode: 'fatal',
-      error: 'Both TLS_CERT_PATH and TLS_KEY_PATH must be set together. Only one was provided.',
+      error:
+        'Both TLS_CERT_PATH and TLS_KEY_PATH must be set together, and only one was provided. Set both on the agent service and restart it.',
     };
   }
   if (isReadable(certPath) && isReadable(keyPath)) return { mode: 'tls', certPath, keyPath };
-  const problem = `TLS certificate or key is missing or unreadable: '${certPath}' / '${keyPath}'`;
-  if (fallback) {
-    return {
-      mode: 'http',
-      restricted: true,
-      warning:
-        `${problem}. Serving HTTP because HLM_TLS_HTTP_FALLBACK=true. Manager-to-agent connections run without TLS until TLS provisioning succeeds.`,
-    };
-  }
-  if (!isEnrolled()) {
-    return {
-      mode: 'http',
-      restricted: true,
-      warning:
-        `${problem}. No enrollment marker found, so this is a first boot before TLS enrollment. Serving HTTP so the manager can enroll a certificate and restart the agent with TLS. If this host was enrolled before, its certificate was lost. Re-run TLS provisioning from the manager, or set HLM_TLS_HTTP_FALLBACK=true to keep serving HTTP.`,
-    };
-  }
   return {
-    mode: 'fatal',
-    error:
-      `${problem}. The agent was enrolled before but its certificate is gone, so it refuses to serve. Re-run TLS provisioning from the manager, or set HLM_TLS_HTTP_FALLBACK=true to serve HTTP without TLS.`,
+    mode: 'http',
+    restricted: true,
+    warning:
+      `TLS certificate or key is missing or unreadable: '${certPath}' / '${keyPath}'. Serving HTTP so the manager can enroll a certificate, with the API restricted to the enrollment endpoints until one is enrolled.`,
   };
 }
 
@@ -167,38 +146,94 @@ export function buildSubjectAltName(sans: string[]): string {
   return sans.map((san) => (isIpLiteral(san) ? `IP:${normalizeIpLiteral(san)}` : `DNS:${san}`)).join(',');
 }
 
-export function enrollMarkerPath(stacksDir: string): string {
-  return join(stacksDir, TLS_DIR_NAME, ENROLL_MARKER_NAME);
+const CHALLENGE_TTL_MS = 60_000;
+/** Issued nonces are not stored, so an unauthenticated caller cannot exhaust or evict a pending one. */
+const challengeSecret = randomBytes(32);
+const MAX_USED_NONCES = 256;
+const usedNonces = new Map<string, number>();
+
+/** The MAC binds the nonce to this process, and its timestamp bounds how long a capture is replayable. */
+export function issueChallenge(now = Date.now()): { nonce: string; expiresAt: number } {
+  const body = `${now}.${randomBytes(16).toString('hex')}`;
+  const mac = createHmac('sha256', challengeSecret).update(body).digest('base64url');
+  return { nonce: `${body}.${mac}`, expiresAt: now + CHALLENGE_TTL_MS };
+}
+
+export function isFreshChallenge(nonce: string, now = Date.now()): boolean {
+  const parts = nonce.split('.');
+  if (parts.length !== 3) return false;
+  const [issuedAtRaw, random, mac] = parts as [string, string, string];
+  const issuedAt = Number(issuedAtRaw);
+  if (!Number.isFinite(issuedAt)) return false;
+  const expected = createHmac('sha256', challengeSecret).update(`${issuedAtRaw}.${random}`).digest('base64url');
+  const given = Buffer.from(mac);
+  const wanted = Buffer.from(expected);
+  if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) return false;
+  return now - issuedAt <= CHALLENGE_TTL_MS && issuedAt <= now + CHALLENGE_TTL_MS;
+}
+
+/** Recorded only after a signature verifies, so the map can only grow through legitimate enrollments. */
+function recordUsedNonce(nonce: string, now = Date.now()): boolean {
+  for (const [seen, expiresAt] of usedNonces) {
+    if (expiresAt <= now) usedNonces.delete(seen);
+  }
+  if (usedNonces.has(nonce)) return false;
+  while (usedNonces.size >= MAX_USED_NONCES) {
+    const oldest = usedNonces.keys().next().value;
+    if (oldest === undefined) break;
+    usedNonces.delete(oldest);
+  }
+  usedNonces.set(nonce, now + CHALLENGE_TTL_MS);
+  return true;
+}
+
+export function handleTlsChallenge(): Response {
+  return Response.json(issueChallenge());
+}
+
+/** Both sides build this from the same three inputs, and each pins the exact string in a test so the two cannot drift. */
+export function enrollmentPayload(nonce: string, hostName: string, sans: readonly string[]): string {
+  return `${nonce}\n${hostName}\n${sans.join(',')}`;
+}
+
+interface EnrollmentProof {
+  nonce: string;
+  signature: string;
+}
+
+function parseEnrollmentProof(body: unknown): EnrollmentProof {
+  const raw = body as { nonce?: unknown; signature?: unknown } | null;
+  if (typeof raw?.nonce !== 'string' || raw.nonce.trim() === '') {
+    throw new TlsEnrollError('The enroll request requires the nonce from a challenge');
+  }
+  if (typeof raw.signature !== 'string' || raw.signature.trim() === '') {
+    throw new TlsEnrollError('The enroll request requires a signature over the challenge payload');
+  }
+  return { nonce: raw.nonce.trim(), signature: raw.signature.trim() };
 }
 
 // One enroll at a time: concurrent enrolls could otherwise rename a mismatched
 // key and cert pair into place.
 let enrollChain: Promise<unknown> = Promise.resolve();
 
-/**
- * Callback scheduled after the certificate and enrollment marker are in place.
- * Returns whether a restart was actually scheduled, which the response reports
- * as `selfRestartScheduled` so the manager can skip its own restart request.
- * Must not throw: a throwing callback would turn a successful enrollment into
- * a 500 and make provisioning retry an enroll that already replaced the cert.
- */
-export function handleTlsEnroll(
-  request: Request,
-  stacksDir: string,
-  spawnFn: SpawnFn = realSpawn,
-  scheduleRestart?: () => boolean,
-): Promise<Response> {
-  const result = enrollChain.then(() => enroll(request, stacksDir, spawnFn, scheduleRestart));
+/** Scheduled only once the files are in place, and must not throw: either would misreport a
+ *  successful enrollment, as a raced restart or as a 500. */
+export interface TlsEnrollOptions {
+  stacksDir: string;
+  trustedPublicKey: CryptoKey;
+  hostName: string;
+  spawnFn?: SpawnFn;
+  scheduleRestart?: () => boolean;
+}
+
+export function handleTlsEnroll(request: Request, options: TlsEnrollOptions): Promise<Response> {
+  const result = enrollChain.then(() => enroll(request, options));
   enrollChain = result.catch(() => undefined);
   return result;
 }
 
-async function enroll(
-  request: Request,
-  stacksDir: string,
-  spawnFn: SpawnFn,
-  scheduleRestart?: () => boolean,
-): Promise<Response> {
+async function enroll(request: Request, options: TlsEnrollOptions): Promise<Response> {
+  const { stacksDir, trustedPublicKey, hostName, spawnFn = realSpawn, scheduleRestart } = options;
   let body: unknown;
   try {
     body = await request.json();
@@ -207,10 +242,28 @@ async function enroll(
   }
 
   let sans: string[];
+  let proof: EnrollmentProof;
   try {
     sans = parseAndValidateSans(body);
+    proof = parseEnrollmentProof(body);
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : 'Invalid enroll request' }, { status: 400 });
+  }
+
+  if (!isFreshChallenge(proof.nonce)) {
+    return Response.json({ error: 'The enrollment challenge is unknown or has expired.' }, { status: 401 });
+  }
+  // The submitted list is signed verbatim, before validation normalizes it.
+  const submittedSans = (body as { sans: string[] }).sans;
+  const payload = enrollmentPayload(proof.nonce, hostName, submittedSans);
+  if (!(await verifyPayloadSignature(payload, proof.signature, trustedPublicKey))) {
+    return Response.json(
+      { error: `The enroll request signature does not verify for host '${hostName}'.` },
+      { status: 401 },
+    );
+  }
+  if (!recordUsedNonce(proof.nonce)) {
+    return Response.json({ error: 'This enrollment request has already been used.' }, { status: 401 });
   }
 
   const tlsDir = join(stacksDir, TLS_DIR_NAME);
@@ -282,7 +335,6 @@ async function enroll(
     chmodSync(stagedCertPath, 0o600);
     renameSync(stagedKeyPath, keyPath);
     renameSync(stagedCertPath, certPath);
-    writeFileSync(enrollMarkerPath(stacksDir), new Date().toISOString());
   } catch (err) {
     removeQuietly(stagedKeyPath);
     removeQuietly(stagedCertPath);

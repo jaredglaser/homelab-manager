@@ -328,7 +328,7 @@ describe('handleRotateHostTls', () => {
     const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7 });
     expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090');
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
-    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false });
   });
 
   it('provisions against an explicit agentUrl override and persists only the flipped https URL', async () => {
@@ -340,7 +340,7 @@ describe('handleRotateHostTls', () => {
     const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7, agentUrl: 'http://candidate:9090' });
     expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090');
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
-    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false });
   });
 
   it('never writes the row when provisioning with an agentUrl override fails', async () => {

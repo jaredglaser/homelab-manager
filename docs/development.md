@@ -320,40 +320,37 @@ bun run build           # Production build (runs typecheck first)
 
 ## TLS Setup (Agent Communication)
 
-The manager provisions a per-host self-signed certificate automatically: it asks
-the agent to generate a keypair (`POST /tls/enroll`), pins the returned public
-certificate as the trust anchor for that host, and rewrites the host's agent URL
-to https. The wizard-generated agent stack sets `TLS_CERT_PATH` and
+The manager provisions a per-host self-signed certificate automatically. It asks
+for a single-use nonce (`GET /tls/challenge`), signs that nonce together with the
+host name and the SAN list using the host key, and posts the signature to
+`POST /tls/enroll`, where the agent verifies it against its trusted public key and
+generates the keypair itself. The manager pins the returned public certificate as
+the trust anchor for that host and rewrites the host's agent URL to https. The
+handshake carries no bearer token, because for a host with no certificate it runs
+over plain HTTP, where a token would be readable and replayable by any observer. The wizard-generated agent stack sets `TLS_CERT_PATH` and
 `TLS_KEY_PATH` to the certificate files under the stacks mount, and the agent
 serves HTTPS with them. Re-run TLS provisioning from the Managed Hosts card to
 rotate a certificate.
 
-Before its first enrollment the agent serves plain HTTP with a warning in its
-logs (tracked by an `.enrolled` marker next to the certificate files), so the
-manager can reach it to enroll a certificate. In that state the plain-HTTP
-surface is restricted to `/health`, `/auth/verify` and `/tls/enroll`, and
-every other endpoint is refused (`403` for an authenticated request, `401`
-otherwise), because over plaintext the bearer-token auth is defeated by any
-network observer. After enrollment a missing or unreadable
-certificate or key file is fatal: the agent refuses to start.
+Without a readable certificate the agent serves plain HTTP with a warning in its
+logs, so the manager can reach it to enroll one. In that state the plain-HTTP
+surface is restricted to `/health`, `/auth/verify`, `/tls/challenge` and
+`/tls/enroll`, and every other endpoint is refused (`403` for an authenticated
+request, `401` otherwise), because over plaintext the bearer-token auth is
+defeated by any network observer. An agent with no readable certificate serves that surface
+whether it is a first boot or a host whose certificates were removed, so the
+manager can enroll a replacement. A half-configured pair, one of
+`TLS_CERT_PATH`/`TLS_KEY_PATH` without the other, stops the agent at startup.
 
 Agents with no `TLS_CERT_PATH`/`TLS_KEY_PATH` at all keep the full API over
 plain HTTP, which is the intentional development setup (the dev compose does
 not set the TLS paths), and the worker only talks to such agents when
 `WORKER_ALLOW_INSECURE_AGENTS=true`, which `docker-compose.local.yml` sets.
 
-`HLM_TLS_HTTP_FALLBACK` (agent container): set it to `true` to serve plain HTTP
-instead of refusing to start, with a warning in the agent logs. The value must
-be exactly `true` or `false`. Anything else stops the agent at startup. The
-plain-HTTP surface stays restricted to the enrollment endpoints in this mode
-too, so a forgotten fallback flag cannot quietly reopen the full API over
-plaintext.
-
 If the manager loses its pinned certificate record, enrollment over the existing
 https URL cannot succeed, because the manager cannot verify the agent it is
 enrolling with. The recovery steps are in the Self-Hosting Guide:
 [Agent TLS recovery](../self-hosting/README.md#agent-tls-recovery-the-manager-lost-its-pinned-certificate).
-
 ## Editor Setup (Zed)
 
 MCP servers are the one piece Zed configures at the user level (`~/.config/zed/settings.json`) rather than per project. To match the repo's Playwright MCP setup (`.mcp.json`, used by Claude Code. Note that the file is gitignored and not committed, so it may not exist in a fresh clone), add:
