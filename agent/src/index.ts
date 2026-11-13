@@ -12,7 +12,7 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
-import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, resolveTlsStartup } from './lib/tls-enroll';
+import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, resolveTlsStartup, tlsErrorBody } from './lib/tls-enroll';
 import { certificateFingerprint } from './lib/cert-fingerprint';
 import { scheduleSelfRestart } from './lib/self-restart';
 
@@ -256,10 +256,10 @@ Bun.serve<ExecWebSocketData>({
       // cannot expose stats, container control, stack deploys or exec.
       if (tlsDecision.mode === 'http' && tlsDecision.restricted && !isAllowedOverPlainHttp(url.pathname)) {
         return Response.json(
-          {
-            error:
-              `Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only ${HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT} are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.`,
-          },
+          tlsErrorBody(
+            'restricted_plain_http',
+            `Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only ${HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT} are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.`,
+          ),
           { status: 403 },
         );
       }
@@ -281,7 +281,7 @@ Bun.serve<ExecWebSocketData>({
       return (await matchRoute(request, url)) ?? new Response('Not Found', { status: 404 });
     } catch (error) {
       console.error('Unhandled error in request handler:', error);
-      return Response.json({ error: 'Internal server error' }, { status: 500 });
+      return Response.json(tlsErrorBody('internal_error', 'Internal server error'), { status: 500 });
     }
   },
 });

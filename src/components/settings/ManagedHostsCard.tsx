@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import type { HostListItem } from '@/lib/hosts/host-utils'
+import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import { DEFAULT_AGENT_IMAGE_TAG, getAgentImage, getAgentImageTag } from '@/lib/hosts/host-utils'
 import HostRow from '@/components/settings/HostRow'
 import { KeypairDialog } from '@/components/settings/KeypairDialog'
@@ -15,7 +16,7 @@ export interface ManagedHostsCardProps {
   isCreating: boolean
   isProvisioning: boolean
   createError: string | null
-  provisionError: string | null
+  provisionError: TlsFailureGuidance | null
   pendingHost: { id: number; name: string; status: string; publicJwk: unknown } | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
@@ -32,6 +33,8 @@ export interface ManagedHostsCardProps {
   onRotateKeypair: (hostId: number) => void
   keypairRotating: boolean
   keypairJwkJson: string | null
+  /** Absent when the host has no pinned certificate to fingerprint. */
+  keypairFingerprint?: string | null
   onRotateTls: (hostId: number) => void
   rotatingTlsHostIds: Set<number>
 }
@@ -151,6 +154,7 @@ export function ManagedHostsCardView({
   onRotateKeypair,
   keypairRotating,
   keypairJwkJson,
+  keypairFingerprint,
   onRotateTls,
   rotatingTlsHostIds,
 }: Readonly<ManagedHostsCardProps>) {
@@ -253,6 +257,7 @@ export function ManagedHostsCardView({
         open={keypairTarget !== null}
         host={keypairTarget}
         publicJwkJson={keypairJwkJson}
+        fingerprint={keypairFingerprint}
         isLoading={keypairLoading}
         isRotating={keypairRotating}
         onView={onViewKeypair}

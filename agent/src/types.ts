@@ -42,6 +42,49 @@ export interface AgentHealthCheckResponse {
   status: 'healthy' | 'unhealthy';
 }
 
+/**
+ * Why a TLS enrollment call failed. The agent reports these in its JSON error bodies and the manager
+ * raises the rest itself, so the UI maps a failure to its fix instead of matching on prose. Codes stay
+ * granular because the code branches on them; the copy they map to may collapse several onto one
+ * message when the operator's next step is the same.
+ */
+export const TLS_FAILURE_CODES = [
+  // Reported by the agent over the wire.
+  'not_configured_for_tls',
+  'invalid_request',
+  'challenge_expired',
+  'signature_invalid',
+  'challenge_reused',
+  'key_generation_failed',
+  'key_write_failed',
+  'cert_sign_failed',
+  'cert_write_failed',
+  'restricted_plain_http',
+  'internal_error',
+  // Raised by the manager, either before the agent is called or after it answers.
+  'pin_missing',
+  'agent_unreachable',
+  'plaintext_confirmation_required',
+  'no_cert_returned',
+  'store_failed',
+  'restart_unavailable',
+  'poll_timeout',
+  'no_keypair',
+  'unexpected_agent_response',
+] as const;
+export type TlsFailureCode = (typeof TLS_FAILURE_CODES)[number];
+
+/** Narrows a code an agent sent, so a code this manager does not know degrades instead of crashing. */
+export function isTlsFailureCode(value: unknown): value is TlsFailureCode {
+  return typeof value === 'string' && (TLS_FAILURE_CODES as readonly string[]).includes(value);
+}
+
+/** The agent's JSON error shape wherever it reports a TLS failure: a human message plus the reason. */
+export interface AgentErrorBody {
+  error: string;
+  code: TlsFailureCode;
+}
+
 export interface AgentDockerCapability {
   available: boolean;
   version?: string;

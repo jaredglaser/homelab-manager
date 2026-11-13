@@ -28,6 +28,7 @@ function makeProps(overrides?: Partial<Parameters<typeof KeypairDialog>[0]>) {
     open: true,
     host: makeHost(),
     publicJwkJson: OLD_JWK,
+    fingerprint: null,
     isLoading: false,
     isRotating: false,
     onView: mock(() => {}),
@@ -38,6 +39,16 @@ function makeProps(overrides?: Partial<Parameters<typeof KeypairDialog>[0]>) {
 }
 
 describe('KeypairDialog', () => {
+  it('shows the pinned fingerprint so it can be compared with the agent log', () => {
+    render(<KeypairDialog {...makeProps({ fingerprint: 'AB:CD:EF' })} />)
+    expect(screen.getByTestId('host-fingerprint-display').textContent).toBe('AB:CD:EF')
+  })
+
+  it('omits the fingerprint when the host has no pinned certificate', () => {
+    render(<KeypairDialog {...makeProps({ fingerprint: null })} />)
+    expect(screen.queryByTestId('host-fingerprint-display')).toBeNull()
+  })
+
   it('requires two clicks to rotate', () => {
     const onRotate = mock(() => {})
     render(<KeypairDialog {...makeProps({ onRotate })} />)

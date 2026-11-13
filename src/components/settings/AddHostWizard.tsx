@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
+import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import { Spinner } from '@/components/ui/spinner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Stepper } from '@/components/ui/stepper'
@@ -24,7 +25,7 @@ interface AddHostWizardProps {
   isCreating: boolean
   isProvisioning: boolean
   createError: string | null
-  provisionError: string | null
+  provisionError: TlsFailureGuidance | null
   pendingHost: PendingHostState | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
