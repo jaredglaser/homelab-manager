@@ -65,7 +65,7 @@ const TLS_FAILURE_COPY: Record<TlsFailureCode, TlsFailureCopy> = {
   cert_write_failed: CERT_CREATION_FAILED,
   restricted_plain_http: {
     headline: 'The agent is serving plain HTTP with its API restricted until a certificate is enrolled.',
-    fix: 'Run Rotate TLS from this host to enroll one.',
+    fix: 'Enroll a certificate for this host from its row in the Managed Hosts card.',
     retryUseless: false,
     includeDetail: false,
   },
@@ -77,7 +77,7 @@ const TLS_FAILURE_COPY: Record<TlsFailureCode, TlsFailureCopy> = {
   },
   pin_missing: {
     headline: 'The manager has no pinned certificate for this host, and the enrollment could not be completed.',
-    fix: 'If the agent is running, remove its certificate files on the agent host, restart it, then run Rotate TLS again.',
+    fix: 'If the agent is running, remove its certificate files on the agent host, restart it, then enroll a certificate for this host from its row in the Managed Hosts card.',
     docAnchor: 'agent-tls-recovery-the-manager-lost-it',
     retryUseless: true,
     includeDetail: false,
@@ -98,7 +98,7 @@ const TLS_FAILURE_COPY: Record<TlsFailureCode, TlsFailureCopy> = {
   },
   plaintext_confirmation_required: {
     headline: 'This agent is serving plain HTTP, so the certificate it presents would be accepted on first use.',
-    fix: 'Press Rotate TLS again to confirm, then compare the fingerprint it reports with the one the agent prints at startup (docker logs hlm-agent).',
+    fix: 'Confirm the enrollment to continue, then compare the fingerprint it reports with the one the agent prints at startup (docker logs hlm-agent).',
     retryUseless: false,
     includeDetail: false,
   },
@@ -142,6 +142,8 @@ const TLS_FAILURE_COPY: Record<TlsFailureCode, TlsFailureCopy> = {
 
 export interface TlsFailureGuidance {
   message: string;
+  /** True when running the same operation again cannot change the outcome. */
+  retryUseless: boolean;
   /** Runbook anchor to link, when the fix needs more explanation than the message carries. */
   docAnchor?: string;
 }
@@ -152,19 +154,19 @@ export function tlsFailureCopy(code: TlsFailureCode): TlsFailureCopy {
 
 /** The message with the link it should carry, so a caller cannot render one without the other. */
 export function tlsFailureGuidance(code: TlsFailureCode, detail?: string): TlsFailureGuidance {
-  const { docAnchor } = TLS_FAILURE_COPY[code];
+  const { docAnchor, retryUseless } = TLS_FAILURE_COPY[code];
   const message = tlsFailureMessage(code, detail);
-  return docAnchor ? { message, docAnchor } : { message };
+  return docAnchor ? { message, retryUseless, docAnchor } : { message, retryUseless };
 }
 
 /**
- * The sentence the operator reads for a failure. The retry hint is added only when retrying can
- * actually change the outcome, which is what keeps it from being advice that wastes a minute.
+ * The sentence the operator reads for a failure. It deliberately names no control: the mapper knows
+ * whether retrying can help, and the surface knows which button it actually offers. A hint appended
+ * here reached a toast that had no such button.
  */
 export function tlsFailureMessage(code: TlsFailureCode, detail?: string): string {
   const copy = TLS_FAILURE_COPY[code];
   const parts = [copy.headline, copy.fix];
   if (copy.includeDetail && detail) parts.push(detail);
-  const message = parts.join(' ');
-  return copy.retryUseless ? message : `${message} Use Re-run provisioning below to try again.`;
+  return parts.join(' ');
 }

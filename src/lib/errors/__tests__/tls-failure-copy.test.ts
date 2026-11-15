@@ -10,7 +10,7 @@ describe('tlsFailureCopy', () => {
     }
   });
 
-  it('withholds the re-run hint when retrying cannot change the outcome', () => {
+  it('flags which failures retrying cannot fix, for the surface to act on', () => {
     const retryUseless = [
       'pin_missing',
       'cert_unverifiable',
@@ -21,10 +21,16 @@ describe('tlsFailureCopy', () => {
       'invalid_request',
     ] as const;
     for (const code of retryUseless) {
-      expect(tlsFailureCopy(code).retryUseless).toBe(true);
-      expect(tlsFailureMessage(code)).not.toContain('Use Re-run provisioning');
+      expect(tlsFailureGuidance(code).retryUseless).toBe(true);
     }
-    expect(tlsFailureMessage('poll_timeout')).toContain('Use Re-run provisioning');
+    expect(tlsFailureGuidance('poll_timeout').retryUseless).toBe(false);
+  });
+
+  it('never appends a retry hint, because only the surface knows which control it offers', () => {
+    // This is the shipped defect: the hint said "below" on a toast that had no button below it.
+    for (const code of TLS_FAILURE_CODES) {
+      expect(tlsFailureMessage(code)).not.toMatch(/to try again/i);
+    }
   });
 
   it('carries the runbook anchor only where the message cannot carry the whole fix', () => {
