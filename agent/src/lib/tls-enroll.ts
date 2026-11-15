@@ -187,8 +187,8 @@ function recordUsedNonce(nonce: string, now = Date.now()): boolean {
   return true;
 }
 
-export function handleTlsChallenge(): Response {
-  return Response.json(issueChallenge());
+export function handleTlsChallenge(tlsConfigured: boolean): Response {
+  return Response.json({ ...issueChallenge(), tlsConfigured });
 }
 
 /** Both sides build this from the same three inputs, and each pins the exact string in a test so the two cannot drift. */
@@ -222,6 +222,8 @@ export interface TlsEnrollOptions {
   stacksDir: string;
   trustedPublicKey: CryptoKey;
   hostName: string;
+  /** False when neither TLS path is set, in which case this agent can never serve the certificate. */
+  tlsConfigured: boolean;
   spawnFn?: SpawnFn;
   scheduleRestart?: () => boolean;
 }
@@ -233,7 +235,19 @@ export function handleTlsEnroll(request: Request, options: TlsEnrollOptions): Pr
 }
 
 async function enroll(request: Request, options: TlsEnrollOptions): Promise<Response> {
-  const { stacksDir, trustedPublicKey, hostName, spawnFn = realSpawn, scheduleRestart } = options;
+  const { stacksDir, trustedPublicKey, hostName, spawnFn = realSpawn, scheduleRestart, tlsConfigured } = options;
+  // Writing a certificate this agent would never read is worse than refusing: the manager would then
+  // poll HTTPS against a listener that does not exist until it gave up.
+  if (!tlsConfigured) {
+    return Response.json(
+      {
+        error:
+          'This agent has no TLS configured (TLS_CERT_PATH and TLS_KEY_PATH are unset), so it cannot serve HTTPS. '
+            + 'Set both on the agent service and restart it.',
+      },
+      { status: 409 },
+    );
+  }
   let body: unknown;
   try {
     body = await request.json();

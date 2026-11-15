@@ -65,7 +65,7 @@ beforeAll(async () => {
 });
 
 function enrollOptions(stacksDir: string, extra: Partial<TlsEnrollOptions> = {}): TlsEnrollOptions {
-  return { stacksDir, trustedPublicKey, hostName: HOST_NAME, ...extra };
+  return { stacksDir, trustedPublicKey, hostName: HOST_NAME, tlsConfigured: true, ...extra };
 }
 
 /**
@@ -161,11 +161,16 @@ describe('tls-enroll', () => {
 
   describe('handleTlsChallenge', () => {
     it('issues a nonce with a future expiry', async () => {
-      const response = handleTlsChallenge();
+      const response = handleTlsChallenge(true);
       const body = (await response.json()) as { nonce: string; expiresAt: number };
       expect(typeof body.nonce).toBe('string');
       expect(body.nonce.length).toBeGreaterThan(0);
       expect(body.expiresAt).toBeGreaterThan(Date.now());
+    });
+
+    it('reports whether this agent can serve TLS at all', async () => {
+      expect(((await handleTlsChallenge(true).json()) as { tlsConfigured: boolean }).tlsConfigured).toBe(true);
+      expect(((await handleTlsChallenge(false).json()) as { tlsConfigured: boolean }).tlsConfigured).toBe(false);
     });
   });
 
@@ -400,6 +405,17 @@ describe('tls-enroll', () => {
   });
 
   describe('handleTlsEnroll enrollment proof', () => {
+    it('refuses to enroll when this agent has no TLS configured', async () => {
+      const body = await signedBody(['myhost.lan']);
+      const response = await handleTlsEnroll(
+        enrollRequest(body),
+        enrollOptions('/tmp', { tlsConfigured: false }),
+      );
+      expect(response.status).toBe(409);
+      const json = (await response.json()) as { error: string };
+      expect(json.error).toContain('no TLS configured');
+    });
+
     it('returns 400 when the nonce and signature are missing', async () => {
       const missing = await handleTlsEnroll(enrollRequest({ sans: ['myhost.lan'] }), enrollOptions('/tmp'));
       expect(missing.status).toBe(400);

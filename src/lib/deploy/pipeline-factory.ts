@@ -1,4 +1,5 @@
 import type { DeployPipeline, StackRepoWriter } from '@/lib/deploy/pipeline';
+import { missingAgentKeypairMessage } from '@/lib/errors/agent-messages';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import { StackSecretsResolver } from '@/lib/deploy/secret-resolver';
 
@@ -72,7 +73,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     tokenResolver: async (host) => {
       const privateKey = await agentKeypairs.getPrivateKeyForHost(host.name);
       if (!privateKey) {
-        throw new Error(`No agent keypair found for host "${host.name}". Re-enroll the agent.`);
+        throw new Error(missingAgentKeypairMessage(host.name));
       }
       return () => signAgentJwt(privateKey, host.name);
     },
