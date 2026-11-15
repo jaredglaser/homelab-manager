@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { provisionHostTls, isRestartConnectionLoss, toHttpsAgentUrl, TlsProvisionFailure } from '../agent-provisioning-service';
+import { provisionHostTls, isRestartConnectionLoss, isServedCertUnverifiable, isTransientEnrollmentFailure, toHttpsAgentUrl, TlsProvisionFailure } from '../agent-provisioning-service';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { enrollmentPayload } from '../../crypto/agent-jwt';
 import type { TlsFailureCode } from '@homelab-manager/agent/types';
@@ -98,6 +98,33 @@ function makeDeps(options: DepsOptions = {}) {
   };
 
   return { deps, fetchCalls, fetchFn, healthCalls, delays, stored, storeCert, checkHealth, signEnrollmentPayload };
+}
+
+/** Bun's rejection when the served certificate is not the pinned one, which is a re-enrolled agent. */
+function staleCertError(): Error {
+  return Object.assign(new TypeError('self signed certificate'), { code: 'DEPTH_ZERO_SELF_SIGNED_CERT' });
+}
+
+/** Bun's rejection when the certificate verifies but does not cover the address used to reach the agent. */
+function altNameError(): Error {
+  return Object.assign(new TypeError('ERR_TLS_CERT_ALTNAME_INVALID'), { code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
+}
+
+/** Bun's rejection when AbortSignal.timeout fires: what a lost enroll response looks like. */
+function timeoutError(): DOMException {
+  return new DOMException('The operation timed out.', 'TimeoutError');
+}
+
+/** Bun's rejection when the agent process dies mid-request, which is the self-restart killing the socket. */
+function resetError(): Error {
+  return Object.assign(new TypeError('The socket connection was closed unexpectedly.'), { code: 'ECONNRESET' });
+}
+
+/** Bun's rejection when nothing is listening on the port yet, which a restart window produces. */
+function connectRefusedError(): Error {
+  return Object.assign(new TypeError('Unable to connect. Is the computer able to access the url?'), {
+    code: 'ConnectionRefused',
+  });
 }
 
 function enrollResponse(): Response {
@@ -327,7 +354,7 @@ describe('provisionHostTls', () => {
   });
 
   it('retries the enrollment through a rotation restart window and succeeds', async () => {
-    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const connectError = connectRefusedError();
     const { deps, fetchCalls, delays, healthCalls } = makeDeps({
       fetchResponses: [
         connectError,
@@ -349,8 +376,89 @@ describe('provisionHostTls', () => {
     expect(healthCalls).toHaveLength(1);
   });
 
+  it('retries the enrollment when the enroll response is lost to the agent self-restart, then succeeds', async () => {
+    const { deps, delays, fetchCalls } = makeDeps({
+      fetchResponses: [
+        challengeResponse(),
+        timeoutError(),
+        challengeResponse(),
+        enrollResponse(),
+        new DOMException('The connection was closed.', 'AbortError'),
+      ],
+      healthResults: [true],
+      caCertPem: CERT_PEM,
+    });
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    // The whole handshake is retried, so the second attempt enrolls and the https probe decides.
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/challenge'))).toHaveLength(2);
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/enroll'))).toHaveLength(2);
+    expect(delays[0]).toBe(2000);
+  });
+
+  it('retries when the challenge connection is reset before the agent comes back', async () => {
+    const { deps, fetchCalls, delays } = makeDeps({
+      fetchResponses: [
+        resetError(),
+        challengeResponse(),
+        enrollResponse(),
+        new DOMException('The connection was closed.', 'AbortError'),
+      ],
+      healthResults: [true],
+      caCertPem: CERT_PEM,
+    });
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
+    expect(result.agentUrl).toBe('https://myhost.lan:9090');
+    // The retry repeats the https candidate rather than falling through to the plain-HTTP sibling.
+    expect(fetchCalls.filter((c) => c.url.endsWith('/tls/challenge')).map((c) => c.url)).toEqual([
+      'https://myhost.lan:9090/tls/challenge',
+      'https://myhost.lan:9090/tls/challenge',
+    ]);
+    expect(delays[0]).toBe(2000);
+  });
+
+  it('exhausts the retries on a lost response and points at the recovery steps', async () => {
+    const { deps, delays } = makeDeps({
+      // Three attempts on the https candidate, then the plain sibling, which a TLS listener resets.
+      fetchResponses: [
+        challengeResponse(),
+        timeoutError(),
+        challengeResponse(),
+        timeoutError(),
+        challengeResponse(),
+        timeoutError(),
+        resetError(),
+      ],
+      caCertPem: CERT_PEM,
+    });
+    const err = await expectFailure(provisionHostTls('myhost', 'https://myhost.lan:9090', deps), 'agent_unreachable');
+    expect(err.message).toMatch(/self-hosting guide/i);
+    expect(delays).toEqual([2000, 4000]);
+  });
+
+  it('reports an unverifiable certificate rather than an unreachable agent', async () => {
+    const { deps, delays } = makeDeps({
+      fetchResponses: [staleCertError(), staleCertError(), staleCertError(), resetError()],
+      caCertPem: CERT_PEM,
+    });
+    const err = await expectFailure(provisionHostTls('myhost', 'https://myhost.lan:9090', deps), 'cert_unverifiable');
+    expect(err.message).toMatch(/self-hosting guide/i);
+    // A certificate the manager cannot verify is evidence about the agent, so nothing is retried.
+    expect(delays).toEqual([]);
+  });
+
+  it('reports an address the pinned certificate no longer covers as the same state', async () => {
+    const { deps, delays } = makeDeps({
+      fetchResponses: [altNameError(), altNameError(), altNameError(), resetError()],
+      caCertPem: CERT_PEM,
+    });
+    const err = await expectFailure(provisionHostTls('myhost', 'https://old-name.lan:9090', deps), 'cert_unverifiable');
+    expect(err.message).toMatch(/self-hosting guide/i);
+    expect(delays).toEqual([]);
+  });
+
   it('propagates a terminal HTTP rejection after connection retries instead of the unreachable copy', async () => {
-    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const connectError = connectRefusedError();
     const { deps } = makeDeps({
       fetchResponses: [
         connectError,
@@ -364,7 +472,7 @@ describe('provisionHostTls', () => {
   });
 
   it('reports a rotation-restart hint when enrollment retries are exhausted on both schemes', async () => {
-    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const connectError = connectRefusedError();
     const { deps, delays } = makeDeps({
       fetchResponses: [connectError, connectError, connectError, connectError, connectError, connectError],
       caCertPem: CERT_PEM,
@@ -515,7 +623,7 @@ describe('provisionHostTls', () => {
   });
 
   it('reports the recovery steps when no pin is held and nothing answers on plain HTTP', async () => {
-    const connectError = new Error('Unable to connect. Is the computer able to access the url?');
+    const connectError = connectRefusedError();
     const { deps } = makeDeps({
       fetchResponses: [connectError, connectError, connectError],
       caCertPem: null,
@@ -714,6 +822,28 @@ describe('provisionHostTls enrollment handshake', () => {
       /TLS enrollment failed: the agent returned no usable enrollment challenge/,
     );
     expect(fetchCalls.some((c) => c.url.endsWith('/tls/enroll'))).toBe(false);
+  });
+});
+
+describe('isServedCertUnverifiable', () => {
+  it('reads the TLS verification codes and nothing else', () => {
+    expect(isServedCertUnverifiable(staleCertError())).toBe(true);
+    expect(isServedCertUnverifiable(altNameError())).toBe(true);
+    expect(isServedCertUnverifiable(connectRefusedError())).toBe(false);
+    expect(isServedCertUnverifiable(resetError())).toBe(false);
+  });
+});
+
+describe('isTransientEnrollmentFailure', () => {
+  it('retries the transport failures a self-restart produces', () => {
+    expect(isTransientEnrollmentFailure(connectRefusedError())).toBe(true);
+    expect(isTransientEnrollmentFailure(resetError())).toBe(true);
+    expect(isTransientEnrollmentFailure(timeoutError())).toBe(true);
+  });
+
+  it('leaves a scheme mismatch and a missing pin to the next scheme instead of retrying', () => {
+    expect(isTransientEnrollmentFailure(new TypeError('Was there a typo in the url or port?'))).toBe(false);
+    expect(isTransientEnrollmentFailure(new Error('No pinned TLS certificate for this HTTPS agent URL'))).toBe(false);
   });
 });
 

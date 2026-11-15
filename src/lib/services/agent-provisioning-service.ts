@@ -1,4 +1,4 @@
-import { agentFetch, isTlsUrl, toPlainHttpUrl } from '@/lib/clients/agent-http';
+import { agentFetch, isTlsUrl, toPlainHttpUrl, MISSING_PIN_RECOVERY_HINT } from '@/lib/clients/agent-http';
 import { enrollmentPayload } from '@/lib/crypto/agent-jwt';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
@@ -32,7 +32,11 @@ export interface TlsProvisionResult {
 }
 
 /** A transport-level failure. It may mean the agent serves the other scheme, so it is worth trying. */
-class AgentChannelError extends Error {}
+class AgentChannelError extends Error {
+  constructor(message: string, cause: unknown) {
+    super(message, { cause });
+  }
+}
 
 /**
  * A failure the operator can act on: the code says what to do and the message says why. The server
@@ -195,7 +199,8 @@ async function fetchChallenge(
     );
   } catch (err) {
     throw new AgentChannelError(
-      `TLS enrollment failed: the agent could not be reached for a challenge (${err instanceof Error ? err.message : err}).`,
+      `TLS enrollment failed: the enrollment challenge could not be completed because ${channelFailureReason(err)} (${err instanceof Error ? err.message : err}).`,
+      err,
     );
   }
   if (!response.ok) {
@@ -246,7 +251,8 @@ async function enrollCert(
     );
   } catch (err) {
     throw new AgentChannelError(
-      `TLS enrollment failed: the agent could not be reached (${err instanceof Error ? err.message : err}).`,
+      `TLS enrollment failed: the enrollment request could not be completed because ${channelFailureReason(err)} (${err instanceof Error ? err.message : err}).`,
+      err,
     );
   }
   if (!response.ok) {
@@ -338,6 +344,49 @@ export function isRestartConnectionLoss(err: unknown): boolean {
   return /econnreset|connection reset|socket hang up|epipe|aborted|timeout/i.test(message);
 }
 
+/** Bun's fetch rejection when nothing is listening on the port yet: a TypeError carrying this code. */
+function isConnectionRefused(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === 'ConnectionRefused';
+}
+
+/** Transport failures worth another attempt here. A scheme mismatch falls through to the sibling URL instead. */
+export function isTransientEnrollmentFailure(err: unknown): boolean {
+  return isConnectionRefused(err) || isRestartConnectionLoss(err);
+}
+
+/**
+ * The OpenSSL codes Bun reports when the pinned certificate does not verify for the host: the served
+ * certificate is not the pinned one, or its SANs do not cover the address stored for the host. The
+ * first is a re-enrolled agent, the second an address the certificate no longer covers. Measured on
+ * Bun 1.4.2.
+ */
+const UNVERIFIABLE_SERVED_CERT_CODES = new Set([
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+
+/** True when the agent answered the handshake with a certificate this manager cannot verify. */
+export function isServedCertUnverifiable(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && UNVERIFIABLE_SERVED_CERT_CODES.has(code);
+}
+
+/** What the manager could tell about a transport failure, so its own line says that instead of flattening it. */
+function channelFailureReason(err: unknown): string {
+  return isServedCertUnverifiable(err)
+    ? 'the agent served a certificate the manager cannot verify'
+    : 'the agent could not be reached';
+}
+
+/**
+ * True when another attempt at this candidate could plausibly succeed: the socket died with the agent
+ * process, the probe timed out, or the restart window still has the port closed. A reset on the plain
+ * HTTP sibling is excluded, since that is a TLS listener answering a plain request.
+ */
+function isWorthRetrying(candidate: string, cause: unknown): boolean {
+  return isTlsUrl(candidate) ? isTransientEnrollmentFailure(cause) : isConnectionRefused(cause);
+}
+
 async function wrapFailure(code: TlsFailureCode, reason: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
@@ -386,6 +435,7 @@ async function enrollAgainstCandidates(
   // A rotation restarts the agent for up to ~10s (docker stop + start), so an immediately following
   // rotation can land inside that window and see the connection refused.
   const ENROLL_RETRIES = 2;
+  let sawUnverifiableCert = false;
   for (const [index, candidate] of candidates.entries()) {
     // The plaintext sibling only happens for a host the manager already knows, and it trusts whatever
     // certificate comes back, so it needs an explicit confirmation before anything is changed.
@@ -400,14 +450,13 @@ async function enrollAgainstCandidates(
         const enrolled = await enrollCert(candidate, sans, hostName, deps, fetchFn);
         return { ...enrolled, baseUrl: candidate };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (attempt < ENROLL_RETRIES && /unable to connect/i.test(message)) {
+        if (!(err instanceof AgentChannelError)) throw err;
+        if (isServedCertUnverifiable(err.cause)) sawUnverifiableCert = true;
+        // Retry only a transient transport failure, read from the cause the wrapper would otherwise flatten.
+        if (attempt < ENROLL_RETRIES && isWorthRetrying(candidate, err.cause)) {
           await sleepFn(2000 + attempt * 2000);
           continue;
         }
-        // A terminal HTTP rejection must reach the wizard's key-mismatch mapping rather than being
-        // retried against another scheme.
-        if (!(err instanceof AgentChannelError)) throw err;
         break;
       }
     }
@@ -418,9 +467,18 @@ async function enrollAgainstCandidates(
       missingPinRecovery(hostName, candidates[candidates.length - 1] ?? 'the agent'),
     );
   }
+  if (sawUnverifiableCert) {
+    throw new TlsProvisionFailure(
+      'cert_unverifiable',
+      `TLS enrollment failed: the manager cannot verify the certificate the agent serves for host '${hostName}'. `
+        + `It may have been re-issued since this host was enrolled, or the address stored for it may no longer match. ${MISSING_PIN_RECOVERY_HINT}`,
+    );
+  }
   throw new TlsProvisionFailure(
     'agent_unreachable',
-    'TLS enrollment failed: the agent was unreachable on every scheme it could be reached on. It may be restarting from a recent rotation. Retry in a few seconds.',
+    'TLS enrollment failed: the agent was unreachable on every scheme it could be reached on. It may be '
+      + 'restarting from a recent rotation, or it may have already enrolled: an agent that restarts serving '
+      + `HTTPS only holds a certificate the manager cannot verify. Retry in a few seconds. ${MISSING_PIN_RECOVERY_HINT}`,
   );
 }
 

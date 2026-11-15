@@ -63,6 +63,7 @@ export const TLS_FAILURE_CODES = [
   'internal_error',
   // Raised by the manager, either before the agent is called or after it answers.
   'pin_missing',
+  'cert_unverifiable',
   'agent_unreachable',
   'plaintext_confirmation_required',
   'no_cert_returned',

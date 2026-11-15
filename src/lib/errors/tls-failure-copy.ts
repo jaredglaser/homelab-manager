@@ -82,9 +82,17 @@ const TLS_FAILURE_COPY: Record<TlsFailureCode, TlsFailureCopy> = {
     retryUseless: true,
     includeDetail: false,
   },
+  cert_unverifiable: {
+    headline: 'The agent is serving a certificate the manager cannot verify for this host.',
+    fix: 'The certificate may have been re-issued since this host was enrolled, or the address stored for it may no longer match. Remove the certificate files on the agent host, restart it, then run Rotate TLS again.',
+    docAnchor: 'agent-tls-recovery-the-manager-lost-it',
+    retryUseless: true,
+    includeDetail: false,
+  },
   agent_unreachable: {
     headline: 'The agent could not be reached.',
-    fix: 'Check that its container is running and listening on the URL stored for this host, then retry.',
+    fix: 'Check that its container is running and listening on the URL stored for this host, then retry. An agent that already enrolled and restarted serving HTTPS only looks the same from here.',
+    docAnchor: 'agent-tls-recovery-the-manager-lost-it',
     retryUseless: false,
     includeDetail: false,
   },
