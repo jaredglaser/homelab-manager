@@ -321,26 +321,30 @@ describe('handleCreatePendingHost', () => {
 describe('handleRotateHostTls', () => {
   it('re-runs provisioning against the current agent URL and stores the resulting https URL', async () => {
     const repo = mockRepo({
-      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090' }))),
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090', status: 'healthy' }))),
       update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
     });
     const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
     const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7 });
-    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090');
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090', {
+      allowPlaintextEnrollment: false,
+    });
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
-    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false });
+    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
   });
 
   it('provisions against an explicit agentUrl override and persists only the flipped https URL', async () => {
     const repo = mockRepo({
-      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090' }))),
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090', status: 'healthy' }))),
       update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
     });
     const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
     const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7, agentUrl: 'http://candidate:9090' });
-    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090');
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090', {
+      allowPlaintextEnrollment: false,
+    });
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
-    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false });
+    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
   });
 
   it('never writes the row when provisioning with an agentUrl override fails', async () => {

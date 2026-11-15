@@ -13,6 +13,7 @@ import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
 import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, resolveTlsStartup } from './lib/tls-enroll';
+import { certificateFingerprint } from './lib/cert-fingerprint';
 import { scheduleSelfRestart } from './lib/self-restart';
 
 function isFileReadable(path: string): boolean {
@@ -108,6 +109,13 @@ if (tlsDecision.mode === 'http' && tlsDecision.restricted) {
 const tlsConfig = tlsDecision.mode === 'tls'
   ? { cert: Bun.file(tlsDecision.certPath), key: Bun.file(tlsDecision.keyPath) }
   : undefined;
+
+if (tlsDecision.mode === 'tls') {
+  // Printed for the operator to compare with what the dashboard shows after enrolling this host.
+  console.info(
+    `TLS certificate fingerprint: ${certificateFingerprint(await Bun.file(tlsDecision.certPath).text())}`,
+  );
+}
 
 let docker: Dockerode | null = null;
 let dockerHostname = '';

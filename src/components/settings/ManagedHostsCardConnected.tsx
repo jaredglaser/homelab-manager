@@ -76,10 +76,14 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   // The handler persists the candidate URL only when provisioning with it succeeds
   // (storing the https-flipped URL), so a failed verify never writes a dead address.
   const provisionGenerationRef = useRef(0)
+  // A host whose agent serves plain HTTP is enrolled on trust, so it takes a second deliberate click.
+  const [plaintextConfirmHostIds, setPlaintextConfirmHostIds] = useState<Set<number>>(new Set())
   const provisionMutation = useMutation({
     mutationFn: async ({ hostId, agentUrl, generation }: { hostId: number; agentUrl: string; generation: number }) => {
       try {
-        const result = await rotateHostTls({ data: { hostId, agentUrl } })
+        const result = await rotateHostTls({
+          data: { hostId, agentUrl, acceptPlaintextEnrollment: plaintextConfirmHostIds.has(hostId) },
+        })
         return { result, generation }
       } catch (err) {
         throw Object.assign(err instanceof Error ? err : new Error(String(err)), { provisionGeneration: generation })
@@ -90,17 +94,32 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       if (generation !== provisionGenerationRef.current) return
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setProvisionError(null)
+      setPlaintextConfirmHostIds((prev) => {
+        if (!prev.has(result.hostId)) return prev
+        const next = new Set(prev)
+        next.delete(result.hostId)
+        return next
+      })
       showToast(
         result.enrolledOverPlainHttp
-          ? `Host verified. The agent is served over ${result.agentUrl}. It had no certificate, so the new one was accepted on first use over plain HTTP.`
+          ? `Host verified. The agent is served over ${result.agentUrl}. It had no certificate, so the new one was accepted on first use over plain HTTP. Certificate fingerprint ${result.fingerprint}, which the agent prints at startup (docker logs hlm-agent).`
           : `Host verified. The agent is served over ${result.agentUrl}.`,
         result.enrolledOverPlainHttp ? 'warning' : 'success',
       )
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, variables) => {
       const generation = (err as { provisionGeneration?: number }).provisionGeneration ?? 0
       if (generation !== provisionGenerationRef.current) return
       const raw = err instanceof Error ? err.message : String(err)
+      if (raw.startsWith('Plaintext enrollment confirmation required')) {
+        setPlaintextConfirmHostIds((prev) => new Set(prev).add(variables.hostId))
+        setProvisionError(
+          'This host\u2019s agent is serving plain HTTP, so the certificate it presents would be accepted on first use. '
+            + 'Press Rotate TLS again to confirm, then compare the fingerprint it reports with the one the agent prints at startup '
+            + '(docker logs hlm-agent).',
+        )
+        return
+      }
       const message = raw.includes('the agent rejected the certificate request') && raw.includes('Unauthorized')
         ? 'The agent rejected the manager\u2019s request: the AGENT_TRUSTED_PUBKEY in the deployed .env does not match this host\u2019s keypair, or AGENT_HOST_NAME does not match the host being verified. Deploy the compose and .env from this wizard session together, or copy the current key from this row\u2019s keypair dialog into the .env and restart the agent, then re-verify.'
         : `${raw} Use Re-run provisioning below to try again.`

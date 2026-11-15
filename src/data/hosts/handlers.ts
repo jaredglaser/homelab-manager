@@ -231,19 +231,26 @@ export async function handleCreatePendingHost(
  */
 export async function handleRotateHostTls(
   deps: HostHandlerDeps & {
-    provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string; enrolledOverPlainHttp?: boolean }>;
+    provisionTls: (
+      hostName: string,
+      agentUrl: string,
+      options: { allowPlaintextEnrollment: boolean },
+    ) => Promise<{ agentUrl: string; enrolledOverPlainHttp?: boolean; fingerprint?: string }>;
   },
-  data: { hostId: number; agentUrl?: string },
-): Promise<{ hostId: number; agentUrl: string; enrolledOverPlainHttp: boolean }> {
+  data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean },
+): Promise<{ hostId: number; agentUrl: string; enrolledOverPlainHttp: boolean; fingerprint: string }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const provisioned = await deps.provisionTls(host.name, data.agentUrl ?? host.agentUrl);
+  // A host the wizard is still enrolling has no established trust to protect, so it confirms by existing.
+  const allowPlaintextEnrollment = host.status === 'pending' || data.acceptPlaintextEnrollment === true;
+  const provisioned = await deps.provisionTls(host.name, data.agentUrl ?? host.agentUrl, { allowPlaintextEnrollment });
   await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
   return {
     hostId: host.id,
     agentUrl: provisioned.agentUrl,
     enrolledOverPlainHttp: provisioned.enrolledOverPlainHttp === true,
+    fingerprint: provisioned.fingerprint ?? '',
   };
 }
 
