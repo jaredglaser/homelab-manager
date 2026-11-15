@@ -13,6 +13,7 @@ describe('tlsFailureCopy', () => {
   it('flags which failures retrying cannot fix, for the surface to act on', () => {
     const retryUseless = [
       'pin_missing',
+      'cert_unverifiable',
       'not_configured_for_tls',
       'signature_invalid',
       'no_keypair',
@@ -34,6 +35,9 @@ describe('tlsFailureCopy', () => {
 
   it('carries the runbook anchor only where the message cannot carry the whole fix', () => {
     expect(tlsFailureGuidance('pin_missing').docAnchor).toBe('agent-tls-recovery-the-manager-lost-it');
+    expect(tlsFailureGuidance('cert_unverifiable').docAnchor).toBe('agent-tls-recovery-the-manager-lost-it');
+    // An unreachable agent may be one that already enrolled and now serves HTTPS only.
+    expect(tlsFailureGuidance('agent_unreachable').docAnchor).toBe('agent-tls-recovery-the-manager-lost-it');
     expect(tlsFailureGuidance('poll_timeout').docAnchor).toBeUndefined();
   });
 
