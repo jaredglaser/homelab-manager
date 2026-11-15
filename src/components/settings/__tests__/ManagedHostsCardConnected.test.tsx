@@ -6,6 +6,7 @@ import { mockModule } from '@/lib/test/mock-module'
 // screen.* queries and clicks leak into whichever wizard was mounted first.
 import '@/lib/test/testing-library'
 import type { HostListItem } from '@/lib/hosts/host-utils'
+import type { TlsFailureCode } from '@homelab-manager/agent/types'
 
 // Register module mocks before any component import: a mock.module call made
 // after the module graph has loaded leaves it wired to the real server fns.
@@ -34,8 +35,11 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   ...overrides,
 })
 
-type RotateTlsResult = { hostId: number; agentUrl: string }
-let rotateTlsResult: Promise<RotateTlsResult> = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
+// The rotate flow returns its failures as data now, so a failure is a resolved result, not a throw.
+type RotateTlsResult =
+  | { ok: true; hostId: number; agentUrl: string }
+  | { ok: false; code: TlsFailureCode; message: string }
+let rotateTlsResult: Promise<RotateTlsResult> = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
 let rotateTlsCalls: Array<{ data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean } }> = []
 // When set, rotateHostTls returns this manually-settled promise instead.
 let rotateTlsGate: Promise<RotateTlsResult> | null = null
@@ -121,7 +125,7 @@ beforeEach(() => {
   createPendingHostCalls.length = 0
   toasts.length = 0
   hostsRows = [makeHost()]
-  rotateTlsResult = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
+  rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
   createPendingHostResult = Promise.resolve({
     host: makeHost({ status: 'pending' }),
     publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
@@ -132,7 +136,7 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
   it('shows the pinned success toast after a successful rotation', async () => {
     renderCard()
     await screen.findByText('server1')
-    rotateTlsResult = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
+    rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
 
     fireEvent.click(screen.getByLabelText('rotate TLS'))
 
@@ -227,7 +231,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable).'))
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'agent_unreachable', message: 'the agent could not be reached to create its certificate' })
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
@@ -241,8 +245,8 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    let rejectRotate!: (err: unknown) => void
-    rotateTlsGate = new Promise<RotateTlsResult>((_res, rej) => { rejectRotate = rej })
+    let resolveRotate!: (result: RotateTlsResult) => void
+    rotateTlsGate = new Promise<RotateTlsResult>((res) => { resolveRotate = res })
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     // In-flight: loading state, cancel action, everything disabled.
@@ -262,7 +266,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(screen.queryByRole('alert')).toBeNull()
 
     // A late server-side failure after cancel must not resurface as an error.
-    rejectRotate(new Error('TLS provisioning failed: late failure after cancel'))
+    resolveRotate({ ok: false, code: 'agent_unreachable', message: 'late failure after cancel' })
     await act(async () => {})
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -273,7 +277,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent rejected the certificate request (Unauthorized). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.'))
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'signature_invalid', message: 'the agent rejected the certificate request (Unauthorized)' })
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/does not match this host/)).toBeDefined()
@@ -287,13 +291,13 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (connection refused)'))
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'poll_timeout', message: 'the agent did not serve the new certificate in time (connection refused)' })
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     await waitFor(() => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
-    expect(screen.getByText(/TLS provisioning failed/)).toBeDefined()
+    expect(screen.getByText(/did not serve the new certificate over HTTPS in time/)).toBeDefined()
   })
 
   it('shows unrecognized provisioning failures with a re-run hint appended', async () => {
@@ -302,7 +306,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (connection refused)'))
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'unexpected_agent_response', message: 'the agent answered with something unrecognised' })
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/Use Re-run provisioning below to try again/)).toBeDefined()
@@ -469,7 +473,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '10.1.1.99' } })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent rejected the certificate request (Unauthorized). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.'))
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'signature_invalid', message: 'the agent rejected the certificate request (Unauthorized)' })
     fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/does not match this host/)).toBeDefined()

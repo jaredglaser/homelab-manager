@@ -3,6 +3,7 @@ import { verifyPayloadSignature } from './jwt-auth';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AgentErrorBody, TlsFailureCode } from '../types';
 
 export const TLS_DIR_NAME = 'hlm-agent-tls';
 
@@ -142,6 +143,11 @@ export function parseAndValidateSans(body: unknown): string[] {
 
 export class TlsEnrollError extends Error {}
 
+/** Every error body carries its code, typed so a typo cannot reach the wire. */
+export function tlsErrorBody(code: TlsFailureCode, error: string): AgentErrorBody {
+  return { error, code };
+}
+
 export function buildSubjectAltName(sans: string[]): string {
   return sans.map((san) => (isIpLiteral(san) ? `IP:${normalizeIpLiteral(san)}` : `DNS:${san}`)).join(',');
 }
@@ -240,11 +246,11 @@ async function enroll(request: Request, options: TlsEnrollOptions): Promise<Resp
   // poll HTTPS against a listener that does not exist until it gave up.
   if (!tlsConfigured) {
     return Response.json(
-      {
-        error:
-          'This agent has no TLS configured (TLS_CERT_PATH and TLS_KEY_PATH are unset), so it cannot serve HTTPS. '
-            + 'Set both on the agent service and restart it.',
-      },
+      tlsErrorBody(
+        'not_configured_for_tls',
+        'This agent has no TLS configured (TLS_CERT_PATH and TLS_KEY_PATH are unset), so it cannot serve HTTPS. '
+          + 'Set both on the agent service and restart it.',
+      ),
       { status: 409 },
     );
   }
@@ -252,7 +258,10 @@ async function enroll(request: Request, options: TlsEnrollOptions): Promise<Resp
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: 'The enroll request requires a JSON body with a "sans" array' }, { status: 400 });
+    return Response.json(
+      tlsErrorBody('invalid_request', 'The enroll request requires a JSON body with a "sans" array'),
+      { status: 400 },
+    );
   }
 
   let sans: string[];
@@ -261,23 +270,32 @@ async function enroll(request: Request, options: TlsEnrollOptions): Promise<Resp
     sans = parseAndValidateSans(body);
     proof = parseEnrollmentProof(body);
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : 'Invalid enroll request' }, { status: 400 });
+    return Response.json(
+      tlsErrorBody('invalid_request', err instanceof Error ? err.message : 'Invalid enroll request'),
+      { status: 400 },
+    );
   }
 
   if (!isFreshChallenge(proof.nonce)) {
-    return Response.json({ error: 'The enrollment challenge is unknown or has expired.' }, { status: 401 });
+    return Response.json(
+      tlsErrorBody('challenge_expired', 'The enrollment challenge is unknown or has expired.'),
+      { status: 401 },
+    );
   }
   // The submitted list is signed verbatim, before validation normalizes it.
   const submittedSans = (body as { sans: string[] }).sans;
   const payload = enrollmentPayload(proof.nonce, hostName, submittedSans);
   if (!(await verifyPayloadSignature(payload, proof.signature, trustedPublicKey))) {
     return Response.json(
-      { error: `The enroll request signature does not verify for host '${hostName}'.` },
+      tlsErrorBody('signature_invalid', `The enroll request signature does not verify for host '${hostName}'.`),
       { status: 401 },
     );
   }
   if (!recordUsedNonce(proof.nonce)) {
-    return Response.json({ error: 'This enrollment request has already been used.' }, { status: 401 });
+    return Response.json(
+      tlsErrorBody('challenge_reused', 'This enrollment request has already been used.'),
+      { status: 401 },
+    );
   }
 
   const tlsDir = join(stacksDir, TLS_DIR_NAME);
@@ -300,7 +318,10 @@ async function enroll(request: Request, options: TlsEnrollOptions): Promise<Resp
     keyPem = keyResult.stdout;
   } catch (err) {
     return Response.json(
-      { error: `Could not generate the TLS private key: ${err instanceof Error ? err.message : String(err)}` },
+      tlsErrorBody(
+        'key_generation_failed',
+        `Could not generate the TLS private key: ${err instanceof Error ? err.message : String(err)}`,
+      ),
       { status: 500 },
     );
   }
@@ -312,7 +333,10 @@ async function enroll(request: Request, options: TlsEnrollOptions): Promise<Resp
   } catch (err) {
     removeQuietly(stagedKeyPath);
     return Response.json(
-      { error: `Could not write the TLS key material: ${err instanceof Error ? err.message : String(err)}` },
+      tlsErrorBody(
+        'key_write_failed',
+        `Could not write the TLS key material: ${err instanceof Error ? err.message : String(err)}`,
+      ),
       { status: 500 },
     );
   }
@@ -337,7 +361,10 @@ async function enroll(request: Request, options: TlsEnrollOptions): Promise<Resp
   } catch (err) {
     removeQuietly(stagedKeyPath);
     return Response.json(
-      { error: `Could not sign the TLS certificate: ${err instanceof Error ? err.message : String(err)}` },
+      tlsErrorBody(
+        'cert_sign_failed',
+        `Could not sign the TLS certificate: ${err instanceof Error ? err.message : String(err)}`,
+      ),
       { status: 500 },
     );
   }
@@ -353,7 +380,10 @@ async function enroll(request: Request, options: TlsEnrollOptions): Promise<Resp
     removeQuietly(stagedKeyPath);
     removeQuietly(stagedCertPath);
     return Response.json(
-      { error: `Could not write the TLS key material: ${err instanceof Error ? err.message : String(err)}` },
+      tlsErrorBody(
+        'cert_write_failed',
+        `Could not write the TLS key material: ${err instanceof Error ? err.message : String(err)}`,
+      ),
       { status: 500 },
     );
   }
