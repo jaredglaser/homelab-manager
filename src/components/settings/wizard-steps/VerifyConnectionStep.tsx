@@ -82,6 +82,9 @@ export default function VerifyConnectionStep({
         <Alert variant="error" className="mt-2">
           <AlertDescription className="w-full">
             <p className="text-sm mb-2">{error.message}</p>
+            {!error.retryUseless && (
+              <p className="text-sm mb-2">Use Re-run provisioning below to try again.</p>
+            )}
             {error.docAnchor && (
               <p className="text-sm mb-2">
                 See the <DocLink anchor={error.docAnchor}>TLS recovery steps</DocLink> in the self-hosting guide.

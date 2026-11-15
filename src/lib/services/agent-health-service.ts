@@ -163,7 +163,7 @@ export async function checkAgentHealth(
           healthy: false,
           reason: 'awaiting-enrollment',
           error:
-            'The agent is serving plain HTTP awaiting TLS enrollment, so the manager cannot verify it over https. Run Rotate TLS to enroll a replacement certificate.',
+            'The agent is serving plain HTTP awaiting TLS enrollment, so the manager cannot verify it over https. Open the Managed Hosts card and run Rotate TLS to enroll a replacement certificate.',
         };
       }
     }

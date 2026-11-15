@@ -122,7 +122,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       // Only a genuine throw lands here: a rejected session, a transport failure, or a bug.
       const generation = (err as { provisionGeneration?: number }).provisionGeneration ?? 0
       if (generation !== provisionGenerationRef.current) return
-      setProvisionError({ message: err instanceof Error ? err.message : String(err) })
+      setProvisionError({ message: err instanceof Error ? err.message : String(err), retryUseless: false })
     },
   })
 
@@ -216,7 +216,11 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     onSuccess: (result, hostId) => {
       setRotatingTlsHostIds((prev) => { const next = new Set(prev); next.delete(hostId); return next })
       if (!result.ok) {
-        showToast(tlsFailureGuidance(result.code, result.message).message, 'error')
+        const guidance = tlsFailureGuidance(result.code, result.message)
+        showToast(
+          guidance.retryUseless ? guidance.message : `${guidance.message} Use Rotate TLS on this host's row to try again.`,
+          'error',
+        )
         return
       }
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })

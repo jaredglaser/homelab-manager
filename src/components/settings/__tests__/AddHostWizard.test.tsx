@@ -359,7 +359,7 @@ describe('AddHostWizard', () => {
     })
 
     it('shows the provisioning error with a re-run provisioning action on failure', () => {
-      render(<AddHostWizard {...makeProps({ provisionError: { message: 'TLS provisioning failed: the agent did not become healthy over HTTPS.' } })} />)
+      render(<AddHostWizard {...makeProps({ provisionError: { message: 'TLS provisioning failed: the agent did not become healthy over HTTPS.', retryUseless: false } })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -426,7 +426,7 @@ describe('AddHostWizard', () => {
 
   describe('error display', () => {
     it('shows the provisioning error with a re-run action on the verify step when provisionError is set', () => {
-      render(<AddHostWizard {...makeProps({ provisionError: { message: 'Connection refused' } })} />)
+      render(<AddHostWizard {...makeProps({ provisionError: { message: 'Connection refused', retryUseless: false } })} />)
       enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -441,6 +441,7 @@ describe('AddHostWizard', () => {
           {...makeProps({
             provisionError: {
               message: 'No pinned certificate for this host.',
+              retryUseless: true,
               docAnchor: 'agent-tls-recovery-the-manager-lost-it',
             },
           })}
