@@ -491,7 +491,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     concurrency:
       group: pages
-      cancel-in-progress: true
+      # Deliberately false: an in-flight production deploy must complete rather than be cancelled.
+      cancel-in-progress: false
     permissions:
       contents: read
       pages: write
@@ -532,10 +533,14 @@ jobs:
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: .output/public
+          # Must match the deploy step's artifact_name. A re-run adds a second github-pages artifact, which deploy-pages refuses as ambiguous.
+          name: github-pages-${{ github.run_attempt }}
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
 
   release:
     name: Create GitHub Release
