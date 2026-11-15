@@ -15,7 +15,7 @@ import type {
   StackDriftScanError,
 } from '@/types/stacks';
 import type { DeployAction, DeployRecord, DeployRequest, DeployStatus } from '@/lib/deploy/types';
-import { missingAgentKeypairMessage } from '@/lib/errors/agent-messages';
+import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-client';
 import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
@@ -478,7 +478,7 @@ async function getAgentClientForHost(host: string): Promise<AgentClient> {
   const agentKeypairs = new AgentKeypairsRepository(pool, keyring);
   const tlsCerts = new AgentTlsCertificatesRepository(pool);
   const privateKey = await agentKeypairs.getPrivateKeyForHost(managedHost.name);
-  if (!privateKey) throw new Error(missingAgentKeypairMessage(managedHost.name));
+  if (!privateKey) throw missingAgentKeypairError(managedHost.name);
 
   const signer = () => signAgentJwt(privateKey, managedHost.name);
   let caCertPem: string | null = null;
