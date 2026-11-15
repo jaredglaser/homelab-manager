@@ -3,15 +3,23 @@ import type { AgentImageInfo } from '../lib/agent-image';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 // CI stamps AGENT_VERSION from the release tag at image build time. Local dev
 // falls back to the short commit hash, matching what non-tag CI images report.
-const resolveAgentVersion = (): string => {
-  if (process.env.AGENT_VERSION) return process.env.AGENT_VERSION;
+let gitRevision: string | undefined;
+
+function readGitRevision(): string | undefined {
   try {
     const { stdout, exitCode } = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD']);
     if (exitCode === 0) return stdout.toString().trim();
   } catch {
     // No git binary or repo (e.g. running outside a checkout)
   }
-  return 'dev';
+  return undefined;
+}
+
+const resolveAgentVersion = (): string => {
+  if (process.env.AGENT_VERSION) return process.env.AGENT_VERSION;
+  // HEAD cannot move under a running process, so spawn git once rather than per /info request.
+  gitRevision ??= readGitRevision();
+  return gitRevision ?? 'dev';
 };
 
 interface DockerCapability {
