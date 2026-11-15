@@ -68,8 +68,9 @@ function channelEnv(instructions: string[]): string | undefined {
 function stageChain(target: string): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
-  let current: string | undefined = target;
-  while (current !== undefined && !seen.has(current)) {
+  let current = target;
+  for (;;) {
+    if (seen.has(current)) break;
     seen.add(current);
     const stage = dockerfile.stages.get(current);
     if (stage === undefined) break;
@@ -113,7 +114,7 @@ interface WorkflowStep {
   with?: Record<string, unknown>;
 }
 
-const workflow = Bun.YAML.parse(read(WORKFLOW)) as { jobs?: Record<string, { steps?: WorkflowStep[] }> };
+const workflow = Bun.YAML.parse(read(WORKFLOW)) as { jobs?: Record<string, { steps?: WorkflowStep[] } | undefined> };
 const jobs = workflow.jobs ?? {};
 
 const BUILD_ACTION = /^docker\/build-push-action@/;
@@ -206,7 +207,7 @@ function buildProblems(build: ImageBuild): string[] {
 }
 
 const builds: ImageBuild[] = Object.entries(jobs).flatMap(([job, definition]) =>
-  (definition.steps ?? [])
+  (definition?.steps ?? [])
     .filter((step) => step.uses !== undefined && BUILD_ACTION.test(step.uses))
     .map((step) => ({ job, kind: classify(contextOf(step)), step })),
 );
