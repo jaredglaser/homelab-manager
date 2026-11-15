@@ -62,7 +62,7 @@ export function normalizeAgentImageTag(raw: unknown): string {
   return raw;
 }
 
-/** Baked at build time from VITE_AGENT_IMAGE_TAG: Vite inlines it, so runtime env cannot drive it. */
+/** Vite inlines this at build for the web, and the worker reads it from its own environment at runtime. */
 export function getAgentImageTag(): string {
   return normalizeAgentImageTag(import.meta.env.VITE_AGENT_IMAGE_TAG);
 }
