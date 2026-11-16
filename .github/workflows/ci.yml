@@ -466,6 +466,9 @@ jobs:
           context: .
           target: base
           push: true
+          # Must match the web build: the worker compares every host's agent digest against this channel.
+          build-args: |
+            VITE_AGENT_IMAGE_TAG=${{ steps.agent-channel.outputs.tag }}
           tags: ${{ steps.meta-worker.outputs.tags }}
           labels: ${{ steps.meta-worker.outputs.labels }}
           cache-from: type=gha
