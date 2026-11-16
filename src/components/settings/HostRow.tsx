@@ -126,9 +126,11 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
         <HostAction label="Agent keypair" ariaLabel="agent keypair" disabled={busy} onClick={onKeypair}>
           <KeyRound size={14} />
         </HostAction>
-        <HostAction label="Rotate TLS" ariaLabel="rotate TLS" disabled={busy} onClick={onRotateTls}>
-          {isRotatingTls ? <Spinner className="size-3.5" /> : <ShieldCheck size={14} />}
-        </HostAction>
+        {host.status !== 'pending' && host.agentUrl !== '' && (
+          <HostAction label="Rotate TLS" ariaLabel="rotate TLS" disabled={busy} onClick={onRotateTls}>
+            {isRotatingTls ? <Spinner className="size-3.5" /> : <ShieldCheck size={14} />}
+          </HostAction>
+        )}
         <HostAction
           label="Remove host"
           ariaLabel="remove host"

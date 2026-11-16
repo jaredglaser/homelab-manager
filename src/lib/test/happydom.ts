@@ -3,7 +3,6 @@ import "react";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 declare global {
-  // eslint-disable-next-line no-var
   var BASE_UI_ANIMATIONS_DISABLED: boolean;
 }
 

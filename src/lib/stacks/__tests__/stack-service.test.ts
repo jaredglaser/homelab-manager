@@ -504,7 +504,7 @@ describe('controlStackForHost', () => {
     const { controlStackForHost } = await import('@/lib/stacks/stack-service');
     await expect(
       controlStackForHost('server1', 'start', { stack: 'myapp', scope: 'stack' })
-    ).rejects.toThrow(/No agent keypair/);
+    ).rejects.toThrow(/no keypair for host/);
   });
 
   test('throws when agent returns success: false', async () => {

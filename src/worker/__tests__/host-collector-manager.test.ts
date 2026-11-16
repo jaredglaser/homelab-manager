@@ -435,6 +435,42 @@ describe('HostCollectorManager', () => {
     }
   });
 
+  it('skips pending hosts with an empty agent URL until the URL is provisioned', async () => {
+    const originalConsoleWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = mock((msg?: unknown) => warns.push(String(msg)));
+    try {
+      const { factory, calls } = makeFactory();
+      let url = '';
+      const manager = new HostCollectorManager(
+        makeWorkerConfig({ agents: { allowInsecurePlaintext: false } }),
+        controller.signal,
+        () => Promise.resolve([makeHost('a', { agentUrl: url })]),
+        okSigner,
+        () => Promise.resolve(null),
+        factory,
+      );
+
+      await manager.reconcile();
+      expect(calls).toHaveLength(0);
+      expect(manager.hostNames()).toEqual([]);
+      expect(warns.some((w) => w.includes("skipping host 'a'") && w.includes('agent URL is empty'))).toBe(true);
+
+      // Reconciling again does not repeat the warning.
+      await manager.reconcile();
+      expect(calls).toHaveLength(0);
+      expect(warns.filter((w) => w.includes("skipping host 'a'"))).toHaveLength(1);
+
+      // Once TLS provisioning sets the URL, the host becomes eligible again.
+      url = 'https://a:9090';
+      await manager.reconcile();
+      expect(calls).toHaveLength(1);
+      expect(manager.hostNames()).toEqual(['a']);
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+  });
+
   it('collects over plain http when WORKER_ALLOW_INSECURE_AGENTS-style config allows it', async () => {
     const { factory, calls } = makeFactory();
     const manager = new HostCollectorManager(
