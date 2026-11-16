@@ -1,5 +1,5 @@
 # Must match .bun-version; scripts/__tests__/bun-version.test.ts fails CI on drift.
-ARG BUN_VERSION=1.4.4
+ARG BUN_VERSION=1.4.2
 
 # Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
 FROM docker:29.9.1-cli AS toolchain
