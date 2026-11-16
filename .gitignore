@@ -48,3 +48,4 @@ agent-token
 /blob-report/
 /playwright/.cache/
 /e2e-build/
+/THIRD-PARTY-NOTICES.txt

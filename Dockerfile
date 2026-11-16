@@ -15,11 +15,18 @@ COPY package.json bun.lock ./
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
 RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-${BUN_VERSION} \
     bun install --frozen-lockfile --ignore-scripts
+# Published images are copies: MIT/BSD/ISC require their copyright and license
+# notices to survive into the distribution, so generate them from the same
+# node_modules that ships (bunx pinned for a stable layer cache).
+RUN bunx license-checker-rseidelsohn@5.0.1 --plainVertical --out THIRD-PARTY-NOTICES.txt
 EXPOSE 3000
 
 # Source stage - includes source code (worker/cleanup in production)
 FROM deps AS base
 COPY . .
+# The worker reads this at runtime and the web inlines it at build, so a stage without it flags every host on a `main` dashboard as out of date.
+ARG VITE_AGENT_IMAGE_TAG=latest
+ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
 
 # Production stage - builds the web app for serving
 FROM base AS production
@@ -28,12 +35,6 @@ ENV NODE_ENV=production
 
 # git is needed at runtime for git-upload-pack and git-receive-pack (Git HTTP smart protocol)
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-
-# Tag the Add Host wizard pins new agents to. Declared after apt so a channel switch
-# does not invalidate that layer. Vite inlines it at build, so the copy that survives
-# into the runtime image does nothing.
-ARG VITE_AGENT_IMAGE_TAG=latest
-ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
 
 RUN bun run build
 

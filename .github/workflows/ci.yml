@@ -72,7 +72,7 @@ jobs:
         if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
         run: |
           bunx license-checker-rseidelsohn \
-            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
+            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;PSF-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
             --summary
 
       - name: Generate license report
@@ -180,7 +180,7 @@ jobs:
         run: |
           cd agent && bunx license-checker-rseidelsohn \
             --excludePrivatePackages \
-            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
+            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;PSF-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
             --summary
 
       - name: Generate license report
@@ -466,6 +466,9 @@ jobs:
           context: .
           target: base
           push: true
+          # Must match the web build: the worker compares every host's agent digest against this channel.
+          build-args: |
+            VITE_AGENT_IMAGE_TAG=${{ steps.agent-channel.outputs.tag }}
           tags: ${{ steps.meta-worker.outputs.tags }}
           labels: ${{ steps.meta-worker.outputs.labels }}
           cache-from: type=gha

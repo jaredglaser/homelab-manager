@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { DockerStatsRow } from '@/types/docker';
+import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { databaseMiddleware } from '@/middleware/database-middleware';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
@@ -115,10 +116,16 @@ export const controlContainer = createServerFn({ method: 'POST' })
     const keyring = await loadMasterKeyring();
     const agentKeypairs = new AgentKeypairsRepository(context.pool, keyring);
     const privateKey = await agentKeypairs.getPrivateKeyForHost(managedHost.name);
-    if (!privateKey) throw new Error(`No agent keypair for host "${managedHost.name}". Re-enroll the agent.`);
+    if (!privateKey) throw missingAgentKeypairError(managedHost.name);
 
     const signer = () => signAgentJwt(privateKey, managedHost.name);
-    const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer });
+    // Without the pin an https control call fails verification and reads as an agent outage.
+    const { AgentTlsCertificatesRepository } = await import(
+      '@/lib/database/repositories/agent-tls-certificates-repository'
+    );
+    const tlsCerts = new AgentTlsCertificatesRepository(context.pool);
+    const caCertPem = await tlsCerts.getCertForHost(managedHost.name);
+    const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer, caCertPem });
 
     try {
       if (data.action === 'start') await agent.startContainer(data.containerId);

@@ -13,7 +13,6 @@ export const authMiddleware = createMiddleware().server(
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ctx = context as any;
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return next({ context: { ...ctx, user } });
   },
 );

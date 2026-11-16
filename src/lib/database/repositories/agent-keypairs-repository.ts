@@ -49,6 +49,25 @@ export class AgentKeypairsRepository {
     return (await importJWK(jwk, 'EdDSA')) as CryptoKey;
   }
 
+  /** Get-or-create for enrollment: concurrent callers converge on one keypair because the insert never rotates. */
+  async getOrCreateForHost(hostName: string): Promise<JWK> {
+    const enrolled = await this.getPublicJwkForHost(hostName);
+    if (enrolled) return enrolled;
+    const { publicKey, privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
+    const publicJwk = await exportJWK(publicKey);
+    const privateJwk = await exportJWK(privateKey);
+    const privateJwe = await encryptValue(JSON.stringify(privateJwk), this.keyring);
+    await this.pool.query(
+      `INSERT INTO agent_keypairs (host_name, private_jwk_jwe, public_jwk)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (host_name) DO NOTHING`,
+      [hostName, privateJwe, JSON.stringify(publicJwk)],
+    );
+    const stored = await this.getPublicJwkForHost(hostName);
+    if (!stored) throw new Error(`Agent keypair row missing for ${hostName} after insert`);
+    return stored;
+  }
+
   async getPublicJwkForHost(hostName: string): Promise<JWK | null> {
     const result = await this.pool.query(
       'SELECT public_jwk FROM agent_keypairs WHERE host_name = $1',

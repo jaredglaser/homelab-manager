@@ -597,7 +597,7 @@ describe('useTimeSeriesStream service error', () => {
     act(() => { fakeMux.emit(TOPIC, 'error', {}); });
 
     expect(result.current.error).not.toBeNull();
-    expect(result.current.error?.message).toBe('Database unavailable');
+    expect(result.current.error?.message).toBe('Stats stream unavailable');
   });
 });
 
@@ -910,10 +910,10 @@ describe('useTimeSeriesStream error composition', () => {
       // Preload fails → preloadError is set
       await waitFor(() => { expect(result.current.error?.message).toBe('DB down'); });
 
-      // Fire a service error frame. Composed error should switch to "Database unavailable".
+      // Fire a service error frame. Composed error should switch to "Stats stream unavailable".
       act(() => { fakeMux.emit(TOPIC, 'error', {}); });
 
-      expect(result.current.error?.message).toBe('Database unavailable');
+      expect(result.current.error?.message).toBe('Stats stream unavailable');
     } finally {
       console.error = origError;
     }

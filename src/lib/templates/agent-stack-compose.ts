@@ -64,6 +64,9 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
     `AGENT_IMAGE=${config.agentImage}`,
     `HLM_AGENT_PORT=9090`,
     `HLM_STACKS_DIR=/opt/homelab-manager/stacks`,
+    // A JWK is base64url + JSON punctuation, so a bare dotenv value is safe:
+    // compose dotenv takes a '{'-led value literally to end of line.
+    `AGENT_TRUSTED_PUBKEY=${config.agentTrustedPubkey}`,
   ];
 
   if (zfs) {
@@ -131,7 +134,9 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const tlsKeyPath = hostTlsKeyPath();
 
   const environment: Record<string, string> = {
-    AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
+    // The key value lives in the generated .env (compose interpolates it), so
+    // the YAML carries no escaped JSON.
+    AGENT_TRUSTED_PUBKEY: '${AGENT_TRUSTED_PUBKEY}',
     // Must match the managed host name: manager JWTs carry it as the aud claim.
     AGENT_HOST_NAME: config.hostName,
     // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.

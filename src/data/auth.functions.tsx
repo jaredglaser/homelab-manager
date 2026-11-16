@@ -14,7 +14,6 @@ export const sessionReadMiddleware = createMiddleware().server(async ({ next, co
   const { resolveUserFromCookie } = await import('@/lib/auth/resolve-user');
   const sessionUser = await resolveUserFromCookie(getRequest());
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return next({ context: { ...ctx, sessionUser: sessionUser as AuthUser | null } });
 });
 
