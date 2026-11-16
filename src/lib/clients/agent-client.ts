@@ -48,8 +48,9 @@ interface AgentClientConfig {
   controlTimeoutMs?: number;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetchFn?: typeof fetch;
-  /** Pinned per-host TLS certificate (PEM) for https agent URLs. */
-  caCertPem?: string | null;
+  /** Pinned per-host TLS certificate (PEM) for https agent URLs, null for http. Required so an
+   *  omitted cert cannot look like an agent outage. */
+  caCertPem: string | null;
 }
 
 export interface AgentHealthResponse {
@@ -85,7 +86,7 @@ export class AgentClient {
   private readonly timeoutMs: number;
   private readonly controlTimeoutMs: number;
   private readonly fetchFn: typeof fetch;
-  private readonly caCertPem: string | null | undefined;
+  private readonly caCertPem: string | null;
 
   constructor(config: AgentClientConfig) {
     // Strip trailing slash

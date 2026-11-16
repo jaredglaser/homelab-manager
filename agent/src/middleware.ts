@@ -7,8 +7,12 @@ import { verifyAgentJwt } from './lib/jwt-auth';
  * @param expectedAudience host name the token's aud claim must match.
  * Returns a Response on rejection, or `null` on success.
  */
-/** Path that may be served without a JWT (the liveness probe). A test pins this to be inside HTTP_ENROLLMENT_ALLOWED_PATHS, so restricted plain-HTTP mode does not 403 the health check. */
-export const AUTH_BYPASS_PATH = '/health';
+/**
+ * Paths served without a JWT: the liveness probe, plus the enrollment handshake,
+ * which carries its own authorization (a signature over a single-use nonce) and
+ * must stay reachable on a host that cannot yet verify a token.
+ */
+export const AUTH_BYPASS_PATHS: ReadonlySet<string> = new Set(['/health', '/tls/challenge', '/tls/enroll']);
 
 export async function authenticateRequest(
   headers: Headers,
@@ -16,7 +20,7 @@ export async function authenticateRequest(
   pathname: string,
   expectedAudience: string,
 ): Promise<Response | null> {
-  if (pathname === AUTH_BYPASS_PATH) return null;
+  if (AUTH_BYPASS_PATHS.has(pathname)) return null;
 
   const authHeader = headers.get('Authorization');
   if (!authHeader) return new Response('Unauthorized', { status: 401 });

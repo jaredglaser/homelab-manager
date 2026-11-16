@@ -1,23 +1,31 @@
 import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
+import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
+import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
+import type { TlsFailureCode } from '@homelab-manager/agent/types';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
+import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
 export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 export interface KeypairsDep {
-  createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
+  createForHost: (hostName: string) => Promise<{ publicJwk: JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
-  getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
+  getPublicJwkForHost: (hostName: string) => Promise<JWK | null>;
+  getOrCreateForHost: (hostName: string) => Promise<JWK>;
 }
 
 export interface AddHostResult {
   host: HostListItem;
-  publicJwk?: import('jose').JWK;
+  publicJwk?: JWK;
+  /** Set when TLS provisioning failed but the keypair was still created and returned. The host stays pending. */
+  provisioningError?: string;
 }
 
 export type HostOperationResult =
@@ -29,7 +37,7 @@ export type HostOperationResult =
       agentImage?: string | null;
       agentImageTag?: string | null;
     }
-  | { hostId: number; healthy: false; error: string; suggestions?: string[] };
+  | { hostId: number; healthy: false; error: string };
 
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
@@ -99,10 +107,16 @@ export async function handleCheckHostHealth(
 
 export async function handleRemoveHost(
   deps: HostHandlerDeps & { keypairs: Pick<KeypairsDep, 'deleteForHost'> },
-  data: { hostId: number },
+  data: { hostId: number; expectStatus?: 'pending' },
 ): Promise<{ success: boolean }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  // The row just read is the arbiter: a wizard-driven removal must not delete a
+  // host whose status flipped after the client's snapshot was taken.
+  if (data.expectStatus && host.status !== data.expectStatus) {
+    throw new Error(`Host ${host.name} is no longer pending`);
+  }
 
   try {
     await deps.keypairs.deleteForHost(host.name);
@@ -138,23 +152,35 @@ export async function handleUpdateHost(
 }
 
 export async function handleGetHostPublicJwk(
-  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  deps: HostHandlerDeps & {
+    keypairs: KeypairsDep;
+    /** Pinned certificate lookup. Absent when the caller has no certificate store. */
+    getPinnedCert?: (hostName: string) => Promise<string | null>;
+  },
   data: { hostId: number },
-): Promise<{ publicJwk: import('jose').JWK }> {
+): Promise<{ publicJwk: JWK; fingerprint: string | null }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   const publicJwk = await deps.keypairs.getPublicJwkForHost(host.name);
   if (!publicJwk) {
-    throw new Error(`No agent keypair found for host ${host.name}`);
+    throw missingAgentKeypairError(host.name);
   }
-  return { publicJwk };
+  // Derived here rather than stored, so the value cannot drift from the certificate it describes.
+  // The agent prints the same value at startup, which is what makes the two comparable.
+  let certPem: string | null = null;
+  try {
+    certPem = (await deps.getPinnedCert?.(host.name)) ?? null;
+  } catch (err) {
+    console.error(`[hosts] TLS cert lookup failed for ${host.name}:`, err instanceof Error ? err.message : err);
+  }
+  return { publicJwk, fingerprint: certPem ? certificateFingerprint(certPem) : null };
 }
 
 export async function handleRotateHostKeypair(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
-): Promise<{ hostId: number; publicJwk: import('jose').JWK }> {
+): Promise<{ hostId: number; publicJwk: JWK }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -163,72 +189,102 @@ export async function handleRotateHostKeypair(
 }
 
 /**
- * Register a user-managed agent. Generates an Ed25519 keypair and returns the
- * public JWK to the operator, who installs it in the agent's AGENT_TRUSTED_PUBKEY
- * env. Status is pending until the operator installs the pubkey and a follow-up
- * health check passes.
+ * Create (or reuse) the pending host record and its Ed25519 keypair, and return
+ * the public JWK. Called when the Add Host wizard enters the Compose File step,
+ * so the generated .env (referenced by the compose) carries the real
+ * AGENT_TRUSTED_PUBKEY and the agent boots already trusting the manager.
+ * Provisioning is a separate step (handleRotateHostTls) that runs once the
+ * operator has deployed the stack and entered the agent URL.
  */
-export async function handleVerifyHost(
-  deps: HostHandlerDeps & {
-    keypairs: KeypairsDep;
-    /** Must run after repo.create: the cert row has an FK on the host name. Flips the agent URL to https on success. */
-    provisionTls?: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
-  },
-  data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
-): Promise<AddHostResult> {
+export async function handleCreatePendingHost(
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+): Promise<{ host: HostListItem; publicJwk: JWK }> {
   const name = data.name.trim();
-  // The wizard re-runs verifyHost after a failed attempt, and the pending row
-  // from that attempt blocks a second create on the unique host name.
+  const capabilities = data.capabilities ?? { docker: false, zfs: false };
   const existing = await deps.repo.findByName(name);
   const host = existing ?? (await deps.repo.create({
     name,
-    agentUrl: data.agentUrl,
-    capabilities: data.capabilities,
+    // agent_url is NOT NULL but unknown at this point. The operator enters the
+    // URL on the Verify step, which persists it before provisioning runs.
+    agentUrl: '',
+    capabilities,
   }));
 
-  let publicJwk;
+  // Get-or-create: re-entering the wizard must reuse the enrolled keypair. Rotating
+  // here would invalidate the AGENT_TRUSTED_PUBKEY the operator already deployed.
+  let publicJwk: JWK | null;
   try {
-    ({ publicJwk } = await deps.keypairs.createForHost(name));
+    publicJwk = await deps.keypairs.getPublicJwkForHost(name);
+    if (!publicJwk) publicJwk = await deps.keypairs.getOrCreateForHost(name);
   } catch (err) {
     if (!existing) await deps.repo.delete(host.id);
     throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
   }
 
-  if (deps.provisionTls) {
-    let provisioned: { agentUrl: string };
-    try {
-      provisioned = await deps.provisionTls(name, data.agentUrl);
-    } catch (err) {
-      // The host stays pending so the operator can fix the agent and re-run
-      // provisioning instead of losing the enrolled keypair with the record.
-      throw new Error(err instanceof Error ? err.message : String(err));
-    }
-    const updated = await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
-    return {
-      host: toHostListItem(updated, { agentVersion: null, status: 'pending' }),
-      publicJwk,
-    };
+  // Capability toggles may have changed since creation. Keep the record honest, but
+  // only for pending hosts the wizard is still enrolling.
+  if (existing && host.status === 'pending'
+      && JSON.stringify(host.capabilities ?? {}) !== JSON.stringify(capabilities)) {
+    const updated = await deps.repo.update(host.id, { capabilities });
+    return { host: toHostListItem(updated), publicJwk };
   }
 
   return {
-    host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
+    host: toHostListItem(host, existing ? undefined : { agentVersion: null, status: 'pending' }),
     publicJwk,
   };
 }
 
-/** Re-runs TLS provisioning for an enrolled host. Failure leaves the host record and its enrolled keypair untouched. */
+/**
+ * Runs TLS provisioning for a host: the Add Host wizard's first contact, or a
+ * re-run for an enrolled host. Failure leaves the host record and its enrolled
+ * keypair untouched.
+ *
+ * An explicit `agentUrl` re-points the host: provisioning runs against it, and
+ * only a successful run (which flips the URL to https) is persisted. A failed
+ * attempt never writes, so a bad address cannot clobber a working one.
+ */
+/**
+ * Expected failures come back as data rather than as a throw, so the UI maps a code to its fix
+ * instead of matching on prose. A rejected session, a transport failure or a bug still throws.
+ */
+export type RotateHostTlsResult =
+  | { ok: true; hostId: number; agentUrl: string; enrolledOverPlainHttp: boolean; fingerprint: string }
+  | { ok: false; code: TlsFailureCode; message: string };
+
 export async function handleRotateHostTls(
   deps: HostHandlerDeps & {
-    provisionTls: (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }>;
+    provisionTls: (
+      hostName: string,
+      agentUrl: string,
+      options: { allowPlaintextEnrollment: boolean },
+    ) => Promise<{ agentUrl: string; enrolledOverPlainHttp?: boolean; fingerprint?: string }>;
   },
-  data: { hostId: number },
-): Promise<{ hostId: number; agentUrl: string }> {
+  data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean },
+): Promise<RotateHostTlsResult> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const provisioned = await deps.provisionTls(host.name, host.agentUrl);
+  // A host the wizard is still enrolling has no established trust to protect, so it confirms by existing.
+  const allowPlaintextEnrollment = host.status === 'pending' || data.acceptPlaintextEnrollment === true;
+  let provisioned: { agentUrl: string; enrolledOverPlainHttp?: boolean; fingerprint?: string };
+  try {
+    provisioned = await deps.provisionTls(host.name, data.agentUrl ?? host.agentUrl, { allowPlaintextEnrollment });
+  } catch (err) {
+    if (err instanceof TlsProvisionFailure) return { ok: false, code: err.code, message: err.message };
+    // The manager has no keypair to sign with, which is the one failure that names a control in the UI.
+    if (err instanceof MissingAgentKeypairError) return { ok: false, code: 'no_keypair', message: err.message };
+    throw err;
+  }
   await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
-  return { hostId: host.id, agentUrl: provisioned.agentUrl };
+  return {
+    ok: true,
+    hostId: host.id,
+    agentUrl: provisioned.agentUrl,
+    enrolledOverPlainHttp: provisioned.enrolledOverPlainHttp === true,
+    fingerprint: provisioned.fingerprint ?? '',
+  };
 }
 
 // Scoped to this host's agentUrl. Never touches any other host.
@@ -251,10 +307,6 @@ export async function handleUpdateAgent(
       hostId: host.id,
       healthy: false,
       error: 'Agent is unreachable before update',
-      suggestions: [
-        'Check that the agent container is running',
-        'Run `docker logs hlm-agent` to inspect agent startup errors',
-      ],
     };
   }
   const currentVersion = preCheck.version;
@@ -270,10 +322,6 @@ export async function handleUpdateAgent(
       hostId: host.id,
       healthy: false,
       error: 'Could not resolve the agent image digest from the registry',
-      suggestions: [
-        'Verify ghcr.io/jaredglaser/homelab-manager-agent is reachable and public',
-        'Check the VITE_AGENT_IMAGE_TAG the dashboard was built with',
-      ],
     };
   }
   const targetImage = digestPinnedImageRef(imageRef, digest);
@@ -286,10 +334,6 @@ export async function handleUpdateAgent(
       hostId: host.id,
       healthy: false,
       error: 'Could not retrieve agent keypair',
-      suggestions: [
-        'Check that the master key is configured (MASTER_KEY env var)',
-        'Verify the agent has been enrolled with a generated public JWK',
-      ],
     };
   }
 
@@ -301,10 +345,6 @@ export async function handleUpdateAgent(
       hostId: host.id,
       healthy: false,
       error: 'Could not sign the agent request token',
-      suggestions: [
-        'Check that the master key is configured (MASTER_KEY env var)',
-        'Verify the agent has been enrolled with a generated public JWK',
-      ],
     };
   }
 
@@ -322,11 +362,6 @@ export async function handleUpdateAgent(
       hostId: host.id,
       healthy: false,
       error: err instanceof Error ? err.message : String(err),
-      suggestions: [
-        'Check that the agent is reachable at its configured URL',
-        'Run `docker logs hlm-agent` to inspect agent errors',
-        'Verify that Docker capability is enabled for this host',
-      ],
     };
   }
 
@@ -335,11 +370,6 @@ export async function handleUpdateAgent(
       hostId: host.id,
       healthy: false,
       error: 'Agent URL returned an unexpected redirect',
-      suggestions: [
-        'Check that the agent is reachable at its configured URL',
-        'Run `docker logs hlm-agent` to inspect agent errors',
-        'Verify that Docker capability is enabled for this host',
-      ],
     };
   }
 
@@ -363,10 +393,6 @@ export async function handleUpdateAgent(
       hostId: host.id,
       healthy: false,
       error,
-      suggestions: [
-        'Check that the agent is reachable at its configured URL',
-        'Verify that Docker capability is enabled for this host',
-      ],
     };
   }
 
@@ -406,10 +432,6 @@ export async function handleUpdateAgent(
             hostId: host.id,
             healthy: false,
             error: 'The agent is still running its previous image, so the update was interrupted before it completed',
-            suggestions: [
-              'Check free disk space on the host, then retry the update',
-              'Run `docker ps -a | grep hlm-agent` to check container state',
-            ],
           };
         }
         await deps.repo.updateStatus(host.id, 'healthy');
@@ -423,10 +445,6 @@ export async function handleUpdateAgent(
         hostId: host.id,
         healthy: false,
         error: 'The agent stayed reachable throughout the update window, so its restart could not be confirmed',
-        suggestions: [
-          'Re-run the update after the current attempt settles',
-          'Run `docker ps -a | grep hlm-agent` to check container state',
-        ],
       };
     }
     if (lastResult.healthy) {
@@ -434,21 +452,12 @@ export async function handleUpdateAgent(
         hostId: host.id,
         healthy: false,
         error: 'Agent is reachable but its version could not be read, so the update could not be confirmed',
-        suggestions: [
-          'Run `docker logs hlm-agent` to check which image the agent is running',
-          'Verify the agent has been enrolled with a generated public JWK',
-          'Re-run the health check once the agent settles to refresh its reported version',
-        ],
       };
     }
     return {
       hostId: host.id,
       healthy: false,
       error: 'Agent did not restart after update',
-      suggestions: [
-        'Run `docker ps -a | grep hlm-agent` to check container state',
-        'Check available disk space for the image pull',
-      ],
     };
   }
 

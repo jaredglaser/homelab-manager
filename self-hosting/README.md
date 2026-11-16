@@ -212,11 +212,10 @@ These variables are set on each **agent** container (not on the dashboard or wor
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AGENT_HOST_NAME` | - | **Required.** Must equal the managed host's name as registered in **Settings → Managed Hosts**. Manager-issued JWTs carry this name as the `aud` claim, so a token minted for one host is rejected by another (protects against a reused or copy-pasted keypair). The agent exits at startup if it is unset. |
-| `AGENT_TRUSTED_PUBKEY` or `AGENT_TRUSTED_PUBKEY_FILE` | - | Trusted Ed25519 public JWK the agent verifies request JWTs against. The dashboard hands you this value during the Verify step. Set one of the two; if both are set, the `_FILE` variant wins. |
+| `AGENT_TRUSTED_PUBKEY` or `AGENT_TRUSTED_PUBKEY_FILE` | - | Trusted Ed25519 public JWK the agent verifies request JWTs against. The generated .env carries this value and the compose references it via `${AGENT_TRUSTED_PUBKEY}`, so deploying the generated pair sets it for you. Set one of the two; if both are set, the `_FILE` variant wins. |
 | `AGENT_PORT` | `9090` | Port the agent listens on |
 | `DOCKER_HOST` | - | Docker endpoint (socket proxy recommended, e.g. `tcp://socket-proxy:2375`). Enables the Docker capability. |
 | `TLS_CERT_PATH` / `TLS_KEY_PATH` | - | Optional TLS for the agent's listener. Set both together. |
-| `HLM_TLS_HTTP_FALLBACK` | `false` | Escape hatch for the agent's TLS enrollment flow. When set to `true`, the agent serves plain HTTP whenever no enrolled certificate is present, regardless of the marker, instead of refusing to start. Only use during TLS troubleshooting (see the recovery runbook below); remove it once the certificate is enrolled. While the agent serves plain HTTP with TLS configured but no enrolled certificate (first boot and fallback alike) it serves only `/health`, `/auth/verify` and `/tls/enroll`; every other endpoint returns `403` so stats, container control, stack deploys and exec sessions are never exposed unencrypted. |
 
 ### Docker Monitoring
 
@@ -253,9 +252,11 @@ Two separate credentials are involved, neither of which is an env var:
 - **Dashboard-to-agent:** each deploy request carries a short-lived JWT signed by a per-host Ed25519 keypair stored encrypted in the database; no token file is distributed to hosts.
 - **Git pushes:** authenticated with per-user git tokens. Generate one in **Settings → Auth Management → Generate Git Token** (admins and operators, with the token shown once). Use it as the password on `git push`. Pushes require the `admin` or `operator` role. Operators manage only their own tokens, and admins see every user's tokens.
 
-> **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and sends the public JWK to the agent. Each deploy request carries a short-lived signed JWT; the agent verifies it against the trusted public key.
+> **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and gives you the public JWK in the wizard-generated .env, which you deploy alongside the agent's compose file. Each deploy request carries a short-lived signed JWT, and the agent verifies it against the trusted public key.
 >
-> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose stack for the agent and handles key exchange during the Verify step. Set `AGENT_HOST_NAME` on the agent to the host name you enter in the wizard (see [Agent Environment](#agent-environment)). Once connectivity is confirmed, the keypair is stored and the host is ready.
+> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard creates the host record and keypair when you enter the Compose File step. The generated .env carries the real `AGENT_TRUSTED_PUBKEY`, which the compose references, so the agent boots already trusting the manager. The Verify step then provisions TLS for the agent and moves the connection to HTTPS.
+>
+> **Stacks directory:** the agent writes stack files to `${HLM_STACKS_DIR}` on the host, but runs as a non-root user, so the directory must be writable by that user. If the agent logs "Stacks directory is not writable", create it and hand it to the container user: `mkdir -p /opt/homelab-manager/stacks && docker exec hlm-agent id -u && docker exec hlm-agent id -g`, then `chown <uid>:<gid> /opt/homelab-manager/stacks`. Deploy both generated files from the same wizard session. A compose from one run with an .env from another points the agent at a key no manager will sign with.
 >
 ### Rotating a host keypair
 
@@ -465,14 +466,14 @@ New versions are cut automatically: release-please keeps a standing release PR f
 - Verify the agent is running on the target host: `curl http://<agent-ip>:9090/health`
 - Re-enroll the host via the wizard if the keypair is missing (e.g., after a fresh database).
 
-**Agent TLS recovery: the manager lost its pinned certificate**
+### Agent TLS recovery: the manager lost its pinned certificate
 
-If the manager's per-host certificate record is lost (for example, a database restored without it), the manager can no longer verify the agent's self-signed certificate, and re-running provisioning over the existing https URL fails. Recover manually:
+If the manager's per-host certificate record is lost (for example, a database restored without it), the manager can no longer verify the agent's self-signed certificate, and provisioning cannot verify that host over its stored https URL. Recover manually:
 
-1. SSH into the agent host and remove the certificate files and the enrollment marker: `rm /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem /opt/homelab-manager/stacks/hlm-agent-tls/key.pem /opt/homelab-manager/stacks/hlm-agent-tls/.enrolled`. With the marker gone the agent treats the missing certificates as a first boot and serves plain HTTP with a warning in its logs.
-2. In Settings → Managed Hosts, edit the host and set its agent URL back to `http://<agent-ip>:9090` (an https URL cannot reach an agent serving plain HTTP), then use **Rotate TLS** (or re-run **Verify Connection** in the Add Host wizard). Provisioning enrolls a fresh certificate, restarts the agent, verifies HTTPS, and flips the URL back to https.
+1. SSH into the agent host and remove the certificate files: `rm /opt/homelab-manager/stacks/hlm-agent-tls/cert.pem /opt/homelab-manager/stacks/hlm-agent-tls/key.pem`. Then restart the agent so it re-reads its TLS state: `docker restart hlm-agent` (or `docker compose up -d` in the agent stack directory). The TLS decision is made once at startup, so removing those files from a running agent changes nothing until it restarts. An agent with no certificate serves plain HTTP, which is how the manager enrolls it.
+2. Use **Rotate TLS** in Settings → Managed Hosts (or re-run **Verify Connection** in the Add Host wizard). The manager reaches the agent over `http://<agent-ip>:9090` by itself, enrolls a fresh certificate, and the agent restarts itself into TLS (an agent without Docker capability must be restarted manually: `docker restart hlm-agent`). The manager verifies HTTPS and puts the host's URL back to https.
 
-If you cannot SSH in, add `HLM_TLS_HTTP_FALLBACK=true` to the agent service environment (a `docker-compose.override.yml` is fine) and run `docker compose up -d` instead of step 1. The agent then serves plain HTTP regardless of the marker, restricted to `/health`, `/auth/verify` and `/tls/enroll` so nothing else is exposed unencrypted. Remove the override and run `docker compose up -d` again afterwards so the agent refuses to serve without a certificate in the future.
+If provisioning reports that the agent did not serve the new certificate over HTTPS within the retry window, and the agent has no Docker capability (its logs say `Docker capability: disabled`) or runs an agent version too old to restart itself, restart it manually with `docker restart hlm-agent` and re-run provisioning.
 
 **ZFS host shows no pools**
 - The agent needs the host's `zpool`/`zfs` binaries and `/dev/zfs` mounted into its container (the wizard-generated stack includes these). Check the agent logs for "ZFS capability: disabled".
