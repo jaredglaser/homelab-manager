@@ -159,11 +159,7 @@ export function tlsFailureGuidance(code: TlsFailureCode, detail?: string): TlsFa
   return docAnchor ? { message, retryUseless, docAnchor } : { message, retryUseless };
 }
 
-/**
- * The sentence the operator reads for a failure. It deliberately names no control: the mapper knows
- * whether retrying can help, and the surface knows which button it actually offers. A hint appended
- * here reached a toast that had no such button.
- */
+/** The sentence the operator reads. Never names a control: the surface owns which button it offers. */
 export function tlsFailureMessage(code: TlsFailureCode, detail?: string): string {
   const copy = TLS_FAILURE_COPY[code];
   const parts = [copy.headline, copy.fix];
