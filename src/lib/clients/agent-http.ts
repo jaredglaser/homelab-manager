@@ -15,6 +15,16 @@ export const MISSING_PIN_RECOVERY_HINT = 'See the agent TLS recovery steps in th
 const MISSING_CERT_MESSAGE =
   `No pinned TLS certificate for this HTTPS agent URL, so the manager cannot verify the agent. ${MISSING_PIN_RECOVERY_HINT}`;
 
+/** The refusal agentFetch throws when a TLS agent URL has no pinned certificate. */
+export class AgentTlsPinMissingError extends Error {
+  readonly code = 'pin_missing' as const;
+
+  constructor() {
+    super(MISSING_CERT_MESSAGE);
+    this.name = 'AgentTlsPinMissingError';
+  }
+}
+
 export function missingPinMessage(host: string): string {
   return `No pinned TLS certificate for host: ${host}. ${MISSING_PIN_RECOVERY_HINT}`;
 }
@@ -47,7 +57,7 @@ export async function agentFetch(
     return fetchImpl(url, init);
   }
   if (!caCertPem) {
-    throw new Error(MISSING_CERT_MESSAGE);
+    throw new AgentTlsPinMissingError();
   }
   const initWithTls: RequestInitWithTls = { ...init, tls: { ca: caCertPem, rejectUnauthorized: true } };
   return fetchImpl(url, initWithTls as RequestInit);
@@ -75,7 +85,7 @@ export function openAgentWebSocket(url: string, options: AgentWebSocketOptions, 
     return hasHeaders ? new WebSocket(url, options as unknown as string[]) : new WebSocket(url);
   }
   if (!caCertPem) {
-    throw new Error(MISSING_CERT_MESSAGE);
+    throw new AgentTlsPinMissingError();
   }
   const optionsWithTls: WebSocketOptionsWithTls = {
     ...options,
@@ -86,7 +96,7 @@ export function openAgentWebSocket(url: string, options: AgentWebSocketOptions, 
 
 /** True for the refusal agentFetch throws when a TLS agent URL has no pinned certificate. */
 export function isMissingPinError(err: unknown): boolean {
-  return err instanceof Error && err.message.startsWith('No pinned TLS certificate');
+  return err instanceof AgentTlsPinMissingError;
 }
 
 /** The plain-HTTP sibling of a TLS agent URL, which is the address an agent without a certificate serves. */

@@ -141,6 +141,7 @@ function restrictedModeRestartRejection(): Response {
     {
       error:
         'Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only /health, /auth/verify, /tls/enroll are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.',
+      code: 'restricted_plain_http',
     },
     403,
   );
