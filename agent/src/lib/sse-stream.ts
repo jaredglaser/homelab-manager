@@ -41,6 +41,7 @@ export interface CreateSseStreamOptions {
 
 /** True for the TypeError Web Streams throws on enqueue/close after the controller already closed. */
 export function isCloseRelatedError(err: unknown): boolean {
+  // eslint-disable-next-line local/no-error-message-matching -- transport, not classification: Web Streams throws a TypeError whose text is the only marker for an enqueue after close.
   return err instanceof TypeError && /closed/i.test(err.message);
 }
 

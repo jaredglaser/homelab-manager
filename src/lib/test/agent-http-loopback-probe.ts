@@ -5,7 +5,7 @@
  * (the production runtime environment the wrapper actually serves).
  */
 import { join } from 'node:path';
-import { agentFetch, openAgentWebSocket } from '../clients/agent-http';
+import { agentFetch, isMissingPinError, openAgentWebSocket } from '../clients/agent-http';
 
 const fixtureDir = join(import.meta.dir, '../clients/__tests__/fixtures');
 const fixtureCert = await Bun.file(join(fixtureDir, 'agent-tls-fixture-cert.pem')).text();
@@ -94,6 +94,7 @@ try {
       throw new Error('expected a wrong-ca websocket handshake to fail');
     },
     (err: unknown) => {
+      // eslint-disable-next-line local/no-error-message-matching -- transport noise, not classification
       if (err instanceof Error && err.message.includes('timed out')) throw err;
       // Any other rejection (handshake error) is the expected failure shape.
     },
@@ -102,7 +103,7 @@ try {
     openAgentWebSocket(`wss://localhost:${tlsServer.port}/ws`, {}, {});
     throw new Error('expected openAgentWebSocket to refuse a wss URL without a pinned cert');
   } catch (err) {
-    if (!(err instanceof Error) || !err.message.includes('No pinned TLS certificate')) throw err;
+    if (!isMissingPinError(err)) throw err;
   }
 
   console.log('loopback probe ok');
