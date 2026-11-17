@@ -1,5 +1,6 @@
 import { createSseStream, type SseEmitter } from '../lib/sse-stream';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
+import { routeErrorBody } from '../lib/error-body';
 
 async function readLines(
   stream: ReadableStream<Uint8Array>,
@@ -75,7 +76,7 @@ export function handleZfsStatsStream(
 ): Response {
   if (!capabilities.available) {
     return Response.json(
-      { error: 'ZFS is not available on this host' },
+      routeErrorBody('zfs_unavailable', 'ZFS is not available on this host'),
       { status: 503 },
     );
   }
@@ -111,7 +112,7 @@ export async function handleZfsPools(
 ): Promise<Response> {
   if (!capabilities.available) {
     return Response.json(
-      { error: 'ZFS is not available on this host' },
+      routeErrorBody('zfs_unavailable', 'ZFS is not available on this host'),
       { status: 503 },
     );
   }
@@ -128,7 +129,10 @@ export async function handleZfsPools(
     if (exitCode !== 0) {
       const stderr = await new Response(proc.stderr).text();
       return Response.json(
-        { error: 'Failed to list ZFS pools', detail: stderr.trim() },
+        {
+          ...routeErrorBody('zfs_pool_list_failed', 'Failed to list ZFS pools'),
+          detail: stderr.trim(),
+        },
         { status: 500 },
       );
     }
@@ -156,7 +160,10 @@ export async function handleZfsPools(
   } catch (err) {
     console.error('Failed to list ZFS pools:', err);
     return Response.json(
-      { error: 'Failed to list ZFS pools', detail: err instanceof Error ? err.message : String(err) },
+      {
+        ...routeErrorBody('zfs_pool_list_failed', 'Failed to list ZFS pools'),
+        detail: err instanceof Error ? err.message : String(err),
+      },
       { status: 500 },
     );
   }
