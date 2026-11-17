@@ -544,8 +544,9 @@ jobs:
         run: |
           seen=0
           for _ in $(seq 1 30); do
-            if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
-                 --paginate --jq '.artifacts[].name' | grep -qx "github-pages-$GITHUB_RUN_ATTEMPT"; then
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=github-pages-$GITHUB_RUN_ATTEMPT" \
+              --jq '.total_count // 0') || count=0
+            if [ "$count" -ge 1 ]; then
               seen=$((seen + 1))
               if [ "$seen" -ge 2 ]; then
                 echo "github-pages-$GITHUB_RUN_ATTEMPT is visible"
