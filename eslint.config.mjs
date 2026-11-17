@@ -381,17 +381,14 @@ export default tseslint.config(
   // A stale eslint-disable is enforcement that reads as done, so it fails the build instead of warning.
   { linterOptions: { reportUnusedDisableDirectives: 'error' } },
 
-  // AGENTS.md rule 8. 40 findings remain, so this stays warn globally and lands as an error in the trees
-  // that are already clean (see the per-tree block at the end of this file).
+  // AGENTS.md rule 8.
   {
     files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     rules: { 'no-console': ['warn', { allow: ['error', 'info', 'warn'] }] },
   },
 
   // Everything below has existing violations, so it lands as warn to keep this PR at zero errors.
-  // The autofixable group lands as an error in the trees that are already clean (per-tree block at the
-  // end). The rest need per-site judgement and stay warnings until worked down. The claim that an
-  // autofix sweep PR promoted these was never implemented, so it is gone.
+  // These still carry findings, so they stay warn until worked down.
   {
     files: ['**/*.{ts,tsx}'],
     rules: {
@@ -432,9 +429,7 @@ export default tseslint.config(
     },
   },
 
-  // Per-tree error flips. Each rule below is already clean in the trees listed, measured with
-  // `eslint . -f json`; the trees that still carry findings keep the global warn severity. Add a tree
-  // here only after its findings reach zero, and prove it with `eslint --print-config <file>`.
+  // Add a tree here only after its findings reach zero, and confirm with eslint --print-config.
   {
     files: [
       'src/components/**/*.{ts,tsx}',

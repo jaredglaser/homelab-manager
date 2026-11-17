@@ -27,7 +27,6 @@ describe('tlsFailureCopy', () => {
   });
 
   it('never appends a retry hint, because only the surface knows which control it offers', () => {
-    // This is the shipped defect: the hint said "below" on a toast that had no button below it.
     for (const code of TLS_FAILURE_CODES) {
       expect(tlsFailureMessage(code)).not.toMatch(/to try again/i);
     }
