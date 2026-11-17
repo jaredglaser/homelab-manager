@@ -309,7 +309,7 @@ async function requestRestart(
   }
   if (!response.ok) {
     const detail = await readErrorDetail(response);
-    if (response.status === 403 && detail.message.startsWith('Agent TLS is configured but no certificate is enrolled yet')) {
+    if (response.status === 403 && detail.code === 'restricted_plain_http') {
       // First-boot restricted gate rejects the restart by design. Agents new enough self-restart on their own.
       // The https poll below is the real verdict, and its timeout message carries the manual-restart step.
       return;

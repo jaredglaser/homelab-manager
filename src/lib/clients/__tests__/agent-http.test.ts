@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
-import { agentFetch, isMissingPinError, openAgentWebSocket, toPlainHttpUrl, type AgentTlsContext } from '../agent-http';
+import { agentFetch, isMissingPinError, openAgentWebSocket, toPlainHttpUrl, type AgentTlsContext, AgentTlsPinMissingError } from '../agent-http';
 
 const PROBE_PATH = join(import.meta.dir, '../../test/agent-http-loopback-probe.ts');
 
@@ -117,7 +117,10 @@ describe('toPlainHttpUrl', () => {
 
 describe('isMissingPinError', () => {
   it('recognizes the seam refusal and nothing else', () => {
-    expect(isMissingPinError(new Error('No pinned TLS certificate for this HTTPS agent URL'))).toBe(true);
+    const refusal = new AgentTlsPinMissingError();
+    expect(isMissingPinError(refusal)).toBe(true);
+    expect(refusal.code).toBe('pin_missing');
+    expect(isMissingPinError(new Error('No pinned TLS certificate for this HTTPS agent URL'))).toBe(false);
     expect(isMissingPinError(new Error('ECONNREFUSED'))).toBe(false);
     expect(isMissingPinError('No pinned TLS certificate')).toBe(false);
   });
