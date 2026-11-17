@@ -9,6 +9,16 @@ export interface CreatedAgentKeypair {
   privateKey: CryptoKey;
 }
 
+/** The `private_jwk_jwe` column, the only one the read selects. */
+interface PrivateJwkRow {
+  private_jwk_jwe: string;
+}
+
+/** The `public_jwk` column, the only one the read selects. */
+interface PublicJwkRow {
+  public_jwk: JWK;
+}
+
 export class AgentKeypairsRepository {
   constructor(
     private readonly pool: Pool,
@@ -33,12 +43,12 @@ export class AgentKeypairsRepository {
   }
 
   async getPrivateKeyForHost(hostName: string): Promise<CryptoKey | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<PrivateJwkRow>(
       'SELECT private_jwk_jwe FROM agent_keypairs WHERE host_name = $1',
       [hostName],
     );
     if (result.rows.length === 0) return null;
-    const jwe = (result.rows[0] as { private_jwk_jwe: string }).private_jwk_jwe;
+    const jwe = result.rows[0].private_jwk_jwe;
     let json: string;
     try {
       json = await decryptValue(jwe, this.keyring);
@@ -69,12 +79,12 @@ export class AgentKeypairsRepository {
   }
 
   async getPublicJwkForHost(hostName: string): Promise<JWK | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<PublicJwkRow>(
       'SELECT public_jwk FROM agent_keypairs WHERE host_name = $1',
       [hostName],
     );
     if (result.rows.length === 0) return null;
-    return (result.rows[0] as { public_jwk: JWK }).public_jwk;
+    return result.rows[0].public_jwk;
   }
 
   async deleteForHost(hostName: string): Promise<void> {

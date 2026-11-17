@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { DeployRepository } from '../deploy-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
 import type { DeployRequest } from '@/lib/deploy/types';
@@ -78,6 +78,26 @@ describe('DeployRepository', () => {
       expect(result!.id).toBe(42);
       expect(result!.stack).toBe('plex');
       expect(result!.status).toBe('pending');
+    });
+
+    it('throws when the persisted status is outside the union', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{
+        id: '42',
+        stack: 'plex',
+        host: 'homeserver',
+        commit_sha: 'abc123',
+        compose_hash: 'hash1',
+        env_hash: 'hash2',
+        status: 'cancelled',
+        trigger: 'git_push',
+        action: 'deploy',
+        logs: null,
+        created_at: new Date('2026-01-01'),
+      }]);
+
+      await expect(repo.getById(42)).rejects.toThrow('Unrecognized deploy_history.status value');
+      errorSpy.mockRestore();
     });
   });
 

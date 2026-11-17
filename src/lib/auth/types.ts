@@ -1,4 +1,9 @@
-export type Role = 'admin' | 'operator' | 'viewer';
+export const ROLE_VALUES = ['admin', 'operator', 'viewer'] as const;
+export type Role = (typeof ROLE_VALUES)[number];
+
+export function isRole(value: unknown): value is Role {
+  return typeof value === 'string' && (ROLE_VALUES as readonly string[]).includes(value);
+}
 
 export interface AuthUser {
   id: number;

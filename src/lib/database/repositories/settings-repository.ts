@@ -6,11 +6,22 @@ export interface SettingRow {
   updated_at: Date;
 }
 
+/** The `value` column, the only one `get` selects. */
+interface SettingValueRow {
+  value: string;
+}
+
+/** The `key`/`value` pair `getAll` selects, without the timestamp. */
+interface SettingKeyValueRow {
+  key: string;
+  value: string;
+}
+
 export class SettingsRepository {
   constructor(private pool: Pool) {}
 
   async get(key: string): Promise<string | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<SettingValueRow>(
       'SELECT value FROM settings WHERE key = $1',
       [key]
     );
@@ -18,9 +29,9 @@ export class SettingsRepository {
   }
 
   async getAll(): Promise<Map<string, string>> {
-    const result = await this.pool.query('SELECT key, value FROM settings');
+    const result = await this.pool.query<SettingKeyValueRow>('SELECT key, value FROM settings');
     const map = new Map<string, string>();
-    for (const row of result.rows as SettingRow[]) {
+    for (const row of result.rows) {
       map.set(row.key, row.value);
     }
     return map;

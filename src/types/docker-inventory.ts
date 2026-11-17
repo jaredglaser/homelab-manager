@@ -39,6 +39,10 @@ const zContainerStateWeb = z.enum([
   'unknown',
 ]);
 
+export function isContainerState(value: unknown): value is z.infer<typeof zContainerStateWeb> {
+  return zContainerStateWeb.safeParse(value).success;
+}
+
 /** Duplicated from the agent protocol's `zContainerPort` to keep agent zod out of the client bundle. */
 const zContainerPortWeb = z.object({
   containerPort: z.number(),

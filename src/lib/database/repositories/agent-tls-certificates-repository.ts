@@ -1,5 +1,10 @@
 import type { Pool } from 'pg';
 
+/** The `cert_pem` column, the only one the read selects. */
+interface CertPemRow {
+  cert_pem: string;
+}
+
 /** Public certs only: the agent keeps its private key. */
 export class AgentTlsCertificatesRepository {
   constructor(private readonly pool: Pool) {}
@@ -17,12 +22,12 @@ export class AgentTlsCertificatesRepository {
   }
 
   async getCertForHost(hostName: string): Promise<string | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<CertPemRow>(
       'SELECT cert_pem FROM agent_tls_certificates WHERE host_name = $1',
       [hostName],
     );
     if (result.rows.length === 0) return null;
-    return (result.rows[0] as { cert_pem: string }).cert_pem;
+    return result.rows[0].cert_pem;
   }
 
   async deleteForHost(hostName: string): Promise<void> {

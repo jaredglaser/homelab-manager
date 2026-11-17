@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import type { AuthUser } from '@/lib/auth/types';
+import { isRole } from '@/lib/auth/types';
+import { parseRowEnum } from '@/lib/database/repositories/row-enum';
 
 export interface CreateSessionInput {
   id: string;
@@ -20,7 +22,7 @@ export interface SessionRow {
   createdAt: Date;
 }
 
-function rowToSession(row: {
+interface SessionQueryRow {
   id: string;
   user_id: number;
   encrypted_oidc: string | null;
@@ -28,7 +30,23 @@ function rowToSession(row: {
   user_agent: string | null;
   expires_at: Date;
   created_at: Date;
-}): SessionRow {
+}
+
+/** The sessions row plus the joined users columns findById selects. */
+interface SessionWithUserQueryRow extends SessionQueryRow {
+  u_id: number;
+  email: string;
+  name: string | null;
+  role: string;
+}
+
+/** The sessions row plus the joined users columns findAllWithUser selects. */
+interface SessionListQueryRow extends SessionQueryRow {
+  user_name: string | null;
+  user_email: string;
+}
+
+function rowToSession(row: SessionQueryRow): SessionRow {
   return {
     id: row.id,
     userId: row.user_id,
@@ -52,7 +70,7 @@ export class SessionRepository {
   }
 
   async findById(hashedId: string): Promise<{ session: SessionRow; user: AuthUser } | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<SessionWithUserQueryRow>(
       `SELECT s.id, s.user_id, s.encrypted_oidc, s.ip_address, s.user_agent, s.expires_at, s.created_at,
               u.id as u_id, u.email, u.name, u.role
        FROM sessions s
@@ -61,31 +79,24 @@ export class SessionRepository {
       [hashedId]
     );
     if (result.rows.length === 0) return null;
-    const row = result.rows[0] as {
-      id: string;
-      user_id: number;
-      encrypted_oidc: string | null;
-      ip_address: string | null;
-      user_agent: string | null;
-      expires_at: Date;
-      created_at: Date;
-      u_id: number;
-      email: string;
-      name: string | null;
-      role: AuthUser['role'];
-    };
+    const row = result.rows[0];
     return {
       session: rowToSession(row),
-      user: { id: row.u_id, email: row.email, name: row.name, role: row.role },
+      user: {
+        id: row.u_id,
+        email: row.email,
+        name: row.name,
+        role: parseRowEnum('users.role', row.role, isRole),
+      },
     };
   }
 
   async findByUserId(userId: number): Promise<SessionRow[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<SessionQueryRow>(
       'SELECT * FROM sessions WHERE user_id = $1 ORDER BY created_at DESC',
       [userId]
     );
-    return (result.rows as Parameters<typeof rowToSession>[0][]).map(rowToSession);
+    return result.rows.map(rowToSession);
   }
 
   async deleteById(id: string): Promise<void> {
@@ -97,7 +108,7 @@ export class SessionRepository {
   }
 
   async findAllWithUser(): Promise<(SessionRow & { userName: string | null; userEmail: string })[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<SessionListQueryRow>(
       `SELECT s.id, s.user_id, s.encrypted_oidc, s.ip_address, s.user_agent, s.expires_at, s.created_at,
               u.name AS user_name, u.email AS user_email
        FROM sessions s
@@ -105,7 +116,7 @@ export class SessionRepository {
        WHERE s.expires_at > now()
        ORDER BY s.created_at DESC`
     );
-    return (result.rows as (Parameters<typeof rowToSession>[0] & { user_name: string | null; user_email: string })[]).map(row => ({
+    return result.rows.map(row => ({
       ...rowToSession(row),
       userName: row.user_name ?? null,
       userEmail: row.user_email,

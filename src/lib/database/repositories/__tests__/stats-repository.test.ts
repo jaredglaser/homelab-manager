@@ -396,20 +396,20 @@ describe('StatsRepository', () => {
       mockPool.setDefault([]);
     });
 
-    it('should map rows through toZFSStatsRow coercing BIGINT strings to numbers', async () => {
+    it('should map a zfs row through toZFSStatsRow', async () => {
       const rawRow = {
         time: '2024-01-01T00:00:00.000Z',
         host: 'server1',
         pool: 'tank',
         entity: 'tank',
         entity_type: 'pool',
-        indent: '0',
-        capacity_alloc: '1000000000',
-        capacity_free: '2000000000',
-        read_ops_per_sec: '42',
-        write_ops_per_sec: '7',
-        read_bytes_per_sec: '1048576',
-        write_bytes_per_sec: '512',
+        indent: 0,
+        capacity_alloc: 1000000000,
+        capacity_free: 2000000000,
+        read_ops_per_sec: 42,
+        write_ops_per_sec: 7,
+        read_bytes_per_sec: 1048576,
+        write_bytes_per_sec: 512,
         utilization_percent: null,
       };
       mockPool.pushResult([rawRow]);
@@ -945,21 +945,21 @@ describe('StatsRepository', () => {
   });
 
   describe('numeric coercion through the aggregate views', () => {
-    it('converts numeric strings from docker_stats_1h_avg to numbers', async () => {
+    it('maps a docker row from a continuous aggregate view', async () => {
       mockPool.pushResult([{
         time: '2024-01-01T00:00:00.000Z',
         host: 'server1',
         container_id: 'abc123',
         container_name: 'nginx',
         image: 'nginx:latest',
-        cpu_percent: '12.5',
-        memory_usage: '1073741824',
-        memory_limit: '2147483648',
-        memory_percent: '50',
-        network_rx_bytes_per_sec: '1024',
-        network_tx_bytes_per_sec: '2048',
-        block_io_read_bytes_per_sec: '4096',
-        block_io_write_bytes_per_sec: '8192',
+        cpu_percent: 12.5,
+        memory_usage: 1073741824,
+        memory_limit: 2147483648,
+        memory_percent: 50,
+        network_rx_bytes_per_sec: 1024,
+        network_tx_bytes_per_sec: 2048,
+        block_io_read_bytes_per_sec: 4096,
+        block_io_write_bytes_per_sec: 8192,
       }]);
 
       const [row] = await repo.getDockerStatsHistory(172801);
@@ -970,21 +970,21 @@ describe('StatsRepository', () => {
       expect(row.cpu_percent).toBe(12.5);
     });
 
-    it('converts numeric strings from zfs_stats_1h_avg to numbers', async () => {
+    it('maps a zfs row from a continuous aggregate view', async () => {
       mockPool.pushResult([{
         time: '2024-01-01T00:00:00.000Z',
         host: 'server1',
         pool: 'tank',
         entity: 'tank',
         entity_type: 'pool',
-        indent: '0',
-        capacity_alloc: '1000000000',
-        capacity_free: '2000000000',
-        read_ops_per_sec: '42.5',
-        write_ops_per_sec: '7',
-        read_bytes_per_sec: '1048576',
-        write_bytes_per_sec: '512',
-        utilization_percent: '33.3',
+        indent: 0,
+        capacity_alloc: 1000000000,
+        capacity_free: 2000000000,
+        read_ops_per_sec: 42.5,
+        write_ops_per_sec: 7,
+        read_bytes_per_sec: 1048576,
+        write_bytes_per_sec: 512,
+        utilization_percent: 33.3,
       }]);
 
       const [row] = await repo.getZFSStatsHistory(172801);
