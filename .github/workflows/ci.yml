@@ -537,20 +537,26 @@ jobs:
           # Must stay per-attempt and match the deploy step: deploy-pages requires exactly one match.
           name: github-pages-${{ github.run_attempt }}
 
-      # deploy-pages lists artifacts over a read path that can lag the upload by a few hundred ms.
+      # A proxy for the listing deploy-pages reads, and both can lag the upload by a few hundred ms.
       - name: Wait for the Pages artifact to be visible
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          seen=0
           for _ in $(seq 1 30); do
             if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
-                 --jq '.artifacts[].name' | grep -qx "github-pages-$GITHUB_RUN_ATTEMPT"; then
-              echo "github-pages-$GITHUB_RUN_ATTEMPT is visible"
-              exit 0
+                 --paginate --jq '.artifacts[].name' | grep -qx "github-pages-$GITHUB_RUN_ATTEMPT"; then
+              seen=$((seen + 1))
+              if [ "$seen" -ge 2 ]; then
+                echo "github-pages-$GITHUB_RUN_ATTEMPT is visible"
+                exit 0
+              fi
+            else
+              seen=0
             fi
             sleep 2
           done
-          echo "github-pages-$GITHUB_RUN_ATTEMPT is still not listed after 60s, so the deploy cannot start. Re-run this job." >&2
+          echo "github-pages-$GITHUB_RUN_ATTEMPT was not listed on two consecutive polls within 60s, so the deploy cannot start. Re-run this job, or check the actions: read permission if the listing errored above." >&2
           exit 1
 
       - name: Deploy to GitHub Pages
