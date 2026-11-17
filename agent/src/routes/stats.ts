@@ -46,6 +46,7 @@ function safeNum(value: number): number {
 
 /** Check if a Dockerode error indicates the container no longer exists (404 or 409). */
 export function isContainerGone(error: Error): boolean {
+  // eslint-disable-next-line local/no-error-message-matching -- Dockerode gives no code for a gone container
   return /\(HTTP code (404|409)\)/.test(error.message);
 }
 
