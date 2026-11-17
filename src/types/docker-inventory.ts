@@ -39,6 +39,11 @@ const zContainerStateWeb = z.enum([
   'unknown',
 ]);
 
+/** Narrows a persisted container state, so a value the union does not know is caught at the row. */
+export function isContainerState(value: unknown): value is z.infer<typeof zContainerStateWeb> {
+  return zContainerStateWeb.safeParse(value).success;
+}
+
 /** Duplicated from the agent protocol's `zContainerPort` to keep agent zod out of the client bundle. */
 const zContainerPortWeb = z.object({
   containerPort: z.number(),

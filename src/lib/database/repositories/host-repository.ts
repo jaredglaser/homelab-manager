@@ -1,7 +1,14 @@
 import type { Pool } from 'pg';
+import { parseRowEnum } from '@/lib/database/repositories/row-enum';
 
 /** Valid statuses for managed_hosts, matching the DB CHECK constraint in migration 010. */
-export type HostStatus = 'pending' | 'healthy' | 'unhealthy' | 'error';
+export const HOST_STATUS_VALUES = ['pending', 'healthy', 'unhealthy', 'error'] as const;
+export type HostStatus = (typeof HOST_STATUS_VALUES)[number];
+
+/** Narrows a persisted host status, so a value the union does not know is caught at the row. */
+export function isHostStatus(value: unknown): value is HostStatus {
+  return typeof value === 'string' && (HOST_STATUS_VALUES as readonly string[]).includes(value);
+}
 
 export interface HostCapabilities {
   docker?: boolean;
@@ -51,21 +58,46 @@ export interface UpdateHostInput {
   capabilities?: HostCapabilities;
 }
 
-function toManagedHost(row: Record<string, unknown>): ManagedHost {
+/** Columns of managed_hosts, as node-postgres returns them. */
+interface ManagedHostRow {
+  id: number | string;
+  name: string;
+  agent_url: string;
+  capabilities: HostCapabilities | null;
+  agent_version?: string | null;
+  agent_image?: string | null;
+  agent_image_tag?: string | null;
+  agent_image_digest?: string | null;
+  agent_out_of_date?: boolean | null;
+  status: string;
+  created_at: Date;
+  updated_at: Date;
+  last_swept_at?: Date | null;
+}
+
+interface HostIdRow {
+  id: number | string;
+}
+
+interface HostNameRow {
+  name: string;
+}
+
+function toManagedHost(row: ManagedHostRow): ManagedHost {
   return {
     id: Number(row.id),
-    name: row.name as string,
-    agentUrl: row.agent_url as string,
-    capabilities: (row.capabilities as HostCapabilities) ?? {},
-    agentVersion: (row.agent_version as string | null | undefined) ?? null,
-    agentImage: (row.agent_image as string | null | undefined) ?? null,
-    agentImageTag: (row.agent_image_tag as string | null | undefined) ?? null,
-    agentImageDigest: (row.agent_image_digest as string | null | undefined) ?? null,
-    agentOutOfDate: (row.agent_out_of_date as boolean | null | undefined) ?? false,
-    status: row.status as HostStatus,
-    createdAt: row.created_at as Date,
-    updatedAt: row.updated_at as Date,
-    lastSweptAt: (row.last_swept_at as Date | null | undefined) ?? null,
+    name: row.name,
+    agentUrl: row.agent_url,
+    capabilities: row.capabilities ?? {},
+    agentVersion: row.agent_version ?? null,
+    agentImage: row.agent_image ?? null,
+    agentImageTag: row.agent_image_tag ?? null,
+    agentImageDigest: row.agent_image_digest ?? null,
+    agentOutOfDate: row.agent_out_of_date ?? false,
+    status: parseRowEnum('managed_hosts.status', row.status, isHostStatus),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lastSweptAt: row.last_swept_at ?? null,
   };
 }
 
@@ -104,57 +136,57 @@ export class HostRepository {
   }
 
   async create(input: CreateHostInput): Promise<ManagedHost> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ManagedHostRow>(
       `INSERT INTO managed_hosts (name, agent_url, capabilities)
        VALUES ($1, $2, $3)
        RETURNING *`,
       [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
     );
-    const host = toManagedHost(result.rows[0] as Record<string, unknown>);
+    const host = toManagedHost(result.rows[0]);
     await this.notifyChange('add', host.name);
     return host;
   }
 
   async insert(input: CreateHostInput): Promise<number> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<HostIdRow>(
       `INSERT INTO managed_hosts (name, agent_url, capabilities)
        VALUES ($1, $2, $3)
        RETURNING id`,
       [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
     );
     await this.notifyChange('add', input.name);
-    return Number((result.rows[0] as Record<string, unknown>).id);
+    return Number(result.rows[0].id);
   }
 
   async findAll(): Promise<ManagedHost[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ManagedHostRow>(
       'SELECT * FROM managed_hosts ORDER BY name ASC',
     );
-    return result.rows.map((row) => toManagedHost(row as Record<string, unknown>));
+    return result.rows.map(toManagedHost);
   }
 
   async getAll(): Promise<ManagedHost[]> {
-    return this.findAll();
+    return await this.findAll();
   }
 
   async findByName(name: string): Promise<ManagedHost | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ManagedHostRow>(
       'SELECT * FROM managed_hosts WHERE name = $1',
       [name],
     );
-    return result.rows.length > 0 ? toManagedHost(result.rows[0] as Record<string, unknown>) : null;
+    return result.rows.length > 0 ? toManagedHost(result.rows[0]) : null;
   }
 
   async getByName(name: string): Promise<ManagedHost | null> {
-    return this.findByName(name);
+    return await this.findByName(name);
   }
 
   async findById(id: number): Promise<ManagedHost | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ManagedHostRow>(
       'SELECT * FROM managed_hosts WHERE id = $1',
       [id],
     );
-    return result.rows.length > 0 ? toManagedHost(result.rows[0] as Record<string, unknown>) : null;
+    return result.rows.length > 0 ? toManagedHost(result.rows[0]) : null;
   }
 
   async updateStatus(id: number, status: HostStatus): Promise<void> {
@@ -241,13 +273,13 @@ export class HostRepository {
     setClauses.push('updated_at = NOW()');
     params.push(id);
 
-    const result = await this.pool.query(
+    const result = await this.pool.query<ManagedHostRow>(
       `UPDATE managed_hosts SET ${setClauses.join(', ')} WHERE id = $${params.length} RETURNING *`,
       params,
     );
 
     if (result.rows.length === 0) throw new Error(`Host with id ${id} not found`);
-    const host = toManagedHost(result.rows[0] as Record<string, unknown>);
+    const host = toManagedHost(result.rows[0]);
     await this.notifyChange('update', host.name);
     return host;
   }
@@ -255,12 +287,12 @@ export class HostRepository {
   async delete(id: number): Promise<void> {
     // Capture the name before deletion so the NOTIFY payload identifies the
     // removed host. Skipping if the row isn't present keeps the method idempotent.
-    const result = await this.pool.query(
+    const result = await this.pool.query<HostNameRow>(
       `DELETE FROM managed_hosts WHERE id = $1 RETURNING name`,
       [id],
     );
     if (result.rows.length > 0) {
-      await this.notifyChange('remove', (result.rows[0] as { name: string }).name);
+      await this.notifyChange('remove', result.rows[0].name);
     }
   }
 }

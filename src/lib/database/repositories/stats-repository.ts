@@ -41,6 +41,74 @@ export interface NewZFSStat {
 
 export type StatsSourceTable = 'docker_stats' | 'zfs_stats' | 'proxmox_stats';
 
+/**
+ * A raw docker_stats row: BIGINT and numeric aggregates arrive as strings, and
+ * `time_bucket(...) AS time` arrives as a Date.
+ */
+interface DockerStatsQueryRow {
+  time: Date | string;
+  host: string;
+  container_id: string;
+  container_name: string | null;
+  image: string | null;
+  cpu_percent: string | number | null;
+  memory_usage: string | number | null;
+  memory_limit: string | number | null;
+  memory_percent: string | number | null;
+  network_rx_bytes_per_sec: string | number | null;
+  network_tx_bytes_per_sec: string | number | null;
+  block_io_read_bytes_per_sec: string | number | null;
+  block_io_write_bytes_per_sec: string | number | null;
+}
+
+/** A raw zfs_stats row; BIGINT columns arrive as strings. */
+interface ZFSStatsQueryRow {
+  time: Date | string;
+  host: string;
+  pool: string;
+  entity: string;
+  entity_type: string;
+  indent: string | number;
+  capacity_alloc: string | number | null;
+  capacity_free: string | number | null;
+  read_ops_per_sec: string | number | null;
+  write_ops_per_sec: string | number | null;
+  read_bytes_per_sec: string | number | null;
+  write_bytes_per_sec: string | number | null;
+  utilization_percent: string | number | null;
+}
+
+/** A raw proxmox_stats row; BIGINT columns arrive as strings. */
+interface ProxmoxStatsQueryRow {
+  time: Date | string;
+  host: string;
+  entity_type: string;
+  node: string | null;
+  entity_id: string;
+  entity_name: string | null;
+  status: string | null;
+  cpu: string | number | null;
+  max_cpu: string | number | null;
+  mem: string | number | null;
+  max_mem: string | number | null;
+  disk: string | number | null;
+  max_disk: string | number | null;
+  uptime: string | number | null;
+  vmid: string | number | null;
+  netin: string | number | null;
+  netout: string | number | null;
+  storage_type: string | null;
+  storage_content: string | null;
+  storage_avail: string | number | null;
+  storage_shared: boolean | null;
+  cluster_version: string | number | null;
+}
+
+/** The single-column bounds projection getDockerStatsForContainer selects. */
+interface ActualSpanRow {
+  actual_span_secs: string | number | null;
+}
+
 export interface StatsTier {
   relation: string;
   minBucketSeconds: number;
@@ -229,7 +297,7 @@ export class StatsRepository {
   }
 
   async getDockerStatsSince(since: Date): Promise<DockerStatsRow[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DockerStatsQueryRow>(
       `SELECT * FROM docker_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
@@ -237,7 +305,7 @@ export class StatsRepository {
   }
 
   async getZFSStatsSince(since: Date): Promise<ZFSStatsRow[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ZFSStatsQueryRow>(
       `SELECT * FROM zfs_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
@@ -247,7 +315,7 @@ export class StatsRepository {
   async getDockerStatsHistory(seconds: number): Promise<DockerStatsRow[]> {
     const tier = resolveStatsTier('docker_stats', seconds);
     const bucketSeconds = tierBucketSeconds(tier, seconds);
-    const result = await this.pool.query(
+    const result = await this.pool.query<DockerStatsQueryRow>(
       `SELECT
          time_bucket(make_interval(secs => $2), time) AS time,
          host,
@@ -293,7 +361,7 @@ export class StatsRepository {
     const boundsParams: (string | Date | string[])[] = [from, to, containerIds];
     const boundsHostFilter = host ? `AND host = $${boundsParams.push(host)}` : '';
 
-    const boundsResult = await this.pool.query(
+    const boundsResult = await this.pool.query<ActualSpanRow>(
       `SELECT EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) AS actual_span_secs
        FROM ${tier.relation}
        WHERE time >= $1 AND time <= $2
@@ -311,7 +379,7 @@ export class StatsRepository {
     const params: (string | Date | number | string[])[] = [from, to, bucketSeconds, containerIds];
     const hostFilter = host ? `AND host = $${params.push(host)}` : '';
 
-    const result = await this.pool.query(
+    const result = await this.pool.query<DockerStatsQueryRow>(
       `SELECT
          time_bucket(make_interval(secs => $3), time) AS time,
          host,
@@ -340,7 +408,7 @@ export class StatsRepository {
   async getZFSStatsHistory(seconds: number): Promise<ZFSStatsRow[]> {
     const tier = resolveStatsTier('zfs_stats', seconds);
     const bucketSeconds = tierBucketSeconds(tier, seconds);
-    const result = await this.pool.query(
+    const result = await this.pool.query<ZFSStatsQueryRow>(
       `SELECT
          time_bucket(make_interval(secs => $2), time) AS time,
          host,
@@ -446,7 +514,7 @@ export class StatsRepository {
   }
 
   async getProxmoxStatsSince(since: Date): Promise<ProxmoxStatsRow[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ProxmoxStatsQueryRow>(
       `SELECT * FROM proxmox_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
@@ -455,7 +523,7 @@ export class StatsRepository {
 
   async getProxmoxStatsHistory(seconds: number): Promise<ProxmoxStatsRow[]> {
     const tier = resolveStatsTier('proxmox_stats', seconds);
-    const result = await this.pool.query(
+    const result = await this.pool.query<ProxmoxStatsQueryRow>(
       `SELECT * FROM ${tier.relation}
        WHERE time > NOW() - make_interval(secs => $1)
        ORDER BY time ASC`,
@@ -475,14 +543,14 @@ export class StatsRepository {
  * @param row - Raw row returned by pg for a docker_stats query
  * @returns A DockerStatsRow with numeric fields converted to numbers or `null` where absent
  */
-function toDockerStatsRow(row: Record<string, unknown>): DockerStatsRow {
-  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+function toDockerStatsRow(row: DockerStatsQueryRow): DockerStatsRow {
+  const n = (v: string | number | null | undefined) => (v === null || v === undefined ? null : Number(v));
   return {
-    time: new Date(row.time as string | Date).getTime(),
-    host: row.host as string,
-    container_id: row.container_id as string,
-    container_name: row.container_name as string | null,
-    image: row.image as string | null,
+    time: new Date(row.time).getTime(),
+    host: row.host,
+    container_id: row.container_id,
+    container_name: row.container_name,
+    image: row.image,
     cpu_percent: n(row.cpu_percent),
     memory_usage: n(row.memory_usage),
     memory_limit: n(row.memory_limit),
@@ -495,14 +563,14 @@ function toDockerStatsRow(row: Record<string, unknown>): DockerStatsRow {
 }
 
 /** Convert a raw pg row to ZFSStatsRow, coercing BIGINT strings to numbers. */
-function toZFSStatsRow(row: Record<string, unknown>): ZFSStatsRow {
-  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+function toZFSStatsRow(row: ZFSStatsQueryRow): ZFSStatsRow {
+  const n = (v: string | number | null | undefined) => (v === null || v === undefined ? null : Number(v));
   return {
-    time: new Date(row.time as string | Date).getTime(),
-    host: row.host as string,
-    pool: row.pool as string,
-    entity: row.entity as string,
-    entity_type: row.entity_type as string,
+    time: new Date(row.time).getTime(),
+    host: row.host,
+    pool: row.pool,
+    entity: row.entity,
+    entity_type: row.entity_type,
     indent: Number(row.indent),
     capacity_alloc: n(row.capacity_alloc),
     capacity_free: n(row.capacity_free),
@@ -515,16 +583,16 @@ function toZFSStatsRow(row: Record<string, unknown>): ZFSStatsRow {
 }
 
 /** Convert a raw pg row to ProxmoxStatsRow, coercing BIGINT strings to numbers. */
-function toProxmoxStatsRow(row: Record<string, unknown>): ProxmoxStatsRow {
-  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+function toProxmoxStatsRow(row: ProxmoxStatsQueryRow): ProxmoxStatsRow {
+  const n = (v: string | number | null | undefined) => (v === null || v === undefined ? null : Number(v));
   return {
-    time: new Date(row.time as string | Date).getTime(),
-    host: row.host as string,
+    time: new Date(row.time).getTime(),
+    host: row.host,
     entity_type: row.entity_type as ProxmoxStatsRow['entity_type'],
-    node: row.node as string | null,
-    entity_id: row.entity_id as string,
-    entity_name: row.entity_name as string | null,
-    status: row.status as string | null,
+    node: row.node,
+    entity_id: row.entity_id,
+    entity_name: row.entity_name,
+    status: row.status,
     cpu: n(row.cpu),
     max_cpu: n(row.max_cpu),
     mem: n(row.mem),
@@ -535,10 +603,10 @@ function toProxmoxStatsRow(row: Record<string, unknown>): ProxmoxStatsRow {
     vmid: n(row.vmid),
     netin: n(row.netin),
     netout: n(row.netout),
-    storage_type: row.storage_type as string | null,
-    storage_content: row.storage_content as string | null,
+    storage_type: row.storage_type,
+    storage_content: row.storage_content,
     storage_avail: n(row.storage_avail),
-    storage_shared: row.storage_shared as boolean | null,
+    storage_shared: row.storage_shared,
     cluster_version: n(row.cluster_version),
   };
 }

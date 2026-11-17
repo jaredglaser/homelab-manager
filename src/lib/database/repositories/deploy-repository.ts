@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import type { DeployAction, DeployChangeOutcome, DeployPostSuccess, DeployRecord, DeployRequest, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import { isDeployAction, isDeployPostSuccess, isDeployStatus, isDeployTrigger } from '@/lib/deploy/types';
+import { parseNullableRowEnum, parseRowEnum } from '@/lib/database/repositories/row-enum';
 import { truncateDeployMessage } from '@/lib/stacks/deploy-outcome-toast';
 
 export interface QueuedDeploy {
@@ -34,11 +36,65 @@ export interface InsertDeployParams {
   postSuccess?: DeployPostSuccess | null;
 }
 
+/** Columns of deploy_history, as node-postgres returns them. */
+interface DeployRow {
+  id: number | string;
+  stack: string;
+  host: string;
+  commit_sha: string;
+  compose_hash: string;
+  env_hash: string;
+  status: string;
+  trigger: string;
+  action: string | null;
+  force_recreate: boolean | null;
+  logs: string | null;
+  created_at: Date;
+  /** Absent from the DISTINCT ON projection in getLatestDeployPerStack. */
+  started_at?: Date | null;
+  post_success?: string | null;
+}
+
+/** RETURNING id, shared by the insert and the queued-marker resolve. */
+interface DeployIdRow {
+  id: number | string;
+}
+
+/** COUNT(*) comes back as a string. */
+interface DeployCountRow {
+  count: string;
+}
+
+/** One deploy_queue row; `request` is the JSONB object enqueueDeploy wrote. */
+interface DeployQueueRow {
+  request: DeployRequest;
+  queued_at: Date;
+}
+
+interface DeployQueueMarkerRow {
+  stack: string;
+}
+
+/** RETURNING projection shared by the watchdog sweeps. */
+interface StuckDeployQueryRow {
+  id: number | string;
+  stack: string;
+  host: string;
+  action: string | null;
+  trigger: string;
+}
+
+interface PostSuccessDeployQueryRow {
+  id: number | string;
+  stack: string;
+  host: string;
+}
+
 export class DeployRepository {
   constructor(private readonly pool: Pool) {}
 
   async insertDeploy(params: InsertDeployParams): Promise<number> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployIdRow>(
       `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, force_recreate, post_success)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id`,
@@ -73,7 +129,7 @@ export class DeployRepository {
   }
 
   async getById(id: number): Promise<DeployRecord | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployRow>(
       `SELECT * FROM deploy_history WHERE id = $1`,
       [id]
     );
@@ -131,7 +187,7 @@ export class DeployRepository {
   }
 
   async getLatestSuccessful(stack: string, host: string): Promise<DeployRecord | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployRow>(
       `SELECT * FROM deploy_history
        WHERE stack = $1 AND host = $2 AND status = 'succeeded'
        ORDER BY created_at DESC
@@ -143,7 +199,7 @@ export class DeployRepository {
   }
 
   async hasActiveDeployForStack(stack: string, host: string): Promise<boolean> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployCountRow>(
       `SELECT COUNT(*) as count FROM deploy_history
        WHERE stack = $1 AND host = $2 AND status IN ('pending', 'in_progress')`,
       [stack, host]
@@ -152,7 +208,7 @@ export class DeployRepository {
   }
 
   async getActiveDeploy(stack: string, host: string): Promise<DeployRecord | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployRow>(
       `SELECT * FROM deploy_history
        WHERE stack = $1 AND host = $2 AND status IN ('pending', 'in_progress')
        ORDER BY created_at DESC
@@ -164,7 +220,7 @@ export class DeployRepository {
   }
 
   async getDeployHistory(stack: string, host: string, limit: number): Promise<DeployRecord[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployRow>(
       `SELECT * FROM deploy_history
        WHERE stack = $1 AND host = $2
        ORDER BY created_at DESC
@@ -192,7 +248,7 @@ export class DeployRepository {
    * @returns false when a newer queued request won and this one was dropped.
    */
   async enqueueDeploy(request: DeployRequest, queuedAt?: Date): Promise<boolean> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployQueueMarkerRow>(
       `INSERT INTO deploy_queue (stack, host, request, queued_at)
        VALUES ($1, $2, $3, COALESCE($4, NOW()))
        ON CONFLICT (stack, host) DO UPDATE
@@ -206,7 +262,7 @@ export class DeployRepository {
 
   /** Remove and return the queued deploy for stack+host, or null when none is queued. */
   async dequeueDeploy(stack: string, host: string): Promise<QueuedDeploy | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployQueueRow>(
       `DELETE FROM deploy_queue
        WHERE stack = $1 AND host = $2
        RETURNING request, queued_at`,
@@ -214,8 +270,8 @@ export class DeployRepository {
     );
     if (result.rows.length === 0) return null;
     return {
-      request: result.rows[0].request as DeployRequest,
-      queuedAt: result.rows[0].queued_at as Date,
+      request: result.rows[0].request,
+      queuedAt: result.rows[0].queued_at,
     };
   }
 
@@ -225,7 +281,7 @@ export class DeployRepository {
    */
   async recordQueuedDeploy(params: InsertDeployParams): Promise<number> {
     await this.clearQueuedDeploy(params.stack, params.host);
-    return this.insertDeploy({ ...params, status: 'queued' });
+    return await this.insertDeploy({ ...params, status: 'queued' });
   }
 
   async clearQueuedDeploy(stack: string, host: string): Promise<void> {
@@ -238,7 +294,7 @@ export class DeployRepository {
 
   /** Resolve the `queued` marker to a terminal status. Returns its id, or null when no marker exists. */
   async failQueuedDeploy(stack: string, host: string, logs: string): Promise<number | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployIdRow>(
       `UPDATE deploy_history
        SET status = 'failed', logs = $3
        WHERE stack = $1 AND host = $2 AND status = 'queued'
@@ -250,7 +306,7 @@ export class DeployRepository {
   }
 
   async getPendingDeploys(): Promise<DeployRecord[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<DeployRow>(
       `SELECT * FROM deploy_history
        WHERE status = 'pending'
        ORDER BY created_at ASC`
@@ -263,7 +319,7 @@ export class DeployRepository {
    * Uses DISTINCT ON (stack, host) ordered by created_at DESC for an efficient single-pass query.
    */
   async getLatestDeployPerStack(): Promise<DeployRecord[]> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.pool.query<DeployRow>(
       `SELECT DISTINCT ON (stack, host) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, force_recreate, logs, created_at, post_success
        FROM deploy_history
        ORDER BY stack, host, created_at DESC`
@@ -281,7 +337,7 @@ export class DeployRepository {
   async findSucceededPostSuccessDeploys(
     kind: DeployPostSuccess,
   ): Promise<PostSuccessDeployRow[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<PostSuccessDeployQueryRow>(
       `SELECT id, stack, host
        FROM deploy_history
        WHERE status IN ('succeeded', 'no_change')
@@ -291,8 +347,8 @@ export class DeployRepository {
     );
     return result.rows.map((row) => ({
       id: Number(row.id),
-      stack: row.stack as string,
-      host: row.host as string,
+      stack: row.stack,
+      host: row.host,
     }));
   }
 
@@ -321,7 +377,7 @@ export class DeployRepository {
    * deployments where another instance may own active rows. Returns the recovered rows.
    */
   async recoverStuckDeploys(logMessage: string): Promise<StuckDeployRow[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<StuckDeployQueryRow>(
       `UPDATE deploy_history
        SET status = 'failed', logs = $1
        WHERE status IN ('pending', 'in_progress')
@@ -341,7 +397,7 @@ export class DeployRepository {
   ): Promise<StuckDeployRow[]> {
     // Age from started_at (when the deploy entered in_progress), falling back
     // to created_at for legacy rows written before started_at existed.
-    const result = await this.pool.query(
+    const result = await this.pool.query<StuckDeployQueryRow>(
       `UPDATE deploy_history
        SET status = 'failed', logs = $2
        WHERE status = 'in_progress'
@@ -353,13 +409,13 @@ export class DeployRepository {
   }
 }
 
-function toStuckDeployRow(row: Record<string, unknown>): StuckDeployRow {
+function toStuckDeployRow(row: StuckDeployQueryRow): StuckDeployRow {
   return {
     id: Number(row.id),
-    stack: row.stack as string,
-    host: row.host as string,
-    action: row.action as DeployAction,
-    trigger: row.trigger as DeployTrigger,
+    stack: row.stack,
+    host: row.host,
+    action: parseNullableRowEnum('deploy_history.action', row.action, isDeployAction) ?? 'deploy',
+    trigger: parseRowEnum('deploy_history.trigger', row.trigger, isDeployTrigger),
   };
 }
 
@@ -370,21 +426,21 @@ function isActiveDeployConflict(err: unknown): boolean {
   return pg.code === '23505' && pg.constraint === 'idx_deploy_one_active_per_stack_host';
 }
 
-function toDeployRecord(row: Record<string, unknown>): DeployRecord {
+function toDeployRecord(row: DeployRow): DeployRecord {
   return {
     id: Number(row.id),
-    stack: row.stack as string,
-    host: row.host as string,
-    commitSha: row.commit_sha as string,
-    composeHash: row.compose_hash as string,
-    envHash: row.env_hash as string,
-    status: row.status as DeployRecord['status'],
-    trigger: row.trigger as DeployRecord['trigger'],
-    action: (row.action as DeployRecord['action']) ?? 'deploy',
+    stack: row.stack,
+    host: row.host,
+    commitSha: row.commit_sha,
+    composeHash: row.compose_hash,
+    envHash: row.env_hash,
+    status: parseRowEnum('deploy_history.status', row.status, isDeployStatus),
+    trigger: parseRowEnum('deploy_history.trigger', row.trigger, isDeployTrigger),
+    action: parseNullableRowEnum('deploy_history.action', row.action, isDeployAction) ?? 'deploy',
     forceRecreate: row.force_recreate === true,
-    logs: (row.logs as string) ?? null,
-    createdAt: row.created_at as Date,
-    startedAt: (row.started_at as Date | null) ?? null,
-    postSuccess: (row.post_success as DeployRecord['postSuccess']) ?? null,
+    logs: row.logs,
+    createdAt: row.created_at,
+    startedAt: row.started_at ?? null,
+    postSuccess: parseNullableRowEnum('deploy_history.post_success', row.post_success, isDeployPostSuccess),
   };
 }

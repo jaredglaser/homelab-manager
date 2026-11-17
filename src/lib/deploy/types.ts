@@ -3,6 +3,11 @@ import { z } from 'zod';
 export const DEPLOY_ACTION_VALUES = ['deploy', 'teardown', 'update'] as const;
 export type DeployAction = (typeof DEPLOY_ACTION_VALUES)[number];
 
+/** Narrows a persisted deploy action, so a value the union does not know is caught at the row. */
+export function isDeployAction(value: unknown): value is DeployAction {
+  return typeof value === 'string' && (DEPLOY_ACTION_VALUES as readonly string[]).includes(value);
+}
+
 export const DEPLOY_STATUS_VALUES = [
   'pending',
   'in_progress',
@@ -13,8 +18,18 @@ export const DEPLOY_STATUS_VALUES = [
 ] as const;
 export type DeployStatus = (typeof DEPLOY_STATUS_VALUES)[number];
 
+/** Narrows a persisted deploy status, so a value the union does not know is caught at the row. */
+export function isDeployStatus(value: unknown): value is DeployStatus {
+  return typeof value === 'string' && (DEPLOY_STATUS_VALUES as readonly string[]).includes(value);
+}
+
 export const DEPLOY_TRIGGER_VALUES = ['git_push', 'ui', 'manual_rollback'] as const;
 export type DeployTrigger = (typeof DEPLOY_TRIGGER_VALUES)[number];
+
+/** Narrows a persisted deploy trigger, so a value the union does not know is caught at the row. */
+export function isDeployTrigger(value: unknown): value is DeployTrigger {
+  return typeof value === 'string' && (DEPLOY_TRIGGER_VALUES as readonly string[]).includes(value);
+}
 
 /**
  * Wire shape for a deploy lifecycle outcome, broadcast over the `deploy_change`
@@ -38,7 +53,13 @@ export type DeployChangeOutcome = z.infer<typeof zDeployChangeOutcome>;
  * supported, used by async teardown to delete the stack entry from the git
  * manifest once the agent reports teardown complete.
  */
-export type DeployPostSuccess = 'removeFromManifest';
+export const DEPLOY_POST_SUCCESS_VALUES = ['removeFromManifest'] as const;
+export type DeployPostSuccess = (typeof DEPLOY_POST_SUCCESS_VALUES)[number];
+
+/** Narrows a persisted post-success hook, so a value the union does not know is caught at the row. */
+export function isDeployPostSuccess(value: unknown): value is DeployPostSuccess {
+  return typeof value === 'string' && (DEPLOY_POST_SUCCESS_VALUES as readonly string[]).includes(value);
+}
 
 interface BaseDeployRequest {
   stack: string;

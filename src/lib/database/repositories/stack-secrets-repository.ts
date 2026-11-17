@@ -10,6 +10,17 @@ export class SecretDecryptionError extends Error {
   }
 }
 
+/** The `ciphertext_jwe` column, the only one the single-value read selects. */
+interface CiphertextRow {
+  ciphertext_jwe: string;
+}
+
+/** The name/ciphertext pair the bulk read selects. */
+interface SecretVariableRow {
+  variable_name: string;
+  ciphertext_jwe: string;
+}
+
 export class StackSecretsRepository {
   constructor(
     private readonly pool: Pool,
@@ -17,13 +28,13 @@ export class StackSecretsRepository {
   ) {}
 
   async get(stackName: string, variableName: string): Promise<string | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<CiphertextRow>(
       'SELECT ciphertext_jwe FROM stack_secrets WHERE stack_name = $1 AND variable_name = $2',
       [stackName, variableName],
     );
     if (result.rows.length === 0) return null;
     try {
-      return await decryptValue((result.rows[0] as { ciphertext_jwe: string }).ciphertext_jwe, this.keyring);
+      return await decryptValue(result.rows[0].ciphertext_jwe, this.keyring);
     } catch {
       throw new SecretDecryptionError();
     }
@@ -34,13 +45,12 @@ export class StackSecretsRepository {
    * so the secrets UI can load all values without a per-variable round trip.
    */
   async getAll(stackName: string): Promise<Record<string, string>> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<SecretVariableRow>(
       'SELECT variable_name, ciphertext_jwe FROM stack_secrets WHERE stack_name = $1 ORDER BY variable_name ASC',
       [stackName],
     );
     const entries = await Promise.all(
-      result.rows.map(async (r) => {
-        const row = r as { variable_name: string; ciphertext_jwe: string };
+      result.rows.map(async (row) => {
         try {
           return [row.variable_name, await decryptValue(row.ciphertext_jwe, this.keyring)] as const;
         } catch {

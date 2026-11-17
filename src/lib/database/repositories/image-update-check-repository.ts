@@ -32,21 +32,43 @@ export interface ImageUpdateCheckSuccess {
 
 const COLUMNS = 'host, stack, image, current_tag, latest_matching_tag, latest_overall_tag, update_available, source_repo, error, last_error_at, etag, manifest_digest, checked_at';
 
-function rowToCheck(row: Record<string, unknown>): ImageUpdateCheckRow {
+/** Columns of image_update_checks, as node-postgres returns them. */
+interface ImageUpdateCheckQueryRow {
+  host: string;
+  stack: string;
+  image: string;
+  current_tag: string | null;
+  latest_matching_tag: string | null;
+  latest_overall_tag: string | null;
+  update_available: boolean | null;
+  source_repo: string | null;
+  error: string | null;
+  last_error_at: Date | null;
+  etag: string | null;
+  manifest_digest: string | null;
+  checked_at: Date;
+}
+
+/** The boolean `due` projection isRefreshDue selects. */
+interface DueRow {
+  due: boolean;
+}
+
+function rowToCheck(row: ImageUpdateCheckQueryRow): ImageUpdateCheckRow {
   return {
-    host: row.host as string,
-    stack: row.stack as string,
-    image: row.image as string,
-    currentTag: (row.current_tag as string | null) ?? null,
-    latestMatchingTag: (row.latest_matching_tag as string | null) ?? null,
-    latestOverallTag: (row.latest_overall_tag as string | null) ?? null,
-    updateAvailable: (row.update_available as boolean | null) ?? null,
-    sourceRepo: (row.source_repo as string | null) ?? null,
-    error: (row.error as string | null) ?? null,
-    lastErrorAt: (row.last_error_at as Date | null) ?? null,
-    etag: (row.etag as string | null) ?? null,
-    manifestDigest: (row.manifest_digest as string | null) ?? null,
-    checkedAt: row.checked_at as Date,
+    host: row.host,
+    stack: row.stack,
+    image: row.image,
+    currentTag: row.current_tag ?? null,
+    latestMatchingTag: row.latest_matching_tag ?? null,
+    latestOverallTag: row.latest_overall_tag ?? null,
+    updateAvailable: row.update_available ?? null,
+    sourceRepo: row.source_repo ?? null,
+    error: row.error ?? null,
+    lastErrorAt: row.last_error_at ?? null,
+    etag: row.etag ?? null,
+    manifestDigest: row.manifest_digest ?? null,
+    checkedAt: row.checked_at,
   };
 }
 
@@ -54,12 +76,12 @@ export class ImageUpdateCheckRepository {
   constructor(private readonly pool: Pool) {}
 
   async getAll(): Promise<ImageUpdateCheckRow[]> {
-    const { rows } = await this.pool.query('SELECT ' + COLUMNS + ' FROM image_update_checks');
+    const { rows } = await this.pool.query<ImageUpdateCheckQueryRow>('SELECT ' + COLUMNS + ' FROM image_update_checks');
     return rows.map(rowToCheck);
   }
 
   async getByStack(host: string, stack: string): Promise<ImageUpdateCheckRow[]> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.pool.query<ImageUpdateCheckQueryRow>(
       'SELECT ' + COLUMNS + ' FROM image_update_checks WHERE host = $1 AND stack = $2',
       [host, stack],
     );
@@ -128,10 +150,10 @@ export class ImageUpdateCheckRepository {
 
   /** True when the table has no rows or every row is older than the cutoff. */
   async isRefreshDue(olderThan: Date): Promise<boolean> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.pool.query<DueRow>(
       'SELECT NOT EXISTS (SELECT 1 FROM image_update_checks WHERE checked_at >= $1) AS due',
       [olderThan],
     );
-    return rows[0].due as boolean;
+    return rows[0].due;
   }
 }

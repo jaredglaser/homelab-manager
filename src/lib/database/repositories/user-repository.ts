@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import type { Role } from '@/lib/auth/types';
+import { isRole } from '@/lib/auth/types';
+import { parseRowEnum } from '@/lib/database/repositories/row-enum';
 
 export interface UserRow {
   id: number;
@@ -21,17 +23,30 @@ export interface UpsertUserInput {
   groups: string[];
 }
 
-function rowToUser(row: Record<string, unknown>): UserRow {
+/** Columns of users, as node-postgres returns them. */
+interface UserQueryRow {
+  id: number | string;
+  oidc_subject: string;
+  email: string;
+  name: string | null;
+  role: string;
+  oidc_groups: string[];
+  last_login: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function rowToUser(row: UserQueryRow): UserRow {
   return {
-    id: row.id as number,
-    oidcSubject: row.oidc_subject as string,
-    email: row.email as string,
-    name: (row.name as string) ?? null,
-    role: row.role as Role,
-    oidcGroups: row.oidc_groups as string[],
-    lastLogin: row.last_login as Date,
-    createdAt: row.created_at as Date,
-    updatedAt: row.updated_at as Date,
+    id: Number(row.id),
+    oidcSubject: row.oidc_subject,
+    email: row.email,
+    name: row.name,
+    role: parseRowEnum('users.role', row.role, isRole),
+    oidcGroups: row.oidc_groups,
+    lastLogin: row.last_login,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -39,7 +54,7 @@ export class UserRepository {
   constructor(private readonly pool: Pool) {}
 
   async upsertFromOidc(input: UpsertUserInput): Promise<UserRow> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<UserQueryRow>(
       `INSERT INTO users (oidc_subject, email, name, role, oidc_groups, last_login)
        VALUES ($1, $2, $3, $4, $5, now())
        ON CONFLICT (oidc_subject) DO UPDATE SET
@@ -52,21 +67,21 @@ export class UserRepository {
        RETURNING *`,
       [input.oidcSubject, input.email, input.name, input.role, JSON.stringify(input.groups)]
     );
-    return rowToUser(result.rows[0] as Record<string, unknown>);
+    return rowToUser(result.rows[0]);
   }
 
   async findById(id: number): Promise<UserRow | null> {
-    const result = await this.pool.query('SELECT * FROM users WHERE id = $1', [id]);
-    return result.rows.length > 0 ? rowToUser(result.rows[0] as Record<string, unknown>) : null;
+    const result = await this.pool.query<UserQueryRow>('SELECT * FROM users WHERE id = $1', [id]);
+    return result.rows.length > 0 ? rowToUser(result.rows[0]) : null;
   }
 
   async findBySubject(oidcSubject: string): Promise<UserRow | null> {
-    const result = await this.pool.query('SELECT * FROM users WHERE oidc_subject = $1', [oidcSubject]);
-    return result.rows.length > 0 ? rowToUser(result.rows[0] as Record<string, unknown>) : null;
+    const result = await this.pool.query<UserQueryRow>('SELECT * FROM users WHERE oidc_subject = $1', [oidcSubject]);
+    return result.rows.length > 0 ? rowToUser(result.rows[0]) : null;
   }
 
   async findAll(): Promise<UserRow[]> {
-    const result = await this.pool.query('SELECT * FROM users ORDER BY name ASC, email ASC');
-    return (result.rows as Record<string, unknown>[]).map(rowToUser);
+    const result = await this.pool.query<UserQueryRow>('SELECT * FROM users ORDER BY name ASC, email ASC');
+    return result.rows.map(rowToUser);
   }
 }
