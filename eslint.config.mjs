@@ -194,6 +194,51 @@ const agentErrorCodeRule = {
   },
 };
 
+const MESSAGE_MATCH_METHODS = ['includes', 'startsWith', 'endsWith', 'match', 'search', 'indexOf', 'test'];
+
+const isMessageMember = (node) =>
+  node?.type === 'MemberExpression' &&
+  ((node.property.type === 'Identifier' && node.property.name === 'message') ||
+    (node.computed && node.property.type === 'Literal' && node.property.value === 'message'));
+
+const MESSAGE_NORMALIZERS = ['toLowerCase', 'toUpperCase', 'trim'];
+
+const isMessageLike = (node) =>
+  isMessageMember(node) ||
+  (node?.type === 'CallExpression' &&
+    node.callee?.type === 'MemberExpression' &&
+    node.callee.property?.type === 'Identifier' &&
+    MESSAGE_NORMALIZERS.includes(node.callee.property.name) &&
+    isMessageMember(node.callee.object));
+
+const noErrorMessageMatchingRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'Classify a failure by a code or a typed field, never by matching error.message text.',
+    },
+    schema: [],
+    messages: {
+      messageMatch:
+        'This classifies a failure by matching its message text, so a reword silently changes what the code does. Branch on a code or a typed field instead. Transport-level noise (socket teardown, connection loss) is the only exception: disable this rule on the line with the reason it is transport, not classification.',
+    },
+  },
+  create(context) {
+    return {
+      CallExpression(node) {
+        const { callee } = node;
+        if (callee.type !== 'MemberExpression' || callee.computed) return;
+        const { property } = callee;
+        if (property.type !== 'Identifier' || !MESSAGE_MATCH_METHODS.includes(property.name)) return;
+        if (isMessageLike(callee.object) || node.arguments.some(isMessageLike)) {
+          context.report({ node, messageId: 'messageMatch' });
+        }
+      },
+    };
+  },
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -416,12 +461,33 @@ export default tseslint.config(
   },
   { files: ['src/lib/test/wait-for-condition.ts'], rules: { 'no-restricted-syntax': 'off' } },
 
+  // ESLint 10 rejects redefining a plugin name for the same file, so every
+  // local/ rule is registered in this one block; the rule blocks below only bind them.
+  {
+    files: ['src/**/*.{ts,tsx}', 'server/**/*.ts', 'agent/src/**/*.ts'],
+    plugins: {
+      local: {
+        rules: {
+          'endpoint-auth': endpointAuthRule,
+          'no-error-message-matching': noErrorMessageMatchingRule,
+          'agent-error-code': agentErrorCodeRule,
+        },
+      },
+    },
+  },
+
   // Endpoint auth enforcement. Route files branch to route mode inside the rule via the filename check and everything else here is createServerFn mode.
   {
     files: ['src/**/*.{ts,tsx}', 'server/**/*.ts'],
     ignores: ['**/__tests__/**'],
-    plugins: { local: { rules: { 'endpoint-auth': endpointAuthRule } } },
     rules: { 'local/endpoint-auth': 'error' },
+  },
+
+  // Scope: components/**, scripts/** and vite.config.ts stay out until their matches have a code to branch on.
+  {
+    files: ['src/lib/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
+    ignores: ['**/__tests__/**'],
+    rules: { 'local/no-error-message-matching': 'error' },
   },
 
   // A stale eslint-disable is enforcement that reads as done, so it fails the build instead of warning.
@@ -516,9 +582,10 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-duplicate-type-constituents': 'error' },
   },
 
+  // Binds local/agent-error-code for agent route modules; the rule itself is
+  // registered once in the shared local plugin block above.
   {
     files: ['agent/src/routes/**/*.ts'],
-    plugins: { local: { rules: { 'agent-error-code': agentErrorCodeRule } } },
     rules: { 'local/agent-error-code': 'error' },
   },
 
