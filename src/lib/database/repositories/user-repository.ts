@@ -24,7 +24,7 @@ export interface UpsertUserInput {
 }
 
 interface UserQueryRow {
-  id: number | string;
+  id: number;
   oidc_subject: string;
   email: string;
   name: string | null;
@@ -37,7 +37,7 @@ interface UserQueryRow {
 
 function rowToUser(row: UserQueryRow): UserRow {
   return {
-    id: Number(row.id),
+    id: row.id,
     oidcSubject: row.oidc_subject,
     email: row.email,
     name: row.name,

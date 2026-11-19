@@ -944,7 +944,7 @@ describe('StatsRepository', () => {
     });
   });
 
-  describe('numeric coercion through the aggregate views', () => {
+  describe('numeric passthrough through the aggregate views', () => {
     it('maps a docker row from a continuous aggregate view', async () => {
       mockPool.pushResult([{
         time: '2024-01-01T00:00:00.000Z',
@@ -995,7 +995,9 @@ describe('StatsRepository', () => {
       expect(row.utilization_percent).toBe(33.3);
     });
 
-    it('converts numeric strings from proxmox_stats_1h_avg to numbers', async () => {
+    it('passes numeric columns from proxmox_stats_1h_avg through unchanged', async () => {
+      // Every BIGINT/numeric column arrives from the view already cast to float8, so pg
+      // hands back JS numbers; the converter forwards them without re-parsing.
       mockPool.pushResult([{
         time: '2024-01-01T00:00:00.000Z',
         host: 'pve',
@@ -1004,32 +1006,65 @@ describe('StatsRepository', () => {
         entity_id: '100',
         entity_name: 'vm',
         status: 'running',
-        cpu: '0.25',
-        max_cpu: '4',
-        mem: '4294967296',
-        max_mem: '8589934592',
-        disk: '10737418240',
-        max_disk: '21474836480',
-        uptime: '86400',
-        vmid: '100',
-        netin: '123456789',
-        netout: '987654321',
+        cpu: 0.25,
+        max_cpu: 4,
+        mem: 4294967296,
+        max_mem: 8589934592,
+        disk: 10737418240,
+        max_disk: 21474836480,
+        uptime: 86400,
+        vmid: 100,
+        netin: 123456789,
+        netout: 987654321,
         storage_type: null,
         storage_content: null,
-        storage_avail: '5368709120',
+        storage_avail: 5368709120,
         storage_shared: null,
-        cluster_version: '3',
-        sample_count: '3600',
+        cluster_version: 3,
       }]);
 
       const [row] = await repo.getProxmoxStatsHistory(172801);
 
+      // The converter neither stringifies nor re-parses: values survive as-is.
       expect(typeof row.mem).toBe('number');
-      expect(typeof row.storage_avail).toBe('number');
+      expect(typeof row.max_mem).toBe('number');
+      expect(typeof row.disk).toBe('number');
+      expect(typeof row.max_disk).toBe('number');
+      expect(typeof row.uptime).toBe('number');
       expect(typeof row.netin).toBe('number');
+      expect(typeof row.netout).toBe('number');
+      expect(typeof row.storage_avail).toBe('number');
       expect(row.mem).toBe(4294967296);
+      expect(row.max_mem).toBe(8589934592);
+      expect(row.disk).toBe(10737418240);
+      expect(row.max_disk).toBe(21474836480);
       expect(row.netin).toBe(123456789);
+      expect(row.netout).toBe(987654321);
       expect(row.uptime).toBe(86400);
+      expect(row.storage_avail).toBe(5368709120);
+      expect(row.cpu).toBe(0.25);
+    });
+
+    it('selects an explicit float8-cast projection on the raw and rollup proxmox queries', async () => {
+      await repo.getProxmoxStatsSince(new Date('2024-01-01T00:00:00Z'));
+      await repo.getProxmoxStatsHistory(172801);
+
+      const rawSql = mockPool.queries[0].sql;
+      const rollupSql = mockPool.queries[1].sql;
+      // Casting each BIGINT/numeric column to float8 is exactly why pg returns numbers,
+      // which is what lets the row type declare `number | null` with no coercion helper.
+      for (const sql of [rawSql, rollupSql]) {
+        expect(sql).toContain('mem::float8 AS mem');
+        expect(sql).toContain('max_mem::float8 AS max_mem');
+        expect(sql).toContain('disk::float8 AS disk');
+        expect(sql).toContain('max_disk::float8 AS max_disk');
+        expect(sql).toContain('uptime::float8 AS uptime');
+        expect(sql).toContain('netin::float8 AS netin');
+        expect(sql).toContain('netout::float8 AS netout');
+        expect(sql).toContain('storage_avail::float8 AS storage_avail');
+      }
+      expect(rawSql).toContain('FROM proxmox_stats WHERE');
+      expect(rollupSql).toContain('FROM proxmox_stats_1h_avg');
     });
   });
 

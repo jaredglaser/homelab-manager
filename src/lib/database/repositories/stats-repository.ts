@@ -74,7 +74,7 @@ interface ZFSStatsQueryRow {
   utilization_percent: number | null;
 }
 
-/** A raw proxmox_stats row; BIGINT columns arrive as strings. */
+/** A proxmox_stats row from any tier; the SQL casts the BIGINT/numeric columns to float8. */
 interface ProxmoxStatsQueryRow {
   time: Date;
   host: string;
@@ -85,24 +85,24 @@ interface ProxmoxStatsQueryRow {
   status: string | null;
   cpu: number | null;
   max_cpu: number | null;
-  mem: string | null;
-  max_mem: string | null;
-  disk: string | null;
-  max_disk: string | null;
-  uptime: string | null;
+  mem: number | null;
+  max_mem: number | null;
+  disk: number | null;
+  max_disk: number | null;
+  uptime: number | null;
   vmid: number | null;
-  netin: string | null;
-  netout: string | null;
+  netin: number | null;
+  netout: number | null;
   storage_type: string | null;
   storage_content: string | null;
-  storage_avail: string | null;
+  storage_avail: number | null;
   storage_shared: boolean | null;
   cluster_version: number | null;
 }
 
 /** The single-column bounds projection getDockerStatsForContainer selects. */
 interface ActualSpanRow {
-  actual_span_secs: string | number | null;
+  actual_span_secs: number | null;
 }
 
 export interface StatsTier {
@@ -371,7 +371,7 @@ export class StatsRepository {
     const boundsHostFilter = host ? `AND host = $${boundsParams.push(host)}` : '';
 
     const boundsResult = await this.pool.query<ActualSpanRow>(
-      `SELECT EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) AS actual_span_secs
+      `SELECT EXTRACT(EPOCH FROM (MAX(time) - MIN(time)))::float8 AS actual_span_secs
        FROM ${tier.relation}
        WHERE time >= $1 AND time <= $2
          AND container_id = ANY($3)
@@ -379,7 +379,7 @@ export class StatsRepository {
       boundsParams
     );
 
-    const actualSpanSecs = Number(boundsResult.rows[0]?.actual_span_secs) || 0;
+    const actualSpanSecs = boundsResult.rows[0]?.actual_span_secs ?? 0;
     const effectiveSpan = actualSpanSecs > 0
       ? Math.min(actualSpanSecs, requestedSpanSecs)
       : requestedSpanSecs;
@@ -524,7 +524,16 @@ export class StatsRepository {
 
   async getProxmoxStatsSince(since: Date): Promise<ProxmoxStatsRow[]> {
     const result = await this.pool.query<ProxmoxStatsQueryRow>(
-      `SELECT * FROM proxmox_stats WHERE time > $1 ORDER BY time ASC`,
+      `SELECT
+         time, host, entity_type, node, entity_id, entity_name, status,
+         cpu, max_cpu,
+         mem::float8 AS mem, max_mem::float8 AS max_mem,
+         disk::float8 AS disk, max_disk::float8 AS max_disk,
+         uptime::float8 AS uptime,
+         vmid, netin::float8 AS netin, netout::float8 AS netout,
+         storage_type, storage_content, storage_avail::float8 AS storage_avail,
+         storage_shared, cluster_version
+       FROM proxmox_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
     return result.rows.map(toProxmoxStatsRow);
@@ -533,7 +542,16 @@ export class StatsRepository {
   async getProxmoxStatsHistory(seconds: number): Promise<ProxmoxStatsRow[]> {
     const tier = resolveStatsTier('proxmox_stats', seconds);
     const result = await this.pool.query<ProxmoxStatsQueryRow>(
-      `SELECT * FROM ${tier.relation}
+      `SELECT
+         time, host, entity_type, node, entity_id, entity_name, status,
+         cpu, max_cpu,
+         mem::float8 AS mem, max_mem::float8 AS max_mem,
+         disk::float8 AS disk, max_disk::float8 AS max_disk,
+         uptime::float8 AS uptime,
+         vmid, netin::float8 AS netin, netout::float8 AS netout,
+         storage_type, storage_content, storage_avail::float8 AS storage_avail,
+         storage_shared, cluster_version
+       FROM ${tier.relation}
        WHERE time > NOW() - make_interval(secs => $1)
        ORDER BY time ASC`,
       [seconds]
@@ -580,7 +598,6 @@ function toZFSStatsRow(row: ZFSStatsQueryRow): ZFSStatsRow {
 }
 
 function toProxmoxStatsRow(row: ProxmoxStatsQueryRow): ProxmoxStatsRow {
-  const n = (v: string | number | null | undefined) => (v === null || v === undefined ? null : Number(v));
   return {
     time: new Date(row.time).getTime(),
     host: row.host,
@@ -591,18 +608,18 @@ function toProxmoxStatsRow(row: ProxmoxStatsQueryRow): ProxmoxStatsRow {
     status: row.status,
     cpu: row.cpu,
     max_cpu: row.max_cpu,
-    mem: n(row.mem),
-    max_mem: n(row.max_mem),
-    disk: n(row.disk),
-    max_disk: n(row.max_disk),
-    uptime: n(row.uptime),
-    vmid: n(row.vmid),
-    netin: n(row.netin),
-    netout: n(row.netout),
+    mem: row.mem,
+    max_mem: row.max_mem,
+    disk: row.disk,
+    max_disk: row.max_disk,
+    uptime: row.uptime,
+    vmid: row.vmid,
+    netin: row.netin,
+    netout: row.netout,
     storage_type: row.storage_type,
     storage_content: row.storage_content,
-    storage_avail: n(row.storage_avail),
+    storage_avail: row.storage_avail,
     storage_shared: row.storage_shared,
-    cluster_version: n(row.cluster_version),
+    cluster_version: row.cluster_version,
   };
 }
