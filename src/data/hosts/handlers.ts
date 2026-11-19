@@ -3,6 +3,7 @@ import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
 import type { TlsFailureCode } from '@homelab-manager/agent/types';
+import type { HostFailureCode } from '@/lib/errors/host-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
@@ -37,7 +38,7 @@ export type HostOperationResult =
       agentImage?: string | null;
       agentImageTag?: string | null;
     }
-  | { hostId: number; healthy: false; error: string };
+  | { hostId: number; healthy: false; code: HostFailureCode; message: string };
 
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
@@ -102,7 +103,12 @@ export async function handleCheckHostHealth(
         agentImage: healthResult.agentImage,
         agentImageTag: healthResult.agentImageTag,
       }
-    : { hostId: host.id, healthy: false, error: healthResult.error };
+    : {
+        hostId: host.id,
+        healthy: false,
+        code: healthResult.reason ?? 'health_check_failed',
+        message: healthResult.error,
+      };
 }
 
 export async function handleRemoveHost(
@@ -306,7 +312,8 @@ export async function handleUpdateAgent(
     return {
       hostId: host.id,
       healthy: false,
-      error: 'Agent is unreachable before update',
+      code: preCheck.reason ?? 'health_check_failed',
+      message: preCheck.error,
     };
   }
   const currentVersion = preCheck.version;
@@ -321,7 +328,8 @@ export async function handleUpdateAgent(
     return {
       hostId: host.id,
       healthy: false,
-      error: 'Could not resolve the agent image digest from the registry',
+      code: 'image_digest_unresolved',
+      message: 'Could not resolve the agent image digest from the registry',
     };
   }
   const targetImage = digestPinnedImageRef(imageRef, digest);
@@ -333,7 +341,8 @@ export async function handleUpdateAgent(
     return {
       hostId: host.id,
       healthy: false,
-      error: 'Could not retrieve agent keypair',
+      code: 'keypair_unavailable',
+      message: 'Could not retrieve agent keypair',
     };
   }
 
@@ -344,7 +353,8 @@ export async function handleUpdateAgent(
     return {
       hostId: host.id,
       healthy: false,
-      error: 'Could not sign the agent request token',
+      code: 'token_signing_failed',
+      message: 'Could not sign the agent request token',
     };
   }
 
@@ -361,7 +371,8 @@ export async function handleUpdateAgent(
     return {
       hostId: host.id,
       healthy: false,
-      error: err instanceof Error ? err.message : String(err),
+      code: 'agent_unreachable',
+      message: err instanceof Error ? err.message : String(err),
     };
   }
 
@@ -369,7 +380,8 @@ export async function handleUpdateAgent(
     return {
       hostId: host.id,
       healthy: false,
-      error: 'Agent URL returned an unexpected redirect',
+      code: 'unexpected_redirect',
+      message: 'Agent URL returned an unexpected redirect',
     };
   }
 
@@ -382,17 +394,18 @@ export async function handleUpdateAgent(
     const body = await triggerResponse.text().catch(() => '');
     // The agent answers with JSON like {"error":"..."}; surface the message,
     // not the raw body.
-    let error = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
+    let message = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
     try {
       const parsed = JSON.parse(body) as { error?: unknown };
-      if (typeof parsed?.error === 'string') error = parsed.error;
+      if (typeof parsed?.error === 'string') message = parsed.error;
     } catch {
       // Body was not JSON; keep the raw text.
     }
     return {
       hostId: host.id,
       healthy: false,
-      error,
+      code: 'agent_reported_error',
+      message,
     };
   }
 
@@ -431,7 +444,8 @@ export async function handleUpdateAgent(
           return {
             hostId: host.id,
             healthy: false,
-            error: 'The agent is still running its previous image, so the update was interrupted before it completed',
+            code: 'update_interrupted',
+            message: 'The agent is still running its previous image, so the update was interrupted before it completed',
           };
         }
         await deps.repo.updateStatus(host.id, 'healthy');
@@ -444,20 +458,23 @@ export async function handleUpdateAgent(
       return {
         hostId: host.id,
         healthy: false,
-        error: 'The agent stayed reachable throughout the update window, so its restart could not be confirmed',
+        code: 'restart_unconfirmed',
+        message: 'The agent stayed reachable throughout the update window, so its restart could not be confirmed',
       };
     }
     if (lastResult.healthy) {
       return {
         hostId: host.id,
         healthy: false,
-        error: 'Agent is reachable but its version could not be read, so the update could not be confirmed',
+        code: 'version_unconfirmed',
+        message: 'Agent is reachable but its version could not be read, so the update could not be confirmed',
       };
     }
     return {
       hostId: host.id,
       healthy: false,
-      error: 'Agent did not restart after update',
+      code: 'agent_did_not_restart',
+      message: 'Agent did not restart after update',
     };
   }
 
