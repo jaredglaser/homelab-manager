@@ -1,40 +1,9 @@
 #!/usr/bin/env bun
 /**
- * Asserts that every `pool.query<Row>(...)` row interface matches the result set
- * Postgres actually returns for that statement.
+ * Asserts every `pool.query<Row>(...)` row interface against the result set Postgres
+ * returns for that statement. Needs a reachable Postgres: it migrates a scratch database.
  *
- * A row interface is the only thing standing between the driver's runtime values
- * and the rest of the code, and it is written by hand. When it is wider than the
- * wire (`id: number | string` over a SERIAL column, `count: string | number` over
- * an aggregate) it stops describing anything and every consumer has to coerce the
- * value back with `Number()`, which is the assertion the row types exist to
- * replace. When it is narrower than the wire (a non-null field over a nullable
- * column, a field a projection does not return) it lies, and the lie surfaces far
- * from the query.
- *
- * This check reads the truth from the database instead of from the source:
- *
- *   1. recreate a scratch database and run the repo's migrations into it
- *   2. collect every `query<Row>` site in src/lib/database (typescript compiler API)
- *   3. ask Postgres for each statement's result shape: column names and type OIDs.
- *      SELECTs run wrapped in a `LIMIT 0` subquery; DML is PREPAREd and never
- *      executed, reading result types from pg_prepared_statements
- *   4. map each OID through the driver's own type parsers (`pg.types`, the same
- *      instance the pool uses, so a setTypeParser override is respected) and diff
- *      that against the declared interface, per field
- *   5. fail on any field the wire cannot produce, any field the wire can produce
- *      and the type omits, any unresolved statement, and any allowlist entry that
- *      is no longer needed
- *
- * Statements whose SQL interpolates a stats tier are probed against every tier
- * (raw, _1m, _1h_avg): an aggregate's wire type depends on the relation under it,
- * so one interface serving three tiers must agree with all three.
- *
- * Usage:
- *   bun scripts/check-row-wire-types.ts [--json <path>] [--type <RowType>] [--keep] [--verbose]
- *
- * Env: POSTGRES_HOST POSTGRES_PORT POSTGRES_USER POSTGRES_PASSWORD (defaults to
- * the local dev values used by scripts/migration-verify).
+ * bun scripts/check-row-wire-types.ts [--json <path>] [--type <RowType>] [--keep] [--verbose]
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,13 +26,7 @@ const KEEP_DATABASE = argv.includes('--keep');
 const ONLY_TYPE = flagValue('--type');
 const JSON_OUT = flagValue('--json');
 
-/**
- * Narrowings the wire cannot express, each one enforced by the schema itself.
- * Keyed `<file>|<RowType>.<field>`; the value names the constraint that makes the
- * narrowing true. A row type that is genuinely narrower than the wire needs an
- * entry here, and an entry that stops matching a finding fails the check, so the
- * list cannot quietly rot into a blanket exemption.
- */
+/** Narrowings the schema enforces and the wire cannot express, keyed `<file>|<RowType>.<field>`. An entry that stops matching a finding fails the check. */
 const ALLOWED_NARROWINGS: Record<string, string> = {
   'src/lib/database/repositories/docker-container-event-repository.ts|ContainerEventQueryRow.state':
     'docker_container_events_fields_match_type CHECK: an upsert row always carries state, a destroy row always has NULL, and state is only read on the upsert branch',
@@ -73,12 +36,7 @@ const ALLOWED_NARROWINGS: Record<string, string> = {
     'docker_container_events_fields_match_type CHECK: an upsert row always carries image, a destroy row always has NULL, and image is only read on the upsert branch',
 };
 
-// ---------------------------------------------------------------- wire types
 
-/**
- * The JS type node-postgres hands back, keyed by the pg type name. The value type
- * admits a missing key: every lookup below is a real check, not a formality.
- */
 const WIRE_TYPE_BY_PG_TYPE: Readonly<Record<string, string | undefined>> = {
   bool: 'boolean',
   int2: 'number',
@@ -119,7 +77,6 @@ const WIRE_TYPE_BY_PG_TYPE: Readonly<Record<string, string | undefined>> = {
   _jsonb: 'json',
 };
 
-/** A value of the pg type, used to prove the table above against the driver. */
 const SAMPLE_BY_PG_TYPE: Readonly<Record<string, string | undefined>> = {
   bool: 't',
   int2: '1',
@@ -160,12 +117,7 @@ const SAMPLE_BY_PG_TYPE: Readonly<Record<string, string | undefined>> = {
   _jsonb: '{"{\\"a\\":1}"}',
 };
 
-/**
- * The runtime shape each wire type must parse to, used to prove the table above
- * against the driver. `PostgresInterval` and `Buffer` are objects, and every
- * array type is an array: the point is to catch a table entry that no longer
- * describes what the driver hands back, not to re-derive the atom here.
- */
+/** The runtime shape each wire type must parse to. Catches a table entry the driver stopped matching. */
 const RUNTIME_SHAPE_BY_WIRE_TYPE: Readonly<Record<string, string[] | undefined>> = {
   boolean: ['boolean'],
   number: ['number'],
@@ -182,13 +134,9 @@ const RUNTIME_SHAPE_BY_WIRE_TYPE: Readonly<Record<string, string[] | undefined>>
 
 type TypeParser = (value: string) => unknown;
 
-/**
- * The driver's parser for one OID. `pg.types` is the same TypeOverrides instance
- * the pool parses with, so this follows any setTypeParser call the app makes.
- */
+/** The pool's own parser instance, so a setTypeParser override is respected. */
 const parserFor = (oid: number): TypeParser => pg.types.getTypeParser(oid, 'text') as TypeParser;
 
-/** `typeof` for a parsed value, with Date and array handling the raw typeof misses. */
 function runtimeTypeOf(value: unknown): string {
   if (value === null) return 'null';
   if (value instanceof Date) return 'Date';
@@ -196,11 +144,7 @@ function runtimeTypeOf(value: unknown): string {
   return typeof value;
 }
 
-/**
- * Prove WIRE_TYPE_BY_PG_TYPE against the driver before trusting it: parse a sample
- * of each type and compare the runtime type with the table. This is what keeps the
- * table honest if the driver changes its parsers or the app installs an override.
- */
+/** Fails when the driver stops parsing a type the way the table above claims. */
 function assertWireTypeTable(oidByPgTypeName: Map<string, number>): string[] {
   const problems: string[] = [];
   for (const pgType of Object.keys(WIRE_TYPE_BY_PG_TYPE)) {
@@ -227,7 +171,6 @@ function assertWireTypeTable(oidByPgTypeName: Map<string, number>): string[] {
   return problems;
 }
 
-// -------------------------------------------------------------- source scan
 
 interface RowField {
   name: string;
@@ -249,7 +192,6 @@ interface LocalType {
   heritage: string[];
 }
 
-/** Collect the row types and every `query<Row>` site declared in one file. */
 function scrapeFile(file: string): QuerySite[] {
   const text = fs.readFileSync(file, 'utf8');
   const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -272,8 +214,7 @@ function scrapeFile(file: string): QuerySite[] {
   const membersToFields = (members: readonly ts.TypeElement[]): RowField[] | null => {
     const fields: RowField[] = [];
     for (const member of members) {
-      // A row type with an index signature is not a closed row; skip it rather
-      // than report every column as undeclared.
+      // An index signature means this is not a closed row: report nothing rather than every column.
       if (ts.isIndexSignatureDeclaration(member)) return null;
       if (!ts.isPropertySignature(member)) continue;
       fields.push({
@@ -285,8 +226,7 @@ function scrapeFile(file: string): QuerySite[] {
     return fields;
   };
 
-  /** Fields of a named type, following `extends` chains in the same file. */
-  const fieldsByName = (name: string, seen = new Set<string>()): RowField[] | null => {
+    const fieldsByName = (name: string, seen = new Set<string>()): RowField[] | null => {
     if (seen.has(name)) return null;
     seen.add(name);
     const local = declared.get(name);
@@ -310,7 +250,6 @@ function scrapeFile(file: string): QuerySite[] {
       const callee = node.expression.getText(sourceFile);
       if (/\.query$|\.queryOne$/.test(callee)) {
         const typeArgument = node.typeArguments[0];
-        // A query call is not guaranteed to pass a statement; `.at` says so.
         const argument = node.arguments.at(0);
         let sql: string | null = null;
         const dynamic: string[] = [];
@@ -363,20 +302,14 @@ function collectSites(): QuerySite[] {
   return sites;
 }
 
-// ------------------------------------------------------------- dynamic SQL
 
-/** Which base table a tier-interpolating query reads, per row type. */
 const TIER_BASE_BY_ROW_TYPE: Readonly<Record<string, string | undefined>> = {
   DockerStatsQueryRow: 'docker_stats',
   ZFSStatsQueryRow: 'zfs_stats',
   ProxmoxStatsQueryRow: 'proxmox_stats',
 };
 
-/**
- * Instantiate the few expressions this codebase builds SQL from, so the statement
- * can be handed to Postgres. A marker left over is a hard failure: the statement
- * would otherwise be probed as something other than what the repository runs.
- */
+// A marker left over fails the run: the statement would otherwise be probed as something the repository does not run.
 function resolveDynamicSql(sql: string): string {
   const nextParameter = [...sql.matchAll(/\$(\d+)/g)].reduce((max, m) => Math.max(max, Number(m[1])), 0) + 1;
   return sql
@@ -389,7 +322,6 @@ function resolveDynamicSql(sql: string): string {
     .replace(/<DYN:HOSTS_NOTIFY_CHANNEL>/g, 'hosts_changed');
 }
 
-// ------------------------------------------------------------------ probing
 
 interface ProbedColumn {
   name: string;
@@ -399,12 +331,10 @@ interface ProbedColumn {
 
 interface ProbeResult {
   columns?: ProbedColumn[];
-  /** DML statements report the result types Postgres described, in column order. */
   typeOids?: string[];
   error?: string;
 }
 
-/** Run a SELECT with the parameters nulled out and read the result description. */
 async function probeSelect(pool: Pool, sql: string): Promise<ProbeResult> {
   const parameterCount = [...sql.matchAll(/\$(\d+)/g)].reduce((max, m) => Math.max(max, Number(m[1])), 0);
   const values = Array.from({ length: parameterCount }, () => null);
@@ -417,10 +347,7 @@ async function probeSelect(pool: Pool, sql: string): Promise<ProbeResult> {
   }
 }
 
-/**
- * Read the result types of a DML statement without running it: PREPARE describes
- * the statement, and pg_prepared_statements reports the types it would return.
- */
+// PREPARE describes the statement. Executing it to learn the types would write.
 async function probeDml(pool: Pool, sql: string): Promise<ProbeResult> {
   await pool.query('DEALLOCATE ALL');
   try {
@@ -438,7 +365,6 @@ async function probeDml(pool: Pool, sql: string): Promise<ProbeResult> {
   }
 }
 
-/** Column names of a RETURNING list, aligned with the reported type list. */
 function returningNames(sql: string, columnsOf: (table: string) => string[]): string[] | null {
   const match = /RETURNING\s+([\s\S]+?)\s*(?:;|$)/i.exec(sql);
   if (!match) return null;
@@ -456,7 +382,6 @@ function returningNames(sql: string, columnsOf: (table: string) => string[]): st
   return names;
 }
 
-// -------------------------------------------------------------- comparison
 
 const PRIMITIVE_WIRE_TYPES = new Set(['number', 'string', 'boolean', 'Date', 'Buffer', 'PostgresInterval']);
 
@@ -512,8 +437,7 @@ function compareField(
   const wire = [...observed.wire];
   const { nullable, atoms } = parseDeclaredType(field.type);
   const jsonish = wire.includes('json');
-  // A json/jsonb column is parsed into whatever the document holds, so a
-  // non-primitive declaration on it is a domain annotation, not a covering type.
+  // json/jsonb parses into whatever the document holds, so a non-primitive declaration is a domain annotation.
   const acceptable = new Set([
     ...wire.filter((entry) => entry !== 'json'),
     ...(jsonish ? atoms.filter((atom) => !PRIMITIVE_WIRE_TYPES.has(atom)) : []),
@@ -542,7 +466,6 @@ function compareField(
   return findings;
 }
 
-// --------------------------------------------------------------------- main
 
 interface Catalog {
   columnsOf: (table: string) => string[];
@@ -555,8 +478,6 @@ async function main(): Promise<number> {
   await recreateDatabase(SCRATCH_DATABASE);
   const pool = createPool(SCRATCH_DATABASE);
   try {
-    // Migrate with the repo's own runner, so the schema under test is the schema
-    // this branch ships rather than a reimplementation of it.
     const { runMigrations } = await import('@/lib/database/migrate');
     const adapter = { getPool: () => pool } as unknown as Parameters<typeof runMigrations>[0];
     await runMigrations(adapter);
@@ -569,7 +490,6 @@ async function main(): Promise<number> {
     const pgTypeByOid = new Map(pgTypes.rows.map((row) => [row.oid, row.typname]));
     const oidByPgTypeName = new Map(pgTypes.rows.map((row) => [row.typname, Number(row.oid)]));
 
-    // Prove the table against the driver before trusting a single verdict.
     const wireTableProblems = assertWireTypeTable(oidByPgTypeName);
     if (wireTableProblems.length) {
       console.error('The wire-type table no longer matches the driver:');
@@ -703,7 +623,6 @@ async function main(): Promise<number> {
       }
     }
 
-    // Split allowed narrowings from real findings, and fail on a stale entry.
     const allowed: { finding: Finding; reason: string }[] = [];
     const real: Finding[] = [];
     const usedAllowlistKeys = new Set<string>();

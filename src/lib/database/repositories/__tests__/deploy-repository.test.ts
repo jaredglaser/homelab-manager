@@ -14,7 +14,6 @@ describe('DeployRepository', () => {
 
   describe('insertDeploy', () => {
     it('inserts a deploy record and returns the id', async () => {
-      // node-postgres returns deploy_history.id (SERIAL/int4) as a number.
       mock.pushResult([{ id: 42 }]);
       const id = await repo.insertDeploy({
         stack: 'plex',

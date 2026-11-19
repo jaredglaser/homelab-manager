@@ -22,8 +22,6 @@ function createMockPool(rows: Record<string, unknown>[] = []) {
 
 const now = new Date('2024-01-01T00:00:00Z');
 
-// node-postgres returns int4 columns (id, user_id) as JS numbers, so the
-// fixtures carry numbers exactly as the driver would hand them to the repo.
 const baseTokenDbRow = {
   id: 1,
   user_id: 10,
@@ -78,9 +76,6 @@ describe('GitTokenRepository', () => {
     });
 
     it('passes the numeric id and user_id from the wire through to the caller unchanged', async () => {
-      // The driver hands int4 columns back as JS numbers, so the repository must
-      // forward them verbatim: same value, still typed as number, never re-encoded
-      // or stringified. Distinctive values make any transformation visible.
       const dbRow = { ...baseTokenDbRow, id: 42, user_id: 99 };
       mock.pushResult([dbRow]);
       const result = await repo.create({

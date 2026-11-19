@@ -337,11 +337,7 @@ jobs:
       - name: Re-run idempotency
         run: bun scripts/migration-verify/run.ts idempotent
 
-      # The row interfaces are written by hand and are the only thing between the
-      # driver's values and the rest of the code. This migrates a scratch database
-      # and asserts every `query<Row>` interface against the result set Postgres
-      # actually describes, so a covering union or a lying field fails here rather
-      # than in a consumer.
+      # Needs this job's database service: it migrates a scratch database and asserts every query<Row> interface against it.
       - name: Check row wire types
         run: bun run check:row-types
 

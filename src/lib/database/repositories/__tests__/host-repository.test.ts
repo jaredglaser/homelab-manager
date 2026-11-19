@@ -20,14 +20,6 @@ function createMockPool() {
   };
 }
 
-/**
- * A row exactly as node-postgres hands one back from `SELECT * FROM managed_hosts`:
- * every always-selected column is present, `id` is a number (SERIAL -> int4), and
- * the NOT NULL columns carry their real values (`capabilities` is a JSON object
- * from jsonb NOT NULL DEFAULT '{}'; `agent_out_of_date` is a boolean from
- * BOOLEAN NOT NULL DEFAULT FALSE). The nullable columns are non-null here so a
- * pass-through is visible rather than hidden behind a default.
- */
 const sampleRow = {
   id: 1,
   name: 'homeserver',
@@ -65,19 +57,16 @@ describe('HostRepository', () => {
 
       const result = await repo.create(input);
 
-      // id passes through as the number the SERIAL column returns - no Number() coercion.
       expect(result.id).toBe(1);
       expect(typeof result.id).toBe('number');
       expect(result.name).toBe('homeserver');
       expect(result.agentUrl).toBe('http://192.168.1.10:9090');
       expect(result.status).toBe('healthy');
-      // jsonb NOT NULL: the capability object passes through, never nulled or defaulted.
       expect(result.capabilities).toEqual({ docker: true, zfs: true });
       expect(result.agentVersion).toBe('0.1.0');
       expect(result.agentImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');
       expect(result.agentImageTag).toBe('dev');
       expect(result.agentImageDigest).toBe('sha256:' + 'a'.repeat(64));
-      // bool NOT NULL: the out-of-date verdict passes through, never defaulted.
       expect(result.agentOutOfDate).toBe(false);
       expect(result.lastSweptAt).toEqual(new Date('2026-03-01T00:00:00Z'));
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
@@ -94,7 +83,6 @@ describe('HostRepository', () => {
         capabilities: { docker: true },
       });
 
-      // The RETURNING id comes back as a number and is handed on uncoerced.
       expect(id).toBe(5);
       expect(typeof id).toBe('number');
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
@@ -151,9 +139,6 @@ describe('HostRepository', () => {
     });
 
     it('maps a row that carries no agent image to nulls', async () => {
-      // The projected columns are always present; a NULL column comes back as null.
-      // The nullable image columns are what a host without an image yields, and the
-      // null must pass straight through.
       mock.pushResult([{ ...sampleRow, agent_image: null, agent_image_tag: null }]);
 
       const result = await repo.getAll();

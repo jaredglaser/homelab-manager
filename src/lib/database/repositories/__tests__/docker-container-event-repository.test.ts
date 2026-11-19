@@ -230,8 +230,6 @@ describe('DockerContainerEventRepository', () => {
     });
 
     it('passes already-parsed jsonb columns through unchanged and maps a destroy row without them', async () => {
-      // docker_container_events.labels/ports/mounts are jsonb NOT NULL (defaults '{}', '[]', '[]'),
-      // so pg hands them back already parsed and the converter must forward them verbatim.
       const parsedLabels = { 'com.docker.compose.project': 'media' };
       const parsedPorts = [{ containerPort: 8080, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }];
       const parsedMounts = [{ type: 'bind', source: '/srv/data', destination: '/data', rw: false }];
@@ -240,12 +238,10 @@ describe('DockerContainerEventRepository', () => {
       const rows = await repo.getCurrentSnapshot();
       const row = rows[0];
       if (row.eventType !== 'upsert') throw new Error('expected upsert row');
-      // Same references: nothing is cloned, defaulted, or coerced on the way out.
       expect(row.labels).toBe(parsedLabels);
       expect(row.ports).toBe(parsedPorts);
       expect(row.mounts).toBe(parsedMounts);
 
-      // A destroy row carries no jsonb payload even though the columns hold their NOT NULL defaults.
       mock.pushResult([{
         ...dbRow,
         event_type: 'destroy',

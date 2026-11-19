@@ -996,8 +996,6 @@ describe('StatsRepository', () => {
     });
 
     it('passes numeric columns from proxmox_stats_1h_avg through unchanged', async () => {
-      // Every BIGINT/numeric column arrives from the view already cast to float8, so pg
-      // hands back JS numbers; the converter forwards them without re-parsing.
       mockPool.pushResult([{
         time: '2024-01-01T00:00:00.000Z',
         host: 'pve',
@@ -1025,7 +1023,6 @@ describe('StatsRepository', () => {
 
       const [row] = await repo.getProxmoxStatsHistory(172801);
 
-      // The converter neither stringifies nor re-parses: values survive as-is.
       expect(typeof row.mem).toBe('number');
       expect(typeof row.max_mem).toBe('number');
       expect(typeof row.disk).toBe('number');
@@ -1051,8 +1048,6 @@ describe('StatsRepository', () => {
 
       const rawSql = mockPool.queries[0].sql;
       const rollupSql = mockPool.queries[1].sql;
-      // Casting each BIGINT/numeric column to float8 is exactly why pg returns numbers,
-      // which is what lets the row type declare `number | null` with no coercion helper.
       for (const sql of [rawSql, rollupSql]) {
         expect(sql).toContain('mem::float8 AS mem');
         expect(sql).toContain('max_mem::float8 AS max_mem');
