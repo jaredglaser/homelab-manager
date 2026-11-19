@@ -24,7 +24,7 @@ export interface UpsertUserInput {
 }
 
 interface UserQueryRow {
-  id: number | string;
+  id: number;
   oidc_subject: string;
   email: string;
   name: string | null;

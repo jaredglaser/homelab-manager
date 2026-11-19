@@ -58,7 +58,7 @@ export interface UpdateHostInput {
 }
 
 interface ManagedHostRow {
-  id: number | string;
+  id: number;
   name: string;
   agent_url: string;
   capabilities: HostCapabilities | null;
@@ -74,7 +74,7 @@ interface ManagedHostRow {
 }
 
 interface HostIdRow {
-  id: number | string;
+  id: number;
 }
 
 interface HostNameRow {

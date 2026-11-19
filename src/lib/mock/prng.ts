@@ -29,6 +29,7 @@ export function hashCode(str: string): number {
  * Convenience: get a seeded random value in [0, 1) for a given key combination.
  * Useful for one-shot lookups where you don't need a stateful generator.
  */
+// eslint-disable-next-line local/no-overwide-union -- a seed can be a label or a number by design
 export function seededRandom(...parts: (string | number)[]): number {
   const seed = hashCode(parts.join('/'));
   return mulberry32(seed)();

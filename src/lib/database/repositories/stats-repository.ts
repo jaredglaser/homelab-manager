@@ -100,9 +100,12 @@ interface ProxmoxStatsQueryRow {
   cluster_version: number | null;
 }
 
+// eslint-disable-next-line local/no-overwide-union -- pg accepts text, a Date, a number and an array as bound parameters
+type PgParam = string | Date | number | string[];
+
 /** The single-column bounds projection getDockerStatsForContainer selects. */
 interface ActualSpanRow {
-  actual_span_secs: string | number | null;
+  actual_span_secs: number | null;
 }
 
 export interface StatsTier {
@@ -367,11 +370,11 @@ export class StatsRepository {
     // Find the actual data extent so we bucket based on real data density
     // rather than the full requested range. This prevents low-resolution graphs
     // when the requested range exceeds the available data.
-    const boundsParams: (string | Date | string[])[] = [from, to, containerIds];
+    const boundsParams: PgParam[] = [from, to, containerIds];
     const boundsHostFilter = host ? `AND host = $${boundsParams.push(host)}` : '';
 
     const boundsResult = await this.pool.query<ActualSpanRow>(
-      `SELECT EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) AS actual_span_secs
+      `SELECT (EXTRACT(EPOCH FROM (MAX(time) - MIN(time))))::float8 AS actual_span_secs
        FROM ${tier.relation}
        WHERE time >= $1 AND time <= $2
          AND container_id = ANY($3)
@@ -385,7 +388,7 @@ export class StatsRepository {
       : requestedSpanSecs;
     const bucketSeconds = tierBucketSeconds(tier, effectiveSpan, targetPoints);
 
-    const params: (string | Date | number | string[])[] = [from, to, bucketSeconds, containerIds];
+    const params: PgParam[] = [from, to, bucketSeconds, containerIds];
     const hostFilter = host ? `AND host = $${params.push(host)}` : '';
 
     const result = await this.pool.query<DockerStatsQueryRow>(
@@ -580,6 +583,7 @@ function toZFSStatsRow(row: ZFSStatsQueryRow): ZFSStatsRow {
 }
 
 function toProxmoxStatsRow(row: ProxmoxStatsQueryRow): ProxmoxStatsRow {
+// eslint-disable-next-line local/no-overwide-union -- the proxmox tier query selects from a rollup with no cast, so those columns really are text
   const n = (v: string | number | null | undefined) => (v === null || v === undefined ? null : Number(v));
   return {
     time: new Date(row.time).getTime(),

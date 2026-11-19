@@ -37,7 +37,7 @@ export interface InsertDeployParams {
 }
 
 interface DeployRow {
-  id: number | string;
+  id: number;
   stack: string;
   host: string;
   commit_sha: string;
@@ -56,7 +56,7 @@ interface DeployRow {
 
 /** RETURNING id, shared by the insert and the queued-marker resolve. */
 interface DeployIdRow {
-  id: number | string;
+  id: number;
 }
 
 /** COUNT(*) comes back as a string. */
@@ -76,7 +76,7 @@ interface DeployQueueMarkerRow {
 
 /** RETURNING projection shared by the watchdog sweeps. */
 interface StuckDeployQueryRow {
-  id: number | string;
+  id: number;
   stack: string;
   host: string;
   action: string | null;
@@ -84,7 +84,7 @@ interface StuckDeployQueryRow {
 }
 
 interface PostSuccessDeployQueryRow {
-  id: number | string;
+  id: number;
   stack: string;
   host: string;
 }

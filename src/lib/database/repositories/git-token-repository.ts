@@ -33,8 +33,8 @@ export interface CreateGitTokenInput {
 }
 
 interface GitTokenQueryRow {
-  id: number | string;
-  user_id: number | string;
+  id: number;
+  user_id: number;
   label: string;
   last_used_at: Date | null;
   created_at: Date;
@@ -48,14 +48,14 @@ interface GitTokenWithUserQueryRow extends GitTokenQueryRow {
 
 /** The id/user_id pair the token-hash lookup selects. */
 interface GitTokenHashQueryRow {
-  id: number | string;
-  user_id: number | string;
+  id: number;
+  user_id: number;
 }
 
 /** Rows predating migration 027, where token_hash is still NULL. */
 interface GitTokenEncryptedQueryRow {
-  id: number | string;
-  user_id: number | string;
+  id: number;
+  user_id: number;
   encrypted_token: string;
 }
 

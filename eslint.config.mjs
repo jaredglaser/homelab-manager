@@ -88,6 +88,39 @@ export const WS_MUX_SEAM_RESTRICTIONS = [
 const ENFORCING_SEAM_NAMES = ['authMiddleware', 'requireRole', 'authenticateWsUpgrade', 'authenticateRequest'];
 const ARGUMENT_SEAM_NAMES = [...ENFORCING_SEAM_NAMES, 'resolveUserFromCookie'];
 
+const isStringNumberUnion = (node) => {
+  const kinds = node.types.map((member) => member.type);
+  return kinds.includes('TSStringKeyword') && kinds.includes('TSNumberKeyword');
+};
+
+const isDateStringUnion = (node) =>
+  node.types.some((member) => member.type === 'TSTypeReference' && member.typeName?.name === 'Date') &&
+  node.types.some((member) => member.type === 'TSStringKeyword');
+
+const noOverwideUnionRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'Resolve a wire type to the one it actually carries. A string-or-number union hides which one, and the coercion it invites masks a wrong value as NaN.',
+    },
+    schema: [],
+    messages: {
+      overwide:
+        'This unions a string with a number, or a Date with a string, so nothing downstream knows which one arrives. Pick the type the value actually carries, or disable this rule on the line with the reason it can genuinely be either.',
+    },
+  },
+  create(context) {
+    return {
+      TSUnionType(node) {
+        if (isStringNumberUnion(node) || isDateStringUnion(node)) {
+          context.report({ node, messageId: 'overwide' });
+        }
+      },
+    };
+  },
+};
+
 const endpointAuthRule = {
   meta: {
     type: 'problem',
@@ -374,8 +407,18 @@ export default tseslint.config(
   {
     files: ['src/**/*.{ts,tsx}', 'server/**/*.ts'],
     ignores: ['**/__tests__/**'],
-    plugins: { local: { rules: { 'endpoint-auth': endpointAuthRule } } },
-    rules: { 'local/endpoint-auth': 'error' },
+    plugins: {
+      local: { rules: { 'endpoint-auth': endpointAuthRule, 'no-overwide-union': noOverwideUnionRule } },
+    },
+    rules: { 'local/endpoint-auth': 'error', 'local/no-overwide-union': 'error' },
+  },
+
+  // The agent tree needs its own declaration: ESLint 10 refuses to redefine a plugin name for the same file.
+  {
+    files: ['agent/src/**/*.ts'],
+    ignores: ['**/__tests__/**'],
+    plugins: { local: { rules: { 'no-overwide-union': noOverwideUnionRule } } },
+    rules: { 'local/no-overwide-union': 'error' },
   },
 
   // A stale eslint-disable is enforcement that reads as done, so it fails the build instead of warning.
