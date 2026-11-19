@@ -385,6 +385,10 @@ export async function captureRowCounts(pool: Pool): Promise<RowCountSnapshot> {
     'SELECT count(*) FROM proxmox_stats WHERE host = $1',
     [PROXMOX_HOST]
   );
+  // The two tables migration 044 tightens. Its backfill is UPDATE-only, so a count
+  // that moves across the upgrade means the migration dropped or invented state.
+  snapshot['managed_hosts'] = await count(pool, 'SELECT count(*) FROM managed_hosts');
+  snapshot['entity_metadata'] = await count(pool, 'SELECT count(*) FROM entity_metadata');
   return snapshot;
 }
 
