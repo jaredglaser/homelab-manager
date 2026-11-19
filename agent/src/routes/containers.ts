@@ -22,13 +22,13 @@ async function controlContainer(
   } catch (err) {
     const e = err as DockerodeError;
     if (e.statusCode === 404) {
-      return Response.json(routeErrorBody('container_not_found', `Container not found: ${containerId}`), { status: 404 });
+      return Response.json(routeErrorBody('container_not_found', { container: containerId }), { status: 404 });
     }
     if (isAlreadyInState(e)) {
-      return Response.json(routeErrorBody('container_state_unchanged', e.message ?? 'Container already in target state'), { status: 409 });
+      return Response.json(routeErrorBody('container_state_unchanged', { detail: e.message }), { status: 409 });
     }
     console.error(`[containers] ${action} failed for ${containerId}:`, err);
-    return Response.json(routeErrorBody('container_control_failed', e.message ?? 'Internal error'), { status: 500 });
+    return Response.json(routeErrorBody('container_control_failed', { detail: e.message }), { status: 500 });
   }
 }
 

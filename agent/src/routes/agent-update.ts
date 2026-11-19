@@ -27,10 +27,7 @@ export async function handleAgentUpdate(
 ): Promise<Response> {
   if (!docker) {
     return Response.json(
-      routeErrorBody(
-        'update_docker_unavailable',
-        'Agent updates require Docker capability, which this agent does not have. Update it manually: run `docker compose pull && docker compose up -d` in the agent stack directory.',
-      ),
+      routeErrorBody('update_docker_unavailable'),
       { status: 503 },
     );
   }
@@ -40,13 +37,13 @@ export async function handleAgentUpdate(
     body = (await request.json()) as { targetImage?: unknown };
   } catch {
     return Response.json(
-      routeErrorBody('update_request_invalid', 'Agent update requires a JSON body with a digest-pinned targetImage'),
+      routeErrorBody('update_request_invalid'),
       { status: 400 },
     );
   }
   if (typeof body?.targetImage !== 'string' || !DIGEST_REF_PATTERN.test(body.targetImage)) {
     return Response.json(
-      routeErrorBody('update_target_not_pinned', 'targetImage must be an image reference pinned to a sha256 digest'),
+      routeErrorBody('update_target_not_pinned'),
       { status: 400 },
     );
   }
@@ -55,7 +52,7 @@ export async function handleAgentUpdate(
   const targetRepo = body.targetImage.split('@')[0];
   if (running && running.repo !== targetRepo) {
     return Response.json(
-      routeErrorBody('update_target_repo_mismatch', 'The requested update target does not belong to the image repository this agent runs from'),
+      routeErrorBody('update_target_repo_mismatch'),
       { status: 400 },
     );
   }
@@ -66,7 +63,7 @@ export async function handleAgentUpdate(
   }
 
   if (Date.now() - lastUpdateTriggeredAt < UPDATE_IN_PROGRESS_WINDOW_MS) {
-    return Response.json(routeErrorBody('update_in_progress', 'An update is already in progress'), { status: 409 });
+    return Response.json(routeErrorBody('update_in_progress'), { status: 409 });
   }
   // Set before any await: two concurrent requests must not both get past the guard above.
   lastUpdateTriggeredAt = Date.now();
@@ -82,10 +79,7 @@ export async function handleAgentUpdate(
     // A failed spawn left no helper behind, so a retry must not wait out the window.
     lastUpdateTriggeredAt = 0;
     return Response.json(
-      routeErrorBody(
-        'update_start_failed',
-        `Could not start the agent update: ${error instanceof Error ? error.message : String(error)}`,
-      ),
+      routeErrorBody('update_start_failed', { detail: error instanceof Error ? error.message : String(error) }),
       { status: 500 },
     );
   }

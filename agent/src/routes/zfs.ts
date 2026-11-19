@@ -76,7 +76,7 @@ export function handleZfsStatsStream(
 ): Response {
   if (!capabilities.available) {
     return Response.json(
-      routeErrorBody('zfs_unavailable', 'ZFS is not available on this host'),
+      routeErrorBody('zfs_unavailable'),
       { status: 503 },
     );
   }
@@ -112,7 +112,7 @@ export async function handleZfsPools(
 ): Promise<Response> {
   if (!capabilities.available) {
     return Response.json(
-      routeErrorBody('zfs_unavailable', 'ZFS is not available on this host'),
+      routeErrorBody('zfs_unavailable'),
       { status: 503 },
     );
   }
@@ -130,7 +130,7 @@ export async function handleZfsPools(
       const stderr = await new Response(proc.stderr).text();
       return Response.json(
         {
-          ...routeErrorBody('zfs_pool_list_failed', 'Failed to list ZFS pools'),
+          ...routeErrorBody('zfs_pool_list_failed'),
           detail: stderr.trim(),
         },
         { status: 500 },
@@ -161,7 +161,7 @@ export async function handleZfsPools(
     console.error('Failed to list ZFS pools:', err);
     return Response.json(
       {
-        ...routeErrorBody('zfs_pool_list_failed', 'Failed to list ZFS pools'),
+        ...routeErrorBody('zfs_pool_list_failed'),
         detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 },
