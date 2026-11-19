@@ -6,6 +6,7 @@ import { mockModule } from '@/lib/test/mock-module'
 // screen.* queries and clicks leak into whichever wizard was mounted first.
 import '@/lib/test/testing-library'
 import type { HostListItem } from '@/lib/hosts/host-utils'
+import type { HealthCheckResult } from '@/data/hosts/handlers'
 import type { TlsFailureCode } from '@homelab-manager/agent/types'
 
 // Register module mocks before any component import: a mock.module call made
@@ -88,11 +89,13 @@ const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Prom
   return Promise.resolve(makeHost())
 }
 
+let healthCheckResult: Promise<HealthCheckResult> = Promise.resolve({ hostId: 1, healthy: true })
+
 mock.module('@/data/hosts/functions', () => ({
   listHosts,
   createPendingHost,
   removeHost,
-  checkHostHealth: () => Promise.resolve({ hostId: 1, healthy: true }),
+  checkHostHealth: () => healthCheckResult,
   updateHost,
   getHostPublicJwk: () => Promise.resolve({ publicJwk: {} }),
   rotateHostKeypair: () => Promise.resolve({ hostId: 1, publicJwk: {} }),
@@ -130,6 +133,7 @@ beforeEach(() => {
     host: makeHost({ status: 'pending' }),
     publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
   })
+  healthCheckResult = Promise.resolve({ hostId: 1, healthy: true })
 })
 
 describe('ManagedHostsCardConnected rotate TLS toasts', () => {
@@ -157,6 +161,27 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
 
     await waitFor(() => {
       expect(toasts.some((t) => t.message === 'Failed to rotate the TLS certificate')).toBe(true)
+    })
+  })
+})
+
+describe('ManagedHostsCardConnected health check toasts', () => {
+  it('maps an unhealthy result to its code copy', async () => {
+    healthCheckResult = Promise.resolve({
+      hostId: 1,
+      healthy: false,
+      code: 'awaiting-enrollment',
+      message: 'The agent is serving plain HTTP awaiting TLS enrollment, so the manager cannot verify it over https.',
+    })
+    renderCard()
+    await screen.findByText('server1')
+
+    fireEvent.click(screen.getByLabelText('check health'))
+
+    await waitFor(() => {
+      expect(
+        toasts.some((t) => t.message === 'The agent is serving plain HTTP because it holds no certificate yet. Enroll a certificate for this host from its row in the Managed Hosts card, then check again.'),
+      ).toBe(true)
     })
   })
 })
