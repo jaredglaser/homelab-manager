@@ -1,4 +1,4 @@
-import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost, HostHealthVerdict } from '@/lib/database/repositories/host-repository';
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
@@ -55,7 +55,7 @@ export interface HostRepo {
   create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
   findByName(name: string): Promise<ManagedHost | null>;
   delete(id: number): Promise<void>;
-  updateStatus(id: number, status: HostStatus): Promise<void>;
+  updateHealth(id: number, verdict: HostHealthVerdict): Promise<void>;
   updateLastSweptAt(id: number, at: Date): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null; imageDigest?: string | null; outOfDate?: boolean }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
@@ -81,10 +81,21 @@ export async function handleCheckHostHealth(
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   const healthResult = await deps.checkHealth(host.agentUrl, host.name);
-  const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
-  await deps.repo.updateStatus(host.id, newStatus);
 
-  if (healthResult.healthy && (healthResult.version || healthResult.infoSupported)) {
+  if (!healthResult.healthy) {
+    // A probe that fails without naming a reason still needs a code: the copy is keyed by it, and the
+    // inventory keeps showing that code until the next probe reports something else.
+    const code = healthResult.reason ?? 'health_check_failed';
+    await deps.repo.updateHealth(host.id, {
+      status: 'unhealthy',
+      failure: { code, detail: healthResult.error },
+    });
+    return { hostId: host.id, healthy: false, code, message: healthResult.error };
+  }
+
+  await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null });
+
+  if (healthResult.version || healthResult.infoSupported) {
     // Only an agent that answered /info may clear its image; a 404 leaves the stored value.
     await deps.repo.updateAgentInfo(host.id, {
       version: healthResult.version,
@@ -94,21 +105,14 @@ export async function handleCheckHostHealth(
     });
   }
 
-  return healthResult.healthy
-    ? {
-        hostId: host.id,
-        healthy: true,
-        version: healthResult.version,
-        dockerVersion: healthResult.dockerVersion,
-        agentImage: healthResult.agentImage,
-        agentImageTag: healthResult.agentImageTag,
-      }
-    : {
-        hostId: host.id,
-        healthy: false,
-        code: healthResult.reason ?? 'health_check_failed',
-        message: healthResult.error,
-      };
+  return {
+    hostId: host.id,
+    healthy: true,
+    version: healthResult.version,
+    dockerVersion: healthResult.dockerVersion,
+    agentImage: healthResult.agentImage,
+    agentImageTag: healthResult.agentImageTag,
+  };
 }
 
 export async function handleRemoveHost(
@@ -448,7 +452,7 @@ export async function handleUpdateAgent(
             message: 'The agent is still running its previous image, so the update was interrupted before it completed',
           };
         }
-        await deps.repo.updateStatus(host.id, 'healthy');
+        await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null });
         await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
         return { hostId: host.id, healthy: true };
       }
@@ -478,7 +482,7 @@ export async function handleUpdateAgent(
     };
   }
 
-  await deps.repo.updateStatus(host.id, 'healthy');
+  await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null });
   await deps.repo.updateAgentInfo(host.id, { version: newVersion, imageDigest: digest, outOfDate: false });
   return { hostId: host.id, healthy: true, version: newVersion };
 }
@@ -543,7 +547,14 @@ export async function handleSweepAgentInventory(
         // last look at this agent", not "when did its status last change".
         await deps.repo.updateLastSweptAt(host.id, now);
         if (host.status === 'pending' && !outcome.healthy) return;
-        await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
+        // The sweep's classification travels with the status: without it the listing could only
+        // report "not healthy", losing unreachable and awaiting-enrollment entirely.
+        await deps.repo.updateHealth(host.id, {
+          status: outcome.healthy ? 'healthy' : 'unhealthy',
+          failure: outcome.healthy
+            ? null
+            : { code: outcome.reason ?? 'health_check_failed', detail: outcome.error },
+        });
         const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentDigest);
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
           await deps.repo.updateAgentInfo(host.id, {

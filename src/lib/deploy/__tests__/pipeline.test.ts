@@ -87,6 +87,8 @@ const testHost: ManagedHost = {
   agentImageTag: null,
   agentImageDigest: null,
   agentOutOfDate: false,
+  failureCode: null,
+  failureDetail: null,
   status: 'healthy',
   createdAt: new Date(),
   updatedAt: new Date(),

@@ -18,6 +18,21 @@ export type HostFailureCode =
   | 'version_unconfirmed'
   | 'agent_did_not_restart';
 
+/**
+ * The codes a host health probe reports: the agent's own reason, or the fallback when the probe
+ * failed without naming one. This is the set a host row can carry, so a code outside it can never
+ * reach the inventory. The runtime list is the source of truth for the wire schema, which must
+ * accept every value the persisted code can hold or the client drops the whole snapshot.
+ */
+export const HOST_PROBE_FAILURE_CODES = [
+  'offline',
+  'unreachable',
+  'awaiting-enrollment',
+  'health_check_failed',
+] as const satisfies readonly (AgentHealthFailureReason | 'health_check_failed')[];
+
+export type HostProbeFailureCode = (typeof HOST_PROBE_FAILURE_CODES)[number];
+
 export interface HostFailureCopy {
   /** What went wrong, in the operator's terms. */
   headline: string;

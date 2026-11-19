@@ -111,8 +111,13 @@ function AgentRow({
             {agent.agentOutOfDate && <UpdateAvailableBadge />}
           </div>
           <span className="text-xs font-mono text-muted-foreground block truncate">{agent.agentUrl}</span>
-          {agent.status !== 'online' && agent.lastError && (
-            <p className="text-xs text-muted-foreground truncate" title={agent.lastError}>{agent.lastError}</p>
+          {agent.status !== 'online' && agent.failure && (
+            <p
+              className="text-xs text-muted-foreground truncate"
+              title={hostFailureMessage(agent.failure.code, agent.failure.message)}
+            >
+              {hostFailureMessage(agent.failure.code, agent.failure.message)}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-4 shrink-0">

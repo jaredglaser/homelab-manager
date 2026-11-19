@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory'
+import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
 
 const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntry => ({
   id: 1,
@@ -15,7 +16,7 @@ const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntr
   agentImageTag: 'latest',
   agentImageDigest: 'sha256:' + 'a'.repeat(64),
   agentOutOfDate: false,
-  lastError: null,
+  failure: null,
   checkedAt: '2026-09-25T23:00:00.000Z',
   ...overrides,
 })
@@ -101,7 +102,7 @@ describe('AgentsOverviewView', () => {
         {...makeProps({
           agents: [
             makeAgent(),
-            makeAgent({ id: 2, name: 'media-server', status: 'offline', version: '0.1.0', versionSource: 'stored', lastError: 'timed out', agentUrl: 'http://192.168.1.20:9090' }),
+            makeAgent({ id: 2, name: 'media-server', status: 'offline', version: '0.1.0', versionSource: 'stored', failure: { code: 'offline', message: 'timed out' }, agentUrl: 'http://192.168.1.20:9090' }),
           ],
         })}
       />,
@@ -113,7 +114,27 @@ describe('AgentsOverviewView', () => {
     expect(screen.getByText('v0.2.0')).toBeDefined()
     expect(screen.getByText('v0.1.0')).toBeDefined()
     expect(screen.getByText('http://192.168.1.10:9090')).toBeDefined()
-    expect(screen.getByText('timed out')).toBeDefined()
+    expect(screen.getByText(hostFailureMessage('offline', 'timed out'))).toBeDefined()
+  })
+
+  it('renders the code\'s copy for a recorded failure rather than the raw probe string', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    render(
+      <AgentsOverviewView
+        {...makeProps({
+          agents: [
+            makeAgent({
+              id: 2,
+              name: 'media-server',
+              status: 'awaiting-enrollment',
+              failure: { code: 'awaiting-enrollment', message: '' },
+            }),
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByText('Awaiting enrollment')).toBeDefined()
+    expect(screen.getByText(hostFailureMessage('awaiting-enrollment', ''))).toBeDefined()
   })
 
   it('lets an admin trigger the update for one row without touching the other', async () => {

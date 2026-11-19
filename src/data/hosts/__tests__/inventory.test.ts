@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import type { HostRepo, AgentsInventoryDeps } from '../handlers';
 import { handleSweepAgentInventory, handleListAgentsInventorySnapshot } from '../handlers';
-import type { ManagedHost, HostStatus, UpdateAgentInfoInput } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost, HostHealthVerdict, UpdateAgentInfoInput } from '@/lib/database/repositories/host-repository';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { buildAgentInventorySnapshot } from '@/lib/hosts/agent-inventory';
 
@@ -18,6 +18,8 @@ function mockRow(overrides?: Partial<ManagedHost>): ManagedHost {
     agentImageTag: null,
     agentImageDigest: null,
     agentOutOfDate: false,
+    failureCode: null,
+    failureDetail: null,
     status: 'healthy',
     createdAt: NOW,
     updatedAt: NOW,
@@ -33,7 +35,7 @@ function mockRepo(hosts: ManagedHost[], overrides?: Partial<HostRepo>): HostRepo
     create: mock(() => Promise.resolve(hosts[0] ?? mockRow())),
     update: mock(() => Promise.resolve(hosts[0] ?? mockRow())),
     delete: mock(() => Promise.resolve()),
-    updateStatus: mock(() => Promise.resolve()),
+    updateHealth: mock(() => Promise.resolve()),
     updateLastSweptAt: mock(() => Promise.resolve()),
     updateAgentInfo: mock(() => Promise.resolve()),
     ...overrides,
@@ -68,31 +70,50 @@ function deps(
 
 describe('handleSweepAgentInventory', () => {
   it('probes every host exactly once per sweep and persists healthy/unhealthy plus agent info', async () => {
-    const updateStatus = mock((_id: number, _status: HostStatus) => Promise.resolve());
+    const updateHealth = mock((_id: number, _verdict: HostHealthVerdict) => Promise.resolve());
     const updateAgentInfo = mock((_id: number, _fields: UpdateAgentInfoInput) => Promise.resolve());
     const hosts = [
       mockRow({ id: 1, name: 'up' }),
       mockRow({ id: 2, name: 'down' }),
     ];
-    const d = deps(hosts, [healthy('0.2.0'), offline()], { updateStatus, updateAgentInfo });
+    const d = deps(hosts, [healthy('0.2.0'), offline()], { updateHealth, updateAgentInfo });
 
     const entries = await handleSweepAgentInventory(d, NOW);
 
     expect(d.checkHealth).toHaveBeenCalledTimes(2);
-    expect(updateStatus.mock.calls).toEqual([[1, 'healthy'], [2, 'unhealthy']]);
+    expect(updateHealth.mock.calls).toEqual([
+      [1, { status: 'healthy', failure: null }],
+      [2, { status: 'unhealthy', failure: { code: 'offline', detail: 'Health check timed out after 5000ms' } }],
+    ]);
     expect(updateAgentInfo.mock.calls.length).toBe(1);
     expect(updateAgentInfo.mock.calls[0]?.[0]).toBe(1);
     expect(entries.map((e) => e.status)).toEqual(['online', 'offline']);
   });
 
+  it('persists the probe reason, not just the unhealthy status', async () => {
+    const updateHealth = mock<(id: number, verdict: HostHealthVerdict) => Promise<void>>(() => Promise.resolve());
+    const hosts = [mockRow({ id: 1, name: 'behind-proxy', status: 'healthy' })];
+    const d = deps(
+      hosts,
+      [{ healthy: false, reason: 'unreachable', error: 'Agent returned status 502' }],
+      { updateHealth },
+    );
+
+    await handleSweepAgentInventory(d, NOW);
+
+    expect(updateHealth.mock.calls).toEqual([
+      [1, { status: 'unhealthy', failure: { code: 'unreachable', detail: 'Agent returned status 502' } }],
+    ]);
+  });
+
   it('marks a pending host unknown on failure and leaves its status pending', async () => {
-    const updateStatus = mock(() => Promise.resolve());
-    const d = deps([mockRow({ status: 'pending' })], [offline()], { updateStatus });
+    const updateHealth = mock(() => Promise.resolve());
+    const d = deps([mockRow({ status: 'pending' })], [offline()], { updateHealth });
 
     const [entry] = await handleSweepAgentInventory(d, NOW);
 
     expect(entry.status).toBe('unknown');
-    expect(updateStatus).not.toHaveBeenCalled();
+    expect(updateHealth).not.toHaveBeenCalled();
   });
 
   it('one host persist failure does not affect other hosts or crash the sweep', async () => {
@@ -100,11 +121,11 @@ describe('handleSweepAgentInventory', () => {
       mockRow({ id: 1, name: 'broken' }),
       mockRow({ id: 2, name: 'fine' }),
     ];
-    const updateStatus = mock((id: number, _status: HostStatus) => {
+    const updateHealth = mock((id: number, _verdict: HostHealthVerdict) => {
       if (id === 1) return Promise.reject(new Error('write failed'));
       return Promise.resolve();
     });
-    const d = deps(hosts, [healthy('0.2.0'), healthy('0.3.0')], { updateStatus });
+    const d = deps(hosts, [healthy('0.2.0'), healthy('0.3.0')], { updateHealth });
 
     const entries = await handleSweepAgentInventory(d, NOW);
 
@@ -128,7 +149,7 @@ describe('handleSweepAgentInventory', () => {
     expect(checkHealth).toHaveBeenCalledTimes(2);
     expect(entries).toHaveLength(2);
     expect(entries[0].status).toBe('offline');
-    expect(entries[0].lastError).toBe('boom');
+    expect(entries[0].failure).toEqual({ code: 'offline', message: 'boom' });
     expect(entries[1].status).toBe('online');
   });
 
@@ -249,6 +270,29 @@ describe('handleListAgentsInventorySnapshot', () => {
 
     const [entry] = await handleListAgentsInventorySnapshot({ repo });
     expect(entry.status).toBe('unreachable');
+  });
+
+  it('reports the recorded cause, so an agent awaiting enrollment is not reported as generically down', async () => {
+    const detail = 'The agent is serving plain HTTP awaiting TLS enrollment';
+    const repo = mockRepo([
+      mockRow({ status: 'unhealthy', failureCode: 'awaiting-enrollment', failureDetail: detail }),
+    ]);
+
+    const [entry] = await handleListAgentsInventorySnapshot({ repo });
+
+    expect(entry.status).toBe('awaiting-enrollment');
+    expect(entry.failure).toEqual({ code: 'awaiting-enrollment', message: detail });
+  });
+
+  it('reports an unreachable cause, and an empty message for a row that recorded none', async () => {
+    const repo = mockRepo([
+      mockRow({ status: 'unhealthy', failureCode: 'unreachable', failureDetail: null }),
+    ]);
+
+    const [entry] = await handleListAgentsInventorySnapshot({ repo });
+
+    expect(entry.status).toBe('unreachable');
+    expect(entry.failure).toEqual({ code: 'unreachable', message: '' });
   });
 
   it('reports checkedAt from lastSweptAt, ignoring an updatedAt bumped by other writes', async () => {

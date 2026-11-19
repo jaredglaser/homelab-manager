@@ -15,7 +15,7 @@ function entry(id: number): AgentInventoryEntry {
     agentImageTag: null,
     agentImageDigest: null,
     agentOutOfDate: false,
-    lastError: null,
+    failure: null,
     checkedAt: new Date().toISOString(),
   };
 }

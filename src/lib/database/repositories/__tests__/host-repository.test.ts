@@ -169,14 +169,22 @@ describe('HostRepository', () => {
     });
   });
 
-  describe('updateStatus', () => {
-    it('updates the status field and updated_at', async () => {
+  describe('updateHealth', () => {
+    it('writes the status, the failure cause and updated_at in one statement', async () => {
       mock.pushResult([]); // UPDATE returns no rows
-      await repo.updateStatus(1, 'error');
+      await repo.updateHealth(1, {
+        status: 'unhealthy',
+        failure: { code: 'unreachable', detail: 'Agent returned status 502' },
+      });
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
       expect(mock.queries[0].sql).toContain('updated_at');
-      expect(mock.queries[0].params).toContain('error');
-      expect(mock.queries[0].params).toContain(1);
+      expect(mock.queries[0].params).toEqual(['unhealthy', 'unreachable', 'Agent returned status 502', 1]);
+    });
+
+    it('clears the failure cause on a healthy verdict', async () => {
+      mock.pushResult([]);
+      await repo.updateHealth(1, { status: 'healthy', failure: null });
+      expect(mock.queries[0].params).toEqual(['healthy', null, null, 1]);
     });
   });
 
@@ -371,7 +379,7 @@ describe('HostRepository', () => {
     it('does not notify on metadata-only updates (status/version)', async () => {
       mock.pushResult([]);
       mock.pushResult([]);
-      await repo.updateStatus(1, 'healthy');
+      await repo.updateHealth(1, { status: 'healthy', failure: null });
       await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(pickNotify(mock)).toHaveLength(0);
     });

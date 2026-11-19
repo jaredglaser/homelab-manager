@@ -31,6 +31,8 @@ function mockRow(overrides?: Record<string, unknown>) {
     agentImageTag: null,
     agentImageDigest: null,
     agentOutOfDate: false,
+    failureCode: null,
+    failureDetail: null,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
     lastSweptAt: null,
@@ -47,7 +49,7 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     findByName: mock((_name: string) => Promise.resolve(null)),
     update: mock(() => Promise.resolve(mockRow())),
     delete: mock(() => Promise.resolve()),
-    updateStatus: mock(() => Promise.resolve()),
+    updateHealth: mock(() => Promise.resolve()),
     updateAgentInfo: mock(() => Promise.resolve()),
     ...overrides,
   } as HostRepo;
@@ -91,7 +93,7 @@ describe('handleCheckHostHealth', () => {
     const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: true as const, version: '2.0.0', dockerVersion: '24.0' })) };
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(true);
-    expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+    expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null });
     expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0' });
   });
 
@@ -151,7 +153,7 @@ describe('handleCheckHostHealth', () => {
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
     if (!result.healthy) expect(result.code).toBe('offline');
-    expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
+    expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'offline', detail: 'refused' } });
     expect(repo.updateAgentInfo).not.toHaveBeenCalled();
   });
 
@@ -508,7 +510,7 @@ describe('handleRotateHostKeypair', () => {
     await handleRotateHostKeypair(deps, { hostId: 1 });
 
     expect(repo.update).not.toHaveBeenCalled();
-    expect(repo.updateStatus).not.toHaveBeenCalled();
+    expect(repo.updateHealth).not.toHaveBeenCalled();
     expect(repo.delete).not.toHaveBeenCalled();
   });
 
@@ -626,7 +628,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(true);
       if (result.healthy) expect(result.version).toBe('2.0.0');
-      expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+      expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null });
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0', imageDigest: TEST_DIGEST, outOfDate: false });
     } finally {
       restore();
@@ -773,7 +775,7 @@ describe('handleUpdateAgent', () => {
       ));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(true);
-      expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+      expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null });
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
     } finally {
       timers.restore();

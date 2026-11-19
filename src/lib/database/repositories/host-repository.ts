@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import type { HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
 
 /** Valid statuses for managed_hosts, matching the DB CHECK constraint in migration 010. */
 export type HostStatus = 'pending' | 'healthy' | 'unhealthy' | 'error';
@@ -6,6 +7,19 @@ export type HostStatus = 'pending' | 'healthy' | 'unhealthy' | 'error';
 export interface HostCapabilities {
   docker?: boolean;
   zfs?: boolean;
+}
+
+/** Why a host's last probe failed: the code the operator's copy keys on, plus the probe's own detail. */
+export interface HostFailureRecord {
+  code: HostProbeFailureCode;
+  /** The probe's diagnostic detail, or null when it named none. */
+  detail: string | null;
+}
+
+/** A health verdict for one host: the status, and the cause it came from. */
+export interface HostHealthVerdict {
+  status: HostStatus;
+  failure: HostFailureRecord | null;
 }
 
 export interface ManagedHost {
@@ -21,6 +35,10 @@ export interface ManagedHost {
   /** True when the last sweep found this digest different from the manager's own agent image. */
   agentOutOfDate: boolean;
   status: HostStatus;
+  /** Why the last probe failed, or null when it succeeded or the host has never been probed. */
+  failureCode: HostProbeFailureCode | null;
+  /** The probe's own detail for `failureCode`, which the copy may or may not show. */
+  failureDetail: string | null;
   createdAt: Date;
   updatedAt: Date;
   /**
@@ -63,6 +81,8 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     agentImageDigest: (row.agent_image_digest as string | null | undefined) ?? null,
     agentOutOfDate: (row.agent_out_of_date as boolean | null | undefined) ?? false,
     status: row.status as HostStatus,
+    failureCode: (row.failure_code as HostProbeFailureCode | null | undefined) ?? null,
+    failureDetail: (row.failure_detail as string | null | undefined) ?? null,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
     lastSweptAt: (row.last_swept_at as Date | null | undefined) ?? null,
@@ -157,10 +177,17 @@ export class HostRepository {
     return result.rows.length > 0 ? toManagedHost(result.rows[0] as Record<string, unknown>) : null;
   }
 
-  async updateStatus(id: number, status: HostStatus): Promise<void> {
+  /**
+   * Record a health verdict for this host: the status and the failure cause it came
+   * from, in one write. The two travel together because a status write that left the
+   * previous cause behind would report a failure the host no longer has, and a
+   * healthy status cannot carry one (enforced by the managed_hosts_failure_check
+   * constraint). `failure: null` is a success, so it clears both columns.
+   */
+  async updateHealth(id: number, verdict: HostHealthVerdict): Promise<void> {
     await this.pool.query(
-      'UPDATE managed_hosts SET status = $1, updated_at = NOW() WHERE id = $2',
-      [status, id],
+      'UPDATE managed_hosts SET status = $1, failure_code = $2, failure_detail = $3, updated_at = NOW() WHERE id = $4',
+      [verdict.status, verdict.failure?.code ?? null, verdict.failure?.detail ?? null, id],
     );
   }
 

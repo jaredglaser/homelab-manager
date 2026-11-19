@@ -60,7 +60,7 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
     console.info(`[DevSeed] Re-wrote public JWK file to ${DEFAULT_PUBKEY_FILE}`);
   }
 
-  await hostRepo.updateStatus(host.id, 'pending');
+  await hostRepo.updateHealth(host.id, { status: 'pending', failure: null });
   for (let attempt = 1; attempt <= HEALTH_CHECK_ATTEMPTS; attempt++) {
     let isHealthy = false;
     try {
@@ -70,7 +70,7 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
       // Agent not ready yet
     }
     if (isHealthy) {
-      await hostRepo.updateStatus(host.id, 'healthy');
+      await hostRepo.updateHealth(host.id, { status: 'healthy', failure: null });
       return;
     }
     if (attempt < HEALTH_CHECK_ATTEMPTS) {

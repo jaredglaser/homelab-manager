@@ -279,6 +279,31 @@ export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
     true
   );
 
+  const managedHostFailureColumns = new Set(
+    await selectColumn<string>(
+      pool,
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'managed_hosts'
+         AND column_name IN ('failure_code', 'failure_detail')`
+    )
+  );
+  checks.sameSet(
+    'managed_hosts carries the probe failure columns',
+    [...managedHostFailureColumns],
+    ['failure_code', 'failure_detail']
+  );
+
+  const managedHostFailureCheck = await selectRow<{ definition: string }>(
+    pool,
+    `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+     WHERE conrelid = 'managed_hosts'::regclass AND conname = 'managed_hosts_failure_check'`
+  );
+  checks.equal(
+    'a healthy managed_hosts row cannot carry a failure cause',
+    managedHostFailureCheck?.definition.includes(`status <> 'healthy'`),
+    true
+  );
+
   const zfsHost = await selectRow<{ is_nullable: string }>(
     pool,
     `SELECT is_nullable FROM information_schema.columns
