@@ -263,6 +263,24 @@ describe('AgentsOverview (connected)', () => {
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('The host did not answer')
   })
 
+  it('renders an agent route refusal by its own code where the generic sentence used to stand', async () => {
+    updateResult = Promise.resolve({
+      hostId: 1,
+      healthy: false,
+      code: 'update_start_failed',
+      message: 'cannot reach the docker socket',
+    })
+    await renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    await waitFor(() =>
+      expect(screen.getByText(/The agent could not start its update\./)).toBeDefined(),
+    )
+    // This refusal used to collapse into agent_reported_error's generic sentence; that one must be gone.
+    expect(screen.queryByText(/The agent refused the update\./)).toBeNull()
+    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('could not start its update')
+  })
+
   it('pins the fallback failure copy when the update mutation rejects with a non-Error', async () => {
     const rejection = Promise.reject('agent unreachable as raw string')
     rejection.catch(() => {}) // handled by the component on click. The pre-catch silences the floating-rejection check.

@@ -173,6 +173,11 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureC
   },
 };
 
+/** The copy behind a code, so a test can pin every code's headline and fix without rendering it. */
+export function agentRouteFailureCopy(code: AgentRouteFailureCode): AgentRouteFailureCopy {
+  return AGENT_ROUTE_FAILURE_COPY[code];
+}
+
 /** Narrows a code an agent sent, so a code this manager does not know keeps the generic refusal copy. */
 export function isAgentRouteFailureCode(value: unknown): value is AgentRouteFailureCode {
   return typeof value === 'string' && (AGENT_ROUTE_FAILURE_CODES as readonly string[]).includes(value);
