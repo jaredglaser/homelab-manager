@@ -147,9 +147,10 @@ describe('handleCheckHostHealth', () => {
 
   it('updates status to unhealthy on failure', async () => {
     const repo = mockRepo();
-    const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: false as const, error: 'refused' })) };
+    const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'refused' })) };
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
+    if (!result.healthy) expect(result.code).toBe('offline');
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
     expect(repo.updateAgentInfo).not.toHaveBeenCalled();
   });
@@ -579,7 +580,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
-        expect(result.error).toBe('Could not resolve the agent image digest from the registry');
+        expect(result.code).toBe('image_digest_unresolved');
       }
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -587,13 +588,13 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('fails before update when the agent is unreachable', async () => {
+  it('fails before update when the agent is offline', async () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
     try {
-      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: false as const, error: 'connection refused' })));
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'connection refused' })));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toContain('unreachable');
+      if (!result.healthy) expect(result.code).toBe('offline');
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       restore();
@@ -642,7 +643,7 @@ describe('handleUpdateAgent', () => {
     const result = await handleUpdateAgent(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
     if (!result.healthy) {
-      expect(result.error).toBe('Could not retrieve agent keypair');
+      expect(result.code).toBe('keypair_unavailable');
     }
   });
 
@@ -659,7 +660,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
-        expect(result.error).toBe('Could not sign the agent request token');
+        expect(result.code).toBe('token_signing_failed');
       }
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -673,7 +674,8 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('ECONNREFUSED');
+      if (!result.healthy) expect(result.code).toBe('agent_unreachable');
+      if (!result.healthy) expect(result.message).toBe('ECONNREFUSED');
     } finally {
       restore();
     }
@@ -685,7 +687,7 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Agent URL returned an unexpected redirect');
+      if (!result.healthy) expect(result.code).toBe('unexpected_redirect');
     } finally {
       restore();
     }
@@ -698,7 +700,7 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: undefined, infoSupported: false })));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('The agent stayed reachable throughout the update window, so its restart could not be confirmed');
+      if (!result.healthy) expect(result.code).toBe('restart_unconfirmed');
     } finally {
       timers.restore();
       restore();
@@ -753,7 +755,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
-        expect(result.error).toBe('The agent is still running its previous image, so the update was interrupted before it completed');
+        expect(result.code).toBe('update_interrupted');
       }
     } finally {
       timers.restore();
@@ -793,7 +795,7 @@ describe('handleUpdateAgent', () => {
       }));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Agent is reachable but its version could not be read, so the update could not be confirmed');
+      if (!result.healthy) expect(result.code).toBe('version_unconfirmed');
     } finally {
       timers.restore();
       restore();
@@ -813,7 +815,7 @@ describe('handleUpdateAgent', () => {
       }));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Agent did not restart after update');
+      if (!result.healthy) expect(result.code).toBe('agent_did_not_restart');
     } finally {
       timers.restore();
       restore();
@@ -837,7 +839,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
-        expect(result.error).toBe('The agent stayed reachable throughout the update window, so its restart could not be confirmed');
+        expect(result.code).toBe('restart_unconfirmed');
       }
     } finally {
       timers.restore();
@@ -851,7 +853,8 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toContain('Docker capability');
+      if (!result.healthy) expect(result.code).toBe('agent_reported_error');
+      if (!result.healthy) expect(result.message).toContain('Docker capability');
     } finally {
       restore();
     }
@@ -863,7 +866,8 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Update check failed. Verify the agent host can reach the image registry, then retry the update.');
+      if (!result.healthy) expect(result.code).toBe('agent_reported_error');
+      if (!result.healthy) expect(result.message).toBe('Update check failed. Verify the agent host can reach the image registry, then retry the update.');
     } finally {
       restore();
     }
