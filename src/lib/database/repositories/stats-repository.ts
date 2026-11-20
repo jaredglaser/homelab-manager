@@ -1,7 +1,8 @@
 import type { Pool } from 'pg';
 import type { DockerStatsRow } from '@/types/docker';
-import type { ProxmoxStatsRow } from '@/types/proxmox';
+import { isProxmoxEntityType, type ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
+import { parseRowEnum } from '@/lib/database/repositories/row-enum';
 
 /** Insert shape for proxmox_stats: same as the read row, but `time` stays a Date for the timestamptz bind. */
 export type NewProxmoxStat = Omit<ProxmoxStatsRow, 'time'> & { time: Date };
@@ -601,7 +602,7 @@ function toProxmoxStatsRow(row: ProxmoxStatsQueryRow): ProxmoxStatsRow {
   return {
     time: new Date(row.time).getTime(),
     host: row.host,
-    entity_type: row.entity_type as ProxmoxStatsRow['entity_type'],
+    entity_type: parseRowEnum('proxmox_stats.entity_type', row.entity_type, isProxmoxEntityType),
     node: row.node,
     entity_id: row.entity_id,
     entity_name: row.entity_name,

@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createPool, recreateDatabase, waitForDatabase } from '../migration-verify/db';
-import { collectSites, type QuerySite } from './scrape';
+import { collectSites } from './scrape';
 import {
   isReturningDmlStatement,
   isSelectStatement,
@@ -23,9 +23,9 @@ import {
   ALLOWED_NARROWINGS,
   applyAllowlist,
   compareObservations,
-  type ObservedField,
   type ObservedRowType,
 } from './compare';
+import { observe, type Catalog } from './observe';
 import { WIRE_TYPE_BY_PG_TYPE, assertWireTypeTable } from './wire-types';
 
 const REPO_ROOT = path.join(import.meta.dir, '..', '..');
@@ -41,37 +41,6 @@ const VERBOSE = argv.includes('--verbose');
 const KEEP_DATABASE = argv.includes('--keep');
 const ONLY_TYPE = flagValue('--type');
 const JSON_OUT = flagValue('--json');
-
-interface Catalog {
-  columnsOf: (table: string) => string[];
-  tablesIn: (sql: string) => string[];
-  nullability: (column: string, tables: string[]) => boolean | '?' | 'mixed';
-}
-
-/** Records one statement's columns against the row type it feeds. */
-function observe(
-  observations: Map<string, ObservedRowType>,
-  site: QuerySite,
-  columns: { name: string; wire: string }[],
-  sql: string,
-  catalog: Catalog,
-): void {
-  const key = `${site.file}|${site.rowType}`;
-  if (!observations.has(key)) {
-    observations.set(key, { rowType: site.rowType, file: site.file, line: site.line, rowFields: site.rowFields, fields: new Map(), projections: [] });
-  }
-  const observed = observations.get(key);
-  if (!observed) return;
-  if (site.rowFields) observed.rowFields = site.rowFields;
-  for (const column of columns) {
-    const slot: ObservedField = observed.fields.get(column.name) ?? { wire: new Set<string>(), nullable: '?' as const, seen: 0 };
-    slot.wire.add(column.wire);
-    slot.seen += 1;
-    const nullable = catalog.nullability(column.name, catalog.tablesIn(sql));
-    if (nullable !== '?') slot.nullable = slot.nullable === '?' || slot.nullable === nullable ? nullable : 'mixed';
-    observed.fields.set(column.name, slot);
-  }
-}
 
 async function main(): Promise<number> {
   await waitForDatabase();

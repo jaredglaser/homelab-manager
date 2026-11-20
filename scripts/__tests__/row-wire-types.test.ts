@@ -11,7 +11,8 @@ import {
   parserFor,
   runtimeTypeOf,
 } from '../row-wire-types/wire-types';
-import { collectSites, scrapeFile } from '../row-wire-types/scrape';
+import { collectSites, scrapeFile, type QuerySite } from '../row-wire-types/scrape';
+import { observe, type Catalog } from '../row-wire-types/observe';
 import {
   isReturningDmlStatement,
   isSelectStatement,
@@ -420,5 +421,62 @@ describe('scrapeFile row shapes', () => {
     const file = fixture('inline.ts', 'const q = pool.query<{ ready: boolean }>(`SELECT to_regclass($1) IS NOT NULL AS ready`);');
     const [site] = scrapeFile(file, fixtureDir);
     expect(site.rowFields).toEqual([{ name: 'ready', type: 'boolean', optional: false }]);
+  });
+});
+
+describe('observe: one row type fed by several statements', () => {
+  const catalog: Catalog = {
+    columnsOf: () => [],
+    tablesIn: () => ['proxmox_stats'],
+    nullability: () => false,
+  };
+  const site = (sql: string): QuerySite => ({
+    file: 'src/lib/database/repositories/proxmox-stats-repository.ts',
+    line: 12,
+    rowType: 'ProxmoxStatsQueryRow',
+    rowFields: null,
+    sql,
+    dynamic: [],
+  });
+  const columns = [
+    { name: 'host', wire: 'string' },
+    { name: 'mem', wire: 'number' },
+  ];
+
+  test('counts a field once per statement that returns it', () => {
+    const observations = new Map<string, ObservedRowType>();
+    observe(observations, site('SELECT host, mem FROM proxmox_stats'), columns, 'SELECT host, mem FROM proxmox_stats', catalog);
+    observe(observations, site('SELECT host, mem FROM proxmox_stats_1h_avg'), columns, 'SELECT host, mem FROM proxmox_stats_1h_avg', catalog);
+    const observed = observations.get('src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow');
+    expect(observed?.fields.get('host')?.seen).toBe(2);
+    expect(observed?.fields.get('host')?.wire).toEqual(new Set(['string']));
+  });
+
+  test('records the projections separately, and keeps the first row shape', () => {
+    const observations = new Map<string, ObservedRowType>();
+    const rowFields = [{ name: 'host', type: 'string', optional: false }];
+    observe(observations, { ...site('SELECT host FROM proxmox_stats'), rowFields }, [columns[0]], 'SELECT host FROM proxmox_stats', catalog);
+    expect(observations.size).toBe(1);
+    const observed = observations.get('src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow');
+    expect(observed?.rowFields).toEqual(rowFields);
+    expect(observed?.projections).toEqual([]);
+  });
+
+  test('calls a column mixed when the tiers disagree about nullability', () => {
+    const observations = new Map<string, ObservedRowType>();
+    const perTier: Catalog = { ...catalog, nullability: (column) => (column === 'mem' ? true : false) };
+    observe(observations, site('SELECT host, mem FROM proxmox_stats'), columns, 'SELECT host, mem FROM proxmox_stats', catalog);
+    observe(observations, site('SELECT host, mem FROM proxmox_stats_1h_avg'), columns, 'SELECT host, mem FROM proxmox_stats_1h_avg', perTier);
+    const observed = observations.get('src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow');
+    expect(observed?.fields.get('mem')?.nullable).toBe('mixed');
+    expect(observed?.fields.get('host')?.nullable).toBe(false);
+  });
+
+  test('leaves nullability unknown when the catalog cannot answer', () => {
+    const unknown: Catalog = { ...catalog, nullability: () => '?' };
+    const observations = new Map<string, ObservedRowType>();
+    observe(observations, site('SELECT host FROM proxmox_stats'), [columns[0]], 'SELECT host FROM proxmox_stats', unknown);
+    const observed = observations.get('src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow');
+    expect(observed?.fields.get('host')?.nullable).toBe('?');
   });
 });
