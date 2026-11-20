@@ -267,18 +267,20 @@ describe('AgentsOverview (connected)', () => {
     updateResult = Promise.resolve({
       hostId: 1,
       healthy: false,
-      code: 'update_start_failed',
-      message: 'cannot reach the docker socket',
+      code: 'update_in_progress',
+      message: 'the guard rejected a second update',
     })
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update homeserver'))
     await waitFor(() =>
-      expect(screen.getByText(/The agent could not start its update\./)).toBeDefined(),
+      expect(screen.getByText(/The agent is already running an update\./)).toBeDefined(),
     )
     // This refusal used to collapse into agent_reported_error's generic sentence; that one must be gone.
     expect(screen.queryByText(/The agent refused the update\./)).toBeNull()
-    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('could not start its update')
+    // update_in_progress names its own action, so the agent's detail is dropped rather than repeated.
+    expect(screen.getByTestId('agent-row-homeserver').textContent).not.toContain('the guard rejected a second update')
+    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('already running an update')
   })
 
   it('pins the fallback failure copy when the update mutation rejects with a non-Error', async () => {
