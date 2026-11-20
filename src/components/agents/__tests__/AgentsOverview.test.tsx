@@ -276,7 +276,6 @@ describe('AgentsOverview (connected)', () => {
     await waitFor(() =>
       expect(screen.getByText(/The agent is already running an update\./)).toBeDefined(),
     )
-    // This refusal used to collapse into agent_reported_error's generic sentence; that one must be gone.
     expect(screen.queryByText(/The agent refused the update\./)).toBeNull()
     // update_in_progress names its own action, so the agent's detail is dropped rather than repeated.
     expect(screen.getByTestId('agent-row-homeserver').textContent).not.toContain('the guard rejected a second update')

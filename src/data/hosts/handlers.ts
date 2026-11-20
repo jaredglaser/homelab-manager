@@ -394,7 +394,7 @@ export async function handleUpdateAgent(
 
   if (triggerResponse.status !== 202) {
     const body = await triggerResponse.text().catch(() => '');
-    // The agent answers with JSON like {"error":"...","code":"..."}; surface both, never the
+    // The agent answers with JSON like {"error":"...","code":"..."}. Surface both, never the
     // raw body.
     let message = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
     let code: HostFailureCode | AgentRouteFailureCode = 'agent_reported_error';

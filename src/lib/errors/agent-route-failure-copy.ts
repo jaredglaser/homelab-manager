@@ -173,7 +173,6 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureC
   },
 };
 
-/** The copy behind a code, so a test can pin every code's headline and fix without rendering it. */
 export function agentRouteFailureCopy(code: AgentRouteFailureCode): AgentRouteFailureCopy {
   return AGENT_ROUTE_FAILURE_COPY[code];
 }
