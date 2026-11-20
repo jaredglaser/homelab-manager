@@ -49,7 +49,7 @@ mock.module('@/hooks/useAuth', () => ({
 }))
 
 let inventoryResponse: AgentInventoryEntry[] = []
-type OpResult = import('@/data/hosts/handlers').HostOperationResult
+type OpResult = import('@/data/hosts/handlers').UpdateAgentResult
 let updateResult: Promise<OpResult> = Promise.resolve({ hostId: 1, healthy: true })
 let updateCalls: Array<{ data: { hostId: number } }> = []
 const listAgentsInventory = (): Promise<AgentInventoryEntry[]> => Promise.resolve(inventoryResponse)

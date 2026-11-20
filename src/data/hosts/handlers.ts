@@ -2,8 +2,9 @@ import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-r
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
-import type { TlsFailureCode } from '@homelab-manager/agent/types';
+import type { AgentRouteFailureCode, TlsFailureCode } from '@homelab-manager/agent/types';
 import type { HostFailureCode } from '@/lib/errors/host-failure-copy';
+import { isAgentRouteFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
@@ -29,7 +30,7 @@ export interface AddHostResult {
   provisioningError?: string;
 }
 
-export type HostOperationResult =
+export type HostOperationResult<Code extends string = HostFailureCode> =
   | {
       hostId: number;
       healthy: true;
@@ -38,10 +39,11 @@ export type HostOperationResult =
       agentImage?: string | null;
       agentImageTag?: string | null;
     }
-  | { hostId: number; healthy: false; code: HostFailureCode; message: string };
+  | { hostId: number; healthy: false; code: Code; message: string };
 
 export type HealthCheckResult = HostOperationResult;
-export type UpdateAgentResult = HostOperationResult;
+/** An update refusal carries an agent route code, which the operator copy branches on. */
+export type UpdateAgentResult = HostOperationResult<HostFailureCode | AgentRouteFailureCode>;
 
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
@@ -303,7 +305,7 @@ export async function handleUpdateAgent(
     getCaCert?: (hostname: string) => Promise<string | null>;
   },
   data: { hostId: number },
-): Promise<HostOperationResult> {
+): Promise<UpdateAgentResult> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -392,19 +394,21 @@ export async function handleUpdateAgent(
 
   if (triggerResponse.status !== 202) {
     const body = await triggerResponse.text().catch(() => '');
-    // The agent answers with JSON like {"error":"..."}; surface the message,
-    // not the raw body.
+    // The agent answers with JSON like {"error":"...","code":"..."}; surface both, never the
+    // raw body.
     let message = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
+    let code: HostFailureCode | AgentRouteFailureCode = 'agent_reported_error';
     try {
-      const parsed = JSON.parse(body) as { error?: unknown };
+      const parsed = JSON.parse(body) as { error?: unknown; code?: unknown } | null;
       if (typeof parsed?.error === 'string') message = parsed.error;
+      if (isAgentRouteFailureCode(parsed?.code)) code = parsed.code;
     } catch {
       // Body was not JSON; keep the raw text.
     }
     return {
       hostId: host.id,
       healthy: false,
-      code: 'agent_reported_error',
+      code,
       message,
     };
   }
