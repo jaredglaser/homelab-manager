@@ -755,6 +755,22 @@ describe('StatsRepository', () => {
       const result = await repo.getProxmoxStatsSince(new Date());
       expect(result).toEqual([{ ...mockRows[0], time: rowTime.getTime() }]);
     });
+
+    it('refuses an entity_type the schema does not know instead of typing it as valid', async () => {
+      mockPool.pushResult([{
+        time: new Date(), host: 'h', entity_type: 'vm',
+        node: 'pve1', entity_id: 'pve1', entity_name: 'pve1',
+        status: 'online', cpu: 1, max_cpu: 4,
+        mem: null, max_mem: null, disk: null, max_disk: null,
+        uptime: null, vmid: null, netin: null, netout: null,
+        storage_type: null, storage_content: null, storage_avail: null,
+        storage_shared: null, cluster_version: null,
+      }]);
+
+      const failure: unknown = await repo.getProxmoxStatsSince(new Date()).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe('Unrecognized proxmox_stats.entity_type value read from the database: "vm"');
+    });
   });
 
   describe('getProxmoxStatsHistory', () => {
