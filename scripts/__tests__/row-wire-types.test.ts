@@ -827,8 +827,10 @@ describe('site count floor', () => {
   const repoRoot = path.join(import.meta.dir, '..', '..');
 
   test('MIN_QUERY_SITES equals the typed query sites in src and server, so changing it is a visible edit', () => {
-    // Adding a query<Row> site raises this number and removing one lowers it. A lowered floor hides statements from the scan.
-    expect(collectSites([path.join(repoRoot, 'src'), path.join(repoRoot, 'server')], repoRoot)).toHaveLength(MIN_QUERY_SITES);
+    const found = collectSites([path.join(repoRoot, 'src'), path.join(repoRoot, 'server')], repoRoot).length;
+    if (found !== MIN_QUERY_SITES) {
+      throw new Error(`scripts/row-wire-types/floor.ts records MIN_QUERY_SITES = ${MIN_QUERY_SITES}, but src and server now hold ${found} typed query sites. Update MIN_QUERY_SITES to ${found} in the same change. Lowering it hides statements from the scan, so lower it only when statements were deleted.`);
+    }
   });
 
   test('no untyped query in src or server lets its rows leave the call', () => {

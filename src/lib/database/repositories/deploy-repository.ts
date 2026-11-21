@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { DeployAction, DeployChangeOutcome, DeployPostSuccess, DeployRecord, DeployRequest, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 import { DEPLOY_ACTION_VALUES, DEPLOY_POST_SUCCESS_VALUES, DEPLOY_STATUS_VALUES, DEPLOY_TRIGGER_VALUES } from '@/lib/deploy/types';
-import { parseNullableRowEnum, parseRowEnum, parseRowEnumOr } from '@/lib/database/repositories/row-enum';
+import { parseNullableRowEnum, parseRowEnum, readRowEnum } from '@/lib/database/repositories/row-enum';
 import { truncateDeployMessage } from '@/lib/stacks/deploy-outcome-toast';
 
 export interface QueuedDeploy {
@@ -404,11 +404,15 @@ export class DeployRepository {
   }
 }
 
-/** Runs after the UPDATE has committed, so a row it cannot read is logged and left out rather than losing the other rows' notifications. */
+/** Runs after the UPDATE has committed, so a row it cannot read is logged and left out rather than losing the other rows' notifications. Every dropped row is logged, since this is a recovery path. */
 function toStuckDeployRow(row: StuckDeployQueryRow): StuckDeployRow[] {
-  const action = parseRowEnumOr('deploy_history.action', row.action, DEPLOY_ACTION_VALUES, null);
-  const trigger = parseRowEnumOr('deploy_history.trigger', row.trigger, DEPLOY_TRIGGER_VALUES, null);
-  if (action === null || trigger === null) return [];
+  const action = readRowEnum(row.action, DEPLOY_ACTION_VALUES);
+  const trigger = readRowEnum(row.trigger, DEPLOY_TRIGGER_VALUES);
+  if (action === null || trigger === null) {
+    const [column, value] = action === null ? ['action', row.action] : ['trigger', row.trigger];
+    console.error(`[repositories] Left stuck deploy ${row.id} out of the recovery result, unrecognized deploy_history.${column} value ${JSON.stringify(value)}`);
+    return [];
+  }
   return [{ id: row.id, stack: row.stack, host: row.host, action, trigger }];
 }
 
