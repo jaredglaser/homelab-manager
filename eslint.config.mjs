@@ -246,7 +246,18 @@ const MODAL_ROOTS = {
 };
 
 const IN_FLIGHT_NAME =
-  /^(?:is)?(?:pending|loading|busy|saving|submitting|updating|removing|deleting|rotating|generating|creating|deploying|approving|rejecting)$/i;
+  /^(?:is)?(?:pending|loading|busy|saving|submitting|updating|removing|deleting|rotating|generating|creating|deploying|approving|rejecting|revoking|applying|restarting|syncing|provisioning|checking|mutating|stillPending)$/i;
+
+const IN_FLIGHT_SUFFIX = /(?:Pending|Saving)$/;
+
+const isInertBusyValue = (value) => {
+  if (value?.type !== 'JSXExpressionContainer') return false;
+  const { expression } = value;
+  return (
+    (expression.type === 'Literal' && (expression.value === false || expression.value === null)) ||
+    (expression.type === 'Identifier' && expression.name === 'undefined')
+  );
+};
 
 const jsxRootName = (name, rootNames, namespaces) => {
   if (name.type === 'JSXIdentifier') return rootNames.has(name.name) ? name : null;
@@ -269,6 +280,8 @@ const modalBusyRule = {
     },
     schema: [],
     messages: {
+      nestedModal:
+        'A Dialog, AlertDialog or Sheet inside another one opens two modals at once. Render the second one beside the first, and open one modal at a time.',
       missingBusy:
         'This modal references an in-flight flag (isPending, isLoading, isSaving and similar) but never sets busy, so Escape, a backdrop click or a button can still act mid-action. Pass busy={...} with that condition. This is a name-based heuristic: it does not see a spread, nor a footer rendered by a child component. If the flag is not an action in flight, disable this rule on the line with the reason.',
     },
@@ -279,7 +292,7 @@ const modalBusyRule = {
     const { visitorKeys } = context.sourceCode;
 
     const referencesInFlightFlag = (node) => {
-      if (node.type === 'Identifier' && IN_FLIGHT_NAME.test(node.name)) return true;
+      if (node.type === 'Identifier' && (IN_FLIGHT_NAME.test(node.name) || IN_FLIGHT_SUFFIX.test(node.name))) return true;
       if (jsxRootName(node.type === 'JSXElement' ? node.openingElement.name : { type: '' }, rootNames, namespaces)) return false;
       for (const key of visitorKeys[node.type] ?? []) {
         const child = node[key];
@@ -295,11 +308,7 @@ const modalBusyRule = {
           attribute.type === 'JSXSpreadAttribute' ||
           (attribute.name.type === 'JSXIdentifier' &&
             attribute.name.name === 'busy' &&
-            !(
-              attribute.value?.type === 'JSXExpressionContainer' &&
-              attribute.value.expression.type === 'Literal' &&
-              attribute.value.expression.value === false
-            )),
+            !isInertBusyValue(attribute.value)),
       );
 
     return {
@@ -313,7 +322,14 @@ const modalBusyRule = {
       },
       JSXElement(node) {
         const name = jsxRootName(node.openingElement.name, rootNames, namespaces);
-        if (!name || setsBusy(node.openingElement.attributes)) return;
+        if (!name) return;
+        for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
+          if (ancestor.type === 'JSXElement' && jsxRootName(ancestor.openingElement.name, rootNames, namespaces)) {
+            context.report({ node: name, messageId: 'nestedModal' });
+            break;
+          }
+        }
+        if (setsBusy(node.openingElement.attributes)) return;
         if (node.children.some(referencesInFlightFlag)) context.report({ node: name, messageId: 'missingBusy' });
       },
     };

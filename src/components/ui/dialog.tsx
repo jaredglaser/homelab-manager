@@ -1,15 +1,16 @@
 import type { ComponentProps } from 'react';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { cn } from '@/lib/utils/cn';
-import { guardOpenChange, ModalBusyProvider, useModalBusy, type ModalBusyProps } from '@/components/ui/modal-busy';
+import { ModalBusyScope, ModalRootProvider, useModalBusy, useModalPopup, useModalRoot, type ModalBusyProps } from '@/components/ui/modal-busy';
 
 type DialogProps = ComponentProps<typeof DialogPrimitive.Root> & ModalBusyProps;
 
 function Dialog({ busy = false, onOpenChange, ...props }: Readonly<DialogProps>) {
+  const root = useModalRoot({ kind: 'Dialog', busy, open: props.open, defaultOpen: props.defaultOpen, onOpenChange });
   return (
-    <ModalBusyProvider value={busy}>
-      <DialogPrimitive.Root data-slot="dialog" onOpenChange={guardOpenChange(busy, onOpenChange)} {...props} />
-    </ModalBusyProvider>
+    <ModalRootProvider value={root.value}>
+      <DialogPrimitive.Root data-slot="dialog" onOpenChange={root.onOpenChange} {...props} />
+    </ModalRootProvider>
   );
 }
 
@@ -26,7 +27,8 @@ function DialogClose({ disabled, ...props }: Readonly<ComponentProps<typeof Dial
  * paper background, 4px radius, high elevation shadow, 600px cap, 50% black
  * backdrop. Width can be overridden per dialog via className.
  */
-function DialogContent({ className, children, ...props }: ComponentProps<typeof DialogPrimitive.Popup>) {
+function DialogContent({ className, children, ref, ...props }: ComponentProps<typeof DialogPrimitive.Popup>) {
+  const popupRef = useModalPopup(ref);
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Backdrop
@@ -34,6 +36,7 @@ function DialogContent({ className, children, ...props }: ComponentProps<typeof 
         className="fixed inset-0 z-50 bg-black/50 transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0"
       />
       <DialogPrimitive.Popup
+        ref={popupRef}
         data-slot="dialog-content"
         className={cn(
           'bg-card text-card-foreground fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100%-64px)] w-[calc(100%-64px)] max-w-[600px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg shadow-xl outline-none transition-[opacity,transform] duration-150 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 data-[ending-style]:scale-95 data-[ending-style]:opacity-0',
@@ -41,7 +44,7 @@ function DialogContent({ className, children, ...props }: ComponentProps<typeof 
         )}
         {...props}
       >
-        {children}
+        <ModalBusyScope>{children}</ModalBusyScope>
       </DialogPrimitive.Popup>
     </DialogPrimitive.Portal>
   );
