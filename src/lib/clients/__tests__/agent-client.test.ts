@@ -60,6 +60,92 @@ describe('AgentClient', () => {
       })).rejects.toThrow(AgentClientError);
     });
 
+    it('reads the failure code out of a coded error body, and keeps its JSON out of the message', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Stack 'plex' not found", code: 'stack_not_found' }), { status: 404 })
+      );
+
+      let thrown: unknown;
+      try {
+        await client.deploy({
+          stack: 'plex',
+          composeContent: 'version: "3"',
+          envContent: '',
+          action: 'deploy',
+        });
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).code).toBe('stack_not_found');
+      expect((thrown as AgentClientError).message).toBe("Agent returned 404: Stack 'plex' not found");
+    });
+
+    it('appends the body detail to the message', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: 'Failed to list ZFS pools', code: 'zfs_pool_list_failed', detail: 'no such command' }),
+          { status: 500 }
+        )
+      );
+
+      let thrown: unknown;
+      try {
+        await client.deploy({
+          stack: 'plex',
+          composeContent: 'version: "3"',
+          envContent: '',
+          action: 'deploy',
+        });
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect((thrown as AgentClientError).message).toBe('Agent returned 500: Failed to list ZFS pools: no such command');
+      expect((thrown as AgentClientError).code).toBe('zfs_pool_list_failed');
+    });
+
+    it('keeps a code this manager does not know off the error, and the body text on it', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'Something new went wrong', code: 'invented_later' }), { status: 400 })
+      );
+
+      let thrown: unknown;
+      try {
+        await client.deploy({
+          stack: 'plex',
+          composeContent: 'version: "3"',
+          envContent: '',
+          action: 'deploy',
+        });
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect((thrown as AgentClientError).code).toBeUndefined();
+      expect((thrown as AgentClientError).message).toBe('Agent returned 400: Something new went wrong');
+    });
+
+    it('keeps a non-JSON error body verbatim', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('<html>Bad Gateway</html>', { status: 500 }));
+
+      let thrown: unknown;
+      try {
+        await client.deploy({
+          stack: 'plex',
+          composeContent: 'version: "3"',
+          envContent: '',
+          action: 'deploy',
+        });
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect((thrown as AgentClientError).message).toBe('Agent returned 500: <html>Bad Gateway</html>');
+      expect((thrown as AgentClientError).code).toBeUndefined();
+    });
+
     it('throws AgentClientError on invalid JSON response', async () => {
       fetchMock.mockResolvedValueOnce(
         new Response('<html>Bad Gateway</html>', {
