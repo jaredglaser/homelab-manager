@@ -43,8 +43,8 @@ export interface HostFailureCopy {
 }
 
 /**
- * The one place a host failure code becomes what the operator reads. The service's own message is the
- * diagnostic layer: it reaches the logs, and the codes whose copy already names the cause hide it.
+ * The one place a host failure code becomes what the operator reads. The service's own message carries
+ * the diagnosis, and the codes whose copy already names the cause hide it.
  */
 const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
   offline: {
@@ -59,7 +59,7 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
   },
   'awaiting-enrollment': {
     headline: 'The agent is serving plain HTTP because it holds no certificate yet.',
-    fix: 'Enroll a certificate for this host from its row in the Managed Hosts card, then check again.',
+    fix: 'Enroll a certificate for this host, then check again.',
     includeDetail: false,
   },
   health_check_failed: {
@@ -74,7 +74,7 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
   },
   keypair_unavailable: {
     headline: 'The manager has no keypair for this host, so it cannot sign the update request.',
-    fix: "Rotate the keypair from this host's keypair dialog, or remove and re-add the host.",
+    fix: "Rotate this host's keypair, or remove and re-add the host.",
     includeDetail: false,
   },
   token_signing_failed: {
@@ -94,7 +94,7 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
   },
   agent_reported_error: {
     headline: 'The agent refused the update.',
-    fix: 'Read the agent message below, correct the cause on the agent host, then retry.',
+    fix: 'Correct the cause on the agent host, then retry the update.',
     includeDetail: true,
   },
   update_interrupted: {

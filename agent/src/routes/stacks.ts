@@ -1,6 +1,7 @@
 import { Dirent, mkdirSync, existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve, relative } from 'node:path';
+import { routeErrorBody } from '../lib/error-body';
 import type {
   AgentStackComposeResponse,
   AgentStackInventoryEntry,
@@ -36,7 +37,7 @@ export function parseContainerNames(composeContent: string): string[] {
 function validateStackName(name: string): Response | null {
   if (!name || !VALID_STACK_NAME.test(name)) {
     return Response.json(
-      { error: 'Invalid stack name. Must start with alphanumeric and contain only alphanumeric, hyphens, and underscores.' },
+      routeErrorBody('invalid_stack_name'),
       { status: 400 }
     );
   }
@@ -46,7 +47,7 @@ function validateStackName(name: string): Response | null {
 function validateServiceName(name: string): Response | null {
   if (!name || !VALID_SERVICE_NAME.test(name)) {
     return Response.json(
-      { error: 'Invalid service name. Must start with alphanumeric and contain only alphanumeric, dots, hyphens, and underscores.' },
+      routeErrorBody('invalid_service_name'),
       { status: 400 }
     );
   }
@@ -78,15 +79,15 @@ async function parseStackControlBody(request: Request): Promise<StackControlBody
     body = await request.json();
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_json', { detail }), { status: 400 });
   }
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_request_body'), { status: 400 });
   }
   const b = body as Record<string, unknown>;
 
   if (typeof b.stack !== 'string' || !b.stack) {
-    return Response.json({ error: 'Missing required field: stack' }, { status: 400 });
+    return Response.json(routeErrorBody('missing_stack_field'), { status: 400 });
   }
   const nameError = validateStackName(b.stack);
   if (nameError) return nameError;
@@ -96,13 +97,13 @@ async function parseStackControlBody(request: Request): Promise<StackControlBody
   }
   if (b.scope === 'service') {
     if (typeof b.service !== 'string' || !b.service) {
-      return Response.json({ error: 'scope "service" requires a non-empty service field' }, { status: 400 });
+      return Response.json(routeErrorBody('missing_service_field'), { status: 400 });
     }
     const serviceError = validateServiceName(b.service);
     if (serviceError) return serviceError;
     return { stack: b.stack, scope: 'service', service: b.service };
   }
-  return Response.json({ error: 'scope must be "stack" or "service"' }, { status: 400 });
+  return Response.json(routeErrorBody('invalid_scope'), { status: 400 });
 }
 
 type SpawnFn = typeof Bun.spawn;
@@ -147,11 +148,11 @@ async function runComposeControl(
 ): Promise<Response> {
   const stackDir = join(stacksDir, parsed.stack);
   if (!isContainedInDir(stacksDir, stackDir)) {
-    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_stack_path'), { status: 400 });
   }
   const composePath = join(stackDir, 'docker-compose.yml');
   if (!existsSync(composePath)) {
-    return Response.json({ error: `Stack '${parsed.stack}' not found` }, { status: 404 });
+    return Response.json(routeErrorBody('stack_not_found', { stack: parsed.stack }), { status: 404 });
   }
 
   const cmdArgs = subcommand === 'start' ? ['up', '-d'] : [subcommand];
@@ -170,7 +171,7 @@ async function runComposeControl(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose ${subcommand} for ${parsed.stack}:`, error);
-    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
   }
 
   return composeResultToResponse(result, timeoutMs);
@@ -186,35 +187,35 @@ async function parseDeployBody(
   try {
     const parsed = await request.json();
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+      return Response.json(routeErrorBody('invalid_request_body'), { status: 400 });
     }
     body = parsed;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_json', { detail }), { status: 400 });
   }
 
   if (!body.stack || !body.composeContent) {
-    return Response.json({ error: 'Missing required fields: stack, composeContent' }, { status: 400 });
+    return Response.json(routeErrorBody('missing_deploy_fields'), { status: 400 });
   }
 
   if (typeof body.stack !== 'string' || typeof body.composeContent !== 'string') {
-    return Response.json({ error: 'Fields stack and composeContent must be strings' }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_deploy_fields'), { status: 400 });
   }
 
   if (body.envContent !== undefined && typeof body.envContent !== 'string') {
-    return Response.json({ error: 'Field envContent must be a string' }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_env_content'), { status: 400 });
   }
 
   if (body.forceRecreate !== undefined && typeof body.forceRecreate !== 'boolean') {
-    return Response.json({ error: 'forceRecreate must be a boolean' }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_force_recreate'), { status: 400 });
   }
 
   if (Buffer.byteLength(body.composeContent) > MAX_COMPOSE_SIZE_BYTES) {
-    return Response.json({ error: 'composeContent too large' }, { status: 413 });
+    return Response.json(routeErrorBody('compose_too_large'), { status: 413 });
   }
   if (body.envContent && Buffer.byteLength(body.envContent) > MAX_ENV_SIZE_BYTES) {
-    return Response.json({ error: 'envContent too large' }, { status: 413 });
+    return Response.json(routeErrorBody('env_too_large'), { status: 413 });
   }
 
   const nameError = validateStackName(body.stack);
@@ -302,7 +303,7 @@ export async function handleStackDeploy(
 
   const stackDir = join(stacksDir, parsed.stack);
   if (!isContainedInDir(stacksDir, stackDir)) {
-    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_stack_path'), { status: 400 });
   }
 
   try {
@@ -310,7 +311,7 @@ export async function handleStackDeploy(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to write stack files for ${parsed.stack}:`, error);
-    return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('stack_write_failed', { detail: msg }), { status: 500 });
   }
 
   const composePath = join(stackDir, 'docker-compose.yml');
@@ -378,7 +379,7 @@ export async function handleStackDeploy(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${parsed.stack}:`, error);
-    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
   }
 
   return composeResultToResponse(result, timeoutMs);
@@ -406,7 +407,7 @@ export async function handleStackUpdate(
 
   const stackDir = join(stacksDir, parsed.stack);
   if (!isContainedInDir(stacksDir, stackDir)) {
-    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_stack_path'), { status: 400 });
   }
 
   try {
@@ -414,7 +415,7 @@ export async function handleStackUpdate(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to write stack files for ${parsed.stack}:`, error);
-    return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('stack_write_failed', { detail: msg }), { status: 500 });
   }
 
   const composePath = join(stackDir, 'docker-compose.yml');
@@ -433,7 +434,7 @@ export async function handleStackUpdate(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose pull for ${parsed.stack}:`, error);
-    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
   }
 
   if (pullResult.timedOut || pullResult.exitCode !== 0) {
@@ -452,7 +453,7 @@ export async function handleStackUpdate(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${parsed.stack}:`, error);
-    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
   }
 
   const combined: SpawnResult = {
@@ -484,12 +485,12 @@ export async function handleStackTeardown(
     body = await request.json();
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_json', { detail }), { status: 400 });
   }
 
   if (!body.stack) {
     return Response.json(
-      { error: 'Missing required field: stack' },
+      routeErrorBody('missing_stack_field'),
       { status: 400 }
     );
   }
@@ -499,13 +500,13 @@ export async function handleStackTeardown(
 
   const stackDir = join(stacksDir, body.stack);
   if (!isContainedInDir(stacksDir, stackDir)) {
-    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+    return Response.json(routeErrorBody('invalid_stack_path'), { status: 400 });
   }
   const composePath = join(stackDir, 'docker-compose.yml');
 
   if (!existsSync(composePath)) {
     return Response.json(
-      { error: `Stack '${body.stack}' not found` },
+      routeErrorBody('stack_not_found', { stack: body.stack }),
       { status: 404 }
     );
   }
@@ -522,7 +523,7 @@ export async function handleStackTeardown(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${body.stack}:`, error);
-    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
   }
 
   return composeResultToResponse(result, timeoutMs);
@@ -645,7 +646,7 @@ export async function handleStackStatus(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Failed to read stacks directory '${stacksDir}':`, err);
-    return Response.json({ error: `Failed to read stacks directory: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('stacks_dir_unreadable', { detail: msg }), { status: 500 });
   }
 
   const stackDirs = entries.filter(
@@ -686,7 +687,7 @@ export async function handleStackInventory(stacksDir: string): Promise<Response>
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Failed to read stacks directory '${stacksDir}':`, err);
-    return Response.json({ error: `Failed to read stacks directory: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('stacks_dir_unreadable', { detail: msg }), { status: 500 });
   }
 
   const stacks: AgentStackInventoryEntry[] = [];
@@ -742,7 +743,7 @@ export async function handleGetStackCompose(request: Request, stacksDir: string)
 
   const composePath = getComposePath(stacksDir, stack);
   if (!existsSync(composePath)) {
-    return Response.json({ error: `Stack '${stack}' not found` }, { status: 404 });
+    return Response.json(routeErrorBody('stack_not_found', { stack }), { status: 404 });
   }
 
   let composeContent: string;
@@ -751,11 +752,11 @@ export async function handleGetStackCompose(request: Request, stacksDir: string)
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
-      return Response.json({ error: `Stack '${stack}' not found` }, { status: 404 });
+      return Response.json(routeErrorBody('stack_not_found', { stack }), { status: 404 });
     }
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Failed to read compose file for stack '${stack}':`, err);
-    return Response.json({ error: `Failed to read compose file: ${msg}` }, { status: 500 });
+    return Response.json(routeErrorBody('compose_read_failed', { detail: msg }), { status: 500 });
   }
   return Response.json({
     stack,

@@ -83,7 +83,7 @@ describe('container control error mapping and wrappers', () => {
       const docker = { getContainer: mock(() => ({ restart })) };
       const response = await handleContainerRestart(docker as never, 'ghost-container', {} as Request);
       expect(response.status).toBe(404);
-      expect(await response.json()).toEqual({ error: 'Container not found: ghost-container' });
+      expect(await response.json()).toEqual({ error: 'Container not found: ghost-container', code: 'container_not_found' });
     } finally {
       cleanup();
     }
@@ -96,7 +96,7 @@ describe('container control error mapping and wrappers', () => {
       const docker = { getContainer: mock(() => ({ restart })) };
       const response = await handleContainerRestart(docker as never, 'some-other-container', {} as Request);
       expect(response.status).toBe(409);
-      expect(await response.json()).toEqual({ error: 'container already restarting' });
+      expect(await response.json()).toEqual({ error: 'container already restarting', code: 'container_state_unchanged' });
     } finally {
       cleanup();
     }

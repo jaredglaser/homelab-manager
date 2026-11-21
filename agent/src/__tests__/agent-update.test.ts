@@ -61,10 +61,11 @@ describe('handleAgentUpdate', () => {
   test('returns 503 with actionable copy when Docker capability is not enabled', async () => {
     const response = await handleAgentUpdate(null, 'hlm-agent', 9090, updateRequest({ targetImage: TARGET }));
     expect(response.status).toBe(503);
-    const body = await response.json();
+    const body = (await response.json()) as { error: string; code: string };
     expect(body.error).toBe(
       'Agent updates require Docker capability, which this agent does not have. Update it manually: run `docker compose pull && docker compose up -d` in the agent stack directory.',
     );
+    expect(body.code).toBe('update_docker_unavailable');
   });
 
   test('returns 400 for a floating tag', async () => {
@@ -241,7 +242,8 @@ describe('handleAgentUpdate', () => {
       updateRequest({ targetImage: TARGET }),
     );
     expect(response.status).toBe(500);
-    const body = await response.json();
+    const body = (await response.json()) as { error: string; code: string };
     expect(body.error).toBe('Could not start the agent update: no space left on device');
+    expect(body.code).toBe('update_start_failed');
   });
 });
