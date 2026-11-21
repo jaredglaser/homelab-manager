@@ -10,10 +10,30 @@ export interface AttributeCatalog {
 // A view or continuous aggregate reports every column nullable, which says nothing about the rows it serves.
 const ORDINARY_TABLE_KINDS = new Set(['r', 'p']);
 
-export function outerJoinedTables(sql: string): { everything: boolean; tables: Set<string> } {
+export interface OuterJoins {
+  /** A join this script cannot attribute to one table (RIGHT or FULL, a subquery, LATERAL, a schema-qualified or quoted name), so no column can be trusted. */
+  everything: boolean;
+  /** The plain table names on the nullable side of a LEFT JOIN. */
+  tables: Set<string>;
+}
+
+export function outerJoinedTables(sql: string): OuterJoins {
   const tables = new Set<string>();
-  for (const match of sql.matchAll(/\bLEFT\s+(?:OUTER\s+)?JOIN\s+([a-z0-9_]+)/gi)) tables.add(match[1].toLowerCase());
-  return { everything: /\b(?:RIGHT|FULL)\s+(?:OUTER\s+)?JOIN\b/i.test(sql), tables };
+  let everything = false;
+  for (const match of sql.matchAll(/\b(LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?JOIN\s+(\(|[^\s(]+)/gi)) {
+    const side = match[1].toUpperCase();
+    const target = match[2];
+    if (side !== 'LEFT' || target === '(' || /^lateral$/i.test(target) || /[."]/.test(target)) {
+      everything = true;
+    } else {
+      tables.add(target.toLowerCase());
+    }
+  }
+  return { everything, tables };
+}
+
+function occurrences(sql: string, table: string): number {
+  return [...sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z0-9_"]+)/gi)].filter((match) => match[1].toLowerCase() === table).length;
 }
 
 export function selectNullability(column: { tableID: number; columnID: number }, sql: string, catalog: AttributeCatalog): Nullability {
@@ -21,7 +41,13 @@ export function selectNullability(column: { tableID: number; columnID: number },
   const relation = catalog.relation(column.tableID);
   if (!relation || !ORDINARY_TABLE_KINDS.has(relation.kind)) return '?';
   const outer = outerJoinedTables(sql);
-  if (outer.everything || outer.tables.has(relation.name)) return '?';
+  if (outer.everything) return '?';
+  // A joined name that is not a table (a CTE) hides which side the column came from.
+  if ([...outer.tables].some((table) => catalog.columnsOf(table).length === 0)) return '?';
+  if (outer.tables.has(relation.name)) {
+    // The same table on both sides of the join cannot be told apart by tableID.
+    return occurrences(sql, relation.name) > 1 ? '?' : true;
+  }
   const notNull = catalog.attributeNotNull(column.tableID, column.columnID);
   return notNull === undefined ? '?' : !notNull;
 }

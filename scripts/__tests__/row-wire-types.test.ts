@@ -13,6 +13,7 @@ import {
 } from '../row-wire-types/wire-types';
 import { collectSites, collectUntypedReads, scrapeFile, scrapeUntypedReads, type QuerySite } from '../row-wire-types/scrape';
 import { observe } from '../row-wire-types/observe';
+import { MIN_QUERY_SITES } from '../row-wire-types/floor';
 import { outerJoinedTables, returningNullability, selectNullability, type AttributeCatalog } from '../row-wire-types/nullability';
 import { checkSites, evaluate } from '../row-wire-types/check';
 import {
@@ -339,6 +340,14 @@ describe('applyAllowlist', () => {
     expect(stale).toEqual([]);
   });
 
+  test('with a row type filter only that type\'s entries can be stale', () => {
+    const entries = { ...entry, 'other.ts|Other.state': { reason, declared: 'string', wire: 'string' } };
+    expect(applyAllowlist([], entries, 'Row').stale).toEqual(['repo.ts|Row.state']);
+    expect(applyAllowlist([], entries, 'Other').stale).toEqual(['other.ts|Other.state']);
+    expect(applyAllowlist([], entries, 'Unrelated').stale).toEqual([]);
+    expect(applyAllowlist([], entries).stale).toEqual(['repo.ts|Row.state', 'other.ts|Other.state']);
+  });
+
   test('an entry that stops matching a finding is stale, so it cannot rot into an exemption', () => {
     expect(applyAllowlist([], entry).stale).toEqual(['repo.ts|Row.state']);
   });
@@ -525,6 +534,13 @@ describe('observe: one row type fed by several statements', () => {
     expect(observations.get(key)?.fields.get('host')?.nullable).toBe(false);
   });
 
+  test('a declared non-null type fails when the row type\'s statements disagree on nullability', () => {
+    const observed: ObservedField = { wire: new Set(['string']), nullable: 'mixed', seen: 2 };
+    const verdicts = (type: string) => compareField({ file: 'f.ts', line: 1, rowType: 'Row' }, { name: 'host', type, optional: false }, observed, true).map((finding) => finding.verdict);
+    expect(verdicts('string')).toEqual(['unsound']);
+    expect(verdicts('string | null')).toEqual([]);
+  });
+
   test('leaves nullability unknown when no statement can answer', () => {
     const observations = new Map<string, ObservedRowType>();
     observe(observations, site(), [{ name: 'host', wire: 'string', nullable: '?' }]);
@@ -558,15 +574,41 @@ describe('nullability from result metadata', () => {
     expect(selectNullability({ tableID: 30, columnID: 1 }, 'SELECT host FROM proxmox_stats_1m', catalog)).toBe('?');
   });
 
-  test('the right side of a LEFT JOIN is unknown while the left side keeps its answer', () => {
+  test('the right side of a LEFT JOIN is nullable even when the column is NOT NULL, while the left side keeps its answer', () => {
     const sql = 'SELECT me.value, h.id FROM entity_metadata me LEFT JOIN managed_hosts h ON h.name = me.entity';
     expect(selectNullability({ tableID: 20, columnID: 1 }, sql, catalog)).toBe(false);
+    expect(selectNullability({ tableID: 10, columnID: 1 }, sql, catalog)).toBe(true);
+  });
+
+  test('a table joined on both sides of the statement cannot be attributed, so it is unknown', () => {
+    const sql = 'SELECT a.value FROM entity_metadata a LEFT JOIN entity_metadata b ON b.entity = a.entity';
+    expect(selectNullability({ tableID: 20, columnID: 1 }, sql, catalog)).toBe('?');
+  });
+
+  test('a LEFT JOIN to a name that is not a table (a CTE) makes every column unknown', () => {
+    const sql = 'WITH x AS (SELECT 1 AS n) SELECT h.id FROM managed_hosts h LEFT JOIN x ON true';
     expect(selectNullability({ tableID: 10, columnID: 1 }, sql, catalog)).toBe('?');
   });
 
   test('a RIGHT or FULL join makes every column unknown', () => {
     expect(outerJoinedTables('SELECT 1 FROM a FULL OUTER JOIN b ON true').everything).toBe(true);
     expect(selectNullability({ tableID: 20, columnID: 1 }, 'SELECT me.value FROM entity_metadata me RIGHT JOIN managed_hosts h ON true', catalog)).toBe('?');
+  });
+
+  test.each([
+    ['a subquery', 'SELECT h.id FROM entity_metadata me LEFT JOIN (SELECT id FROM managed_hosts) h ON true'],
+    ['LATERAL', 'SELECT h.id FROM entity_metadata me LEFT JOIN LATERAL (SELECT id FROM managed_hosts) h ON true'],
+    ['a schema-qualified name', 'SELECT h.id FROM entity_metadata me LEFT JOIN public.managed_hosts h ON true'],
+    ['a quoted name', 'SELECT h.id FROM entity_metadata me LEFT JOIN "managed_hosts" h ON true'],
+    ['a lowercase outer keyword', 'select h.id from entity_metadata me left outer join (select 1) h on true'],
+  ])('a LEFT JOIN to %s is not trusted to a base column attnotnull', (_label, sql) => {
+    expect(outerJoinedTables(sql).everything).toBe(true);
+    expect(selectNullability({ tableID: 10, columnID: 1 }, sql, catalog)).toBe('?');
+    expect(selectNullability({ tableID: 20, columnID: 1 }, sql, catalog)).toBe('?');
+  });
+
+  test('a plain LEFT JOIN with an alias or an outer keyword is attributed to its table', () => {
+    expect(outerJoinedTables('SELECT 1 FROM a LEFT OUTER JOIN Managed_Hosts AS h ON true')).toEqual({ everything: false, tables: new Set(['managed_hosts']) });
   });
 
   test('only a bare column of the target table answers for a RETURNING item', () => {
@@ -593,6 +635,45 @@ describe('untyped reads', () => {
     expect(reads('async function f(pool) {\n  const { rows } = await pool.query(`SELECT 1`);\n  return rows;\n}')).toEqual([2]);
     expect(reads('async function f(pool) {\n  return (await pool.query(`SELECT 1`)).rows;\n}')).toEqual([2]);
     expect(reads('function f(pool) {\n  return pool.query(`SELECT 1`);\n}')).toEqual([2]);
+  });
+
+  test('flags every shape that lets the rows leave the call', () => {
+    const flagged = (body: string): number[] => reads(`async function f(pool, client) {\n${body}\n}`);
+    expect(flagged('  return await pool.query(`SELECT 1`);')).toEqual([2]);
+    expect(flagged('  const res = await pool.query(`SELECT 1`);\n  return res;')).toEqual([2]);
+    expect(flagged('  const res = await pool.query(`SELECT 1`);\n  const { rows } = res;\n  return rows;')).toEqual([2]);
+    expect(flagged('  const res = await pool.query(`SELECT 1`);\n  log(res.rows.length);')).toEqual([2]);
+    expect(flagged('  const [a, b] = await Promise.all([\n    pool.query(`SELECT 1`),\n    pool.query(`SELECT 2`),\n  ]);\n  return [a.rows, b.rows];')).toEqual([3, 4]);
+    expect(flagged('  const [{ rows }] = await Promise.all([pool.query(`SELECT 1`)]);\n  return rows;')).toEqual([2]);
+    expect(flagged('  const results = await Promise.all([pool.query(`SELECT 1`)]);\n  return results;')).toEqual([2]);
+    expect(flagged('  return pool.query(`SELECT 1`).then((r) => r.rows);')).toEqual([2]);
+    expect(flagged('  const rows = await pool.query(`SELECT 1`).catch(() => null);\n  return rows;')).toEqual([2]);
+    expect(flagged('  let res;\n  res = await pool.query(`SELECT 1`);\n  return res;')).toEqual([3]);
+    expect(flagged('  consume(await pool.query(`SELECT 1`));')).toEqual([2]);
+  });
+
+  test('flags an arrow function that returns the result implicitly', () => {
+    expect(reads('const run = (pool) => pool.query(`SELECT 1`);')).toEqual([1]);
+    expect(reads('const run = async (pool) => (await pool.query(`SELECT 1`)).rows;')).toEqual([1]);
+  });
+
+  test('leaves every discarded or rowless use of the result alone', () => {
+    const flagged = (body: string): number[] => reads(`async function f(pool, client) {\n${body}\n}`);
+    expect(flagged('  await client.query(`BEGIN`);')).toEqual([]);
+    expect(flagged('  await pool.query(`SELECT 1`).catch(() => undefined);')).toEqual([]);
+    expect(flagged('  void pool.query(`NOTIFY x`);')).toEqual([]);
+    expect(flagged('  await Promise.all([pool.query(`SELECT 1`), pool.query(`SELECT 2`)]);')).toEqual([]);
+    expect(flagged('  const res = await pool.query(`DELETE FROM t`);\n  log(res.rowCount, res.command);')).toEqual([]);
+    expect(flagged('  const { rowCount } = await pool.query(`DELETE FROM t`);\n  return rowCount;')).toEqual([]);
+    expect(flagged('  const [a, b] = await Promise.all([pool.query(`DELETE FROM t`), pool.query(`DELETE FROM u`)]);\n  return a.rowCount + b.rowCount;')).toEqual([]);
+  });
+
+  test('a reused variable name elsewhere in the function is not a read of the untyped result', () => {
+    const flagged = (body: string): number[] => reads(`async function f(pool, items) {\n${body}\n}`);
+    expect(flagged('  if (items) {\n    const res = await pool.query(`DELETE FROM t`);\n    log(res.rowCount);\n  }\n  const res = items.map((x) => x);\n  return res;')).toEqual([]);
+    expect(flagged('  const res = await pool.query(`DELETE FROM t`);\n  items.forEach((res) => log(res));\n  return res.rowCount;')).toEqual([]);
+    expect(flagged('  {\n    const res = await pool.query(`DELETE FROM t`);\n    log(res.rowCount);\n  }\n  {\n    const res = await other();\n    return res.rows;\n  }')).toEqual([]);
+    expect(flagged('  const res = await pool.query(`DELETE FROM t`);\n  return items.res;')).toEqual([]);
   });
 
   test('leaves a discarded result, a row count and a typed query alone', () => {
@@ -674,6 +755,30 @@ describe('checkSites and evaluate', () => {
     expect(evaluation.stale).toEqual(['repo.ts|Row.name']);
   });
 
+  test('evaluate with a row type filter does not call the other types\' allowlist entries stale', async () => {
+    const result = await checkSites([site()], { pool: selectPool, pgTypeByOid, catalog });
+    const evaluation = evaluate(result, scan, { 'other.ts|Other.name': { reason: 'r', declared: 'string', wire: 'string' } }, 'Row');
+    expect(evaluation.failed).toBe(false);
+    expect(evaluation.stale).toEqual([]);
+  });
+
+  test('a non-null declaration on a column from the nullable side of a LEFT JOIN fails', async () => {
+    const joined = [{ name: 'id', type: 'number', optional: false }, { name: 'name', type: 'string', optional: false }];
+    const leftJoin = site({ rowFields: joined, sql: 'SELECT a.id, b.name FROM t a LEFT JOIN u b ON true' });
+    const stub = poolStub(() => ({
+      fields: [{ name: 'id', dataTypeID: 23, tableID: 1, columnID: 1 }, { name: 'name', dataTypeID: 25, tableID: 2, columnID: 1 }],
+    })).pool;
+    const joinCatalog: AttributeCatalog = {
+      relation: (oid) => ({ name: oid === 1 ? 't' : 'u', kind: 'r' }),
+      attributeNotNull: () => true,
+      columnsOf: (table) => (table === 't' || table === 'u' ? ['id', 'name'] : []),
+      columnNotNull: () => true,
+    };
+    const result = await checkSites([leftJoin], { pool: stub, pgTypeByOid, catalog: joinCatalog });
+    const evaluation = evaluate(result, scan, {});
+    expect(evaluation.real.map((finding) => `${finding.field}:${finding.verdict}`)).toEqual(['name:unsound']);
+  });
+
   test('a scan below the recorded floor fails', async () => {
     const result = await checkSites([site()], { pool: selectPool, pgTypeByOid, catalog });
     const evaluation = evaluate(result, { ...scan, minSites: 5 }, {});
@@ -715,5 +820,18 @@ describe('checkSites and evaluate', () => {
   test('a nullable column declared without null is unsound only when the table proves it', async () => {
     const result = await checkSites([site({ rowFields: [{ name: 'id', type: 'number', optional: false }, { name: 'name', type: 'string', optional: false }] })], { pool: selectPool, pgTypeByOid, catalog });
     expect(evaluate(result, scan, {}).real.map((finding) => finding.field)).toEqual(['name']);
+  });
+});
+
+describe('site count floor', () => {
+  const repoRoot = path.join(import.meta.dir, '..', '..');
+
+  test('MIN_QUERY_SITES equals the typed query sites in src and server, so changing it is a visible edit', () => {
+    // Adding a query<Row> site raises this number and removing one lowers it. A lowered floor hides statements from the scan.
+    expect(collectSites([path.join(repoRoot, 'src'), path.join(repoRoot, 'server')], repoRoot)).toHaveLength(MIN_QUERY_SITES);
+  });
+
+  test('no untyped query in src or server lets its rows leave the call', () => {
+    expect(collectUntypedReads([path.join(repoRoot, 'src'), path.join(repoRoot, 'server')], repoRoot)).toEqual([]);
   });
 });

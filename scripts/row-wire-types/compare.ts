@@ -87,6 +87,9 @@ export function compareField(
   if (observed.nullable === true && !nullable) {
     findings.push({ ...base, verdict: 'unsound', detail: 'the column is nullable and the declared type has no null' });
   }
+  if (observed.nullable === 'mixed' && !nullable) {
+    findings.push({ ...base, verdict: 'unsound', detail: 'the row type\'s statements disagree on nullability (one returns NULL for this column), and the declared type has no null' });
+  }
   if (observed.nullable === false && nullable) {
     findings.push({ ...base, verdict: 'too-wide', detail: 'the column is NOT NULL' });
   }
@@ -145,6 +148,7 @@ export function allowlistKey(finding: Pick<Finding, 'file' | 'rowType' | 'field'
 export function applyAllowlist(
   findings: Finding[],
   allowlist: Record<string, AllowedNarrowing>,
+  onlyType?: string,
 ): { allowed: { finding: Finding; reason: string }[]; real: Finding[]; stale: string[] } {
   const allowed: { finding: Finding; reason: string }[] = [];
   const real: Finding[] = [];
@@ -159,5 +163,7 @@ export function applyAllowlist(
       real.push(finding);
     }
   }
-  return { allowed, real, stale: Object.keys(allowlist).filter((key) => !used.has(key)) };
+  // With --type, entries for other row types were never compared, so they are not stale.
+  const inScope = (key: string): boolean => !onlyType || key.slice(key.indexOf('|') + 1).startsWith(`${onlyType}.`);
+  return { allowed, real, stale: Object.keys(allowlist).filter((key) => inScope(key) && !used.has(key)) };
 }

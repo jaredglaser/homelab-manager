@@ -145,25 +145,95 @@ export interface UntypedRead {
   line: number;
 }
 
-function readsRows(call: ts.CallExpression): boolean {
-  let parent = call.parent;
-  while (ts.isAwaitExpression(parent) || ts.isParenthesizedExpression(parent)) parent = parent.parent;
-  if (ts.isPropertyAccessExpression(parent)) return parent.name.text === 'rows';
-  if (ts.isReturnStatement(parent)) return true;
-  if (!ts.isVariableDeclaration(parent)) return false;
-  if (ts.isObjectBindingPattern(parent.name)) {
-    return parent.name.elements.some((element) => (element.propertyName ?? element.name).getText() === 'rows');
+/** Properties of a pg result that carry no rows, so reading only them leaves the rows unchecked and harmless. */
+const ROWLESS_RESULT_PROPERTIES = new Set(['rowCount', 'command', 'fields', 'oid']);
+
+function unwrap(node: ts.Node): ts.Node {
+  let current = node;
+  for (;;) {
+    const parent = current.parent;
+    if (ts.isAwaitExpression(parent) || ts.isParenthesizedExpression(parent) || ts.isNonNullExpression(parent) || ts.isAsExpression(parent) || ts.isSatisfiesExpression(parent)) {
+      current = parent;
+    } else if (ts.isPropertyAccessExpression(parent) && parent.expression === current && /^(catch|finally)$/.test(parent.name.text) && ts.isCallExpression(parent.parent)) {
+      current = parent.parent;
+    } else {
+      return current;
+    }
   }
-  const variable = parent.name.getText();
-  let scope: ts.Node = parent;
-  while (scope.parent && !ts.isFunctionLike(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+}
+
+/** Whether a variable named by a declaration is referenced as anything but a rowless property, in the statements that follow it. */
+function variableCarriesRows(declaration: ts.VariableDeclaration, name: string): boolean {
+  const statement = declaration.parent.parent;
+  const container = statement.parent;
+  const siblings: readonly ts.Node[] = ts.isBlock(container) || ts.isSourceFile(container) || ts.isModuleBlock(container)
+    ? container.statements
+    : ts.isCaseClause(container) || ts.isDefaultClause(container)
+      ? container.statements
+      : [container];
+  const after = siblings.length === 1 && siblings[0] === container ? siblings : siblings.filter((sibling) => sibling.pos >= statement.end);
   let used = false;
+  const declaresName = (node: ts.Node): boolean => {
+    let found = false;
+    const find = (inner: ts.Node): void => {
+      if (ts.isVariableDeclaration(inner) && ts.isIdentifier(inner.name) && inner.name.text === name) found = true;
+      if (ts.isParameter(inner) && ts.isIdentifier(inner.name) && inner.name.text === name) found = true;
+      if (!ts.isFunctionLike(inner) || inner === node) ts.forEachChild(inner, find);
+    };
+    find(node);
+    return found;
+  };
   const search = (node: ts.Node): void => {
-    if (ts.isPropertyAccessExpression(node) && node.name.text === 'rows' && node.expression.getText() === variable) used = true;
+    if (used) return;
+    // A nested scope that declares its own variable of this name is a different variable.
+    if ((ts.isBlock(node) || ts.isFunctionLike(node) || ts.isCatchClause(node)) && declaresName(node)) return;
+    if (ts.isIdentifier(node) && node.text === name) {
+      const parent = node.parent;
+      const isMember = ts.isPropertyAccessExpression(parent) && parent.name === node;
+      const isKey = (ts.isPropertyAssignment(parent) && parent.name === node) || (ts.isBindingElement(parent) && parent.propertyName === node);
+      if (!isMember && !isKey) {
+        const rowless = ts.isPropertyAccessExpression(parent) && parent.expression === node && ROWLESS_RESULT_PROPERTIES.has(parent.name.text);
+        if (!rowless) used = true;
+      }
+    }
     ts.forEachChild(node, search);
   };
-  search(scope);
+  for (const sibling of after) search(sibling);
   return used;
+}
+
+function bindingCarriesRows(name: ts.BindingName, declaration: ts.VariableDeclaration, index?: number): boolean {
+  if (ts.isObjectBindingPattern(name)) {
+    return name.elements.some((element) => (element.propertyName ?? element.name).getText() === 'rows' || ts.isObjectBindingPattern(element.name) || ts.isArrayBindingPattern(element.name));
+  }
+  if (ts.isArrayBindingPattern(name)) {
+    const element = index === undefined ? undefined : name.elements[index];
+    if (index === undefined) return true;
+    if (!element || ts.isOmittedExpression(element)) return false;
+    return bindingCarriesRows(element.name, declaration);
+  }
+  return variableCarriesRows(declaration, name.text);
+}
+
+/** Whether the rows of an untyped query leave the call: returned, destructured, chained, awaited into a used variable, or passed on. */
+function readsRows(call: ts.CallExpression): boolean {
+  let node: ts.Node = unwrap(call);
+  let arrayIndex: number | undefined;
+  // Promise.all([a, b]) keeps each result at its position.
+  if (ts.isArrayLiteralExpression(node.parent) && ts.isCallExpression(node.parent.parent) && /^Promise\.(all|allSettled)$/.test(node.parent.parent.expression.getText())) {
+    arrayIndex = node.parent.elements.indexOf(node as ts.Expression);
+    node = unwrap(node.parent.parent);
+  } else if (ts.isArrayLiteralExpression(node.parent)) {
+    return true;
+  }
+  const parent = node.parent;
+  if (ts.isExpressionStatement(parent) || ts.isVoidExpression(parent)) return false;
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+    return !ROWLESS_RESULT_PROPERTIES.has(parent.name.text);
+  }
+  if (ts.isVariableDeclaration(parent) && parent.initializer === node) return bindingCarriesRows(parent.name, parent, arrayIndex);
+  // A return, an arrow's implicit return, an assignment, an argument, a spread or anything else keeps the result.
+  return true;
 }
 
 export function scrapeUntypedReads(file: string, baseDir: string): UntypedRead[] {
