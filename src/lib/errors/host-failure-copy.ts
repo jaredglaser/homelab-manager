@@ -105,9 +105,12 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
 };
 
 /** The sentence the operator reads. Never names a control: the surface owns which button it offers. */
-export function hostFailureMessage(code: HostFailureCode, detail?: string): string {
-  const copy = HOST_FAILURE_COPY[code];
+export function composeFailureMessage(copy: HostFailureCopy, detail?: string): string {
   const parts = [copy.headline, copy.fix];
   if (copy.includeDetail && detail) parts.push(detail);
   return parts.join(' ');
+}
+
+export function hostFailureMessage(code: HostFailureCode, detail?: string): string {
+  return composeFailureMessage(HOST_FAILURE_COPY[code], detail);
 }

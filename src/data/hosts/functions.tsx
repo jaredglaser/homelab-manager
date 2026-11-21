@@ -8,7 +8,7 @@ import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
   handleUpdateHost, handleCreatePendingHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair, handleRotateHostTls,
-  type HostOperationResult, type HostHandlerDeps,
+  type HostOperationResult, type UpdateAgentResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
 export type { HostListItem, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
@@ -254,7 +254,7 @@ export const rotateHostTls = createServerFn()
 export const updateAgent = createServerFn()
   .middleware([authMiddleware])
   .validator(updateAgentSchema)
-  .handler(async ({ data, context }): Promise<HostOperationResult> => {
+  .handler(async ({ data, context }): Promise<UpdateAgentResult> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
