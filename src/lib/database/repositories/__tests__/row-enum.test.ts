@@ -1,5 +1,5 @@
-import { describe, it, expect, spyOn } from 'bun:test';
-import { parseNullableRowEnum, parseRowEnum, parseRowEnumOr } from '../row-enum';
+import { describe, it, expect, spyOn, beforeEach } from 'bun:test';
+import { parseNullableRowEnum, parseRowEnum, parseRowEnumOr, resetDegradedRowEnums } from '../row-enum';
 
 const KNOWN = ['alpha', 'beta'] as const;
 
@@ -42,6 +42,8 @@ describe('parseNullableRowEnum', () => {
 });
 
 describe('parseRowEnumOr', () => {
+  beforeEach(() => resetDegradedRowEnums());
+
   it('returns the value when the union knows it, without logging', () => {
     const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
     expect(parseRowEnumOr('table.column', 'alpha', KNOWN, null)).toBe('alpha');
@@ -54,6 +56,31 @@ describe('parseRowEnumOr', () => {
     expect(parseRowEnumOr('table.column', 'gamma', KNOWN, 'fallback')).toBe('fallback');
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(String(errorSpy.mock.calls[0][0])).toContain('"gamma"');
+    errorSpy.mockRestore();
+  });
+
+  it('logs a value once per column, however many rows carry it', () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    for (let row = 0; row < 50; row += 1) parseRowEnumOr('table.column', 'gamma', KNOWN, null);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
+
+  it('logs again for a different value and for the same value in another column', () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    parseRowEnumOr('table.column', 'gamma', KNOWN, null);
+    parseRowEnumOr('table.column', 'delta', KNOWN, null);
+    parseRowEnumOr('other.column', 'gamma', KNOWN, null);
+    parseRowEnumOr('table.column', 7, KNOWN, null);
+    expect(errorSpy).toHaveBeenCalledTimes(4);
+    errorSpy.mockRestore();
+  });
+
+  it('stops remembering past a bound so varied garbage cannot grow the set without limit', () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    for (let n = 0; n < 500; n += 1) parseRowEnumOr('table.column', `value-${n}`, KNOWN, null);
+    expect(errorSpy.mock.calls.length).toBeLessThan(500);
+    expect(errorSpy.mock.calls.length).toBeGreaterThan(0);
     errorSpy.mockRestore();
   });
 });
