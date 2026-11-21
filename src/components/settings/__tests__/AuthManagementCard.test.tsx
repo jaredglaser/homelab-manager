@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { render, screen, waitFor, act, configure } from '@testing-library/react'
+import { render, screen, waitFor, act, configure, within } from '@testing-library/react'
 import { getConfig } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -358,8 +358,12 @@ describe('AuthManagementCard', () => {
       await user.type(screen.getByLabelText('Token label'), 'My token')
       await user.click(generateButton())
       await waitFor(() => expect((screen.getByLabelText('Token label') as HTMLInputElement).disabled).toBe(true))
-      expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true)
+      const cancelBtn = screen.getByRole('button', { name: 'Cancel' })
+      expect(cancelBtn.hasAttribute('disabled')).toBe(true)
       expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
+      const spinnerBtn = within(screen.getByRole('dialog')).getAllByRole('button').find((b) => b !== cancelBtn)!
+      expect(spinnerBtn.hasAttribute('disabled')).toBe(true)
+      await user.click(spinnerBtn)
       expect(gitFns().createGitToken).toHaveBeenCalledTimes(1)
     })
 
@@ -420,6 +424,20 @@ describe('AuthManagementCard', () => {
       await user.click(generateButton())
       await screen.findByText('test-token-abc123')
       expect(gitFns().listGitTokens).toHaveBeenCalledTimes(2)
+    })
+
+    it('revokes the chosen token by id and reloads the list', async () => {
+      const user = userEvent.setup({ delay: null })
+      gitFns().listGitTokens.mockImplementation(() =>
+        Promise.resolve([mockTokens[0], { ...mockTokens[0], id: 9, label: 'Backup key' }]),
+      )
+      renderCard()
+      await user.click((await screen.findAllByLabelText('Revoke token'))[1])
+      expect(screen.getByText('Revoke "Backup key"? Applications using it will lose access. This cannot be undone.')).toBeDefined()
+      await user.click(screen.getByRole('button', { name: 'Revoke' }))
+      await waitFor(() => expect(gitFns().revokeGitToken).toHaveBeenCalledTimes(1))
+      expect(gitFns().revokeGitToken).toHaveBeenCalledWith({ data: { tokenId: 9 } })
+      await waitFor(() => expect(gitFns().listGitTokens).toHaveBeenCalledTimes(2))
     })
 
     it('disables the revoke button of every token while a revocation is running', async () => {

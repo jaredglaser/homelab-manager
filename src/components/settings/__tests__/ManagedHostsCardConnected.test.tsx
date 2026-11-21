@@ -848,6 +848,30 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('shows the server message when creating the pending host fails', async () => {
+    const user = userEvent.setup({ delay: null })
+    createPendingHostResult = Promise.reject(new Error('Host name is already taken'))
+    createPendingHostResult.catch(() => null)
+    renderCard()
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(screen.getByText('Host name is already taken')).toBeDefined()
+    })
+  })
+
+  it('falls back to a plain message when creating the pending host fails without an Error', async () => {
+    const user = userEvent.setup({ delay: null })
+    createPendingHostResult = Promise.reject('boom')
+    createPendingHostResult.catch(() => null)
+    renderCard()
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => {
+      expect(screen.getByText('Failed to create the pending host')).toBeDefined()
+    })
+  })
+
   it('keeps the pending host when the name is unchanged after going back', async () => {
     const user = userEvent.setup({ delay: null })
     createPendingHostResult = Promise.resolve({
