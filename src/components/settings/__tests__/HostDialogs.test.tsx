@@ -66,6 +66,23 @@ describe('RemoveDialog', () => {
     expect(removeBtn?.hasAttribute('disabled')).toBe(true)
   })
 
+  it('calls onClose when Escape is pressed', async () => {
+    const user = userEvent.setup({ delay: null })
+    const onClose = mock(() => {})
+    render(<RemoveDialog {...defaultProps} onClose={onClose} />)
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not call onConfirm while isRemoving', async () => {
+    const user = userEvent.setup({ delay: null })
+    const onConfirm = mock(() => {})
+    render(<RemoveDialog {...defaultProps} isRemoving={true} onConfirm={onConfirm} />)
+    const cancelBtn = screen.getByRole('button', { name: 'Cancel' })
+    await user.click(screen.getAllByRole('button').find((b) => b !== cancelBtn)!)
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
   it('does not render when open is false', () => {
     render(<RemoveDialog {...defaultProps} open={false} />)
     expect(screen.queryByText('Remove Host')).toBeNull()
@@ -172,12 +189,45 @@ describe('EditDialog', () => {
     expect(cancelBtn.hasAttribute('disabled')).toBe(true)
   })
 
-  it('does not call onConfirm when host is null', () => {
+  it('does not call onConfirm when there is no host, even with a URL typed in', async () => {
+    const user = userEvent.setup({ delay: null })
     const onConfirm = mock(() => {})
     render(<EditDialog {...defaultProps} host={null} onConfirm={onConfirm} />)
-    // Fields will have empty values, Save is disabled, clicking it does nothing
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(true)
+    await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.1:9090')
     const saveBtn = screen.getByRole('button', { name: 'Save' })
+    expect(saveBtn.hasAttribute('disabled')).toBe(false)
+    await user.click(saveBtn)
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('does not call onConfirm when Save is clicked with a cleared URL', async () => {
+    const user = userEvent.setup({ delay: null })
+    const onConfirm = mock(() => {})
+    render(<EditDialog {...defaultProps} onConfirm={onConfirm} />)
+    await user.clear(screen.getByLabelText('Edit Agent URL'))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('disables the Save button and does not call onConfirm while isUpdating', async () => {
+    const user = userEvent.setup({ delay: null })
+    const onConfirm = mock(() => {})
+    render(<EditDialog {...defaultProps} isUpdating={true} onConfirm={onConfirm} />)
+    const cancelBtn = screen.getByRole('button', { name: 'Cancel' })
+    const saveBtn = screen.getAllByRole('button').find((b) => b !== cancelBtn)!
+    expect(saveBtn.textContent).not.toBe('Save')
     expect(saveBtn.hasAttribute('disabled')).toBe(true)
+    await user.click(saveBtn)
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('calls onClose when Escape is pressed', async () => {
+    const user = userEvent.setup({ delay: null })
+    const onClose = mock(() => {})
+    render(<EditDialog {...defaultProps} onClose={onClose} />)
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('does not render when open is false', () => {
