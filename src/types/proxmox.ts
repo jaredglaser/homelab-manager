@@ -159,11 +159,6 @@ export type GuestRow = {
   netout: number
 }
 
-/** The `proxmox_stats.entity_type` values, declared once for runtime use: the insert channel
- * validates with this schema and the repository reads the column back through
- * {@link isProxmoxEntityType}. {@link ProxmoxStatsRow} spells the same five values out because
- * check:row-types reads a declared type syntactically, so an alias there would hide them; a test
- * keeps the two in step. */
 export const zProxmoxEntityType = z.enum(['cluster', 'node', 'qemu', 'lxc', 'storage']);
 
 export type ProxmoxEntityType = z.infer<typeof zProxmoxEntityType>;
@@ -177,7 +172,7 @@ export interface ProxmoxStatsRow {
   /** Epoch ms, converted at the repository read path */
   time: number;
   host: string;
-  entity_type: 'cluster' | 'node' | 'qemu' | 'lxc' | 'storage';
+  entity_type: ProxmoxEntityType;
   node: string | null;
   entity_id: string;
   entity_name: string | null;

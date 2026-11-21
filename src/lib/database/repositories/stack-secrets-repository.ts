@@ -10,12 +10,10 @@ export class SecretDecryptionError extends Error {
   }
 }
 
-/** The `ciphertext_jwe` column, the only one the single-value read selects. */
 interface CiphertextRow {
   ciphertext_jwe: string;
 }
 
-/** The name/ciphertext pair the bulk read selects. */
 interface SecretVariableRow {
   variable_name: string;
   ciphertext_jwe: string;

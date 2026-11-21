@@ -48,7 +48,6 @@ interface ImageUpdateCheckQueryRow {
   checked_at: Date;
 }
 
-/** The boolean `due` projection isRefreshDue selects. */
 interface DueRow {
   due: boolean;
 }

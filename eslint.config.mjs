@@ -186,6 +186,52 @@ const endpointAuthRule = {
   },
 };
 
+function objectLiteralKey(property) {
+  if (property.type !== 'Property' || property.computed) return null;
+  if (property.key.type === 'Identifier') return property.key.name;
+  if (property.key.type === 'Literal') return String(property.key.value);
+  return null;
+}
+
+function unwrapExpression(node) {
+  let current = node;
+  while (
+    current
+    && (current.type === 'TSSatisfiesExpression'
+      || current.type === 'TSAsExpression'
+      || current.type === 'TSNonNullExpression')
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+const agentErrorCodeRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'Response.json error bodies in agent route modules must carry a code from AGENT_ROUTE_FAILURE_CODES beside the human message.',
+    },
+    schema: [],
+    messages: {
+      missingCode:
+        'This error body sends prose only. Wrap it in routeErrorBody(code, message) from agent/src/lib/error-body.ts, with a code from AGENT_ROUTE_FAILURE_CODES in agent/src/types.ts, so the manager branches on the reason instead of matching the message.',
+    },
+  },
+  create(context) {
+    return {
+      "CallExpression[callee.object.name='Response'][callee.property.name='json']"(node) {
+        const body = unwrapExpression(node.arguments[0]);
+        if (!body || body.type !== 'ObjectExpression') return;
+        const keys = body.properties.map(objectLiteralKey);
+        if (!keys.includes('error') || keys.includes('code')) return;
+        context.report({ node: body, messageId: 'missingCode' });
+      },
+    };
+  },
+};
+
 const MESSAGE_MATCH_METHODS = ['includes', 'startsWith', 'endsWith', 'match', 'search', 'indexOf', 'test'];
 
 const isMessageMember = (node) =>
@@ -453,7 +499,8 @@ export default tseslint.config(
   },
   { files: ['src/lib/test/wait-for-condition.ts'], rules: { 'no-restricted-syntax': 'off' } },
 
-  // ESLint 10 rejects redefining a plugin name for the same file.
+  // ESLint 10 rejects redefining a plugin name for the same file, so every
+  // local/ rule is registered in this one block; the rule blocks below only bind them.
   {
     files: ['src/**/*.{ts,tsx}', 'server/**/*.ts', 'agent/src/**/*.ts'],
     plugins: {
@@ -461,6 +508,7 @@ export default tseslint.config(
         rules: {
           'endpoint-auth': endpointAuthRule,
           'no-error-message-matching': noErrorMessageMatchingRule,
+          'agent-error-code': agentErrorCodeRule,
           'no-overwide-union': noOverwideUnionRule,
         },
       },
@@ -577,6 +625,13 @@ export default tseslint.config(
     files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     ignores: ['**/__tests__/**', 'src/worker/**'],
     rules: { '@typescript-eslint/no-duplicate-type-constituents': 'error' },
+  },
+
+  // Binds local/agent-error-code for agent route modules; the rule itself is
+  // registered once in the shared local plugin block above.
+  {
+    files: ['agent/src/routes/**/*.ts'],
+    rules: { 'local/agent-error-code': 'error' },
   },
 
   // Must stay last so it wins over the rule blocks above. No tsconfig reaches these files:

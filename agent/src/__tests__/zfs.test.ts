@@ -43,9 +43,10 @@ describe('handleZfsStatsStream', () => {
   test('returns 503 body with error message', async () => {
     const request = new Request('http://localhost/zfs/stats/stream');
     const response = handleZfsStatsStream(request, zfsUnavailable);
-    const body = await response.json();
+    const body = (await response.json()) as { error: string; code: string };
 
     expect(body.error).toBe('ZFS is not available on this host');
+    expect(body.code).toBe('zfs_unavailable');
   });
 
   test('returns SSE response with correct headers when available', () => {
@@ -351,8 +352,9 @@ describe('handleZfsPools', () => {
     const response = await handleZfsPools(zfsUnavailable);
 
     expect(response.status).toBe(503);
-    const body = await response.json();
+    const body = (await response.json()) as { error: string; code: string };
     expect(body.error).toBe('ZFS is not available on this host');
+    expect(body.code).toBe('zfs_unavailable');
   });
 
   test('returns parsed pool data from zpool list -Hp output', async () => {
@@ -417,8 +419,9 @@ describe('handleZfsPools', () => {
     const response = await handleZfsPools(zfsAvailable);
 
     expect(response.status).toBe(500);
-    const body = await response.json();
+    const body = (await response.json()) as { error: string; code: string; detail: string };
     expect(body.error).toBe('Failed to list ZFS pools');
+    expect(body.code).toBe('zfs_pool_list_failed');
     expect(body.detail).toBe('no such command');
   });
 
@@ -430,8 +433,9 @@ describe('handleZfsPools', () => {
     const response = await handleZfsPools(zfsAvailable);
 
     expect(response.status).toBe(500);
-    const body = await response.json();
+    const body = (await response.json()) as { error: string; code: string; detail: string };
     expect(body.error).toBe('Failed to list ZFS pools');
+    expect(body.code).toBe('zfs_pool_list_failed');
     expect(body.detail).toBe('spawn failed');
   });
 });

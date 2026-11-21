@@ -83,10 +83,15 @@ async function main(): Promise<number> {
 
     const sites = collectSites(DATABASE_DIR, REPO_ROOT);
     const problems: string[] = [];
+    if (sites.length === 0) problems.push(`no query<Row> site found under ${path.relative(REPO_ROOT, DATABASE_DIR)}, so nothing was checked`);
     const observations = new Map<string, ObservedRowType>();
     let probed = 0;
 
     for (const site of sites) {
+      if (site.sql === null) {
+        problems.push(`${site.file}:${site.line} [${site.rowType}] cannot be probed: the statement is not a string, template or constant concatenation this script can read.`);
+        continue;
+      }
       const resolved = resolveDynamicSql(site.sql);
       const unresolved = /<DYN:(?!tier\.relation)[^>]+>/.exec(resolved);
       if (unresolved) {
@@ -94,7 +99,10 @@ async function main(): Promise<number> {
         continue;
       }
       const isSelect = isSelectStatement(resolved);
-      if (!isSelect && !isReturningDmlStatement(resolved)) continue;
+      if (!isSelect && !isReturningDmlStatement(resolved)) {
+        problems.push(`${site.file}:${site.line} [${site.rowType}] cannot be probed: only SELECT, WITH and INSERT/UPDATE/DELETE ... RETURNING statements are described.`);
+        continue;
+      }
 
       const projection = new Map<string, boolean>();
       let probeFailed = false;

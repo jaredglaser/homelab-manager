@@ -32,7 +32,6 @@ interface SessionQueryRow {
   created_at: Date;
 }
 
-/** The sessions row plus the joined users columns findById selects. */
 interface SessionWithUserQueryRow extends SessionQueryRow {
   u_id: number;
   email: string;
@@ -40,7 +39,6 @@ interface SessionWithUserQueryRow extends SessionQueryRow {
   role: string;
 }
 
-/** The sessions row plus the joined users columns findAllWithUser selects. */
 interface SessionListQueryRow extends SessionQueryRow {
   user_name: string | null;
   user_email: string;

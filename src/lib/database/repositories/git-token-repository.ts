@@ -40,13 +40,11 @@ interface GitTokenQueryRow {
   created_at: Date;
 }
 
-/** The git_tokens row plus the joined users columns. */
 interface GitTokenWithUserQueryRow extends GitTokenQueryRow {
   user_name: string | null;
   user_email: string;
 }
 
-/** The id/user_id pair the token-hash lookup selects. */
 interface GitTokenHashQueryRow {
   id: number;
   user_id: number;
@@ -124,8 +122,8 @@ export class GitTokenRepository {
       `SELECT id, user_id, encrypted_token FROM git_tokens WHERE token_hash IS NULL`
     );
     return result.rows.map(row => ({
-      id: Number(row.id),
-      userId: Number(row.user_id),
+      id: row.id,
+      userId: row.user_id,
       encryptedToken: row.encrypted_token,
     }));
   }
