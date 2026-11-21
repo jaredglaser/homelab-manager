@@ -23,7 +23,7 @@ if (!API_KEY) {
 const api = `${POCKET_ID_URL}/api`;
 const headers = { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' };
 
-async function req(method: string, path: string, body?: unknown): Promise<any> {
+async function req<T = null>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${api}${path}`, {
     method,
     headers,
@@ -33,13 +33,19 @@ async function req(method: string, path: string, body?: unknown): Promise<any> {
     throw new Error(`${method} ${path} -> HTTP ${res.status}: ${await res.text()}`);
   }
   const text = await res.text();
-  return text ? JSON.parse(text) : null;
+  return (text ? JSON.parse(text) : null) as T;
 }
 
-function rows(resp: any): any[] {
-  if (Array.isArray(resp)) return resp;
-  if (Array.isArray(resp?.data)) return resp.data;
-  return [];
+interface Named {
+  id: string;
+  name?: string;
+  username?: string;
+}
+
+type Listing = Named[] | { data?: Named[] } | null;
+
+function rows(resp: Listing): Named[] {
+  return Array.isArray(resp) ? resp : (resp?.data ?? []);
 }
 
 async function waitForHealth(timeoutMs = 60_000): Promise<void> {
@@ -57,18 +63,18 @@ async function waitForHealth(timeoutMs = 60_000): Promise<void> {
 }
 
 async function ensureGroup(name: string, friendlyName: string): Promise<string> {
-  const found = rows(await req('GET', `/user-groups?search=${name}`)).find((g) => g.name === name);
+  const found = rows(await req<Listing>('GET', `/user-groups?search=${name}`)).find((g) => g.name === name);
   if (found) return found.id;
-  return (await req('POST', '/user-groups', { name, friendlyName })).id;
+  return (await req<Named>('POST', '/user-groups', { name, friendlyName })).id;
 }
 
 async function ensureUser(username: string, groupId: string): Promise<string> {
-  const found = rows(await req('GET', `/users?search=${username}`)).find(
+  const found = rows(await req<Listing>('GET', `/users?search=${username}`)).find(
     (u) => u.username === username,
   );
   if (found) return found.id;
   return (
-    await req('POST', '/users', {
+    await req<Named>('POST', '/users', {
       username,
       firstName: 'E2E',
       lastName: 'Admin',
@@ -86,13 +92,13 @@ async function ensureClient(): Promise<string> {
     logoutCallbackURLs: LOGOUT_URLS,
     isPublic: false,
   };
-  const exists = rows(await req('GET', '/oidc/clients')).some((c) => c.id === CLIENT_ID);
+  const exists = rows(await req<Listing>('GET', '/oidc/clients')).some((c) => c.id === CLIENT_ID);
   if (exists) {
     await req('PUT', `/oidc/clients/${CLIENT_ID}`, payload);
   } else {
     await req('POST', '/oidc/clients', { id: CLIENT_ID, ...payload });
   }
-  return (await req('POST', `/oidc/clients/${CLIENT_ID}/secrets`, {})).secret;
+  return (await req<{ secret: string }>('POST', `/oidc/clients/${CLIENT_ID}/secrets`, {})).secret;
 }
 
 await waitForHealth();

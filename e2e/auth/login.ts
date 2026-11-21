@@ -22,7 +22,7 @@ export const SESSION_TTL_SECONDS = Number(process.env.SESSION_TTL_HOURS ?? '8') 
 const TTL_TOLERANCE_SECONDS = 300;
 
 export function readOidc(): OidcInfo {
-  return JSON.parse(readFileSync(path.resolve('e2e-build/auth/oidc.json'), 'utf8'));
+  return JSON.parse(readFileSync(path.resolve('e2e-build/auth/oidc.json'), 'utf8')) as OidcInfo;
 }
 
 function apiKey(): string {
@@ -38,7 +38,7 @@ async function mintOneTimeToken(oidc: OidcInfo): Promise<string> {
     body: JSON.stringify({ ttl: '1h' }),
   });
   if (!res.ok) throw new Error(`mint one-time token failed: HTTP ${res.status} ${await res.text()}`);
-  return (await res.json()).token;
+  return ((await res.json()) as { token: string }).token;
 }
 
 export function parseSetCookie(header: string): ParsedSetCookie {
