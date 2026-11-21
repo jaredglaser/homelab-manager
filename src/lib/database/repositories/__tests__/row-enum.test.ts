@@ -1,5 +1,5 @@
 import { describe, it, expect, spyOn, beforeEach } from 'bun:test';
-import { parseNullableRowEnum, parseRowEnum, parseRowEnumOr, resetDegradedRowEnums } from '../row-enum';
+import { parseNullableRowEnum, parseRowEnum, parseRowEnumOr, readRowEnum, resetDegradedRowEnums, MAX_REMEMBERED_DEGRADES } from '../row-enum';
 
 const KNOWN = ['alpha', 'beta'] as const;
 
@@ -76,11 +76,32 @@ describe('parseRowEnumOr', () => {
     errorSpy.mockRestore();
   });
 
-  it('stops remembering past a bound so varied garbage cannot grow the set without limit', () => {
+  it('stops remembering at the bound and says so once, so varied garbage cannot grow the set', () => {
     const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(MAX_REMEMBERED_DEGRADES).toBe(200);
     for (let n = 0; n < 500; n += 1) parseRowEnumOr('table.column', `value-${n}`, KNOWN, null);
-    expect(errorSpy.mock.calls.length).toBeLessThan(500);
-    expect(errorSpy.mock.calls.length).toBeGreaterThan(0);
+    expect(errorSpy).toHaveBeenCalledTimes(MAX_REMEMBERED_DEGRADES + 1);
+    expect(String(errorSpy.mock.calls[MAX_REMEMBERED_DEGRADES][0])).toContain('further unknown values are not logged');
+    errorSpy.mockRestore();
+  });
+
+  it('logs the saturation line again after a reset', () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    for (let n = 0; n < 300; n += 1) parseRowEnumOr('table.column', `value-${n}`, KNOWN, null);
+    resetDegradedRowEnums();
+    for (let n = 0; n < 300; n += 1) parseRowEnumOr('table.column', `value-${n}`, KNOWN, null);
+    expect(errorSpy).toHaveBeenCalledTimes(2 * (MAX_REMEMBERED_DEGRADES + 1));
+    errorSpy.mockRestore();
+  });
+});
+
+describe('readRowEnum', () => {
+  it('returns a known value and null for anything else, without logging', () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(readRowEnum('beta', KNOWN)).toBe('beta');
+    expect(readRowEnum('gamma', KNOWN)).toBeNull();
+    expect(readRowEnum(7, KNOWN)).toBeNull();
+    expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });
 });

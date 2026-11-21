@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { DeployRepository } from '../deploy-repository';
+import { resetDegradedRowEnums } from '../row-enum';
 import { createMockPool } from '@/lib/test/mock-pool';
 import type { DeployRequest } from '@/lib/deploy/types';
 
@@ -8,6 +9,7 @@ describe('DeployRepository', () => {
   let mock: ReturnType<typeof createMockPool>;
 
   beforeEach(() => {
+    resetDegradedRowEnums();
     mock = createMockPool();
     repo = new DeployRepository(mock.pool);
   });
@@ -700,7 +702,28 @@ describe('DeployRepository', () => {
       const rows = await repo.recoverStuckDeploys('crashed');
 
       expect(rows.map((row) => row.id)).toEqual([7, 9]);
-      expect(String(errorSpy.mock.calls[0][0])).toContain('deploy_history.action');
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(String(errorSpy.mock.calls[0][0])).toContain('stuck deploy 8');
+      expect(String(errorSpy.mock.calls[0][0])).toContain('deploy_history.action value "restart"');
+      errorSpy.mockRestore();
+    });
+
+    it('logs every dropped stuck deploy, not just the first one with a given bad value', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([
+        { id: 8, stack: 'a', host: 'h', action: 'restart', trigger: 'ui' },
+        { id: 9, stack: 'b', host: 'h', action: 'restart', trigger: 'ui' },
+        { id: 10, stack: 'c', host: 'h', action: 'deploy', trigger: 'webhook' },
+      ]);
+
+      const rows = await repo.recoverStuckDeploys('crashed');
+
+      expect(rows).toEqual([]);
+      expect(errorSpy.mock.calls.map((call) => String(call[0]))).toEqual([
+        expect.stringContaining('stuck deploy 8'),
+        expect.stringContaining('stuck deploy 9'),
+        expect.stringContaining('deploy_history.trigger value "webhook"'),
+      ]);
       errorSpy.mockRestore();
     });
 
