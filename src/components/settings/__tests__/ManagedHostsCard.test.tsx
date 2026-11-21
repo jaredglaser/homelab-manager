@@ -377,7 +377,7 @@ describe('ManagedHostsCard', () => {
 
     it('Verify Connection button is disabled while isProvisioning', async () => {
       const user = userEvent.setup()
-      render(<ManagedHostsCardView {...makeProps({ isProvisioning: true })} />)
+      const { rerender } = render(<ManagedHostsCardView {...makeProps()} />)
       await enterHostName(user)
       // Navigate to verify step: capabilities -> compose -> configuration -> verify
       // The Next button is not disabled by isProvisioning, only Back and Verify are
@@ -385,6 +385,7 @@ describe('ManagedHostsCard', () => {
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.type(screen.getByLabelText('Agent host or IP'), 'localhost')
+      rerender(<ManagedHostsCardView {...makeProps({ isProvisioning: true })} />)
       const btn = screen.getByRole('button', { name: /Verifying/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
