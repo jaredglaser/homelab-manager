@@ -540,7 +540,7 @@ describe('ManagedHostsCard host actions', () => {
     makeHost({ id: 2, name: 'server2', agentUrl: 'http://192.168.1.11:9090' }),
   ]
   const confirmDialog = () => screen.getByRole('dialog')
-  const dialogGone = () => waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  const dialogGone = () => waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
 
   describe('per-row buttons act on their own host', () => {
     it('checks the health of the second host', async () => {
@@ -565,7 +565,7 @@ describe('ManagedHostsCard host actions', () => {
       const user = setupUser()
       const onViewKeypair = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ hosts, onViewKeypair, keypairJwkJson: '{"kty":"OKP","x":"abc"}', keypairFingerprint: 'AB:CD:EF' })} />)
-      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.queryAllByRole('dialog').length).toBe(0)
       await user.click(screen.getAllByLabelText('agent keypair')[1])
       expect(within(confirmDialog()).getByText('Agent Keypair')).toBeDefined()
       expect(within(confirmDialog()).getByText('server2')).toBeDefined()

@@ -383,7 +383,7 @@ describe('AuthManagementCard', () => {
       await screen.findByText('test-token-abc123')
 
       await user.click(screen.getByRole('button', { name: 'Done' }))
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
       expect(screen.queryByText('test-token-abc123')).toBeNull()
 
       await user.click(screen.getByText('Generate Token'))
@@ -400,7 +400,7 @@ describe('AuthManagementCard', () => {
       await screen.findByText('test-token-abc123')
 
       await user.keyboard('{Escape}')
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
       await user.click(screen.getByText('Generate Token'))
       expect(screen.queryByText('test-token-abc123')).toBeNull()
       expect(screen.getByLabelText('Token label')).toBeDefined()
@@ -411,7 +411,7 @@ describe('AuthManagementCard', () => {
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'draft label')
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
       await user.click(screen.getByText('Generate Token'))
       expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
     })
@@ -626,7 +626,7 @@ describe('AuthManagementCard', () => {
         act(() => { flushTimers() })
         act(() => { flushTimers() })
 
-        expect(screen.queryByRole('dialog')).toBeNull()
+        expect(screen.queryAllByRole('dialog').length).toBe(0)
         await act(async () => {
           await user.click(screen.getByText('Generate Token'))
         })

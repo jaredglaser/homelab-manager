@@ -341,7 +341,7 @@ describe('ManagedHostsCardConnected row actions', () => {
         expect(toasts).toEqual([{ message: 'Host removed', severity: 'success' }])
       })
       expect(removeHostData).toEqual([{ hostId: 1 }])
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
     })
 
     it('shows the server message when the removal fails', async () => {
@@ -615,7 +615,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
     })
     expect(screen.getByTestId('step-compose')).toBeDefined()
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryAllByRole('alert').length).toBe(0)
   })
 
   it('treats a discard whose pending row was already removed elsewhere as a silent success', async () => {
@@ -651,7 +651,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
     })
     expect(screen.getByTestId('step-compose')).toBeDefined()
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryAllByRole('alert').length).toBe(0)
   })
 
   it('restores the original pending host when the rename stale removal fails', async () => {
@@ -795,7 +795,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       severity: 'warning',
     })
     expect(rotateTlsCalls.map((c) => c.data.acceptPlaintextEnrollment)).toEqual([false, true])
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryAllByRole('alert').length).toBe(0)
 
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => expect(rotateTlsCalls).toHaveLength(3))
@@ -816,7 +816,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
 
     await user.click(screen.getByTestId('cancel-provisioning'))
     await waitFor(() => expect(screen.queryByTestId('cancel-provisioning')).toBeNull())
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryAllByRole('alert').length).toBe(0)
   })
 
   it('shows the error message when provisioning throws', async () => {
@@ -845,7 +845,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     rejectRotate(new Error('late throw after cancel'))
     await act(async () => {})
     expect(screen.queryByText('late throw after cancel')).toBeNull()
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryAllByRole('alert').length).toBe(0)
   })
 
   it('shows the server message when creating the pending host fails', async () => {
