@@ -75,7 +75,13 @@ export async function expectSignedOut(
   const response = await answered;
 
   const anonymous = await request.newContext({ ignoreHTTPSErrors: true });
-  const baseline = await anonymous.get(response.url(), { headers: { 'x-tsr-serverfn': 'true' } });
+  const baseline = await anonymous.get(response.url(), {
+    headers: {
+      'x-tsr-serverfn': 'true',
+      'sec-fetch-site': 'same-origin',
+      origin: new URL(response.url()).origin,
+    },
+  });
   expect(baseline.status(), 'the anonymous baseline should answer').toBe(200);
   const baselineBody = await baseline.text();
   await anonymous.dispose();
