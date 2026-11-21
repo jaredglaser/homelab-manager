@@ -88,6 +88,7 @@ export interface RawPortCandidate {
   containerPort: number;
   protocol: string | undefined;
   hostIp: string | null | undefined;
+  // eslint-disable-next-line local/no-overwide-union -- the list and inspect API shapes differ: one sends the port as text, the other as a number
   hostPort: string | number | null | undefined;
 }
 
