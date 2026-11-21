@@ -462,7 +462,7 @@ export default tseslint.config(
   { files: ['src/lib/test/wait-for-condition.ts'], rules: { 'no-restricted-syntax': 'off' } },
 
   // ESLint 10 rejects redefining a plugin name for the same file, so every
-  // local/ rule is registered in this one block. The rule blocks below only bind them.
+  // local/ rule is registered in this one block; the rule blocks below only bind them.
   {
     files: ['src/**/*.{ts,tsx}', 'server/**/*.ts', 'agent/src/**/*.ts'],
     plugins: {
@@ -582,7 +582,7 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-duplicate-type-constituents': 'error' },
   },
 
-  // Binds local/agent-error-code for agent route modules. The rule itself is
+  // Binds local/agent-error-code for agent route modules; the rule itself is
   // registered once in the shared local plugin block above.
   {
     files: ['agent/src/routes/**/*.ts'],

@@ -1,36 +1,30 @@
 import {
-  AGENT_ROUTE_FAILURE_CODES,
+  isAgentUpdateFailureCode,
   type AgentRouteFailureCode,
+  type AgentUpdateFailureCode,
 } from '@homelab-manager/agent/types';
+import {
+  composeFailureMessage,
+  hostFailureMessage,
+  type HostFailureCode,
+  type HostFailureCopy,
+} from '@/lib/errors/host-failure-copy';
 
-export interface AgentRouteFailureCopy {
-  /** What went wrong, in the operator's terms. */
-  headline: string;
-  /** The next action, named concretely. */
-  fix: string;
-  /** True when the underlying detail carries the diagnosis, so it is worth showing. */
-  includeDetail: boolean;
-}
-
-/**
- * The one place an agent route failure code becomes what the operator reads. The agent's own sentence
- * carries the diagnosis, and the codes whose copy already names the cause hide it.
- */
-const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureCopy> = {
+const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, HostFailureCopy> = {
   invalid_json: {
-    headline: 'The agent could not read the request it was sent as JSON.',
-    fix: 'Run the operation again, and report the detail below if it repeats. Nothing on the host needs changing.',
+    headline: 'The agent could not understand the request the manager sent.',
+    fix: 'Run the operation again. If it repeats, check for a proxy between the manager and the agent that alters requests, then report it as a manager bug.',
     includeDetail: true,
   },
   invalid_request_body: {
-    headline: 'The agent received a request body that was not a JSON object.',
-    fix: 'Run the operation again. If it repeats, report it as a manager bug, since the host is not at fault.',
+    headline: 'The manager sent the agent a request it could not use.',
+    fix: 'Run the operation again. If it repeats, report it as a manager bug, since nothing on the host needs changing.',
     includeDetail: false,
   },
   invalid_stack_name: {
     headline:
       'The stack name was rejected. A stack name must start with a letter or a digit and use only letters, digits, hyphens and underscores.',
-    fix: 'Rename the stack to match that pattern, then run the operation again.',
+    fix: 'Rename the stack to match, then run the operation again.',
     includeDetail: false,
   },
   invalid_service_name: {
@@ -40,84 +34,82 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureC
     includeDetail: false,
   },
   missing_stack_field: {
-    headline: 'The agent was asked to act on a stack without being told which stack.',
-    fix: 'Report this as a manager bug. The request was built without a stack name, so running it again alone cannot help.',
+    headline: 'The manager asked the agent to act on a stack without saying which one.',
+    fix: 'Report this as a manager bug. Running the operation again cannot help.',
     includeDetail: false,
   },
   missing_service_field: {
-    headline: 'A service-scoped operation reached the agent without a service name.',
-    fix: 'Report this as a manager bug. The request named the scope but not the service it applies to.',
+    headline: 'The manager asked the agent to act on a single service without saying which one.',
+    fix: 'Report this as a manager bug. Running the operation again cannot help.',
     includeDetail: false,
   },
   invalid_scope: {
-    headline:
-      'The agent was sent a scope it does not recognise, so it could not tell whether to act on a stack or on a service.',
-    fix: 'Report this as a manager bug. The scope has to be either a stack or a service.',
+    headline: 'The manager asked the agent to act on something that is neither a whole stack nor a single service.',
+    fix: 'Report this as a manager bug. Running the operation again cannot help.',
     includeDetail: false,
   },
   invalid_stack_path: {
-    headline:
-      'The agent refused the stack path because it points outside the directory the agent reads stacks from.',
-    fix: 'Report this as a manager bug. The stack name was turned into a path the agent will not open.',
+    headline: "The agent refused to use the stack's folder because it lies outside the agent's stacks directory.",
+    fix: 'Report this as a manager bug. Nothing on the host needs changing.',
     includeDetail: false,
   },
   stack_not_found: {
-    headline: 'The agent has no stack with the name it was given.',
-    fix: 'Check the stack name against the stacks directory on the agent host, then run the operation again.',
-    includeDetail: true,
+    headline: 'The agent has no stack with that name.',
+    fix: "Check that the stack's folder and its docker-compose.yml exist in the stacks directory on the agent host, then run the operation again.",
+    includeDetail: false,
   },
   compose_spawn_failed: {
-    headline: 'The agent could not run docker compose for this stack.',
-    fix: 'Read the error below, check that docker compose is installed and runnable by the agent on its host, then run the operation again.',
+    headline: 'The agent could not start docker compose for this stack.',
+    fix: 'Check that docker compose is installed on the agent host and that the agent can run it, then run the operation again.',
     includeDetail: true,
   },
   stack_write_failed: {
-    headline: 'The agent could not write the stack files to disk.',
-    fix: 'Read the error below, check free space and write permission on the agent host, then run the operation again.',
+    headline: "The agent could not write the stack's files to disk.",
+    fix: 'Check free space and write permission on the stacks directory on the agent host, then run the operation again.',
     includeDetail: true,
   },
   missing_deploy_fields: {
-    headline: 'The agent was asked to deploy without a stack name or compose content.',
-    fix: 'Report this as a manager bug. The deploy request left out a field it has to carry.',
+    headline: 'The manager asked the agent to deploy without a stack name or a compose file.',
+    fix: 'Report this as a manager bug. Running the deploy again cannot help.',
     includeDetail: false,
   },
   invalid_deploy_fields: {
-    headline: 'The agent was sent a deploy whose stack name or compose content was not text.',
-    fix: 'Report this as a manager bug. The deploy request carried a field with the wrong type.',
+    headline: 'The manager sent the agent a stack name or compose file in a form it could not use.',
+    fix: 'Report this as a manager bug. Running the deploy again cannot help.',
     includeDetail: false,
   },
   invalid_env_content: {
-    headline: 'The agent was sent environment content that was not text.',
-    fix: 'Report this as a manager bug. The environment content in the deploy request had the wrong type.',
+    headline: 'The manager sent the agent the stack environment variables in a form it could not use.',
+    fix: 'Report this as a manager bug. Running the deploy again cannot help.',
     includeDetail: false,
   },
   invalid_force_recreate: {
-    headline: 'The agent was sent a force-recreate flag that was neither on nor off.',
-    fix: 'Report this as a manager bug. The deploy request carried the wrong type for the force-recreate flag.',
+    headline: 'The manager sent the agent a recreate setting in a form it could not use.',
+    fix: 'Report this as a manager bug. Running the deploy again cannot help.',
     includeDetail: false,
   },
   compose_too_large: {
-    headline: 'The compose content is larger than the agent accepts.',
-    fix: 'Trim the compose file or split the stack into smaller ones, then deploy again.',
+    headline: 'The compose file is larger than the agent accepts.',
+    fix: 'Shorten the compose file or split the stack into smaller stacks, then deploy again.',
     includeDetail: false,
   },
   env_too_large: {
-    headline: 'The environment content is larger than the agent accepts.',
-    fix: 'Trim the environment content for this stack, then deploy again.',
+    headline: 'The environment variables for this stack are larger than the agent accepts.',
+    fix: 'Remove unused variables or move large values out of them, then deploy again.',
     includeDetail: false,
   },
   stacks_dir_unreadable: {
     headline: 'The agent could not read its stacks directory.',
-    fix: 'Read the error below, check that the stacks directory exists and is readable on the agent host, then run the operation again.',
+    fix: 'Check that the stacks directory on the agent host is a folder the agent has permission to read, then run the operation again.',
     includeDetail: true,
   },
   compose_read_failed: {
     headline: "The agent could not read this stack's compose file.",
-    fix: "Read the error below, check the file's permission on the agent host, then run the operation again.",
+    fix: 'Check that the compose file on the agent host is a file the agent has permission to read, then run the operation again.',
     includeDetail: true,
   },
   update_docker_unavailable: {
-    headline: 'This agent cannot update itself because it has no Docker capability.',
+    headline: 'This agent cannot update itself because it has no Docker access.',
     fix: 'Update it by hand on the agent host. Run docker compose pull and docker compose up -d in the agent stack directory.',
     includeDetail: false,
   },
@@ -137,55 +129,56 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureC
     includeDetail: false,
   },
   update_in_progress: {
-    headline: 'The agent is already running an update.',
-    fix: 'Wait for the running update to finish, then run the update again if it did not take.',
+    headline: 'The agent started an update recently and is not accepting another yet.',
+    fix: 'That update may have failed. Wait a few minutes, or restart the agent container on its host, then run the update again.',
     includeDetail: false,
   },
   update_start_failed: {
-    headline: 'The agent could not start its update.',
-    fix: 'Read the error below, check that the agent can create and start containers through its Docker connection, then run the update again.',
+    headline: "The agent's update helper did not start.",
+    fix: 'Check that the agent can create and start containers through its Docker connection, then run the update again.',
     includeDetail: true,
   },
   container_not_found: {
-    headline: 'The agent has no container with the id it was given.',
-    fix: 'Reload the container list, then run the operation on a container that still exists.',
-    includeDetail: true,
+    headline: 'The container no longer exists on this host.',
+    fix: 'Refresh the container list, then run the operation on a container that still exists.',
+    includeDetail: false,
   },
   container_state_unchanged: {
-    headline: 'The container was already in the state the operation asked for, so the agent changed nothing.',
-    fix: "Check the container's current state, then act on it only if it differs from what you asked for.",
-    includeDetail: true,
+    headline: 'The container was already in the state the operation asked for, so nothing changed.',
+    fix: 'Refresh the container list to see its current state, and run the operation again only if it still differs.',
+    includeDetail: false,
   },
   container_control_failed: {
-    headline: 'The agent could not carry out the container action.',
-    fix: 'Read the error below, check that the container is still present and that the agent can reach Docker, then run the operation again.',
+    headline: 'Docker could not carry out the action on the container.',
+    fix: 'Check that the agent is allowed to start, stop and restart containers through its Docker connection, then run the operation again.',
     includeDetail: true,
   },
   zfs_unavailable: {
     headline: 'ZFS is not available on this agent host.',
-    fix: 'Install and load ZFS on the host, or leave this host alone if it has no ZFS pools.',
+    fix: 'Make sure the ZFS tools are installed where the agent runs and restart the agent. If this host has no ZFS pools, stop collecting ZFS data from it.',
     includeDetail: false,
   },
   zfs_pool_list_failed: {
     headline: 'The agent could not list the ZFS pools on its host.',
-    fix: 'Check the agent logs for the pool error, then run the operation again.',
+    fix: 'Run zpool list on the agent host to see why it fails, then run the operation again.',
     includeDetail: false,
   },
 };
 
-export function agentRouteFailureCopy(code: AgentRouteFailureCode): AgentRouteFailureCopy {
+export function agentRouteFailureCopy(code: AgentRouteFailureCode): HostFailureCopy {
   return AGENT_ROUTE_FAILURE_COPY[code];
 }
 
-/** Narrows a code an agent sent, so a code this manager does not know keeps the generic refusal copy. */
-export function isAgentRouteFailureCode(value: unknown): value is AgentRouteFailureCode {
-  return typeof value === 'string' && (AGENT_ROUTE_FAILURE_CODES as readonly string[]).includes(value);
+export function agentRouteOperatorMessage(code: AgentRouteFailureCode, detail?: string): string {
+  return composeFailureMessage(AGENT_ROUTE_FAILURE_COPY[code], detail);
 }
 
-/** The sentence the operator reads. Never names a control: the surface owns which button it offers. */
-export function agentRouteFailureMessage(code: AgentRouteFailureCode, detail?: string): string {
-  const copy = AGENT_ROUTE_FAILURE_COPY[code];
-  const parts = [copy.headline, copy.fix];
-  if (copy.includeDetail && detail) parts.push(detail);
-  return parts.join(' ');
+export type UpdateFailureCode = HostFailureCode | AgentUpdateFailureCode;
+
+type AssertDisjoint<T extends never> = T;
+// Fails to compile when a host failure code is named like an agent update code, which would send it to the wrong copy.
+export type HostAndUpdateCodesAreDisjoint = AssertDisjoint<Extract<HostFailureCode, AgentUpdateFailureCode>>;
+
+export function updateFailureMessage(code: UpdateFailureCode, detail?: string): string {
+  return isAgentUpdateFailureCode(code) ? agentRouteOperatorMessage(code, detail) : hostFailureMessage(code, detail);
 }

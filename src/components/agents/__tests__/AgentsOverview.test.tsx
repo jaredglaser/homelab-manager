@@ -274,11 +274,11 @@ describe('AgentsOverview (connected)', () => {
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update homeserver'))
     await waitFor(() =>
-      expect(screen.getByText(/The agent is already running an update\./)).toBeDefined(),
+      expect(screen.getByText(/The agent started an update recently and is not accepting another yet\./)).toBeDefined(),
     )
     expect(screen.queryByText(/The agent refused the update\./)).toBeNull()
     expect(screen.getByTestId('agent-row-homeserver').textContent).not.toContain('the guard rejected a second update')
-    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('already running an update')
+    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('not accepting another yet')
   })
 
   it('keeps the generic refusal sentence and the agent detail when the refusal carries no route code', async () => {

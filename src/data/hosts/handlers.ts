@@ -2,9 +2,9 @@ import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-r
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
-import type { AgentRouteFailureCode, TlsFailureCode } from '@homelab-manager/agent/types';
+import { isAgentUpdateFailureCode, type TlsFailureCode } from '@homelab-manager/agent/types';
 import type { HostFailureCode } from '@/lib/errors/host-failure-copy';
-import { isAgentRouteFailureCode } from '@/lib/errors/agent-route-failure-copy';
+import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
@@ -30,8 +30,6 @@ export interface AddHostResult {
   provisioningError?: string;
 }
 
-type UpdateFailureCode = HostFailureCode | AgentRouteFailureCode;
-
 export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode> =
   | {
       hostId: number;
@@ -44,8 +42,29 @@ export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode
   | { hostId: number; healthy: false; code: Code; message: string };
 
 export type HealthCheckResult = HostOperationResult;
-/** An update refusal carries an agent route code, which the operator copy branches on. */
 export type UpdateAgentResult = HostOperationResult<UpdateFailureCode>;
+
+// A proxy's error page can stand in for the agent's reply, and the whole body would reach the operator's row.
+const MAX_REFUSAL_DETAIL_CHARS = 300;
+
+function capRefusalDetail(text: string): string {
+  return text.length > MAX_REFUSAL_DETAIL_CHARS ? `${text.slice(0, MAX_REFUSAL_DETAIL_CHARS)}...` : text;
+}
+
+function readUpdateRefusal(response: Response, body: string): { code: UpdateFailureCode; message: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = undefined;
+  }
+  const fields = typeof parsed === 'object' && parsed !== null ? (parsed as { error?: unknown; code?: unknown }) : {};
+  const code = isAgentUpdateFailureCode(fields.code) ? fields.code : 'agent_reported_error';
+  if (typeof fields.error === 'string') return { code, message: capRefusalDetail(fields.error) };
+  const notFromAgent = `The response was not a JSON error from the agent (HTTP ${response.status})`;
+  const text = response.headers.get('content-type')?.startsWith('text/plain') ? body.trim() : '';
+  return { code, message: text ? `${notFromAgent}: ${capRefusalDetail(text)}` : notFromAgent };
+}
 
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
@@ -396,23 +415,9 @@ export async function handleUpdateAgent(
 
   if (triggerResponse.status !== 202) {
     const body = await triggerResponse.text().catch(() => '');
-    // The agent answers with JSON like {"error":"...","code":"..."}. Surface both, never the
-    // raw body.
-    let message = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
-    let code: UpdateFailureCode = 'agent_reported_error';
-    try {
-      const parsed = JSON.parse(body) as { error?: unknown; code?: unknown } | null;
-      if (typeof parsed?.error === 'string') message = parsed.error;
-      if (isAgentRouteFailureCode(parsed?.code)) code = parsed.code;
-    } catch {
-      // Body was not JSON; keep the raw text.
-    }
-    return {
-      hostId: host.id,
-      healthy: false,
-      code,
-      message,
-    };
+    const { code, message } = readUpdateRefusal(triggerResponse, body);
+    console.error(`[hosts] Agent update refused for ${host.name}: HTTP ${triggerResponse.status} ${code}: ${message}`);
+    return { hostId: host.id, healthy: false, code, message };
   }
 
   let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };

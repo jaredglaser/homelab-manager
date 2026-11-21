@@ -3,8 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
-import { agentRouteFailureMessage, isAgentRouteFailureCode } from '@/lib/errors/agent-route-failure-copy'
-import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
+import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
 import { useAuth } from '@/hooks/useAuth'
@@ -237,9 +236,7 @@ function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): 
   }
   return {
     severity: 'error',
-    message: isAgentRouteFailureCode(result.code)
-      ? agentRouteFailureMessage(result.code, result.message)
-      : hostFailureMessage(result.code, result.message),
+    message: updateFailureMessage(result.code, result.message),
   }
 }
 
