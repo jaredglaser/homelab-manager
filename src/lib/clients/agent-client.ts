@@ -1,5 +1,5 @@
 import {
-  isAgentRouteFailureCode,
+  AGENT_ROUTE_FAILURE_CODES,
   type AgentInfoResponse,
   type AgentRouteFailureCode,
   type AgentStackComposeResponse,
@@ -302,13 +302,18 @@ function readAgentFailure(raw: string): { message: string; code?: AgentRouteFail
       const detail = typeof parsed.detail === 'string' && parsed.detail ? parsed.detail : null;
       return {
         message: detail ? `${parsed.error}: ${detail}` : parsed.error,
-        code: isAgentRouteFailureCode(parsed.code) ? parsed.code : undefined,
+        code: isKnownRouteFailureCode(parsed.code) ? parsed.code : undefined,
       };
     }
   } catch {
     // Body was not JSON. Keep the raw text.
   }
   return { message: raw };
+}
+
+/** Narrows a code an agent sent, so a code a newer agent adds degrades to no code instead of a bad type. */
+function isKnownRouteFailureCode(value: unknown): value is AgentRouteFailureCode {
+  return typeof value === 'string' && (AGENT_ROUTE_FAILURE_CODES as readonly string[]).includes(value);
 }
 
 /** Map the agent's raw `{ status, stdout, stderr }` to internal `{ success, logs }`. */
