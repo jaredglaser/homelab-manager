@@ -72,7 +72,7 @@ jobs:
         if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
         run: |
           bunx license-checker-rseidelsohn \
-            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
+            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;PSF-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
             --summary
 
       - name: Generate license report
@@ -180,7 +180,7 @@ jobs:
         run: |
           cd agent && bunx license-checker-rseidelsohn \
             --excludePrivatePackages \
-            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
+            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;PSF-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
             --summary
 
       - name: Generate license report
@@ -351,7 +351,7 @@ jobs:
           persist-credentials: false
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
@@ -381,7 +381,7 @@ jobs:
           persist-credentials: false
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -466,6 +466,9 @@ jobs:
           context: .
           target: base
           push: true
+          # Must match the web build: the worker compares every host's agent digest against this channel.
+          build-args: |
+            VITE_AGENT_IMAGE_TAG=${{ steps.agent-channel.outputs.tag }}
           tags: ${{ steps.meta-worker.outputs.tags }}
           labels: ${{ steps.meta-worker.outputs.labels }}
           cache-from: type=gha
@@ -491,8 +494,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     concurrency:
       group: pages
-      cancel-in-progress: true
+      # Deliberately false: a queued deploy waits for the running one rather than cancelling it.
+      cancel-in-progress: false
     permissions:
+      actions: read
       contents: read
       pages: write
       id-token: write
@@ -532,10 +537,37 @@ jobs:
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: .output/public
+          # Must stay per-attempt and match the deploy step: deploy-pages requires exactly one match.
+          name: github-pages-${{ github.run_attempt }}
+
+      # A proxy for the listing deploy-pages reads, and both can lag the upload by a few hundred ms.
+      - name: Wait for the Pages artifact to be visible
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          seen=0
+          for _ in $(seq 1 30); do
+            count=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=github-pages-$GITHUB_RUN_ATTEMPT" \
+              --jq '.total_count // 0') || count=0
+            if [ "$count" -ge 1 ]; then
+              seen=$((seen + 1))
+              if [ "$seen" -ge 2 ]; then
+                echo "github-pages-$GITHUB_RUN_ATTEMPT is visible"
+                exit 0
+              fi
+            else
+              seen=0
+            fi
+            sleep 2
+          done
+          echo "github-pages-$GITHUB_RUN_ATTEMPT was not listed on two consecutive polls within 60s, so the deploy cannot start. Re-run this job, or check the actions: read permission if the listing errored above." >&2
+          exit 1
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
 
   release:
     name: Create GitHub Release

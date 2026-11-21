@@ -40,12 +40,47 @@ const WS_MUX_SSE_TRIPWIRE = {
     'createSseStream is the deleted web SSE seam. Stream over the WS mux (src/lib/mux). The only sanctioned createSseStream is the agent-side seam agent/src/lib/sse-stream.ts for web-to-agent hops.',
 };
 
+// Agent TLS seam: a raw fetch or WebSocket built from an agent-URL variable fails the per-host
+// certificate check and the caller retries it as a fake agent outage. Matched argument shapes:
+// identifiers named agent/agentBase/agentBaseUrl/agentUrl and their .agentUrl-style and computed
+// members. A URL held under another name, or reached through an alias of fetch, still escapes.
+const AGENT_TLS_URL_NAME = "/^agent(?:Base)?(?:Url)?$/i";
+const AGENT_TLS_CALLEES = {
+  fetch: [
+    `CallExpression[callee.name='fetch']`,
+    `CallExpression[callee.object.name=/^(globalThis|window|self)$/][callee.property.name='fetch']`,
+  ],
+  websocket: [
+    `NewExpression[callee.name='WebSocket']`,
+    `NewExpression[callee.object.name=/^(globalThis|window|self)$/][callee.property.name='WebSocket']`,
+  ],
+};
+const AGENT_TLS_URL_ARGS = [
+  `Identifier[name=${AGENT_TLS_URL_NAME}]`,
+  `MemberExpression[property.name=${AGENT_TLS_URL_NAME}]`,
+  `MemberExpression[computed=true][property.value=${AGENT_TLS_URL_NAME}]`,
+];
+function agentTlsSelector(callees) {
+  return callees.flatMap((callee) => AGENT_TLS_URL_ARGS.map((arg) => `${callee} ${arg}`)).join(', ');
+}
+const AGENT_TLS_FETCH = {
+  selector: agentTlsSelector(AGENT_TLS_CALLEES.fetch),
+  message:
+    'Raw fetch() to an agent URL bypasses the pinned per-host TLS certificate and fails with "self signed certificate" on https agents while the caller retries forever. Use agentFetch from src/lib/clients/agent-http.ts with the host caCertPem (null for http URLs).',
+};
+const AGENT_TLS_WEBSOCKET = {
+  selector: agentTlsSelector(AGENT_TLS_CALLEES.websocket),
+  message:
+    'Raw WebSocket() to an agent URL bypasses the pinned per-host TLS certificate and fails the TLS handshake on wss agents. Use openAgentWebSocket from src/lib/clients/agent-http.ts with the host caCertPem (null for ws URLs).',
+};
+
 export const WS_MUX_SEAM_RESTRICTIONS = [
   WS_MUX_SOCKET,
   WS_MUX_FRAME,
   WS_MUX_TIMING_LITERAL,
   WS_MUX_TIMING_CONST,
   WS_MUX_SSE_TRIPWIRE,
+
 ];
 
 // Endpoint auth enforcement. Exemptions are inline eslint-disable directives at the exempt site, never a central allowlist.
@@ -108,6 +143,97 @@ const endpointAuthRule = {
           cursor = call;
         }
         if (!hasAuthMiddleware) context.report({ node, messageId: 'fnMissingAuth' });
+      },
+    };
+  },
+};
+
+function objectLiteralKey(property) {
+  if (property.type !== 'Property' || property.computed) return null;
+  if (property.key.type === 'Identifier') return property.key.name;
+  if (property.key.type === 'Literal') return String(property.key.value);
+  return null;
+}
+
+function unwrapExpression(node) {
+  let current = node;
+  while (
+    current
+    && (current.type === 'TSSatisfiesExpression'
+      || current.type === 'TSAsExpression'
+      || current.type === 'TSNonNullExpression')
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+const agentErrorCodeRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'Response.json error bodies in agent route modules must carry a code from AGENT_ROUTE_FAILURE_CODES beside the human message.',
+    },
+    schema: [],
+    messages: {
+      missingCode:
+        'This error body sends prose only. Wrap it in routeErrorBody(code, message) from agent/src/lib/error-body.ts, with a code from AGENT_ROUTE_FAILURE_CODES in agent/src/types.ts, so the manager branches on the reason instead of matching the message.',
+    },
+  },
+  create(context) {
+    return {
+      "CallExpression[callee.object.name='Response'][callee.property.name='json']"(node) {
+        const body = unwrapExpression(node.arguments[0]);
+        if (!body || body.type !== 'ObjectExpression') return;
+        const keys = body.properties.map(objectLiteralKey);
+        if (!keys.includes('error') || keys.includes('code')) return;
+        context.report({ node: body, messageId: 'missingCode' });
+      },
+    };
+  },
+};
+
+const MESSAGE_MATCH_METHODS = ['includes', 'startsWith', 'endsWith', 'match', 'search', 'indexOf', 'test'];
+
+const isMessageMember = (node) =>
+  node?.type === 'MemberExpression' &&
+  ((node.property.type === 'Identifier' && node.property.name === 'message') ||
+    (node.computed && node.property.type === 'Literal' && node.property.value === 'message'));
+
+const MESSAGE_NORMALIZERS = ['toLowerCase', 'toUpperCase', 'trim'];
+
+const isMessageLike = (node) =>
+  isMessageMember(node) ||
+  (node?.type === 'CallExpression' &&
+    node.callee?.type === 'MemberExpression' &&
+    node.callee.property?.type === 'Identifier' &&
+    MESSAGE_NORMALIZERS.includes(node.callee.property.name) &&
+    isMessageMember(node.callee.object));
+
+const noErrorMessageMatchingRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'Classify a failure by a code or a typed field, never by matching error.message text.',
+    },
+    schema: [],
+    messages: {
+      messageMatch:
+        'This classifies a failure by matching its message text, so a reword silently changes what the code does. Branch on a code or a typed field instead. Transport-level noise (socket teardown, connection loss) is the only exception: disable this rule on the line with the reason it is transport, not classification.',
+    },
+  },
+  create(context) {
+    return {
+      CallExpression(node) {
+        const { callee } = node;
+        if (callee.type !== 'MemberExpression' || callee.computed) return;
+        const { property } = callee;
+        if (property.type !== 'Identifier' || !MESSAGE_MATCH_METHODS.includes(property.name)) return;
+        if (isMessageLike(callee.object) || node.arguments.some(isMessageLike)) {
+          context.report({ node, messageId: 'messageMatch' });
+        }
       },
     };
   },
@@ -227,6 +353,7 @@ export default tseslint.config(
       'src/lib/mock/**',
       'src/lib/test/**',
       'src/hooks/useContainerTerminal.ts',
+      'src/lib/clients/agent-http.ts',
       'server/routes/api/docker-exec/**',
       'server/routes/api/mux.ts',
     ],
@@ -238,6 +365,8 @@ export default tseslint.config(
         WS_MUX_TIMING_LITERAL,
         WS_MUX_TIMING_CONST,
         WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
       ],
     },
   },
@@ -247,7 +376,7 @@ export default tseslint.config(
     files: ['src/lib/mux/**/*.ts', 'src/lib/mock/**/*.ts', 'src/lib/test/**/*.ts'],
     ignores: ['**/__tests__/**', 'src/lib/mux/mux-connection.ts'],
     rules: {
-      'no-restricted-syntax': ['error', WS_MUX_SOCKET, WS_MUX_SSE_TRIPWIRE],
+      'no-restricted-syntax': ['error', WS_MUX_SOCKET, WS_MUX_SSE_TRIPWIRE, AGENT_TLS_FETCH, AGENT_TLS_WEBSOCKET],
     },
   },
   // mux-connection.ts is the sanctioned client WebSocket site and imports its
@@ -255,7 +384,31 @@ export default tseslint.config(
   {
     files: ['src/lib/mux/mux-connection.ts'],
     rules: {
-      'no-restricted-syntax': ['error', WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
+      ],
+    },
+  },
+  // agent-http.ts is the sanctioned server-to-agent socket seam: openAgentWebSocket
+  // wraps Bun's WebSocket with the pinned per-host TLS certificate, so the socket
+  // rule is lifted here while the rest still bind.
+  {
+    files: ['src/lib/clients/agent-http.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_FRAME,
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
+      ],
     },
   },
   // The exec terminal keeps a direct socket end to end (hook plus server bridge).
@@ -263,7 +416,15 @@ export default tseslint.config(
     files: ['src/hooks/useContainerTerminal.ts', 'server/routes/api/docker-exec/**/*.ts'],
     ignores: ['**/__tests__/**'],
     rules: {
-      'no-restricted-syntax': ['error', WS_MUX_FRAME, WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_FRAME,
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
+      ],
     },
   },
   // The server endpoint originates ack and event frames and imports its timing
@@ -271,7 +432,15 @@ export default tseslint.config(
   {
     files: ['server/routes/api/mux.ts'],
     rules: {
-      'no-restricted-syntax': ['error', WS_MUX_SOCKET, WS_MUX_TIMING_LITERAL, WS_MUX_TIMING_CONST, WS_MUX_SSE_TRIPWIRE],
+      'no-restricted-syntax': [
+        'error',
+        WS_MUX_SOCKET,
+        WS_MUX_TIMING_LITERAL,
+        WS_MUX_TIMING_CONST,
+        WS_MUX_SSE_TRIPWIRE,
+        AGENT_TLS_FETCH,
+        AGENT_TLS_WEBSOCKET,
+      ],
     },
   },
 
@@ -292,23 +461,46 @@ export default tseslint.config(
   },
   { files: ['src/lib/test/wait-for-condition.ts'], rules: { 'no-restricted-syntax': 'off' } },
 
+  // ESLint 10 rejects redefining a plugin name for the same file, so every
+  // local/ rule is registered in this one block; the rule blocks below only bind them.
+  {
+    files: ['src/**/*.{ts,tsx}', 'server/**/*.ts', 'agent/src/**/*.ts'],
+    plugins: {
+      local: {
+        rules: {
+          'endpoint-auth': endpointAuthRule,
+          'no-error-message-matching': noErrorMessageMatchingRule,
+          'agent-error-code': agentErrorCodeRule,
+        },
+      },
+    },
+  },
+
   // Endpoint auth enforcement. Route files branch to route mode inside the rule via the filename check and everything else here is createServerFn mode.
   {
     files: ['src/**/*.{ts,tsx}', 'server/**/*.ts'],
     ignores: ['**/__tests__/**'],
-    plugins: { local: { rules: { 'endpoint-auth': endpointAuthRule } } },
     rules: { 'local/endpoint-auth': 'error' },
   },
 
-  // AGENTS.md rule 8. 45 findings; promoted to error by the console cleanup PR (3 of 3).
+  // Scope: components/**, scripts/** and vite.config.ts stay out until their matches have a code to branch on.
+  {
+    files: ['src/lib/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
+    ignores: ['**/__tests__/**'],
+    rules: { 'local/no-error-message-matching': 'error' },
+  },
+
+  // A stale eslint-disable is enforcement that reads as done, so it fails the build instead of warning.
+  { linterOptions: { reportUnusedDisableDirectives: 'error' } },
+
+  // AGENTS.md rule 8.
   {
     files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     rules: { 'no-console': ['warn', { allow: ['error', 'info', 'warn'] }] },
   },
 
   // Everything below has existing violations, so it lands as warn to keep this PR at zero errors.
-  // The first group is autofixable and gets promoted to error by the autofix sweep PR (2 of 3);
-  // the rest need per-site judgement and stay warnings until worked down.
+  // These still carry findings, so they stay warn until worked down.
   {
     files: ['**/*.{ts,tsx}'],
     rules: {
@@ -347,6 +539,54 @@ export default tseslint.config(
       '@typescript-eslint/await-thenable': 'warn',
       '@typescript-eslint/only-throw-error': 'warn',
     },
+  },
+
+  // Add a tree here only after its findings reach zero, and confirm with eslint --print-config.
+  {
+    files: [
+      'src/components/**/*.{ts,tsx}',
+      'src/data/**/*.{ts,tsx}',
+      'src/routes/**/*.{ts,tsx}',
+      'server/**/*.ts',
+    ],
+    ignores: ['**/__tests__/**'],
+    rules: { 'no-console': ['error', { allow: ['error', 'info', 'warn'] }] },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['**/__tests__/**'],
+    rules: { 'prefer-const': 'error', 'no-empty': 'error' },
+  },
+  {
+    files: ['src/data/**/*.{ts,tsx}', 'src/hooks/**/*.{ts,tsx}', 'server/**/*.ts', 'scripts/**/*.ts'],
+    ignores: ['**/__tests__/**'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+    },
+  },
+  {
+    files: [
+      'src/lib/**/*.{ts,tsx}',
+      'src/data/**/*.{ts,tsx}',
+      'agent/src/**/*.ts',
+      'server/**/*.ts',
+      'scripts/**/*.ts',
+    ],
+    ignores: ['**/__tests__/**'],
+    rules: { '@typescript-eslint/no-import-type-side-effects': 'error' },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
+    ignores: ['**/__tests__/**', 'src/worker/**'],
+    rules: { '@typescript-eslint/no-duplicate-type-constituents': 'error' },
+  },
+
+  // Binds local/agent-error-code for agent route modules; the rule itself is
+  // registered once in the shared local plugin block above.
+  {
+    files: ['agent/src/routes/**/*.ts'],
+    rules: { 'local/agent-error-code': 'error' },
   },
 
   // Must stay last so it wins over the rule blocks above. No tsconfig reaches these files:

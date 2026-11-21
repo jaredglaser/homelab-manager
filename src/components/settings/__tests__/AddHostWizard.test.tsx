@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import '@/lib/test/testing-library'
 import AddHostWizard, { type PendingHostState } from '@/components/settings/AddHostWizard'
 
@@ -8,7 +9,7 @@ interface WizardProps {
   isCreating: boolean
   isProvisioning: boolean
   createError: string | null
-  provisionError: string | null
+  provisionError: TlsFailureGuidance | null
   pendingHost: PendingHostState | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
@@ -391,7 +392,7 @@ describe('AddHostWizard', () => {
 
     it('shows the provisioning error with a re-run provisioning action on failure', async () => {
       const user = userEvent.setup()
-      render(<AddHostWizard {...makeProps({ provisionError: 'TLS provisioning failed: the agent did not become healthy over HTTPS.' })} />)
+      render(<AddHostWizard {...makeProps({ provisionError: { message: 'TLS provisioning failed: the agent did not become healthy over HTTPS.', retryUseless: false } })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -465,13 +466,36 @@ describe('AddHostWizard', () => {
   describe('error display', () => {
     it('shows the provisioning error with a re-run action on the verify step when provisionError is set', async () => {
       const user = userEvent.setup()
-      render(<AddHostWizard {...makeProps({ provisionError: 'Connection refused' })} />)
+      render(<AddHostWizard {...makeProps({ provisionError: { message: 'Connection refused', retryUseless: false } })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText('Connection refused')).toBeDefined()
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+    })
+
+    it('links the runbook recovery steps when the failure names a section', async () => {
+      const user = userEvent.setup()
+      render(
+        <AddHostWizard
+          {...makeProps({
+            provisionError: {
+              message: 'No pinned certificate for this host.',
+              retryUseless: true,
+              docAnchor: 'agent-tls-recovery-the-manager-lost-it',
+            },
+          })}
+        />,
+      )
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByText('No pinned certificate for this host.')).toBeDefined()
+      expect(screen.getByRole('link', { name: 'TLS recovery steps' }).getAttribute('href')).toBe(
+        'https://github.com/jaredglaser/homelab-manager/blob/main/self-hosting/README.md#agent-tls-recovery-the-manager-lost-it',
+      )
     })
 
     it('does not show an error alert when createError and provisionError are null', async () => {

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
+import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
 import { useAuth } from '@/hooks/useAuth'
@@ -38,6 +39,7 @@ const STATUS_BADGE: Record<AgentInventoryEntry['status'], { label: string; varia
   online: { label: 'Online', variant: 'success' },
   offline: { label: 'Offline', variant: 'destructive' },
   unreachable: { label: 'Unreachable', variant: 'warning' },
+  'awaiting-enrollment': { label: 'Awaiting enrollment', variant: 'warning' },
   unknown: { label: 'Unknown', variant: 'outline' },
 }
 
@@ -234,8 +236,7 @@ function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): 
   }
   return {
     severity: 'error',
-    // The unhealthy result variant always carries an error string.
-    message: result.error,
+    message: hostFailureMessage(result.code, result.message),
   }
 }
 

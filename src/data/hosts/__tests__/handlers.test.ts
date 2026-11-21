@@ -14,6 +14,8 @@ import {
   handleRotateHostTls,
   handleUpdateAgent,
 } from '../handlers';
+import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
+import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 
 const MOCK_JWK: JWK = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' };
 
@@ -145,9 +147,10 @@ describe('handleCheckHostHealth', () => {
 
   it('updates status to unhealthy on failure', async () => {
     const repo = mockRepo();
-    const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: false as const, error: 'refused' })) };
+    const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'refused' })) };
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
+    if (!result.healthy) expect(result.code).toBe('offline');
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
     expect(repo.updateAgentInfo).not.toHaveBeenCalled();
   });
@@ -321,26 +324,30 @@ describe('handleCreatePendingHost', () => {
 describe('handleRotateHostTls', () => {
   it('re-runs provisioning against the current agent URL and stores the resulting https URL', async () => {
     const repo = mockRepo({
-      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090' }))),
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090', status: 'healthy' }))),
       update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
     });
     const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
     const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7 });
-    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090');
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090', {
+      allowPlaintextEnrollment: false,
+    });
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
-    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ ok: true, hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
   });
 
   it('provisions against an explicit agentUrl override and persists only the flipped https URL', async () => {
     const repo = mockRepo({
-      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090' }))),
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090', status: 'healthy' }))),
       update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
     });
     const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
     const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7, agentUrl: 'http://candidate:9090' });
-    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090');
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090', {
+      allowPlaintextEnrollment: false,
+    });
     expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
-    expect(result).toEqual({ hostId: 7, agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ ok: true, hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
   });
 
   it('never writes the row when provisioning with an agentUrl override fails', async () => {
@@ -358,7 +365,7 @@ describe('handleRotateHostTls', () => {
     expect(repo.delete).not.toHaveBeenCalled();
   });
 
-  it('propagates the provisioning error without touching the host record', async () => {
+  it('propagates an uncoded provisioning error without touching the host record', async () => {
     const repo = mockRepo();
     const deps = {
       repo,
@@ -369,6 +376,35 @@ describe('handleRotateHostTls', () => {
     await expect(handleRotateHostTls(deps, { hostId: 1 })).rejects.toThrow(/TLS provisioning failed/);
     expect(repo.update).not.toHaveBeenCalled();
     expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('returns the failure code as data instead of throwing, so the UI can map it', async () => {
+    const repo = mockRepo();
+    const deps = {
+      repo,
+      provisionTls: mock(async () => {
+        throw new TlsProvisionFailure('signature_invalid', 'the agent does not trust this keypair');
+      }),
+    };
+    expect(await handleRotateHostTls(deps, { hostId: 1 })).toEqual({
+      ok: false,
+      code: 'signature_invalid',
+      message: 'the agent does not trust this keypair',
+    });
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('maps a missing keypair to no_keypair rather than a throw', async () => {
+    const repo = mockRepo();
+    const deps = {
+      repo,
+      provisionTls: mock(async () => {
+        throw missingAgentKeypairError('test-host');
+      }),
+    };
+    const result = await handleRotateHostTls(deps, { hostId: 1 });
+    expect(result).toMatchObject({ ok: false, code: 'no_keypair' });
+    expect(repo.update).not.toHaveBeenCalled();
   });
 });
 describe('handleUpdateHost', () => {
@@ -449,7 +485,7 @@ describe('handleGetHostPublicJwk', () => {
       ...baseDeps(),
       keypairs: { ...makeKeypairsMock(), getPublicJwkForHost: mock(async () => null) },
     };
-    await expect(handleGetHostPublicJwk(deps, { hostId: 1 })).rejects.toThrow(/No agent keypair/);
+    await expect(handleGetHostPublicJwk(deps, { hostId: 1 })).rejects.toThrow(/no keypair for host/);
   });
 });
 
@@ -544,8 +580,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
-        expect(result.error).toBe('Could not resolve the agent image digest from the registry');
-        expect(result.suggestions).toContain('Verify ghcr.io/jaredglaser/homelab-manager-agent is reachable and public');
+        expect(result.code).toBe('image_digest_unresolved');
       }
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -553,13 +588,13 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('fails before update when the agent is unreachable', async () => {
+  it('fails before update when the agent is offline', async () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
     try {
-      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: false as const, error: 'connection refused' })));
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'connection refused' })));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toContain('unreachable');
+      if (!result.healthy) expect(result.code).toBe('offline');
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       restore();
@@ -598,7 +633,7 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('reports a keypair failure with suggestions when the signer throws', async () => {
+  it('reports a keypair failure when the signer throws', async () => {
     const deps = {
       ...updateDeps(),
       getSigner: mock(async () => {
@@ -608,12 +643,11 @@ describe('handleUpdateAgent', () => {
     const result = await handleUpdateAgent(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
     if (!result.healthy) {
-      expect(result.error).toBe('Could not retrieve agent keypair');
-      expect(result.suggestions).toContain('Verify the agent has been enrolled with a generated public JWK');
+      expect(result.code).toBe('keypair_unavailable');
     }
   });
 
-  it('reports a signing failure with suggestions when the signer call throws', async () => {
+  it('reports a signing failure when the signer call throws', async () => {
     const signingSigner = mock(async () => {
       throw new Error('key encoding failed');
     });
@@ -626,8 +660,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
-        expect(result.error).toBe('Could not sign the agent request token');
-        expect(result.suggestions).toContain('Verify the agent has been enrolled with a generated public JWK');
+        expect(result.code).toBe('token_signing_failed');
       }
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -641,7 +674,8 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('ECONNREFUSED');
+      if (!result.healthy) expect(result.code).toBe('agent_unreachable');
+      if (!result.healthy) expect(result.message).toBe('ECONNREFUSED');
     } finally {
       restore();
     }
@@ -653,7 +687,7 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Agent URL returned an unexpected redirect');
+      if (!result.healthy) expect(result.code).toBe('unexpected_redirect');
     } finally {
       restore();
     }
@@ -666,7 +700,7 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: undefined, infoSupported: false })));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('The agent stayed reachable throughout the update window, so its restart could not be confirmed');
+      if (!result.healthy) expect(result.code).toBe('restart_unconfirmed');
     } finally {
       timers.restore();
       restore();
@@ -721,8 +755,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
-        expect(result.error).toBe('The agent is still running its previous image, so the update was interrupted before it completed');
-        expect(result.suggestions).toContain('Check free disk space on the host, then retry the update');
+        expect(result.code).toBe('update_interrupted');
       }
     } finally {
       timers.restore();
@@ -762,7 +795,7 @@ describe('handleUpdateAgent', () => {
       }));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Agent is reachable but its version could not be read, so the update could not be confirmed');
+      if (!result.healthy) expect(result.code).toBe('version_unconfirmed');
     } finally {
       timers.restore();
       restore();
@@ -782,7 +815,7 @@ describe('handleUpdateAgent', () => {
       }));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Agent did not restart after update');
+      if (!result.healthy) expect(result.code).toBe('agent_did_not_restart');
     } finally {
       timers.restore();
       restore();
@@ -806,8 +839,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
-        expect(result.error).toBe('The agent stayed reachable throughout the update window, so its restart could not be confirmed');
-        expect(result.suggestions).toContain('Re-run the update after the current attempt settles');
+        expect(result.code).toBe('restart_unconfirmed');
       }
     } finally {
       timers.restore();
@@ -821,7 +853,8 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toContain('Docker capability');
+      if (!result.healthy) expect(result.code).toBe('agent_reported_error');
+      if (!result.healthy) expect(result.message).toContain('Docker capability');
     } finally {
       restore();
     }
@@ -833,7 +866,8 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toBe('Update check failed. Verify the agent host can reach the image registry, then retry the update.');
+      if (!result.healthy) expect(result.code).toBe('agent_reported_error');
+      if (!result.healthy) expect(result.message).toBe('Update check failed. Verify the agent host can reach the image registry, then retry the update.');
     } finally {
       restore();
     }

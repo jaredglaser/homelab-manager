@@ -6,17 +6,15 @@ import { requireRole } from '@/lib/auth/require-role';
 import type { AuthUser } from '@/lib/auth/types';
 
 /** Reads the session cookie and resolves the AuthUser (or null). Never throws: passes null when unauthenticated, unlike authMiddleware. */
-export const sessionReadMiddleware = createMiddleware().server(async ({ next, context }) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ctx = context as any;
+export const sessionReadMiddleware = createMiddleware().server<{ sessionUser: AuthUser | null }>(
+  async ({ next }) => {
+    const { getRequest } = await import('@tanstack/start-server-core');
+    const { resolveUserFromCookie } = await import('@/lib/auth/resolve-user');
+    const sessionUser = await resolveUserFromCookie(getRequest());
 
-  const { getRequest } = await import('@tanstack/start-server-core');
-  const { resolveUserFromCookie } = await import('@/lib/auth/resolve-user');
-  const sessionUser = await resolveUserFromCookie(getRequest());
-
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return next({ context: { ...ctx, sessionUser: sessionUser as AuthUser | null } });
-});
+    return next({ context: { sessionUser } });
+  },
+);
 
 /**
  * Returns the currently authenticated user, or null if unauthenticated.

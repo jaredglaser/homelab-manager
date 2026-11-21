@@ -247,6 +247,22 @@ describe('AgentsOverview (connected)', () => {
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('agent unreachable')
   })
 
+  it('maps a failed update result to its code copy', async () => {
+    updateResult = Promise.resolve({
+      hostId: 1,
+      healthy: false,
+      code: 'offline',
+      message: 'Health check timed out after 5000ms',
+    })
+    await renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    await waitFor(() =>
+      expect(screen.getByText(/The host did not answer the health check\./)).toBeDefined(),
+    )
+    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('The host did not answer')
+  })
+
   it('pins the fallback failure copy when the update mutation rejects with a non-Error', async () => {
     const rejection = Promise.reject('agent unreachable as raw string')
     rejection.catch(() => {}) // handled by the component on click. The pre-catch silences the floating-rejection check.

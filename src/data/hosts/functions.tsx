@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
+import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import { removeHostSchema, checkHostHealthSchema, createPendingHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, rotateHostTlsSchema, updateAgentSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
@@ -63,7 +64,7 @@ async function buildCheckHealth(
     }
     return checkAgentHealth(url, undefined, fetch, async () => {
       const privateKey = await keypairs.getPrivateKeyForHost(hostName);
-      if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
+      if (!privateKey) throw missingAgentKeypairError(hostName);
       return signAgentJwt(privateKey, hostName);
     }, caCertPem);
   };
@@ -110,13 +111,17 @@ function makeKeypairsDep(
 function makeProvisionTls(
   keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
   tlsCerts: import('@/lib/database/repositories/agent-tls-certificates-repository').AgentTlsCertificatesRepository,
-): (hostName: string, agentUrl: string) => Promise<{ agentUrl: string }> {
-  return async (hostName, agentUrl) => {
+): (
+  hostName: string,
+  agentUrl: string,
+  options: { allowPlaintextEnrollment: boolean },
+) => Promise<{ agentUrl: string; enrolledOverPlainHttp: boolean; fingerprint: string }> {
+  return async (hostName, agentUrl, options) => {
     const { provisionHostTls } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+    const { signAgentJwt, signAgentPayload } = await import('@/lib/crypto/agent-jwt');
     const privateKey = await keypairs.getPrivateKeyForHost(hostName);
-    if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
+    if (!privateKey) throw missingAgentKeypairError(hostName);
     let caCertPem: string | null = null;
     try {
       caCertPem = await tlsCerts.getCertForHost(hostName);
@@ -125,6 +130,8 @@ function makeProvisionTls(
     }
     return provisionHostTls(hostName, agentUrl, {
       getSigner: () => signAgentJwt(privateKey, hostName),
+      signEnrollmentPayload: (payload) => signAgentPayload(privateKey, payload),
+      allowPlaintextEnrollment: options.allowPlaintextEnrollment,
       storeCert: (name, certPem) => tlsCerts.createForHost(name, certPem),
       checkHealth: (url, probeHostName, pin) =>
         checkAgentHealth(url, undefined, fetch, () => signAgentJwt(privateKey, probeHostName), pin),
@@ -209,11 +216,15 @@ export const updateHost = createServerFn()
 export const getHostPublicJwk = createServerFn()
   .middleware([authMiddleware])
   .validator(getHostPublicJwkSchema)
-  .handler(async ({ data, context }): Promise<{ publicJwk: import('jose').JWK }> => {
+  .handler(async ({ data, context }): Promise<{ publicJwk: import('jose').JWK; fingerprint: string | null }> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
-    return handleGetHostPublicJwk({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
+    const tlsCerts = await loadTlsCertsRepo();
+    return handleGetHostPublicJwk(
+      { ...baseDeps, keypairs: makeKeypairsDep(keypairs), getPinnedCert: (name) => tlsCerts.getCertForHost(name) },
+      data,
+    );
   });
 
 export const rotateHostKeypair = createServerFn()
@@ -229,7 +240,7 @@ export const rotateHostKeypair = createServerFn()
 export const rotateHostTls = createServerFn()
   .middleware([authMiddleware])
   .validator(rotateHostTlsSchema)
-  .handler(async ({ data, context }): Promise<{ hostId: number; agentUrl: string }> => {
+  .handler(async ({ data, context }): Promise<import('@/data/hosts/handlers').RotateHostTlsResult> => {
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
@@ -253,7 +264,7 @@ export const updateAgent = createServerFn()
       ...baseDeps,
       getSigner: async (hostname) => {
         const privateKey = await keypairs.getPrivateKeyForHost(hostname);
-        if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
+        if (!privateKey) throw missingAgentKeypairError(hostname);
         return () => signAgentJwt(privateKey, hostname);
       },
       checkHealth: await buildCheckHealth(keypairs, tlsCerts),

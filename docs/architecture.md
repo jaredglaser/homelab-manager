@@ -188,7 +188,8 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/stacks/inventory` | List containerized stacks with image detail |
 | GET | `/stacks/compose` | Fetch a stack's compose file content |
 | WS | `/exec/:containerId` | Interactive shell into a container (WebSocket) |
-| POST | `/tls/enroll` | Enroll a TLS certificate for the agent (manager-driven) |
+| GET | `/tls/challenge` | Issue a single-use nonce for the enrollment handshake |
+| POST | `/tls/enroll` | Enroll a TLS certificate for the agent, verified against a signed challenge (manager-driven) |
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
 | POST | `/agent/update` | Spawn a helper container that replaces the agent with the digest-pinned target image |

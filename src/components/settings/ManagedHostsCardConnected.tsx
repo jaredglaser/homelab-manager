@@ -4,6 +4,8 @@ import { listHosts, createPendingHost, removeHost, checkHostHealth, updateHost, 
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
 import type { PendingHostState } from '@/components/settings/AddHostWizard'
 import { useToast } from '@/hooks/toastAtom'
+import { tlsFailureGuidance, type TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
+import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
 
@@ -16,8 +18,9 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const { showToast } = useToast()
   const [pendingHost, setPendingHost] = useState<PendingHostState | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [provisionError, setProvisionError] = useState<string | null>(null)
+  const [provisionError, setProvisionError] = useState<TlsFailureGuidance | null>(null)
   const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
+  const [keypairFingerprint, setKeypairFingerprint] = useState<string | null>(null)
   const [rotatingTlsHostIds, setRotatingTlsHostIds] = useState<Set<number>>(new Set())
 
   const { data: hosts = [], isLoading } = useQuery({
@@ -76,30 +79,51 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   // The handler persists the candidate URL only when provisioning with it succeeds
   // (storing the https-flipped URL), so a failed verify never writes a dead address.
   const provisionGenerationRef = useRef(0)
+  // A host whose agent serves plain HTTP is enrolled on trust, so it takes a second deliberate click.
+  const [plaintextConfirmHostIds, setPlaintextConfirmHostIds] = useState<Set<number>>(new Set())
   const provisionMutation = useMutation({
     mutationFn: async ({ hostId, agentUrl, generation }: { hostId: number; agentUrl: string; generation: number }) => {
       try {
-        const result = await rotateHostTls({ data: { hostId, agentUrl } })
-        return { result, generation }
+        const result = await rotateHostTls({
+          data: { hostId, agentUrl, acceptPlaintextEnrollment: plaintextConfirmHostIds.has(hostId) },
+        })
+        return { result, generation, hostId }
       } catch (err) {
+        // A throw carries the generation too, so a late one after cancel cannot resurface either.
         throw Object.assign(err instanceof Error ? err : new Error(String(err)), { provisionGeneration: generation })
       }
     },
-    onSuccess: ({ result, generation }) => {
+    onSuccess: ({ result, generation, hostId }) => {
       // A stale completion (the operator cancelled or re-ran) must not act.
       if (generation !== provisionGenerationRef.current) return
+      if (!result.ok) {
+        // A plaintext enrollment needs the operator's explicit consent before anything changes.
+        if (result.code === 'plaintext_confirmation_required') {
+          setPlaintextConfirmHostIds((prev) => new Set(prev).add(hostId))
+        }
+        setProvisionError(tlsFailureGuidance(result.code, result.message))
+        return
+      }
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setProvisionError(null)
-      showToast(`Host verified. The agent is served over ${result.agentUrl}.`, 'success')
+      setPlaintextConfirmHostIds((prev) => {
+        if (!prev.has(result.hostId)) return prev
+        const next = new Set(prev)
+        next.delete(result.hostId)
+        return next
+      })
+      showToast(
+        result.enrolledOverPlainHttp
+          ? `Host verified. The agent is served over ${result.agentUrl}. It had no certificate, so the new one was accepted on first use over plain HTTP. Compare the fingerprint in this host's keypair dialog with the one the agent prints at startup (docker logs hlm-agent).`
+          : `Host verified. The agent is served over ${result.agentUrl}.`,
+        result.enrolledOverPlainHttp ? 'warning' : 'success',
+      )
     },
     onError: (err: unknown) => {
+      // Only a genuine throw lands here: a rejected session, a transport failure, or a bug.
       const generation = (err as { provisionGeneration?: number }).provisionGeneration ?? 0
       if (generation !== provisionGenerationRef.current) return
-      const raw = err instanceof Error ? err.message : String(err)
-      const message = raw.includes('the agent rejected the certificate request') && raw.includes('Unauthorized')
-        ? 'The agent rejected the manager\u2019s request: the AGENT_TRUSTED_PUBKEY in the deployed .env does not match this host\u2019s keypair, or AGENT_HOST_NAME does not match the host being verified. Deploy the compose and .env from this wizard session together, or copy the current key from this row\u2019s keypair dialog into the .env and restart the agent, then re-verify.'
-        : `${raw} Use Re-run provisioning below to try again.`
-      setProvisionError(message)
+      setProvisionError({ message: err instanceof Error ? err.message : String(err), retryUseless: false })
     },
   })
 
@@ -163,9 +187,11 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     mutationFn: (hostId: number) => getHostPublicJwk({ data: { hostId } }),
     onSuccess: (result) => {
       setKeypairJwkJson(JSON.stringify(result.publicJwk))
+      setKeypairFingerprint(result.fingerprint)
     },
     onError: (err: unknown) => {
       setKeypairJwkJson(null)
+      setKeypairFingerprint(null)
       const message = err instanceof Error ? err.message : 'Failed to load keypair'
       showToast(message, 'error')
     },
@@ -190,6 +216,14 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     },
     onSuccess: (result, hostId) => {
       setRotatingTlsHostIds((prev) => { const next = new Set(prev); next.delete(hostId); return next })
+      if (!result.ok) {
+        const guidance = tlsFailureGuidance(result.code, result.message)
+        showToast(
+          guidance.retryUseless ? guidance.message : `${guidance.message} Use Rotate TLS on this host's row to try again.`,
+          'error',
+        )
+        return
+      }
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       showToast(`TLS certificate rotated for ${result.agentUrl}. The agent is now serving the new certificate.`, 'success')
     },
@@ -211,7 +245,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       if (result.healthy) {
         showToast(`Host is healthy${result.version ? ` (v${result.version})` : ''}`, 'success')
       } else {
-        showToast(`Host unhealthy: ${result.error ?? 'unknown error'}`, 'error')
+        showToast(hostFailureMessage(result.code, result.message), 'error')
       }
     },
     onError: (err: unknown, hostId: number) => {
@@ -258,6 +292,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       onRotateKeypair={(hostId) => rotateKeypairMutation.mutate(hostId)}
       keypairRotating={rotateKeypairMutation.isPending}
       keypairJwkJson={keypairJwkJson}
+      keypairFingerprint={keypairFingerprint}
       onRotateTls={(hostId) => rotateTlsMutation.mutate(hostId)}
       rotatingTlsHostIds={rotatingTlsHostIds}
     />

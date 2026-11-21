@@ -392,7 +392,7 @@ describe('ManagedHostsCard', () => {
     it('shows the provisioning error with a re-run action on the verify step when provisionError is set', async () => {
       const user = userEvent.setup()
       render(
-        <ManagedHostsCardView {...makeProps({ provisionError: 'Agent health check failed' })} />
+        <ManagedHostsCardView {...makeProps({ provisionError: { message: 'Agent health check failed', retryUseless: false } })} />
       )
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))

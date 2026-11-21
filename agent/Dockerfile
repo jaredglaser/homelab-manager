@@ -2,7 +2,7 @@
 ARG BUN_VERSION=1.4.2
 
 # Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
-FROM docker:29.9.1-cli AS toolchain
+FROM docker:29.9.2-cli AS toolchain
 
 # Application stage
 FROM oven/bun:${BUN_VERSION} AS base
@@ -21,6 +21,9 @@ COPY bun.lock ./bun.lock
 ARG BUN_VERSION
 RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-${BUN_VERSION} \
     bun install --frozen-lockfile --production --ignore-scripts
+# Same notice-retention duty as the root image; bunx fetches the pinned checker
+# because the agent image installs production deps only.
+RUN bunx license-checker-rseidelsohn@5.0.1 --plainVertical --out THIRD-PARTY-NOTICES.txt
 
 COPY src ./src
 COPY tsconfig.json ./tsconfig.json

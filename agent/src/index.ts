@@ -12,7 +12,9 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
-import { enrollMarkerPath, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, parseTlsHttpFallback, resolveTlsStartup } from './lib/tls-enroll';
+import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, resolveTlsStartup, tlsErrorBody } from './lib/tls-enroll';
+import { certificateFingerprint } from './lib/cert-fingerprint';
+import { scheduleSelfRestart } from './lib/self-restart';
 
 function isFileReadable(path: string): boolean {
   try {
@@ -38,11 +40,12 @@ const AGENT_TRUSTED_PUBKEY_FILE = process.env.AGENT_TRUSTED_PUBKEY_FILE;
 const AGENT_TRUSTED_PUBKEY_ENV = process.env.AGENT_TRUSTED_PUBKEY;
 // Managed host name; manager JWTs carry it as aud, so a token minted for
 // another host is rejected even if the keypair was reused.
-const AGENT_HOST_NAME = process.env.AGENT_HOST_NAME?.trim();
-if (!AGENT_HOST_NAME) {
+const configuredHostName = process.env.AGENT_HOST_NAME?.trim();
+if (!configuredHostName) {
   console.error('AGENT_HOST_NAME environment variable is required');
   process.exit(1);
 }
+const AGENT_HOST_NAME: string = configuredHostName;
 const DOCKER_HOST = process.env.DOCKER_HOST;
 
 let trustedPubkeyJson: string;
@@ -92,19 +95,10 @@ try {
 
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH;
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH;
+// Neither path means this agent serves plain HTTP by configuration and never reads a certificate.
+const tlsConfigured = Boolean(TLS_CERT_PATH && TLS_KEY_PATH);
 
-const tlsHttpFallback = (() => {
-  try {
-    return parseTlsHttpFallback(process.env.HLM_TLS_HTTP_FALLBACK);
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  }
-})();
-
-const tlsDecision = resolveTlsStartup(TLS_CERT_PATH, TLS_KEY_PATH, tlsHttpFallback, isFileReadable, () =>
-  isFileReadable(enrollMarkerPath(STACKS_DIR)),
-);
+const tlsDecision = resolveTlsStartup(TLS_CERT_PATH, TLS_KEY_PATH, isFileReadable);
 if (tlsDecision.mode === 'fatal') {
   console.error(tlsDecision.error);
   process.exit(1);
@@ -117,6 +111,13 @@ if (tlsDecision.mode === 'http' && tlsDecision.restricted) {
 const tlsConfig = tlsDecision.mode === 'tls'
   ? { cert: Bun.file(tlsDecision.certPath), key: Bun.file(tlsDecision.keyPath) }
   : undefined;
+
+if (tlsDecision.mode === 'tls') {
+  // Printed for the operator to compare with what the dashboard shows after enrolling this host.
+  console.info(
+    `TLS certificate fingerprint: ${certificateFingerprint(await Bun.file(tlsDecision.certPath).text())}`,
+  );
+}
 
 let docker: Dockerode | null = null;
 let dockerHostname = '';
@@ -189,8 +190,22 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
     return handleAgentUpdate(docker, AGENT_CONTAINER_NAME, PORT, request);
   }
 
+  if (url.pathname === '/tls/challenge' && request.method === 'GET') {
+    return handleTlsChallenge(tlsConfigured);
+  }
+
   if (url.pathname === '/tls/enroll' && request.method === 'POST') {
-    return handleTlsEnroll(request, STACKS_DIR);
+    // Restricted mode only: the gate 403s the manager's restart request, so the agent restarts itself.
+    const scheduleRestart = tlsDecision.mode === 'http' && tlsDecision.restricted
+      ? () => scheduleSelfRestart(docker, AGENT_CONTAINER_NAME)
+      : undefined;
+    return handleTlsEnroll(request, {
+      stacksDir: STACKS_DIR,
+      trustedPublicKey: TRUSTED_PUBKEY,
+      hostName: AGENT_HOST_NAME,
+      tlsConfigured,
+      scheduleRestart,
+    });
   }
 
   return null;
@@ -241,10 +256,10 @@ Bun.serve<ExecWebSocketData>({
       // cannot expose stats, container control, stack deploys or exec.
       if (tlsDecision.mode === 'http' && tlsDecision.restricted && !isAllowedOverPlainHttp(url.pathname)) {
         return Response.json(
-          {
-            error:
-              `Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only ${HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT} are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.`,
-          },
+          tlsErrorBody(
+            'restricted_plain_http',
+            `Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only ${HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT} are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.`,
+          ),
           { status: 403 },
         );
       }
@@ -266,7 +281,7 @@ Bun.serve<ExecWebSocketData>({
       return (await matchRoute(request, url)) ?? new Response('Not Found', { status: 404 });
     } catch (error) {
       console.error('Unhandled error in request handler:', error);
-      return Response.json({ error: 'Internal server error' }, { status: 500 });
+      return Response.json(tlsErrorBody('internal_error', 'Internal server error'), { status: 500 });
     }
   },
 });

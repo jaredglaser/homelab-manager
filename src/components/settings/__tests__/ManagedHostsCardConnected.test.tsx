@@ -7,6 +7,8 @@ import { mockModule } from '@/lib/test/mock-module'
 // screen.* queries and clicks leak into whichever wizard was mounted first.
 import '@/lib/test/testing-library'
 import type { HostListItem } from '@/lib/hosts/host-utils'
+import type { HealthCheckResult } from '@/data/hosts/handlers'
+import type { TlsFailureCode } from '@homelab-manager/agent/types'
 
 // Register module mocks before any component import: a mock.module call made
 // after the module graph has loaded leaves it wired to the real server fns.
@@ -35,13 +37,18 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   ...overrides,
 })
 
-type RotateTlsResult = { hostId: number; agentUrl: string }
-let rotateTlsResult: Promise<RotateTlsResult> = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
-let rotateTlsCalls: Array<{ data: { hostId: number; agentUrl?: string } }> = []
+// The rotate flow returns its failures as data now, so a failure is a resolved result, not a throw.
+type RotateTlsResult =
+  | { ok: true; hostId: number; agentUrl: string }
+  | { ok: false; code: TlsFailureCode; message: string }
+let rotateTlsResult: Promise<RotateTlsResult> = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
+let rotateTlsCalls: Array<{ data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean } }> = []
 // When set, rotateHostTls returns this manually-settled promise instead.
 let rotateTlsGate: Promise<RotateTlsResult> | null = null
 
-const rotateHostTls = (data: { data: { hostId: number; agentUrl?: string } }): Promise<RotateTlsResult> => {
+const rotateHostTls = (data: {
+  data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean }
+}): Promise<RotateTlsResult> => {
   rotateTlsCalls.push(data)
   return rotateTlsGate ?? rotateTlsResult
 }
@@ -83,15 +90,18 @@ const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Prom
   return Promise.resolve(makeHost())
 }
 
+let healthCheckResult: Promise<HealthCheckResult> = Promise.resolve({ hostId: 1, healthy: true })
+
 mock.module('@/data/hosts/functions', () => ({
   listHosts,
   createPendingHost,
   removeHost,
-  checkHostHealth: () => Promise.resolve({ hostId: 1, healthy: true }),
+  checkHostHealth: () => healthCheckResult,
   updateHost,
   getHostPublicJwk: () => Promise.resolve({ publicJwk: {} }),
   rotateHostKeypair: () => Promise.resolve({ hostId: 1, publicJwk: {} }),
-  rotateHostTls: (data: { data: { hostId: number } }) => rotateHostTls(data),
+  rotateHostTls: (data: { data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean } }) =>
+    rotateHostTls(data),
 }))
 
 let lastQueryClient: QueryClient | null = null
@@ -119,11 +129,12 @@ beforeEach(() => {
   createPendingHostCalls.length = 0
   toasts.length = 0
   hostsRows = [makeHost()]
-  rotateTlsResult = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
+  rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
   createPendingHostResult = Promise.resolve({
     host: makeHost({ status: 'pending' }),
     publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
   })
+  healthCheckResult = Promise.resolve({ hostId: 1, healthy: true })
 })
 
 describe('ManagedHostsCardConnected rotate TLS toasts', () => {
@@ -131,7 +142,7 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
     const user = userEvent.setup()
     renderCard()
     await screen.findByText('server1')
-    rotateTlsResult = Promise.resolve({ hostId: 1, agentUrl: 'https://server1:9090' })
+    rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
 
     await user.click(screen.getByLabelText('rotate TLS'))
 
@@ -155,6 +166,28 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
 
     await waitFor(() => {
       expect(toasts.some((t) => t.message === 'Failed to rotate the TLS certificate')).toBe(true)
+    })
+  })
+})
+
+describe('ManagedHostsCardConnected health check toasts', () => {
+  it('maps an unhealthy result to its code copy', async () => {
+    const user = userEvent.setup()
+    healthCheckResult = Promise.resolve({
+      hostId: 1,
+      healthy: false,
+      code: 'awaiting-enrollment',
+      message: 'The agent is serving plain HTTP awaiting TLS enrollment, so the manager cannot verify it over https.',
+    })
+    renderCard()
+    await screen.findByText('server1')
+
+    await user.click(screen.getByLabelText('check health'))
+
+    await waitFor(() => {
+      expect(
+        toasts.some((t) => t.message === 'The agent is serving plain HTTP because it holds no certificate yet. Enroll a certificate for this host, then check again.'),
+      ).toBe(true)
     })
   })
 })
@@ -217,7 +250,9 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     await waitFor(() => {
-      expect(rotateTlsCalls).toEqual([{ data: { hostId: 1, agentUrl: 'http://10.1.1.99:9090' } }])
+      expect(rotateTlsCalls).toEqual([
+        { data: { hostId: 1, agentUrl: 'http://10.1.1.99:9090', acceptPlaintextEnrollment: false } },
+      ])
     })
     expect(updateHostCalls).toEqual([])
     expect(toasts.some((t) => t.message.startsWith('Host verified.'))).toBe(true)
@@ -230,9 +265,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable).'))
-    // The rejection stays unconsumed until the click dispatches the mutation, and bun fails the test on the unhandled rejection, so attach a no-op consumer up front.
-    rotateTlsResult.catch(() => null)
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'agent_unreachable', message: 'the agent could not be reached to create its certificate' })
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
@@ -247,8 +280,8 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    let rejectRotate!: (err: unknown) => void
-    rotateTlsGate = new Promise<RotateTlsResult>((_res, rej) => { rejectRotate = rej })
+    let resolveRotate!: (result: RotateTlsResult) => void
+    rotateTlsGate = new Promise<RotateTlsResult>((res) => { resolveRotate = res })
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     // In-flight: loading state, cancel action, everything disabled.
@@ -268,7 +301,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(screen.queryByRole('alert')).toBeNull()
 
     // A late server-side failure after cancel must not resurface as an error.
-    rejectRotate(new Error('TLS provisioning failed: late failure after cancel'))
+    resolveRotate({ ok: false, code: 'agent_unreachable', message: 'late failure after cancel' })
     await act(async () => {})
     expect(screen.queryByRole('alert')).toBeNull()
   })
@@ -280,9 +313,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent rejected the certificate request (Unauthorized). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.'))
-    // The rejection stays unconsumed until the click dispatches the mutation, and bun fails the test on the unhandled rejection, so attach a no-op consumer up front.
-    rotateTlsResult.catch(() => null)
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'signature_invalid', message: 'the agent rejected the certificate request (Unauthorized)' })
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/does not match this host/)).toBeDefined()
@@ -297,15 +328,13 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (connection refused)'))
-    // The rejection stays unconsumed until the click dispatches the mutation, and bun fails the test on the unhandled rejection, so attach a no-op consumer up front.
-    rotateTlsResult.catch(() => null)
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'poll_timeout', message: 'the agent did not serve the new certificate in time (connection refused)' })
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
 
     await waitFor(() => {
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
-    expect(screen.getByText(/TLS provisioning failed/)).toBeDefined()
+    expect(screen.getByText(/did not serve the new certificate over HTTPS in time/)).toBeDefined()
   })
 
   it('shows unrecognized provisioning failures with a re-run hint appended', async () => {
@@ -315,9 +344,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent did not become healthy over HTTPS (connection refused)'))
-    // The rejection stays unconsumed until the click dispatches the mutation, and bun fails the test on the unhandled rejection, so attach a no-op consumer up front.
-    rotateTlsResult.catch(() => null)
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'unexpected_agent_response', message: 'the agent answered with something unrecognised' })
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/Use Re-run provisioning below to try again/)).toBeDefined()
@@ -500,9 +527,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
-    rotateTlsResult = Promise.reject(new Error('TLS provisioning failed: the agent rejected the certificate request (Unauthorized). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.'))
-    // The rejection stays unconsumed until the click dispatches the mutation, and bun fails the test on the unhandled rejection, so attach a no-op consumer up front.
-    rotateTlsResult.catch(() => null)
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'signature_invalid', message: 'the agent rejected the certificate request (Unauthorized)' })
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => {
       expect(screen.getByText(/does not match this host/)).toBeDefined()

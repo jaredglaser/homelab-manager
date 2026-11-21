@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
-import { agentFetch, type AgentTlsContext } from '../agent-http';
+import { agentFetch, isMissingPinError, openAgentWebSocket, toPlainHttpUrl, type AgentTlsContext, AgentTlsPinMissingError } from '../agent-http';
 
 const PROBE_PATH = join(import.meta.dir, '../../test/agent-http-loopback-probe.ts');
 
@@ -41,7 +41,8 @@ describe('agentFetch', () => {
       return Promise.resolve(new Response('{}'));
     };
     await expect(agentFetch('https://agent:9090/info', {}, { caCertPem: null }, fakeFetch)).rejects.toThrow(
-      'No pinned TLS certificate for this HTTPS agent URL: run TLS enrollment for the host, then retry',
+      'No pinned TLS certificate for this HTTPS agent URL, so the manager cannot verify the agent. '
+      + 'See the agent TLS recovery steps in the self-hosting guide.',
     );
     expect(calls).toHaveLength(0);
   });
@@ -69,4 +70,58 @@ describe('agentFetch', () => {
   });
 });
 
+describe('openAgentWebSocket', () => {
+  it('refuses a wss url without a pinned cert', () => {
+    expect(() => openAgentWebSocket('wss://agent:9090/exec/x', {}, { caCertPem: null })).toThrow(
+      'No pinned TLS certificate for this HTTPS agent URL, so the manager cannot verify the agent. '
+      + 'See the agent TLS recovery steps in the self-hosting guide.',
+    );
+  });
+
+  it('treats a whitespace-only cert like an absent one on wss', () => {
+    expect(() => openAgentWebSocket('wss://agent:9090/exec/x', {}, { caCertPem: '   ' })).toThrow(
+      'No pinned TLS certificate for this HTTPS agent URL',
+    );
+  });
+
+  it('does not require a pinned cert on ws urls', () => {
+    // Pins the invariant asymmetry with the wss refusal tests above: ws agent
+    // URLs skip the cert requirement. The constructor is stubbed because
+    // happy-dom's real one would dial ws:// and fire unhandled error events;
+    // the Bun-specific header/tls arg shape is verified by the loopback probe,
+    // not here.
+    const original = globalThis.WebSocket;
+    class WsStub {
+      constructor(..._args: unknown[]) {}
+    }
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = WsStub;
+    try {
+      expect(() =>
+        openAgentWebSocket('ws://agent:9090/exec/x', { headers: { Authorization: 'Bearer t' } }, { caCertPem: null }),
+      ).not.toThrow();
+      expect(() => openAgentWebSocket('ws://agent:9090/exec/x', {}, { caCertPem: null })).not.toThrow();
+    } finally {
+      (globalThis as unknown as { WebSocket: unknown }).WebSocket = original;
+    }
+  });
+});
+
 type RequestInitWithTls = RequestInit & { tls?: { ca: string; rejectUnauthorized: boolean } };
+
+describe('toPlainHttpUrl', () => {
+  it('swaps the scheme and keeps the host, port and IPv6 brackets', () => {
+    expect(toPlainHttpUrl(new URL('https://myhost.lan:9090/'))).toBe('http://myhost.lan:9090');
+    expect(toPlainHttpUrl(new URL('https://[::1]:9090'))).toBe('http://[::1]:9090');
+  });
+});
+
+describe('isMissingPinError', () => {
+  it('recognizes the seam refusal and nothing else', () => {
+    const refusal = new AgentTlsPinMissingError();
+    expect(isMissingPinError(refusal)).toBe(true);
+    expect(refusal.code).toBe('pin_missing');
+    expect(isMissingPinError(new Error('No pinned TLS certificate for this HTTPS agent URL'))).toBe(false);
+    expect(isMissingPinError(new Error('ECONNREFUSED'))).toBe(false);
+    expect(isMissingPinError('No pinned TLS certificate')).toBe(false);
+  });
+});

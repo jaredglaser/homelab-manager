@@ -1,5 +1,5 @@
 import type { HostStatus, HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { AgentHealthFailureReason } from '@/lib/services/agent-health-service';
+import type { AgentHealthResult } from '@/lib/services/agent-health-service';
 
 /** Serialized ManagedHost for API responses (Date -> ISO string). */
 export interface HostListItem {
@@ -15,17 +15,7 @@ export interface HostListItem {
   updatedAt: string;
 }
 
-export type HealthCheckOutcome =
-  | {
-      healthy: true;
-      version?: string;
-      dockerVersion?: string;
-      agentImage?: string | null;
-      agentImageTag?: string | null;
-      agentImageDigest?: string | null;
-      infoSupported?: boolean;
-    }
-  | { healthy: false; reason?: AgentHealthFailureReason; error: string };
+export type HealthCheckOutcome = AgentHealthResult;
 
 /**
  * Convert a ManagedHost to an API-facing HostListItem (stringifies Date fields).
@@ -62,7 +52,7 @@ export function normalizeAgentImageTag(raw: unknown): string {
   return raw;
 }
 
-/** Baked at build time from VITE_AGENT_IMAGE_TAG: Vite inlines it, so runtime env cannot drive it. */
+/** Vite inlines this at build for the web, and the worker reads it from its own environment at runtime. */
 export function getAgentImageTag(): string {
   return normalizeAgentImageTag(import.meta.env.VITE_AGENT_IMAGE_TAG);
 }
