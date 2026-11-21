@@ -65,8 +65,9 @@ describe('handleStackDeploy', () => {
 
     const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
-    const result = await response.json();
+    const result = (await response.json()) as { error: string; code: string };
     expect(result.error).toBe('Request body must be a JSON object');
+    expect(result.code).toBe('invalid_request_body');
   });
 
   test('writes compose file and .env to stack directory', async () => {
