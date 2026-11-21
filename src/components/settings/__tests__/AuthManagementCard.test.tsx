@@ -279,12 +279,26 @@ describe('AuthManagementCard', () => {
       expect(authFns().revokeAllUserSessions).toHaveBeenCalledWith({ data: { userId: 7 } })
     })
 
-    it('reloads the sessions after a revocation', async () => {
+    it('refreshes the session list after a revocation', async () => {
       const user = setupUser()
-      authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
+      authFns().listSessions.mockImplementationOnce(() => Promise.resolve(sessionsForTwoUsers))
+      authFns().listSessions.mockImplementation(() => Promise.resolve([sessionsForTwoUsers[1]]))
       renderCard()
       await user.click((await screen.findAllByLabelText('Revoke session'))[0])
-      await waitFor(() => expect(authFns().listSessions).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(screen.queryAllByLabelText('Revoke all sessions for Carol').length).toBe(0))
+      expect(screen.getAllByLabelText('Revoke session').length).toBe(1)
+      expect(screen.getByLabelText('Revoke all sessions for Dave')).toBeDefined()
+    })
+
+    it('refreshes the session list after Revoke All Sessions', async () => {
+      const user = setupUser()
+      authFns().listSessions.mockImplementationOnce(() => Promise.resolve(sessionsForTwoUsers))
+      authFns().listSessions.mockImplementation(() => Promise.resolve([sessionsForTwoUsers[0]]))
+      renderCard()
+      await user.click(await screen.findByLabelText('Revoke all sessions for Dave'))
+      await waitFor(() => expect(screen.queryAllByLabelText('Revoke all sessions for Dave').length).toBe(0))
+      expect(screen.getAllByLabelText('Revoke session').length).toBe(1)
+      expect(screen.getByLabelText('Revoke all sessions for Carol')).toBeDefined()
     })
 
     it('disables every revoke button while a revocation is running', async () => {
@@ -359,7 +373,7 @@ describe('AuthManagementCard', () => {
       await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('Token label').disabled).toBe(true))
       const cancelBtn = screen.getByRole('button', { name: 'Cancel' })
       expect(cancelBtn.hasAttribute('disabled')).toBe(true)
-      expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
+      expect(screen.queryAllByRole('button', { name: 'Generate' }).length).toBe(0)
       const spinnerBtn = within(screen.getByRole('dialog')).getAllByRole('button').find((b) => b !== cancelBtn)!
       expect(spinnerBtn.hasAttribute('disabled')).toBe(true)
       await user.click(spinnerBtn)
@@ -384,12 +398,12 @@ describe('AuthManagementCard', () => {
 
       await user.click(screen.getByRole('button', { name: 'Done' }))
       await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
-      expect(screen.queryByText('test-token-abc123')).toBeNull()
+      expect(screen.queryAllByText('test-token-abc123').length).toBe(0)
 
       await user.click(screen.getByText('Generate Token'))
       expect(screen.getByText('Generate Git Token')).toBeDefined()
       expect(screen.getByLabelText<HTMLInputElement>('Token label').value).toBe('')
-      expect(screen.queryByText('test-token-abc123')).toBeNull()
+      expect(screen.queryAllByText('test-token-abc123').length).toBe(0)
     })
 
     it('closes with Escape and forgets the token', async () => {
@@ -402,7 +416,7 @@ describe('AuthManagementCard', () => {
       await user.keyboard('{Escape}')
       await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
       await user.click(screen.getByText('Generate Token'))
-      expect(screen.queryByText('test-token-abc123')).toBeNull()
+      expect(screen.queryAllByText('test-token-abc123').length).toBe(0)
       expect(screen.getByLabelText('Token label')).toBeDefined()
     })
 
@@ -416,27 +430,32 @@ describe('AuthManagementCard', () => {
       expect(screen.getByLabelText<HTMLInputElement>('Token label').value).toBe('')
     })
 
-    it('reloads the token list after generating', async () => {
+    it('shows the new token in the list after generating', async () => {
       const user = setupUser()
+      gitFns().listGitTokens.mockImplementationOnce(() => Promise.resolve([]))
+      gitFns().listGitTokens.mockImplementation(() => Promise.resolve([{ ...mockTokens[0], id: 4, label: 'Fresh label' }]))
       await openDialog(user)
-      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.type(screen.getByLabelText('Token label'), 'Fresh label')
       await user.click(generateButton())
       await screen.findByText('test-token-abc123')
-      expect(gitFns().listGitTokens).toHaveBeenCalledTimes(2)
+      await waitFor(() => expect(screen.getAllByText('Fresh label').length).toBe(1))
     })
 
-    it('revokes the chosen token by id and reloads the list', async () => {
+    it('revokes the chosen token by id, closes the confirmation and refreshes the list', async () => {
       const user = setupUser()
-      gitFns().listGitTokens.mockImplementation(() =>
+      gitFns().listGitTokens.mockImplementationOnce(() =>
         Promise.resolve([mockTokens[0], { ...mockTokens[0], id: 9, label: 'Backup key' }]),
       )
+      gitFns().listGitTokens.mockImplementation(() => Promise.resolve([mockTokens[0]]))
       renderCard()
       await user.click((await screen.findAllByLabelText('Revoke token'))[1])
-      expect(screen.getByText('Revoke "Backup key"? Applications using it will lose access. This cannot be undone.')).toBeDefined()
+      expect(within(screen.getByRole('alertdialog')).getByText('Revoke "Backup key"? Applications using it will lose access. This cannot be undone.')).toBeDefined()
       await user.click(screen.getByRole('button', { name: 'Revoke' }))
       await waitFor(() => expect(gitFns().revokeGitToken).toHaveBeenCalledTimes(1))
       expect(gitFns().revokeGitToken).toHaveBeenCalledWith({ data: { tokenId: 9 } })
-      await waitFor(() => expect(gitFns().listGitTokens).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(screen.queryAllByText('Backup key').length).toBe(0))
+      expect(screen.getAllByText('CI deploy key').length).toBe(1)
+      await waitFor(() => expect(screen.queryAllByRole('alertdialog').length).toBe(0))
     })
 
     it('disables the revoke button of every token while a revocation is running', async () => {
