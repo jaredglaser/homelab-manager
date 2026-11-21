@@ -1,7 +1,9 @@
-/** Boots the real Nitro build for the auth e2e lane. Usage: bun scripts/e2e-auth-server.ts <http|https> */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Subprocess } from 'bun';
+import { assertLaneDatabase, LANE_SESSION_TTL_HOURS } from '../e2e/auth/lane-config';
+
+assertLaneDatabase();
 
 const mode = process.argv[2];
 if (mode !== 'http' && mode !== 'https') {
@@ -18,8 +20,8 @@ const buildInfo = JSON.parse(
 const buildPreset = buildInfo.preset;
 if (buildPreset !== 'bun') {
   console.error(
-    `[e2e-auth-server] realapp built with preset '${buildPreset}', but this lane runs it under bun; ` +
-      'rebuild (vite.config defaults to the bun preset) or run the artifact under node.',
+    `[e2e-auth-server] realapp was built with preset '${buildPreset}' but this lane runs it under bun. ` +
+      'Rebuild with bun run e2e:build:realapp (vite.config defaults to the bun preset).',
   );
   process.exit(1);
 }
@@ -43,14 +45,15 @@ const commonEnv: Record<string, string> = {
   OIDC_ROLE_ADMIN: 'homelab-admins',
   OIDC_ROLE_OPERATOR: 'homelab-operators',
   OIDC_ROLE_VIEWER: 'homelab-viewers',
-  SESSION_TTL_HOURS: process.env.SESSION_TTL_HOURS ?? '8',
+  AUTH_DISABLED: 'false',
+  SESSION_TTL_HOURS: String(LANE_SESSION_TTL_HOURS),
 };
-delete commonEnv.AUTH_DISABLED;
+delete commonEnv.AUTH_ENABLED;
 
 const children: Subprocess[] = [];
 function startNitro(port: number, redirectUri: string) {
   children.push(
-    Bun.spawn(['bun', serverEntry], {
+    Bun.spawn(['bun', '--no-env-file', serverEntry], {
       env: { ...commonEnv, PORT: String(port), OIDC_REDIRECT_URI: redirectUri },
       stdout: 'inherit',
       stderr: 'inherit',

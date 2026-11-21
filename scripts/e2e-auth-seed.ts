@@ -5,6 +5,9 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { assertLaneDatabase } from '../e2e/auth/lane-config';
+
+assertLaneDatabase();
 
 const POCKET_ID_URL = (process.env.POCKET_ID_URL ?? 'http://localhost:1411').replace(/\/$/, '');
 const API_KEY = process.env.POCKET_ID_API_KEY;
@@ -51,12 +54,10 @@ function rows(resp: Listing): Named[] {
 async function waitForHealth(timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    try {
-      const res = await fetch(`${POCKET_ID_URL}/healthz`);
-      if (res.ok) return;
-    } catch {
-      // retry until the deadline
-    }
+    const res = await fetch(`${POCKET_ID_URL}/healthz`, { signal: AbortSignal.timeout(5000) }).catch(
+      () => null,
+    );
+    if (res?.ok) return;
     if (Date.now() > deadline) throw new Error('Pocket ID did not become healthy in time');
     await new Promise((r) => setTimeout(r, 1000));
   }
@@ -68,21 +69,25 @@ async function ensureGroup(name: string, friendlyName: string): Promise<string> 
   return (await req<Named>('POST', '/user-groups', { name, friendlyName })).id;
 }
 
-async function ensureUser(username: string, groupId: string): Promise<string> {
+async function ensureUser(
+  username: string,
+  groupIds: string[],
+  isAdmin: boolean,
+): Promise<{ userId: string; email: string }> {
   const found = rows(await req<Listing>('GET', `/users?search=${username}`)).find(
     (u) => u.username === username,
   );
-  if (found) return found.id;
-  return (
-    await req<Named>('POST', '/users', {
-      username,
-      firstName: 'E2E',
-      lastName: 'Admin',
-      email: `${username}@example.com`,
-      isAdmin: true,
-      userGroupIds: [groupId],
-    })
-  ).id;
+  const email = `${username}@example.com`;
+  if (found) return { userId: found.id, email };
+  const created = await req<Named>('POST', '/users', {
+    username,
+    firstName: 'E2E',
+    lastName: username,
+    email,
+    isAdmin,
+    userGroupIds: groupIds,
+  });
+  return { userId: created.id, email };
 }
 
 async function ensureClient(): Promise<string> {
@@ -110,8 +115,13 @@ await Bun.spawn(['bun', path.resolve('scripts/run-migrations.ts')], {
   if (code !== 0) throw new Error(`run-migrations exited with code ${code}`);
 });
 
-const groupId = await ensureGroup('homelab-admins', 'Homelab Admins');
-const userId = await ensureUser('e2e-admin', groupId);
+const adminsGroup = await ensureGroup('homelab-admins', 'Homelab Admins');
+const viewersGroup = await ensureGroup('homelab-viewers', 'Homelab Viewers');
+const users = {
+  admin: await ensureUser('e2e-admin', [adminsGroup], true),
+  viewer: await ensureUser('e2e-viewer', [viewersGroup], false),
+  denied: await ensureUser('e2e-denied', [], false),
+};
 const clientSecret = await ensureClient();
 
 const outDir = path.resolve('e2e-build/auth');
@@ -123,7 +133,7 @@ writeFileSync(
 writeFileSync(
   path.join(outDir, 'oidc.json'),
   JSON.stringify(
-    { clientId: CLIENT_ID, issuerUrl: POCKET_ID_URL, email: 'e2e-admin@example.com', userId },
+    { clientId: CLIENT_ID, issuerUrl: POCKET_ID_URL, users },
     null,
     2,
   ),

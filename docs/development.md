@@ -320,9 +320,19 @@ bun run test:e2e:auth:run    # Specs only, against an already-built + seeded set
 
 Pocket ID and Postgres must already be reachable. The `e2e-auth` job in
 `.github/workflows/ci.yml` shows the service containers and the env a local
-run needs (`POCKET_ID_URL`, `POCKET_ID_API_KEY`, `POSTGRES_*`, `MASTER_KEY`). The
-specs also read the `sessions` table directly, so they need the same `POSTGRES_*`
-values as the seed step.
+run needs (`POCKET_ID_URL`, `POCKET_ID_API_KEY`, `POSTGRES_*`, `MASTER_KEY`).
+
+The lane writes users and sessions, so the seed, the migration script, the
+servers and the specs all refuse to run unless `POSTGRES_DB` is exactly
+`homelab_test`. Export it in the shell: a `.env` file is not enough, because
+`.env.example` ships `POSTGRES_DB="homelab"`. The app servers start with
+`bun --no-env-file`, force `AUTH_DISABLED=false`, drop `AUTH_ENABLED`, and use the
+fixed `SESSION_TTL_HOURS` from `e2e/auth/lane-config.ts` (3, so a hard-coded 8h
+default cannot pass), so a developer `.env` cannot switch auth off or change the
+TTL. The specs also read and edit the `sessions` table directly (expiry, role,
+logout deleting the row). Servers are never reused between runs, because the seed
+rotates the OIDC client secret on every run and a leftover server would hold the
+old one.
 
 ## Type Checking
 

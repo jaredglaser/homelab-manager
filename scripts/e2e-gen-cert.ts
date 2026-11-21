@@ -1,4 +1,3 @@
-/** Writes a self-signed localhost cert to e2e-build/auth/certs for the https auth server. Usage: bun scripts/e2e-gen-cert.ts */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';

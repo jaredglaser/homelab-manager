@@ -1,4 +1,3 @@
-/** TLS terminator in front of a plain http Nitro, so the browser treats the app as a secure context. Usage: bun scripts/e2e-tls-proxy.ts <listenPort> <targetHttpPort> */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 

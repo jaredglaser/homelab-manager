@@ -155,6 +155,7 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+          --log-opt max-size=8k
 
       pocket-id:
         image: ghcr.io/pocket-id/pocket-id:v2@sha256:698265f9d9b9df2fa9c8ddf19e34a3f8d0c9101dcf9f125f46a75cc1b1df0e60
@@ -172,6 +173,7 @@ jobs:
           --health-timeout 5s
           --health-retries 20
           --health-start-period 20s
+          --log-opt max-size=64k
 
     steps:
       - name: Checkout code
@@ -198,7 +200,10 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Generate a throwaway master key
-        run: echo "MASTER_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+        run: |
+          key=$(openssl rand -base64 32)
+          echo "::add-mask::$key"
+          echo "MASTER_KEY=$key" >> "$GITHUB_ENV"
 
       - name: Run auth e2e tests
         run: bun run test:e2e:auth
@@ -214,12 +219,12 @@ jobs:
           POCKET_ID_API_KEY: e2e-pocket-id-static-api-key-not-a-secret
 
       - name: Upload Playwright report
-        if: ${{ !cancelled() }}
+        if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-auth
           path: playwright-report/
-          retention-days: 14
+          retention-days: 3
 
   agent:
     name: Agent Test & License Check
