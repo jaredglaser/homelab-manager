@@ -227,6 +227,8 @@ describe('AddHostWizard', () => {
       await user.click(screen.getByLabelText('ZFS capability'))
       // Go to ZFS Setup step
       await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
+      expect(screen.getByLabelText('HLM_ZFS_UID')).toBeDefined()
       expect(screen.queryByLabelText('DOCKER_GID')).toBeNull()
     })
   })
@@ -328,6 +330,7 @@ describe('AddHostWizard', () => {
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.type(screen.getByLabelText('Agent host or IP'), '2001:db8::1')
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
       expect(onVerify).not.toHaveBeenCalled()
     })
 
@@ -342,6 +345,7 @@ describe('AddHostWizard', () => {
       // A scheme typed into the host field is rejected as an invalid hostname.
       await user.type(screen.getByLabelText('Agent host or IP'), 'https://192.168.1.10')
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(true)
+      await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
       expect(onVerify).not.toHaveBeenCalled()
     })
 
@@ -388,6 +392,7 @@ describe('AddHostWizard', () => {
     it('does not show a pubkey display on the verify step: the key lives in the compose', async () => {
       const user = userEvent.setup()
       await navigateToVerify(user)
+      expect(screen.getByTestId('step-verify')).toBeDefined()
       expect(screen.queryByTestId('pubkey-display')).toBeNull()
     })
 
@@ -405,6 +410,7 @@ describe('AddHostWizard', () => {
     it('does not show the re-run action when there is no provisioning error', async () => {
       const user = userEvent.setup()
       await navigateToVerify(user)
+      expect(screen.getByTestId('step-verify')).toBeDefined()
       expect(screen.queryByTestId('rerun-provisioning')).toBeNull()
     })
   })
@@ -506,6 +512,7 @@ describe('AddHostWizard', () => {
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-verify')).toBeDefined()
       expect(screen.queryByRole('alert')).toBeNull()
     })
   })
@@ -550,10 +557,344 @@ describe('AddHostWizard', () => {
       expect(screen.getByLabelText('ZFS capability').getAttribute('aria-checked')).toBe('false')
     })
 
+    it('resets Docker back to checked', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await user.click(screen.getByLabelText('Docker capability'))
+      expect(screen.getByLabelText('Docker capability').getAttribute('aria-checked')).toBe('false')
+      await user.click(screen.getByRole('button', { name: 'Reset' }))
+      expect(screen.getByLabelText('Docker capability').getAttribute('aria-checked')).toBe('true')
+    })
+
+    it('clears the ZFS UID, GID and Docker GID', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await user.click(screen.getByLabelText('ZFS capability'))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
+      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1002')
+      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.click(screen.getByRole('button', { name: 'Reset' }))
+      await enterHostName(user)
+      await user.click(screen.getByLabelText('ZFS capability'))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
+      expect(screen.getByLabelText<HTMLInputElement>('HLM_ZFS_UID').value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('HLM_ZFS_GID').value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('DOCKER_GID').value).toBe('')
+    })
+
+    it('clears the agent host and restores the default port', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.type(screen.getByLabelText('Agent host or IP'), '10.0.0.5')
+      await user.clear(screen.getByLabelText('Agent port'))
+      await user.type(screen.getByLabelText('Agent port'), '8080')
+      await user.click(screen.getByRole('button', { name: 'Reset' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-verify')).toBeDefined()
+      expect(screen.getByLabelText<HTMLInputElement>('Agent host or IP').value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('Agent port').value).toBe('9090')
+    })
+
     it('Reset button is disabled while creating or provisioning', () => {
       render(<AddHostWizard {...makeProps({ isCreating: true })} />)
       const resetBtn = screen.getByRole('button', { name: 'Reset' })
       expect(resetBtn.hasAttribute('disabled')).toBe(true)
+    })
+  })
+
+  describe('input validation', () => {
+    const nextButton = () => screen.getByRole('button', { name: 'Next' })
+    const verifyButton = () => screen.getByRole('button', { name: 'Verify Connection' })
+
+    async function advanceToVerify(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(nextButton())
+      await user.click(nextButton())
+      await user.click(nextButton())
+      expect(screen.getByTestId('step-verify')).toBeDefined()
+    }
+
+    async function openZfsStep(user: ReturnType<typeof userEvent.setup>, options: { docker: boolean } = { docker: true }) {
+      await enterHostName(user)
+      if (!options.docker) await user.click(screen.getByLabelText('Docker capability'))
+      await user.click(screen.getByLabelText('ZFS capability'))
+      await user.click(nextButton())
+      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
+    }
+
+    it('keeps Next disabled for a whitespace-only host name', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await user.type(screen.getByLabelText('Host Name'), '   ')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it('keeps Next disabled when neither Docker nor ZFS is selected', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+      await user.click(screen.getByLabelText('Docker capability'))
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+      await user.click(screen.getByLabelText('ZFS capability'))
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+    })
+
+    it('requires HLM_ZFS_UID on the ZFS step', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
+      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it('requires HLM_ZFS_GID on the ZFS step', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
+      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it('requires DOCKER_GID on the ZFS step when Docker is selected', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
+      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+    })
+
+    it('needs only HLM_ZFS_UID and HLM_ZFS_GID on the ZFS step when Docker is not selected', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user, { docker: false })
+      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+    })
+
+    it.each(['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID'])('rejects a negative or fractional value in %s', async (field) => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      const fill = async (name: string, value: string) => {
+        await user.clear(screen.getByLabelText(name))
+        await user.type(screen.getByLabelText(name), value)
+      }
+      for (const name of ['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID']) await fill(name, '1001')
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+      for (const bad of ['-1', '1.5']) {
+        await fill(field, bad)
+        expect(nextButton().hasAttribute('disabled')).toBe(true)
+      }
+      await fill(field, '0')
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+    })
+
+    it('keeps Next disabled on the Compose step until the keypair exists, even when nothing is in flight', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
+      await enterHostName(user)
+      await user.click(nextButton())
+      expect(screen.getByText('The keypair is generated when you reach this step.')).toBeDefined()
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it('keeps Next disabled on the Compose step while the keypair is being created, even though one exists', async () => {
+      const user = userEvent.setup({ delay: null })
+      const view = render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await user.click(nextButton())
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+      view.rerender(<AddHostWizard {...makeProps({ isCreating: true })} />)
+      expect(screen.getByTestId('step-compose-loading')).toBeDefined()
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it('disables Back while the keypair is being created', async () => {
+      const user = userEvent.setup({ delay: null })
+      const view = render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await user.click(nextButton())
+      expect(screen.getByRole('button', { name: 'Back' }).hasAttribute('disabled')).toBe(false)
+      view.rerender(<AddHostWizard {...makeProps({ isCreating: true })} />)
+      expect(screen.getByRole('button', { name: 'Back' }).hasAttribute('disabled')).toBe(true)
+    })
+
+    it('disables Back and Reset while provisioning', async () => {
+      const user = userEvent.setup({ delay: null })
+      const view = render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      expect(screen.getByRole('button', { name: 'Back' }).hasAttribute('disabled')).toBe(false)
+      expect(screen.getByRole('button', { name: 'Reset' }).hasAttribute('disabled')).toBe(false)
+      view.rerender(<AddHostWizard {...makeProps({ isProvisioning: true })} />)
+      expect(screen.getByRole('button', { name: 'Back' }).hasAttribute('disabled')).toBe(true)
+      expect(screen.getByRole('button', { name: 'Reset' }).hasAttribute('disabled')).toBe(true)
+    })
+
+    it.each([
+      ['0', true],
+      ['1', false],
+      ['65535', false],
+      ['65536', true],
+      ['80.5', true],
+      ['', true],
+    ])('port %p disables Verify Connection: %p', async (port, disabled) => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+      await user.clear(screen.getByLabelText('Agent port'))
+      if (port) await user.type(screen.getByLabelText('Agent port'), port)
+      expect(verifyButton().hasAttribute('disabled')).toBe(disabled)
+    })
+
+    it('keeps Verify Connection disabled for a whitespace-only host', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      await user.type(screen.getByLabelText('Agent host or IP'), '   ')
+      expect(verifyButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it('keeps Verify Connection disabled and calls nothing once the pending host is gone', async () => {
+      const user = userEvent.setup({ delay: null })
+      const onVerify = mock(() => {})
+      const view = render(<AddHostWizard {...makeProps({ onVerify })} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+      expect(verifyButton().hasAttribute('disabled')).toBe(false)
+      view.rerender(<AddHostWizard {...makeProps({ onVerify, pendingHost: null })} />)
+      expect(verifyButton().hasAttribute('disabled')).toBe(true)
+      await user.click(verifyButton())
+      expect(onVerify).not.toHaveBeenCalled()
+    })
+
+    describe('Re-run provisioning', () => {
+      const failure = { message: 'Connection refused', retryUseless: false }
+
+      async function openFailedVerify(user: ReturnType<typeof userEvent.setup>, onVerify: ReturnType<typeof mock>) {
+        const view = render(<AddHostWizard {...makeProps({ onVerify, provisionError: failure })} />)
+        await enterHostName(user)
+        await advanceToVerify(user)
+        return view
+      }
+
+      it('calls onVerify with the composed URL when clicked', async () => {
+        const user = userEvent.setup({ delay: null })
+        const onVerify = mock(() => {})
+        await openFailedVerify(user, onVerify)
+        await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+        await user.click(screen.getByTestId('rerun-provisioning'))
+        expect(onVerify).toHaveBeenCalledTimes(1)
+        expect(onVerify).toHaveBeenCalledWith(1, 'http://192.168.1.10:9090')
+      })
+
+      it('does nothing while the agent host is empty', async () => {
+        const user = userEvent.setup({ delay: null })
+        const onVerify = mock(() => {})
+        await openFailedVerify(user, onVerify)
+        await user.click(screen.getByTestId('rerun-provisioning'))
+        expect(onVerify).not.toHaveBeenCalled()
+      })
+
+      it('does nothing while the agent port is invalid', async () => {
+        const user = userEvent.setup({ delay: null })
+        const onVerify = mock(() => {})
+        await openFailedVerify(user, onVerify)
+        await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+        await user.clear(screen.getByLabelText('Agent port'))
+        await user.type(screen.getByLabelText('Agent port'), '99999')
+        await user.click(screen.getByTestId('rerun-provisioning'))
+        expect(onVerify).not.toHaveBeenCalled()
+      })
+
+      it('does nothing once the pending host is gone', async () => {
+        const user = userEvent.setup({ delay: null })
+        const onVerify = mock(() => {})
+        const view = await openFailedVerify(user, onVerify)
+        await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+        view.rerender(<AddHostWizard {...makeProps({ onVerify, provisionError: failure, pendingHost: null })} />)
+        await user.click(screen.getByTestId('rerun-provisioning'))
+        expect(onVerify).not.toHaveBeenCalled()
+      })
+
+      it('is disabled while provisioning', async () => {
+        const user = userEvent.setup({ delay: null })
+        const onVerify = mock(() => {})
+        const view = await openFailedVerify(user, onVerify)
+        await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+        view.rerender(<AddHostWizard {...makeProps({ onVerify, provisionError: failure, isProvisioning: true })} />)
+        expect(screen.getByTestId('rerun-provisioning').hasAttribute('disabled')).toBe(true)
+        await user.click(screen.getByTestId('rerun-provisioning'))
+        expect(onVerify).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('Verify step while provisioning', () => {
+      it('disables both agent fields and shows Cancel only while provisioning', async () => {
+        const user = userEvent.setup({ delay: null })
+        const view = render(<AddHostWizard {...makeProps()} />)
+        await enterHostName(user)
+        await advanceToVerify(user)
+        expect(screen.getByLabelText<HTMLInputElement>('Agent host or IP').disabled).toBe(false)
+        expect(screen.getByLabelText<HTMLInputElement>('Agent port').disabled).toBe(false)
+        expect(screen.queryByTestId('cancel-provisioning')).toBeNull()
+        view.rerender(<AddHostWizard {...makeProps({ isProvisioning: true })} />)
+        expect(screen.getByLabelText<HTMLInputElement>('Agent host or IP').disabled).toBe(true)
+        expect(screen.getByLabelText<HTMLInputElement>('Agent port').disabled).toBe(true)
+        expect(screen.getByTestId('cancel-provisioning').textContent).toBe('Cancel')
+      })
+
+      it('shows the re-run hint only when retrying can help', async () => {
+        const user = userEvent.setup({ delay: null })
+        const view = render(<AddHostWizard {...makeProps({ provisionError: { message: 'Connection refused', retryUseless: false } })} />)
+        await enterHostName(user)
+        await advanceToVerify(user)
+        expect(screen.getByText('Use Re-run provisioning below to try again.')).toBeDefined()
+        view.rerender(<AddHostWizard {...makeProps({ provisionError: { message: 'Connection refused', retryUseless: true } })} />)
+        expect(screen.getByText('Connection refused')).toBeDefined()
+        expect(screen.queryByText('Use Re-run provisioning below to try again.')).toBeNull()
+      })
+    })
+
+    it('keeps values from a previous ZFS choice out of the generated .env', async () => {
+      const user = userEvent.setup({ delay: null })
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
+      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1002')
+      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.click(nextButton())
+      await user.click(screen.getByRole('button', { name: 'Back' }))
+      await user.click(screen.getByRole('button', { name: 'Back' }))
+      await user.click(screen.getByLabelText('ZFS capability'))
+      await user.click(nextButton())
+      await user.click(nextButton())
+      const env = screen.getByTestId('step-env').textContent
+      expect(env).toContain('AGENT_TRUSTED_PUBKEY=')
+      expect(env).not.toContain('HLM_ZFS_UID')
+      expect(env).not.toContain('HLM_ZFS_GID')
+      expect(env).not.toContain('DOCKER_GID')
     })
   })
 

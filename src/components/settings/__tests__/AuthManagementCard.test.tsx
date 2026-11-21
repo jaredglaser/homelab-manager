@@ -91,10 +91,11 @@ const mockTokens = [
 
 describe('AuthManagementCard', () => {
   beforeEach(() => {
-    // Reset mock implementations to empty defaults
     const authFns = require('@/data/auth.functions') as {
       listUsers: ReturnType<typeof mock>
       listSessions: ReturnType<typeof mock>
+      revokeSession: ReturnType<typeof mock>
+      revokeAllUserSessions: ReturnType<typeof mock>
       getRoleMapping: ReturnType<typeof mock>
     }
     const gitFns = require('@/data/git-tokens.functions') as {
@@ -102,8 +103,11 @@ describe('AuthManagementCard', () => {
       createGitToken: ReturnType<typeof mock>
       revokeGitToken: ReturnType<typeof mock>
     }
+    for (const fn of [authFns.listUsers, authFns.listSessions, authFns.revokeSession, authFns.revokeAllUserSessions, authFns.getRoleMapping, gitFns.listGitTokens, gitFns.createGitToken, gitFns.revokeGitToken]) fn.mockClear()
     authFns.listUsers.mockImplementation(() => Promise.resolve([]))
     authFns.listSessions.mockImplementation(() => Promise.resolve([]))
+    authFns.revokeSession.mockImplementation(() => Promise.resolve())
+    authFns.revokeAllUserSessions.mockImplementation(() => Promise.resolve())
     authFns.getRoleMapping.mockImplementation(() => Promise.resolve({ admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' }))
     gitFns.listGitTokens.mockImplementation(() => Promise.resolve([]))
     gitFns.createGitToken.mockImplementation(() => Promise.resolve({ token: 'test-token-abc123' }))
@@ -240,6 +244,193 @@ describe('AuthManagementCard', () => {
     it('shows empty state when no sessions', async () => {
       renderCard()
       await waitFor(() => expect(screen.getByText('No active sessions.')).toBeDefined())
+    })
+  })
+
+  describe('session revocation', () => {
+    const sessionsForTwoUsers = [
+      { ...mockSessions[0], id: 'session-carol', userId: 3, userName: 'Carol', userEmail: 'carol@example.com' },
+      { ...mockSessions[0], id: 'session-dave', userId: 7, userName: 'Dave', userEmail: 'dave@example.com' },
+    ]
+
+    function authFns() {
+      return require('@/data/auth.functions') as {
+        listSessions: ReturnType<typeof mock>
+        revokeSession: ReturnType<typeof mock>
+        revokeAllUserSessions: ReturnType<typeof mock>
+      }
+    }
+
+    it('revokes one session by its id', async () => {
+      const user = userEvent.setup({ delay: null })
+      authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
+      renderCard()
+      const buttons = await screen.findAllByLabelText('Revoke session')
+      await user.click(buttons[1])
+      await waitFor(() => expect(authFns().revokeSession).toHaveBeenCalledTimes(1))
+      expect(authFns().revokeSession).toHaveBeenCalledWith({ data: { sessionId: 'session-dave' } })
+    })
+
+    it('revokes every session of the chosen user by user id', async () => {
+      const user = userEvent.setup({ delay: null })
+      authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
+      renderCard()
+      await user.click(await screen.findByLabelText('Revoke all sessions for Dave'))
+      await waitFor(() => expect(authFns().revokeAllUserSessions).toHaveBeenCalledTimes(1))
+      expect(authFns().revokeAllUserSessions).toHaveBeenCalledWith({ data: { userId: 7 } })
+    })
+
+    it('reloads the sessions after a revocation', async () => {
+      const user = userEvent.setup({ delay: null })
+      authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
+      renderCard()
+      await user.click((await screen.findAllByLabelText('Revoke session'))[0])
+      await waitFor(() => expect(authFns().listSessions).toHaveBeenCalledTimes(2))
+    })
+
+    it('disables every revoke button while a revocation is running', async () => {
+      const user = userEvent.setup({ delay: null })
+      authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
+      authFns().revokeSession.mockImplementation(() => new Promise(() => {}))
+      renderCard()
+      const buttons = await screen.findAllByLabelText('Revoke session')
+      await user.click(buttons[0])
+      await waitFor(() => {
+        for (const button of screen.getAllByLabelText('Revoke session')) expect(button.hasAttribute('disabled')).toBe(true)
+      })
+    })
+
+    it('disables every Revoke All button while a bulk revocation is running', async () => {
+      const user = userEvent.setup({ delay: null })
+      authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
+      authFns().revokeAllUserSessions.mockImplementation(() => new Promise(() => {}))
+      renderCard()
+      await user.click(await screen.findByLabelText('Revoke all sessions for Carol'))
+      await waitFor(() => {
+        expect(screen.getByLabelText('Revoke all sessions for Carol').hasAttribute('disabled')).toBe(true)
+        expect(screen.getByLabelText('Revoke all sessions for Dave').hasAttribute('disabled')).toBe(true)
+      })
+    })
+  })
+
+  describe('git token generation', () => {
+    function gitFns() {
+      return require('@/data/git-tokens.functions') as {
+        listGitTokens: ReturnType<typeof mock>
+        createGitToken: ReturnType<typeof mock>
+        revokeGitToken: ReturnType<typeof mock>
+      }
+    }
+    const generateButton = () => screen.getByRole('button', { name: 'Generate' }) as HTMLButtonElement
+
+    async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+      renderCard()
+      await user.click(screen.getByText('Generate Token'))
+      expect(screen.getByText('Generate Git Token')).toBeDefined()
+    }
+
+    it('sends the label trimmed', async () => {
+      const user = userEvent.setup({ delay: null })
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), '  My token  ')
+      await user.click(generateButton())
+      await waitFor(() => expect(gitFns().createGitToken).toHaveBeenCalledTimes(1))
+      expect(gitFns().createGitToken).toHaveBeenCalledWith({ data: { label: 'My token' } })
+    })
+
+    it('keeps Generate disabled and sends nothing for an empty or whitespace-only label', async () => {
+      const user = userEvent.setup({ delay: null })
+      await openDialog(user)
+      expect(generateButton().disabled).toBe(true)
+      await user.click(generateButton())
+      await user.type(screen.getByLabelText('Token label'), '   ')
+      expect(generateButton().disabled).toBe(true)
+      await user.click(generateButton())
+      expect(gitFns().createGitToken).not.toHaveBeenCalled()
+      await user.type(screen.getByLabelText('Token label'), 'x')
+      expect(generateButton().disabled).toBe(false)
+    })
+
+    it('locks the dialog while the token is being generated', async () => {
+      const user = userEvent.setup({ delay: null })
+      gitFns().createGitToken.mockImplementation(() => new Promise(() => {}))
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.click(generateButton())
+      await waitFor(() => expect((screen.getByLabelText('Token label') as HTMLInputElement).disabled).toBe(true))
+      expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true)
+      expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
+      expect(gitFns().createGitToken).toHaveBeenCalledTimes(1)
+    })
+
+    it('copies the new token from the dialog', async () => {
+      const user = userEvent.setup({ delay: null })
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.click(generateButton())
+      await user.click(await screen.findByLabelText('Copy token'))
+      expect(await navigator.clipboard.readText()).toBe('test-token-abc123')
+    })
+
+    it('closes with Done, forgets the token and reopens on an empty form', async () => {
+      const user = userEvent.setup({ delay: null })
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.click(generateButton())
+      await screen.findByText('test-token-abc123')
+
+      await user.click(screen.getByRole('button', { name: 'Done' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(screen.queryByText('test-token-abc123')).toBeNull()
+
+      await user.click(screen.getByText('Generate Token'))
+      expect(screen.getByText('Generate Git Token')).toBeDefined()
+      expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
+      expect(screen.queryByText('test-token-abc123')).toBeNull()
+    })
+
+    it('closes with Escape and forgets the token', async () => {
+      const user = userEvent.setup({ delay: null })
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.click(generateButton())
+      await screen.findByText('test-token-abc123')
+
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await user.click(screen.getByText('Generate Token'))
+      expect(screen.queryByText('test-token-abc123')).toBeNull()
+      expect(screen.getByLabelText('Token label')).toBeDefined()
+    })
+
+    it('closes with Cancel and starts the next dialog with an empty label', async () => {
+      const user = userEvent.setup({ delay: null })
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'draft label')
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await user.click(screen.getByText('Generate Token'))
+      expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
+    })
+
+    it('reloads the token list after generating', async () => {
+      const user = userEvent.setup({ delay: null })
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.click(generateButton())
+      await screen.findByText('test-token-abc123')
+      expect(gitFns().listGitTokens).toHaveBeenCalledTimes(2)
+    })
+
+    it('disables the revoke button of every token while a revocation is running', async () => {
+      const user = userEvent.setup({ delay: null })
+      gitFns().listGitTokens.mockImplementation(() => Promise.resolve(mockTokens))
+      gitFns().revokeGitToken.mockImplementation(() => new Promise(() => {}))
+      renderCard()
+      await user.click(await screen.findByLabelText('Revoke token'))
+      await user.click(screen.getByRole('button', { name: 'Revoke' }))
+      await waitFor(() => expect(gitFns().revokeGitToken).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(screen.getByLabelText('Revoke token').hasAttribute('disabled')).toBe(true))
     })
   })
 
@@ -417,11 +608,7 @@ describe('AuthManagementCard', () => {
         act(() => { flushTimers() })
         act(() => { flushTimers() })
 
-        // After close: handleClose cleared the label; handleDialogClose closed the dialog.
-        // The dialog content stays mounted during MUI exit transition in Happy-DOM,
-        // but the label state was reset to '' (line 261) and setGenerateDialogOpen(false)
-        // and setNewToken(null) were called (lines 337-338).
-        // Reopen to confirm label was reset:
+        expect(screen.queryByRole('dialog')).toBeNull()
         await act(async () => {
           await user.click(screen.getByText('Generate Token'))
         })
