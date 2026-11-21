@@ -122,8 +122,8 @@ export class GitTokenRepository {
       `SELECT id, user_id, encrypted_token FROM git_tokens WHERE token_hash IS NULL`
     );
     return result.rows.map(row => ({
-      id: Number(row.id),
-      userId: Number(row.user_id),
+      id: row.id,
+      userId: row.user_id,
       encryptedToken: row.encrypted_token,
     }));
   }
