@@ -4,6 +4,7 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import { nitro } from 'nitro/vite'
+import { msw } from 'msw/vite'
 import tailwindcss from '@tailwindcss/vite'
 import { encodeFunctionId } from './src/lib/server-fn-id'
 
@@ -49,6 +50,8 @@ export default defineConfig(({ mode }) => {
       alias: buildAliases(),
     },
     plugins: [
+      // Ahead of nitro: its dev middleware answers /mockServiceWorker.js with a 404 first.
+      isMockBuild && msw({ mode: 'worker-only' }),
       isDev && devtools(),
       nitro({ serverDir: 'server', features: { websocket: true }, preset: 'bun' }),
       tailwindcss(),

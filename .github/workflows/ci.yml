@@ -63,6 +63,13 @@ jobs:
       - name: Build project
         run: bun run build
 
+      - name: Check the production build ships no mock service worker
+        run: |
+          if [ -e .output/public/mockServiceWorker.js ]; then
+            echo "mockServiceWorker.js is in the production build output" >&2
+            exit 1
+          fi
+
       - name: Run tests with coverage check
         run: bun run test
         env:
@@ -249,6 +256,15 @@ jobs:
 
       - name: Build demo
         run: bun run build:demo
+
+      - name: Check the demo worker matches the installed msw
+        run: |
+          installed=$(bun -e "console.log(require('./node_modules/msw/package.json').version)")
+          built=$(sed -n "s/^const PACKAGE_VERSION = '\(.*\)'$/\1/p" .output/public/mockServiceWorker.js)
+          if [ -z "$built" ] || [ "$built" != "$installed" ]; then
+            echo "demo worker version '$built' does not match installed msw '$installed'" >&2
+            exit 1
+          fi
 
   migrations:
     name: Migration Verification
