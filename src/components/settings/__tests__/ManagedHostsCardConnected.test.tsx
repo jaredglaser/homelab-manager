@@ -63,7 +63,8 @@ let createPendingHostCalls: Array<{ name: string }> = []
 // What listHosts serves. Creating a pending host lands its row in this list with
 // the response status, like the real server, so the card's live-status checks see it.
 let hostsRows: HostListItem[] = [makeHost()]
-const listHosts = (): Promise<HostListItem[]> => Promise.resolve(hostsRows)
+let listHostsGate: Promise<HostListItem[]> | null = null
+const listHosts = (): Promise<HostListItem[]> => listHostsGate ?? Promise.resolve(hostsRows)
 
 const createPendingHost = (data: { data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } } }): Promise<CreatePendingHostResult> => {
   createPendingHostCalls.push({ name: data.data.name })
@@ -95,7 +96,8 @@ let updateHostGate: Promise<HostListItem> | null = null
 const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Promise<HostListItem> => {
   updateHostCalls.push({ hostId: data.data.hostId, agentUrl: data.data.agentUrl })
   if (updateHostError != null) return rejectWith(updateHostError)
-  return updateHostGate ?? Promise.resolve(makeHost())
+  const row = hostsRows.find((h) => h.id === data.data.hostId) ?? makeHost()
+  return updateHostGate ?? Promise.resolve({ ...row, agentUrl: data.data.agentUrl ?? row.agentUrl })
 }
 
 const healthCheckCalls: number[] = []
@@ -152,6 +154,7 @@ beforeEach(() => {
   removeHostError = null
   updateHostError = null
   updateHostGate = null
+  listHostsGate = null
   keypairError = null
   keypairCalls.length = 0
   healthCheckCalls.length = 0
@@ -461,7 +464,21 @@ describe('ManagedHostsCardConnected row actions', () => {
       expect(toasts).toEqual([{ message: 'Host updated', severity: 'success' }])
     })
 
-    it('ignores Escape while the update is pending, shows the failure toast, then lets Escape close the dialog', async () => {
+    it('reopens with the saved URL while the list refetch is still pending', async () => {
+      const user = setupUser()
+      renderCard()
+      await screen.findByText('server1')
+      listHostsGate = new Promise<HostListItem[]>(() => undefined)
+      await user.click(screen.getByLabelText('edit host'))
+      await user.clear(screen.getByLabelText('Edit Agent URL'))
+      await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      await user.click(screen.getByLabelText('edit host'))
+      expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://10.0.0.9:9090')
+    })
+
+    it('ignores Escape while the update is pending and still shows the failure toast when it fails', async () => {
       const user = setupUser()
       let rejectUpdate: (reason: Error) => void = () => undefined
       updateHostGate = new Promise<HostListItem>((_res, rej) => { rejectUpdate = rej })
@@ -474,8 +491,17 @@ describe('ManagedHostsCardConnected row actions', () => {
       await waitFor(() => expect(toasts).toEqual([{ message: 'Agent URL is not reachable', severity: 'error' }]))
       await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').disabled).toBe(false))
       await user.keyboard('{Escape}')
-
       await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+
+      updateHostGate = null
+      await user.click(screen.getByLabelText('edit host'))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      expect(updateHostCalls).toHaveLength(2)
+      expect(toasts).toEqual([
+        { message: 'Agent URL is not reachable', severity: 'error' },
+        { message: 'Host updated', severity: 'success' },
+      ])
     })
 
     it('ignores Escape while the update is pending and closes the dialog once it succeeds', async () => {

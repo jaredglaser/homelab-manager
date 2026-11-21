@@ -179,12 +179,15 @@ export function ManagedHostsCardView({
   async function handleEditConfirm(hostId: number, name: string, agentUrl: string) {
     if (savingRef.current) return
     savingRef.current = true
+    let saved = false
     try {
-      const saved = await onUpdate(hostId, name, agentUrl)
-      if (saved) setEditTarget((current) => (current?.id === hostId ? null : current))
+      saved = await onUpdate(hostId, name, agentUrl)
+    } catch (err) {
+      console.error('Failed to update host', err)
     } finally {
       savingRef.current = false
     }
+    if (saved) setEditTarget((current) => (current?.id === hostId ? null : current))
   }
 
   return (
