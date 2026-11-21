@@ -79,7 +79,7 @@ export default defineConfig(({ mode }) => {
       // re-optimization (which invalidates in-flight module hashes and 404s
       // already-loaded dynamic imports). MSW is lazy-loaded, so without this Vite
       // only discovers it after the first navigation.
-      include: ['msw', 'msw/browser'],
+      include: ['msw/browser', 'msw/http', 'msw/ws'],
       // FIX: Vite 8 holdUntilCrawlEnd deadlock - this app never fires the crawl end signal, so setting it to false commits immediately after bundling (pre-Vite8 behavior)
       holdUntilCrawlEnd: false,
     },
