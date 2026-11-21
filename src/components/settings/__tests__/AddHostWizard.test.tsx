@@ -34,10 +34,10 @@ function makeProps(overrides?: Partial<WizardProps>): WizardProps {
     createError: null,
     provisionError: null,
     pendingHost: makePendingHost(),
-    onCreateHost: mock(() => {}),
-    onVerify: mock(() => {}),
-    onCancelVerify: mock(() => {}),
-    onDiscard: mock(() => {}),
+    onCreateHost: mock(() => undefined),
+    onVerify: mock(() => undefined),
+    onCancelVerify: mock(() => undefined),
+    onDiscard: mock(() => undefined),
     ...overrides,
   }
 }
@@ -113,7 +113,7 @@ describe('AddHostWizard', () => {
 
     it('creates the pending host when entering the Compose File step', async () => {
       const user = setupUser()
-      const onCreateHost = mock(() => {})
+      const onCreateHost = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onCreateHost })} />)
       await enterHostName(user, '  dev-machine  ')
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -122,7 +122,7 @@ describe('AddHostWizard', () => {
 
     it('creates the pending host with ZFS capabilities when leaving the ZFS Setup step', async () => {
       const user = setupUser()
-      const onCreateHost = mock(() => {})
+      const onCreateHost = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onCreateHost })} />)
       await enterHostName(user)
       await user.click(screen.getByLabelText('ZFS capability'))
@@ -308,7 +308,7 @@ describe('AddHostWizard', () => {
 
     it('composes a plain-HTTP URL from the host and port when Verify Connection is clicked', async () => {
       const user = setupUser()
-      const onVerify = mock(() => {})
+      const onVerify = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onVerify })} />)
       await enterHostName(user, '  dev-machine  ')
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -324,7 +324,7 @@ describe('AddHostWizard', () => {
 
     it('calls onVerify when Verify Connection is activated from the keyboard', async () => {
       const user = setupUser()
-      const onVerify = mock(() => {})
+      const onVerify = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onVerify })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -337,7 +337,7 @@ describe('AddHostWizard', () => {
 
     it('accepts a bracketed IPv6 literal and keeps the brackets in the composed URL', async () => {
       const user = setupUser()
-      const onVerify = mock(() => {})
+      const onVerify = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onVerify })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -352,7 +352,7 @@ describe('AddHostWizard', () => {
 
     it('still rejects a bare unbracketed IPv6 host whose colons cannot be a hostname', async () => {
       const user = setupUser()
-      const onVerify = mock(() => {})
+      const onVerify = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onVerify })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -366,7 +366,7 @@ describe('AddHostWizard', () => {
 
     it('never produces an HTTPS URL, whatever the operator types', async () => {
       const user = setupUser()
-      const onVerify = mock(() => {})
+      const onVerify = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onVerify })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -381,7 +381,7 @@ describe('AddHostWizard', () => {
 
     it('does not call onVerify when isProvisioning is true', async () => {
       const user = setupUser()
-      const onVerify = mock(() => {})
+      const onVerify = mock(() => undefined)
       const { rerender } = render(<AddHostWizard {...makeProps({ onVerify })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -409,7 +409,7 @@ describe('AddHostWizard', () => {
 
     it('cancel button calls onCancelVerify', async () => {
       const user = setupUser()
-      const onCancelVerify = mock(() => {})
+      const onCancelVerify = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onCancelVerify, isProvisioning: true })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -562,7 +562,7 @@ describe('AddHostWizard', () => {
 
     it('discards the pending host on reset', async () => {
       const user = setupUser()
-      const onDiscard = mock(() => {})
+      const onDiscard = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onDiscard })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -825,7 +825,7 @@ describe('AddHostWizard', () => {
 
     it('keeps Verify Connection disabled and calls nothing once the pending host is gone', async () => {
       const user = setupUser()
-      const onVerify = mock(() => {})
+      const onVerify = mock(() => undefined)
       const view = render(<AddHostWizard {...makeProps({ onVerify })} />)
       await enterHostName(user)
       await advanceToVerify(user)
@@ -839,8 +839,8 @@ describe('AddHostWizard', () => {
 
     it('verifies the pending host it was given, once the Compose step has created it', async () => {
       const user = setupUser()
-      const onVerify = mock(() => {})
-      const onCreateHost = mock(() => {})
+      const onVerify = mock(() => undefined)
+      const onCreateHost = mock(() => undefined)
       render(<AddHostWizard {...makeProps({ onVerify, onCreateHost, pendingHost: makePendingHost({ id: 42 }) })} />)
       await enterHostName(user)
       await advanceToVerify(user)
@@ -862,7 +862,7 @@ describe('AddHostWizard', () => {
 
       it('calls onVerify with the composed URL when clicked', async () => {
         const user = setupUser()
-        const onVerify = mock(() => {})
+        const onVerify = mock(() => undefined)
         await openFailedVerify(user, onVerify)
         await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
         await user.click(screen.getByTestId('rerun-provisioning'))
@@ -872,7 +872,7 @@ describe('AddHostWizard', () => {
 
       it('does nothing while the agent host is empty', async () => {
         const user = setupUser()
-        const onVerify = mock(() => {})
+        const onVerify = mock(() => undefined)
         await openFailedVerify(user, onVerify)
         await user.click(screen.getByTestId('rerun-provisioning'))
         expect(onVerify).not.toHaveBeenCalled()
@@ -880,7 +880,7 @@ describe('AddHostWizard', () => {
 
       it('does nothing while the agent port is invalid', async () => {
         const user = setupUser()
-        const onVerify = mock(() => {})
+        const onVerify = mock(() => undefined)
         await openFailedVerify(user, onVerify)
         await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
         await user.clear(screen.getByLabelText('Agent port'))
@@ -891,7 +891,7 @@ describe('AddHostWizard', () => {
 
       it('does nothing once the pending host is gone', async () => {
         const user = setupUser()
-        const onVerify = mock(() => {})
+        const onVerify = mock(() => undefined)
         const view = await openFailedVerify(user, onVerify)
         await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
         view.rerender(<AddHostWizard {...makeProps({ onVerify, provisionError: failure, pendingHost: null })} />)
@@ -901,7 +901,7 @@ describe('AddHostWizard', () => {
 
       it('is disabled while provisioning', async () => {
         const user = setupUser()
-        const onVerify = mock(() => {})
+        const onVerify = mock(() => undefined)
         const view = await openFailedVerify(user, onVerify)
         await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
         view.rerender(<AddHostWizard {...makeProps({ onVerify, provisionError: failure, isProvisioning: true })} />)

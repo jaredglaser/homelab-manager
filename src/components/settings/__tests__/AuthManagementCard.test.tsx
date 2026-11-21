@@ -290,7 +290,7 @@ describe('AuthManagementCard', () => {
     it('disables every revoke button while a revocation is running', async () => {
       const user = setupUser()
       authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
-      authFns().revokeSession.mockImplementation(() => new Promise(() => {}))
+      authFns().revokeSession.mockImplementation(() => new Promise<never>(() => undefined))
       renderCard()
       const buttons = await screen.findAllByLabelText('Revoke session')
       await user.click(buttons[0])
@@ -302,7 +302,7 @@ describe('AuthManagementCard', () => {
     it('disables every Revoke All button while a bulk revocation is running', async () => {
       const user = setupUser()
       authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
-      authFns().revokeAllUserSessions.mockImplementation(() => new Promise(() => {}))
+      authFns().revokeAllUserSessions.mockImplementation(() => new Promise<never>(() => undefined))
       renderCard()
       await user.click(await screen.findByLabelText('Revoke all sessions for Carol'))
       await waitFor(() => {
@@ -352,7 +352,7 @@ describe('AuthManagementCard', () => {
 
     it('locks the dialog while the token is being generated', async () => {
       const user = setupUser()
-      gitFns().createGitToken.mockImplementation(() => new Promise(() => {}))
+      gitFns().createGitToken.mockImplementation(() => new Promise<never>(() => undefined))
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'My token')
       await user.click(generateButton())
@@ -442,7 +442,7 @@ describe('AuthManagementCard', () => {
     it('disables the revoke button of every token while a revocation is running', async () => {
       const user = setupUser()
       gitFns().listGitTokens.mockImplementation(() => Promise.resolve(mockTokens))
-      gitFns().revokeGitToken.mockImplementation(() => new Promise(() => {}))
+      gitFns().revokeGitToken.mockImplementation(() => new Promise<never>(() => undefined))
       renderCard()
       await user.click(await screen.findByLabelText('Revoke token'))
       await user.click(screen.getByRole('button', { name: 'Revoke' }))

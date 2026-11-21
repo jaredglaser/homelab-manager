@@ -84,11 +84,16 @@ const removeHost = (data: { data: { hostId: number; expectStatus?: 'pending' } }
   return Promise.resolve({ success: true })
 }
 
+// Production falls back to fixed copy when a rejection is not an Error, so the tests must be able to reject with one.
+const rejectWith = (reason: unknown): Promise<never> =>
+  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+  Promise.reject(reason)
+
 let updateHostCalls: Array<{ hostId: number; agentUrl?: string }> = []
 let updateHostError: unknown = null
 const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Promise<HostListItem> => {
   updateHostCalls.push({ hostId: data.data.hostId, agentUrl: data.data.agentUrl })
-  if (updateHostError != null) return Promise.reject(updateHostError)
+  if (updateHostError != null) return rejectWith(updateHostError)
   return Promise.resolve(makeHost())
 }
 
@@ -99,12 +104,12 @@ const keypairCalls: Array<{ op: 'view' | 'rotate'; hostId: number }> = []
 let keypairError: unknown = null
 const getHostPublicJwk = (data: { data: { hostId: number } }): Promise<{ publicJwk: Record<string, string>; fingerprint: string }> => {
   keypairCalls.push({ op: 'view', hostId: data.data.hostId })
-  if (keypairError != null) return Promise.reject(keypairError)
+  if (keypairError != null) return rejectWith(keypairError)
   return Promise.resolve({ publicJwk: { kty: 'OKP', x: 'viewed-key' }, fingerprint: 'AB:CD:EF' })
 }
 const rotateHostKeypair = (data: { data: { hostId: number } }): Promise<{ hostId: number; publicJwk: Record<string, string> }> => {
   keypairCalls.push({ op: 'rotate', hostId: data.data.hostId })
-  if (keypairError != null) return Promise.reject(keypairError)
+  if (keypairError != null) return rejectWith(keypairError)
   return Promise.resolve({ hostId: data.data.hostId, publicJwk: { kty: 'OKP', x: 'rotated-key' } })
 }
 
@@ -181,7 +186,7 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
     const user = setupUser()
     renderCard()
     await screen.findByText('server1')
-    rotateTlsResult = Promise.reject('boom')
+    rotateTlsResult = rejectWith('boom')
     // The rejection stays unconsumed until the click dispatches the mutation, and bun fails the test on the unhandled rejection, so attach a no-op consumer up front.
     rotateTlsResult.catch(() => null)
 
@@ -272,7 +277,7 @@ describe('ManagedHostsCardConnected row actions', () => {
 
     it('falls back to a plain message when the check fails without an Error', async () => {
       const user = setupUser()
-      healthCheckResult = Promise.reject('boom')
+      healthCheckResult = rejectWith('boom')
       healthCheckResult.catch(() => null)
       renderCard()
       await screen.findByText('server1')
@@ -1010,7 +1015,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => expect(screen.getByTestId('rerun-provisioning')).toBeDefined())
 
-    rotateTlsGate = new Promise<RotateTlsResult>(() => {})
+    rotateTlsGate = new Promise<RotateTlsResult>(() => undefined)
     await user.click(screen.getByTestId('rerun-provisioning'))
     await waitFor(() => expect(screen.getByTestId('cancel-provisioning')).toBeDefined())
     expect(screen.getByRole('alert')).toBeDefined()
@@ -1065,7 +1070,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
 
   it('falls back to a plain message when creating the pending host fails without an Error', async () => {
     const user = setupUser()
-    createPendingHostResult = Promise.reject('boom')
+    createPendingHostResult = rejectWith('boom')
     createPendingHostResult.catch(() => null)
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'newhost')
