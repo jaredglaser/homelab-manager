@@ -131,7 +131,7 @@ export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
       versionSource: 'live',
       agentImageDigest: 'sha256:' + 'a'.repeat(64),
       agentOutOfDate: false,
-      lastError: null,
+      failure: null,
       checkedAt: new Date().toISOString(),
     },
     {
@@ -141,7 +141,7 @@ export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
       versionSource: 'stored',
       agentImageDigest: 'sha256:' + 'a'.repeat(64),
       agentOutOfDate: false,
-      lastError: 'Health check timed out after 5000ms',
+      failure: { code: 'offline', message: 'Health check timed out after 5000ms' },
       checkedAt: new Date().toISOString(),
     },
   ];

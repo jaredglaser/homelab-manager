@@ -18,6 +18,25 @@ export type HostFailureCode =
   | 'version_unconfirmed'
   | 'agent_did_not_restart';
 
+/** The codes a host row can carry. The CHECK in migration 045 lists the same members, so a new one needs a migration. */
+export const HOST_PROBE_FAILURE_CODES = [
+  'offline',
+  'unreachable',
+  'awaiting-enrollment',
+  'agent-unhealthy',
+  'certificate-rejected',
+  'health_check_failed',
+] as const satisfies readonly (AgentHealthFailureReason | 'health_check_failed')[];
+
+/** The probe's detail is raw error text, so it is cut before it is stored and broadcast to every viewer. */
+export const MAX_FAILURE_DETAIL_LENGTH = 512;
+
+export type HostProbeFailureCode = (typeof HOST_PROBE_FAILURE_CODES)[number];
+
+export function probeFailureCode(outcome: { reason?: HostProbeFailureCode }): HostProbeFailureCode {
+  return outcome.reason ?? 'health_check_failed';
+}
+
 export interface HostFailureCopy {
   /** What went wrong, in the operator's terms. */
   headline: string;
@@ -46,6 +65,16 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
     headline: 'The agent is serving plain HTTP because it holds no certificate yet.',
     fix: 'Enroll a certificate for this host, then check again.',
     includeDetail: false,
+  },
+  'agent-unhealthy': {
+    headline: 'The agent answered but reports that it is unhealthy, because it can reach neither Docker nor ZFS.',
+    fix: 'Check that the Docker socket or daemon on the agent host is running and mounted into the agent container, then check again.',
+    includeDetail: false,
+  },
+  'certificate-rejected': {
+    headline: "The manager rejected the agent's TLS certificate: it does not match the pinned one, has expired, or does not cover the host name in the URL.",
+    fix: 'If the URL uses an address the certificate does not cover, change it to a host name the certificate does cover. Otherwise follow the agent TLS recovery steps in the self-hosting guide to enroll a fresh certificate, then check again.',
+    includeDetail: true,
   },
   health_check_failed: {
     headline: 'The host health check did not pass.',
@@ -104,10 +133,16 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
   },
 };
 
+export function hostFailureDetail(code: HostFailureCode, detail?: string): string | null {
+  return HOST_FAILURE_COPY[code].includeDetail && detail ? detail : null;
+}
+
 /** The sentence the operator reads. Never names a control: the surface owns which button it offers. */
 export function hostFailureMessage(code: HostFailureCode, detail?: string): string {
   const copy = HOST_FAILURE_COPY[code];
   const parts = [copy.headline, copy.fix];
-  if (copy.includeDetail && detail) parts.push(detail);
+  const shown = hostFailureDetail(code, detail);
+  if (shown) parts.push(shown);
   return parts.join(' ');
 }
+

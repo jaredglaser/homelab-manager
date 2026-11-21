@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory'
+import type { AgentInventoryEntry, AgentInventoryFailure } from '@/lib/hosts/agent-inventory'
 
 const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntry => ({
   id: 1,
@@ -15,7 +15,7 @@ const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntr
   agentImageTag: 'latest',
   agentImageDigest: 'sha256:' + 'a'.repeat(64),
   agentOutOfDate: false,
-  lastError: null,
+  failure: null,
   checkedAt: '2026-09-25T23:00:00.000Z',
   ...overrides,
 })
@@ -101,7 +101,7 @@ describe('AgentsOverviewView', () => {
         {...makeProps({
           agents: [
             makeAgent(),
-            makeAgent({ id: 2, name: 'media-server', status: 'offline', version: '0.1.0', versionSource: 'stored', lastError: 'timed out', agentUrl: 'http://192.168.1.20:9090' }),
+            makeAgent({ id: 2, name: 'media-server', status: 'offline', version: '0.1.0', versionSource: 'stored', failure: { code: 'offline', message: 'timed out' }, agentUrl: 'http://192.168.1.20:9090' }),
           ],
         })}
       />,
@@ -113,7 +113,80 @@ describe('AgentsOverviewView', () => {
     expect(screen.getByText('v0.2.0')).toBeDefined()
     expect(screen.getByText('v0.1.0')).toBeDefined()
     expect(screen.getByText('http://192.168.1.10:9090')).toBeDefined()
+    expect(screen.getByText('The host did not answer the health check. Check that the agent container is running and reachable at the URL stored for this host, then check again.')).toBeDefined()
     expect(screen.getByText('timed out')).toBeDefined()
+  })
+
+  const FAILURE_COPY: Array<{ code: AgentInventoryFailure['code']; status: AgentInventoryEntry['status']; copy: string; showsDetail: boolean }> = [
+    {
+      code: 'offline',
+      status: 'offline',
+      copy: 'The host did not answer the health check. Check that the agent container is running and reachable at the URL stored for this host, then check again.',
+      showsDetail: true,
+    },
+    {
+      code: 'unreachable',
+      status: 'unreachable',
+      copy: 'Something answered at the host URL, but it is not a healthy agent. Check that the URL stored for this host points at the agent, then check again.',
+      showsDetail: true,
+    },
+    {
+      code: 'awaiting-enrollment',
+      status: 'awaiting-enrollment',
+      copy: 'The agent is serving plain HTTP because it holds no certificate yet. Enroll a certificate for this host, then check again.',
+      showsDetail: false,
+    },
+    {
+      code: 'agent-unhealthy',
+      status: 'unreachable',
+      copy: 'The agent answered but reports that it is unhealthy, because it can reach neither Docker nor ZFS. Check that the Docker socket or daemon on the agent host is running and mounted into the agent container, then check again.',
+      showsDetail: false,
+    },
+    {
+      code: 'certificate-rejected',
+      status: 'unreachable',
+      copy: "The manager rejected the agent's TLS certificate: it does not match the pinned one, has expired, or does not cover the host name in the URL. If the URL uses an address the certificate does not cover, change it to a host name the certificate does cover. Otherwise follow the agent TLS recovery steps in the self-hosting guide to enroll a fresh certificate, then check again.",
+      showsDetail: true,
+    },
+    {
+      code: 'health_check_failed',
+      status: 'offline',
+      copy: 'The host health check did not pass. Check the agent logs, then check again.',
+      showsDetail: true,
+    },
+  ]
+
+  for (const { code, status, copy, showsDetail } of FAILURE_COPY) {
+    it(`renders the ${code} copy, ${showsDetail ? 'with' : 'without'} the probe detail`, async () => {
+      const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+      render(
+        <AgentsOverviewView
+          {...makeProps({
+            agents: [makeAgent({ id: 2, name: 'media-server', status, failure: { code, message: 'raw probe detail 4521' } })],
+          })}
+        />,
+      )
+      expect(screen.getByText(copy)).toBeDefined()
+      expect(screen.queryByText('raw probe detail 4521') !== null).toBe(showsDetail)
+    })
+  }
+
+  it('shows the status badge label for an agent awaiting enrollment', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    render(
+      <AgentsOverviewView
+        {...makeProps({
+          agents: [makeAgent({ id: 2, status: 'awaiting-enrollment', failure: { code: 'awaiting-enrollment', message: '' } })],
+        })}
+      />,
+    )
+    expect(screen.getByText('Awaiting enrollment')).toBeDefined()
+  })
+
+  it('does not render a failure line for an online agent', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    render(<AgentsOverviewView {...makeProps({ agents: [makeAgent()] })} />)
+    expect(screen.queryByText(/then check again/)).toBeNull()
   })
 
   it('lets an admin trigger the update for one row without touching the other', async () => {
