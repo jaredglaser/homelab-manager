@@ -180,7 +180,7 @@ describe('ManagedHostsCardConnected health check toasts', () => {
 
     await waitFor(() => {
       expect(
-        toasts.some((t) => t.message === 'The agent is serving plain HTTP because it holds no certificate yet. Enroll a certificate for this host from its row in the Managed Hosts card, then check again.'),
+        toasts.some((t) => t.message === 'The agent is serving plain HTTP because it holds no certificate yet. Enroll a certificate for this host, then check again.'),
       ).toBe(true)
     })
   })
