@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.4.0](https://github.com/jaredglaser/homelab-manager/compare/v0.3.0...v0.4.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agents:** sign the TLS enrollment challenge instead of sending a bearer token ([#612](https://github.com/jaredglaser/homelab-manager/issues/612))
+
+### Features
+
+* **agent:** give every agent error body a code ([#637](https://github.com/jaredglaser/homelab-manager/issues/637)) ([8cc9551](https://github.com/jaredglaser/homelab-manager/commit/8cc9551655af21e3abd2c67b74f41aba5e6ef2d3))
+* **agents:** sign the TLS enrollment challenge instead of sending a bearer token ([#612](https://github.com/jaredglaser/homelab-manager/issues/612)) ([b17b00f](https://github.com/jaredglaser/homelab-manager/commit/b17b00f61d7d10b146682f5cfbd745f8a699c6f5))
+* **auth:** allow operators to mint and manage their own git tokens ([#599](https://github.com/jaredglaser/homelab-manager/issues/599)) ([4207b7d](https://github.com/jaredglaser/homelab-manager/commit/4207b7d25f6f0a8435571306656c627b8dd995d7))
+* **hosts:** confirm a plaintext enrollment before trusting the certificate it presents ([#613](https://github.com/jaredglaser/homelab-manager/issues/613)) ([e6d7d4a](https://github.com/jaredglaser/homelab-manager/commit/e6d7d4aab2a4c0e14ce4f53883db99ea7af9a22a))
+* **hosts:** give the health and update flows failure codes ([#638](https://github.com/jaredglaser/homelab-manager/issues/638)) ([8486460](https://github.com/jaredglaser/homelab-manager/commit/84864607b635bb17f6ca6d4815658cb1d7907f91))
+* **hosts:** show the agent key before verification: compose embeds it, verify only provisions ([#602](https://github.com/jaredglaser/homelab-manager/issues/602)) ([09660da](https://github.com/jaredglaser/homelab-manager/commit/09660dad7474461700ced50c626e4d93aa37b8b3))
+
+
+### Bug Fixes
+
+* **agent:** restrict plain HTTP to TLS enrollment endpoints; skip http:// agents in worker ([#600](https://github.com/jaredglaser/homelab-manager/issues/600)) ([90c3d7c](https://github.com/jaredglaser/homelab-manager/commit/90c3d7ccf673b3c8bc1513fe2d41f12841c5df0a))
+* **agent:** spawn git once for the agent version, not per request ([#623](https://github.com/jaredglaser/homelab-manager/issues/623)) ([348de5c](https://github.com/jaredglaser/homelab-manager/commit/348de5c691ec8b774babd6b3faf5f8d5f789a2bd))
+* **agents:** pin the host TLS cert on every agent call and enforce the seam ([#610](https://github.com/jaredglaser/homelab-manager/issues/610)) ([6166ee7](https://github.com/jaredglaser/homelab-manager/commit/6166ee7364205e4558a5c1dd6a99d4d87d366690))
+* **ci:** make the Pages demo deploy survive re-runs and listing lag ([#621](https://github.com/jaredglaser/homelab-manager/issues/621)) ([6e2c055](https://github.com/jaredglaser/homelab-manager/commit/6e2c05515bbdf81ceb695a087a8559b81896a81b))
+* **copy:** name the real causes instead of blaming the database or the request ([#614](https://github.com/jaredglaser/homelab-manager/issues/614)) ([a680c18](https://github.com/jaredglaser/homelab-manager/commit/a680c18e13749327477a1e29620f537aa516ed8e))
+* **copy:** stop naming controls the surface does not have ([#618](https://github.com/jaredglaser/homelab-manager/issues/618)) ([454dbe6](https://github.com/jaredglaser/homelab-manager/commit/454dbe6f9b38a81e3632339c4496b39d73b7e356))
+* **hosts:** agent restarts itself after TLS enrollment to unblock first-contact provisioning ([#605](https://github.com/jaredglaser/homelab-manager/issues/605)) ([f8e24b3](https://github.com/jaredglaser/homelab-manager/commit/f8e24b31c9f1a942ea993ccae8401b65f3bdd05d))
+* **hosts:** break the first-contact enrollment deadlock in the Add Host wizard ([#601](https://github.com/jaredglaser/homelab-manager/issues/601)) ([0750595](https://github.com/jaredglaser/homelab-manager/commit/0750595894342991656b16b881c2edc61707af89))
+* **hosts:** retry provisioning when a self-restart loses the enroll response ([#617](https://github.com/jaredglaser/homelab-manager/issues/617)) ([b41a21a](https://github.com/jaredglaser/homelab-manager/commit/b41a21ab13b4874cc8ef50806a92ca03aa3e631c))
+* **hosts:** stop the shared host failure copy naming a control ([#642](https://github.com/jaredglaser/homelab-manager/issues/642)) ([0655157](https://github.com/jaredglaser/homelab-manager/commit/065515715b885daaaae7da2e5d315d704ed18db4))
+* **image:** give the worker the agent channel the web already resolves ([#620](https://github.com/jaredglaser/homelab-manager/issues/620)) ([3114e49](https://github.com/jaredglaser/homelab-manager/commit/3114e4908e6a55817fda5eb6b29aacf35d110aa7))
+* **self-hosting:** fail fast on missing config, fix backup/restore and diagnostics, drop fixed container names ([#596](https://github.com/jaredglaser/homelab-manager/issues/596)) ([ae391c6](https://github.com/jaredglaser/homelab-manager/commit/ae391c60a967dca2c5278a7ef4e1d3f3dc1e4a60))
+
 ## [0.3.0](https://github.com/jaredglaser/homelab-manager/compare/v0.2.4...v0.3.0) (2026-11-03)
 
 
