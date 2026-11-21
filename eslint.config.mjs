@@ -148,6 +148,97 @@ const endpointAuthRule = {
   },
 };
 
+function objectLiteralKey(property) {
+  if (property.type !== 'Property' || property.computed) return null;
+  if (property.key.type === 'Identifier') return property.key.name;
+  if (property.key.type === 'Literal') return String(property.key.value);
+  return null;
+}
+
+function unwrapExpression(node) {
+  let current = node;
+  while (
+    current
+    && (current.type === 'TSSatisfiesExpression'
+      || current.type === 'TSAsExpression'
+      || current.type === 'TSNonNullExpression')
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+const agentErrorCodeRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'Response.json error bodies in agent route modules must carry a code from AGENT_ROUTE_FAILURE_CODES beside the human message.',
+    },
+    schema: [],
+    messages: {
+      missingCode:
+        'This error body sends prose only. Wrap it in routeErrorBody(code, message) from agent/src/lib/error-body.ts, with a code from AGENT_ROUTE_FAILURE_CODES in agent/src/types.ts, so the manager branches on the reason instead of matching the message.',
+    },
+  },
+  create(context) {
+    return {
+      "CallExpression[callee.object.name='Response'][callee.property.name='json']"(node) {
+        const body = unwrapExpression(node.arguments[0]);
+        if (!body || body.type !== 'ObjectExpression') return;
+        const keys = body.properties.map(objectLiteralKey);
+        if (!keys.includes('error') || keys.includes('code')) return;
+        context.report({ node: body, messageId: 'missingCode' });
+      },
+    };
+  },
+};
+
+const MESSAGE_MATCH_METHODS = ['includes', 'startsWith', 'endsWith', 'match', 'search', 'indexOf', 'test'];
+
+const isMessageMember = (node) =>
+  node?.type === 'MemberExpression' &&
+  ((node.property.type === 'Identifier' && node.property.name === 'message') ||
+    (node.computed && node.property.type === 'Literal' && node.property.value === 'message'));
+
+const MESSAGE_NORMALIZERS = ['toLowerCase', 'toUpperCase', 'trim'];
+
+const isMessageLike = (node) =>
+  isMessageMember(node) ||
+  (node?.type === 'CallExpression' &&
+    node.callee?.type === 'MemberExpression' &&
+    node.callee.property?.type === 'Identifier' &&
+    MESSAGE_NORMALIZERS.includes(node.callee.property.name) &&
+    isMessageMember(node.callee.object));
+
+const noErrorMessageMatchingRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'Classify a failure by a code or a typed field, never by matching error.message text.',
+    },
+    schema: [],
+    messages: {
+      messageMatch:
+        'This classifies a failure by matching its message text, so a reword silently changes what the code does. Branch on a code or a typed field instead. Transport-level noise (socket teardown, connection loss) is the only exception: disable this rule on the line with the reason it is transport, not classification.',
+    },
+  },
+  create(context) {
+    return {
+      CallExpression(node) {
+        const { callee } = node;
+        if (callee.type !== 'MemberExpression' || callee.computed) return;
+        const { property } = callee;
+        if (property.type !== 'Identifier' || !MESSAGE_MATCH_METHODS.includes(property.name)) return;
+        if (isMessageLike(callee.object) || node.arguments.some(isMessageLike)) {
+          context.report({ node, messageId: 'messageMatch' });
+        }
+      },
+    };
+  },
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -370,28 +461,46 @@ export default tseslint.config(
   },
   { files: ['src/lib/test/wait-for-condition.ts'], rules: { 'no-restricted-syntax': 'off' } },
 
+  // ESLint 10 rejects redefining a plugin name for the same file, so every
+  // local/ rule is registered in this one block; the rule blocks below only bind them.
+  {
+    files: ['src/**/*.{ts,tsx}', 'server/**/*.ts', 'agent/src/**/*.ts'],
+    plugins: {
+      local: {
+        rules: {
+          'endpoint-auth': endpointAuthRule,
+          'no-error-message-matching': noErrorMessageMatchingRule,
+          'agent-error-code': agentErrorCodeRule,
+        },
+      },
+    },
+  },
+
   // Endpoint auth enforcement. Route files branch to route mode inside the rule via the filename check and everything else here is createServerFn mode.
   {
     files: ['src/**/*.{ts,tsx}', 'server/**/*.ts'],
     ignores: ['**/__tests__/**'],
-    plugins: { local: { rules: { 'endpoint-auth': endpointAuthRule } } },
     rules: { 'local/endpoint-auth': 'error' },
+  },
+
+  // Scope: components/**, scripts/** and vite.config.ts stay out until their matches have a code to branch on.
+  {
+    files: ['src/lib/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
+    ignores: ['**/__tests__/**'],
+    rules: { 'local/no-error-message-matching': 'error' },
   },
 
   // A stale eslint-disable is enforcement that reads as done, so it fails the build instead of warning.
   { linterOptions: { reportUnusedDisableDirectives: 'error' } },
 
-  // AGENTS.md rule 8. 40 findings remain, so this stays warn globally and lands as an error in the trees
-  // that are already clean (see the per-tree block at the end of this file).
+  // AGENTS.md rule 8.
   {
     files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     rules: { 'no-console': ['warn', { allow: ['error', 'info', 'warn'] }] },
   },
 
   // Everything below has existing violations, so it lands as warn to keep this PR at zero errors.
-  // The autofixable group lands as an error in the trees that are already clean (per-tree block at the
-  // end). The rest need per-site judgement and stay warnings until worked down. The claim that an
-  // autofix sweep PR promoted these was never implemented, so it is gone.
+  // These still carry findings, so they stay warn until worked down.
   {
     files: ['**/*.{ts,tsx}'],
     rules: {
@@ -432,9 +541,7 @@ export default tseslint.config(
     },
   },
 
-  // Per-tree error flips. Each rule below is already clean in the trees listed, measured with
-  // `eslint . -f json`; the trees that still carry findings keep the global warn severity. Add a tree
-  // here only after its findings reach zero, and prove it with `eslint --print-config <file>`.
+  // Add a tree here only after its findings reach zero, and confirm with eslint --print-config.
   {
     files: [
       'src/components/**/*.{ts,tsx}',
@@ -473,6 +580,13 @@ export default tseslint.config(
     files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     ignores: ['**/__tests__/**', 'src/worker/**'],
     rules: { '@typescript-eslint/no-duplicate-type-constituents': 'error' },
+  },
+
+  // Binds local/agent-error-code for agent route modules; the rule itself is
+  // registered once in the shared local plugin block above.
+  {
+    files: ['agent/src/routes/**/*.ts'],
+    rules: { 'local/agent-error-code': 'error' },
   },
 
   // Must stay last so it wins over the rule blocks above. No tsconfig reaches these files:

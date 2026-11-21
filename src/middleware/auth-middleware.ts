@@ -1,21 +1,18 @@
 import { createMiddleware } from '@tanstack/react-start';
+import type { AuthUser } from '@/lib/auth/types';
 
 /** Validates session cookies and injects AuthUser into server function context. Dynamic imports keep server-only modules out of the client bundle. */
-export const authMiddleware = createMiddleware().server(
-  async ({ next, context }) => {
-    const { getRequest } = await import('@tanstack/start-server-core');
-    const { resolveUserFromCookie } = await import('@/lib/auth/resolve-user');
-    const user = await resolveUserFromCookie(getRequest());
+export const authMiddleware = createMiddleware().server<{ user: AuthUser }>(async ({ next }) => {
+  const { getRequest } = await import('@tanstack/start-server-core');
+  const { resolveUserFromCookie } = await import('@/lib/auth/resolve-user');
+  const user = await resolveUserFromCookie(getRequest());
 
-    if (!user) {
-      throw new AuthError(401, 'Unauthorized');
-    }
+  if (!user) {
+    throw new AuthError(401, 'Unauthorized');
+  }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ctx = context as any;
-    return next({ context: { ...ctx, user } });
-  },
-);
+  return next({ context: { user } });
+});
 
 export class AuthError extends Error {
   constructor(

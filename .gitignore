@@ -37,7 +37,6 @@ docs/superpowers
 ov.conf
 /data/
 /.worktrees/
-.paul
 .superpowers
 agent-token
 .secrets/

@@ -80,10 +80,49 @@ export function isTlsFailureCode(value: unknown): value is TlsFailureCode {
   return typeof value === 'string' && (TLS_FAILURE_CODES as readonly string[]).includes(value);
 }
 
+export const AGENT_ROUTE_FAILURE_CODES = [
+  'invalid_json',
+  'invalid_request_body',
+  'invalid_stack_name',
+  'invalid_service_name',
+  'missing_stack_field',
+  'missing_service_field',
+  'invalid_scope',
+  'invalid_stack_path',
+  'stack_not_found',
+  'compose_spawn_failed',
+  'stack_write_failed',
+  'missing_deploy_fields',
+  'invalid_deploy_fields',
+  'invalid_env_content',
+  'invalid_force_recreate',
+  'compose_too_large',
+  'env_too_large',
+  'stacks_dir_unreadable',
+  'compose_read_failed',
+  'update_docker_unavailable',
+  'update_request_invalid',
+  'update_target_not_pinned',
+  'update_target_repo_mismatch',
+  'update_in_progress',
+  'update_start_failed',
+  'container_not_found',
+  'container_state_unchanged',
+  'container_control_failed',
+  'zfs_unavailable',
+  'zfs_pool_list_failed',
+] as const;
+export type AgentRouteFailureCode = (typeof AGENT_ROUTE_FAILURE_CODES)[number];
+
 /** The agent's JSON error shape wherever it reports a TLS failure: a human message plus the reason. */
 export interface AgentErrorBody {
   error: string;
   code: TlsFailureCode;
+}
+
+export interface AgentRouteErrorBody {
+  error: string;
+  code: AgentRouteFailureCode;
 }
 
 export interface AgentDockerCapability {

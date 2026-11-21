@@ -11,7 +11,7 @@
     "setup": "bun install && (cd agent && bun install)",
     "deps:check": "bun scripts/dep-sync.ts",
     "deps:sync": "bun scripts/dep-sync.ts --apply",
-    "lint": "eslint . --max-warnings 5882",
+    "lint": "eslint . --max-warnings 5808",
     "lint:fix": "eslint . --fix",
     "lint:sse": "eslint src/routes/api agent/src/routes",
     "typecheck": "tsc --noEmit",

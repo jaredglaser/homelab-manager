@@ -309,7 +309,7 @@ async function requestRestart(
   }
   if (!response.ok) {
     const detail = await readErrorDetail(response);
-    if (response.status === 403 && detail.message.startsWith('Agent TLS is configured but no certificate is enrolled yet')) {
+    if (response.status === 403 && detail.code === 'restricted_plain_http') {
       // First-boot restricted gate rejects the restart by design. Agents new enough self-restart on their own.
       // The https poll below is the real verdict, and its timeout message carries the manual-restart step.
       return;
@@ -336,7 +336,7 @@ async function requestRestart(
  */
 export function isRestartConnectionLoss(err: unknown): boolean {
   if (err instanceof DOMException && err.name === 'TimeoutError') return true;
-  // Bun reports the self-restart killing the socket as AbortError("The connection was closed."): the request was sent and no response will ever come.
+  // eslint-disable-next-line local/no-error-message-matching -- Bun reports the self-restart socket kill as AbortError, which carries no code
   if (err instanceof DOMException && err.name === 'AbortError' && /connection (was )?closed/i.test(err.message)) return true;
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && /ECONNRESET|EPIPE|ECONNABORTED/i.test(code)) return true;

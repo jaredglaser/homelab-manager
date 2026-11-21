@@ -166,6 +166,33 @@ describe('handleInfo', () => {
     }
   });
 
+  test('spawns git once for the version, not per request', async () => {
+    const original = process.env.AGENT_VERSION;
+    delete process.env.AGENT_VERSION;
+    const docker = mockDockerClient() as unknown as Parameters<typeof handleInfo>[0];
+    try {
+      // Warm the revision first: the initial resolution may legitimately spawn.
+      await (await handleInfo(docker, zfsAvailable)).json();
+
+      const spawned: string[][] = [];
+      const realSpawnSync = Bun.spawnSync;
+      Bun.spawnSync = ((command: string[]) => {
+        spawned.push(command);
+        return realSpawnSync(command);
+      }) as typeof Bun.spawnSync;
+      try {
+        await (await handleInfo(docker, zfsAvailable)).json();
+        await (await handleInfo(docker, zfsAvailable)).json();
+      } finally {
+        Bun.spawnSync = realSpawnSync;
+      }
+
+      expect(spawned.filter((command) => command.includes('rev-parse'))).toEqual([]);
+    } finally {
+      if (original !== undefined) process.env.AGENT_VERSION = original;
+    }
+  });
+
   test('reports Docker and ZFS capabilities when both available', async () => {
     const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
     const body = await response.json();
