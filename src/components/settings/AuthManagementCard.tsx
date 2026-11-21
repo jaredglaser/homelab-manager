@@ -460,7 +460,7 @@ export function AuthManagementCard() {
   )
 }
 
-function formatDate(date: Date | string | null | undefined): string {
+function formatDate(date: Date | null | undefined): string {
   if (!date) return EMPTY_CELL
   const parsed = new Date(date)
   if (Number.isNaN(parsed.getTime())) return EMPTY_CELL

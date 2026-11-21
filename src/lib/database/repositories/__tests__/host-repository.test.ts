@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { HostRepository } from '../host-repository';
 import { MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
 import type { CreateHostInput, HostHealthVerdict } from '../host-repository';
@@ -22,16 +22,19 @@ function createMockPool() {
 }
 
 const sampleRow = {
-  id: '1',
+  id: 1,
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
   capabilities: { docker: true, zfs: true },
   agent_version: '0.1.0',
   agent_image: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
   agent_image_tag: 'dev',
+  agent_image_digest: 'sha256:' + 'a'.repeat(64),
+  agent_out_of_date: false,
   status: 'healthy',
   created_at: new Date('2026-01-01T00:00:00Z'),
   updated_at: new Date('2026-01-01T00:00:00Z'),
+  last_swept_at: new Date('2026-03-01T00:00:00Z'),
 };
 
 describe('HostRepository', () => {
@@ -59,13 +62,20 @@ describe('HostRepository', () => {
       expect(result.name).toBe('homeserver');
       expect(result.agentUrl).toBe('http://192.168.1.10:9090');
       expect(result.status).toBe('healthy');
+      expect(result.capabilities).toEqual({ docker: true, zfs: true });
+      expect(result.agentVersion).toBe('0.1.0');
+      expect(result.agentImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');
+      expect(result.agentImageTag).toBe('dev');
+      expect(result.agentImageDigest).toBe('sha256:' + 'a'.repeat(64));
+      expect(result.agentOutOfDate).toBe(false);
+      expect(result.lastSweptAt).toEqual(new Date('2026-03-01T00:00:00Z'));
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
       expect(mock.queries[0].sql).toContain('RETURNING');
       expect(mock.queries[0].params).toContain('homeserver');
     });
 
     it('insert returns only the generated id for deploy callers', async () => {
-      mock.pushResult([{ id: '5' }]);
+      mock.pushResult([{ id: 5 }]);
 
       const id = await repo.insert({
         name: 'newhost',
@@ -74,6 +84,7 @@ describe('HostRepository', () => {
       });
 
       expect(id).toBe(5);
+      expect(typeof id).toBe('number');
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
       expect(mock.queries[0].params).toContain(JSON.stringify({ docker: true }));
     });
@@ -100,6 +111,9 @@ describe('HostRepository', () => {
       expect(result[0].id).toBe(1);
       expect(result[1].id).toBe(2);
       expect(result[0].agentUrl).toBe('http://192.168.1.10:9090');
+      expect(result[0].capabilities).toEqual({ docker: true, zfs: true });
+      expect(result[0].agentOutOfDate).toBe(false);
+      expect(result[0].agentImageDigest).toBe('sha256:' + 'a'.repeat(64));
     });
 
     it('maps the recorded failure columns, and a row that has none to null', async () => {
@@ -124,17 +138,18 @@ describe('HostRepository', () => {
         id: 1,
         name: 'homeserver',
         agentUrl: 'http://192.168.1.10:9090',
+        capabilities: { docker: true, zfs: true },
         agentVersion: '0.1.0',
         agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
         agentImageTag: 'dev',
+        agentImageDigest: 'sha256:' + 'a'.repeat(64),
+        agentOutOfDate: false,
+        lastSweptAt: new Date('2026-03-01T00:00:00Z'),
       });
     });
 
     it('maps a row that carries no agent image to nulls', async () => {
-      const { agent_image, agent_image_tag, ...withoutImage } = sampleRow;
-      void agent_image;
-      void agent_image_tag;
-      mock.pushResult([withoutImage]);
+      mock.pushResult([{ ...sampleRow, agent_image: null, agent_image_tag: null }]);
 
       const result = await repo.getAll();
 
@@ -384,7 +399,7 @@ describe('HostRepository', () => {
     });
 
     it('emits add notify on insert', async () => {
-      mock.pushResult([{ id: '1' }]);
+      mock.pushResult([{ id: 1 }]);
       await repo.insert({ name: 'host2', agentUrl: 'http://x:9090' });
       const notifies = pickNotify(mock);
       expect(notifies).toHaveLength(1);
@@ -428,6 +443,16 @@ describe('HostRepository', () => {
       await repo.updateHealth(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(pickNotify(mock)).toHaveLength(0);
+    });
+  });
+
+  describe('status', () => {
+    it('refuses a status outside the CHECK constraint', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{ ...sampleRow, status: 'degraded' }]);
+
+      await expect(repo.findById(1)).rejects.toThrow('Unrecognized managed_hosts.status value');
+      errorSpy.mockRestore();
     });
   });
 });

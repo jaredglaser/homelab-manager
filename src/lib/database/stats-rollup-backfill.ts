@@ -98,11 +98,11 @@ async function rollupsExist(client: PoolClient, table: string): Promise<boolean>
 }
 
 async function earliestSample(client: PoolClient, table: string): Promise<number | null> {
-  const result = await client.query<{ min_time: Date | string | null }>(
+  const result = await client.query<{ min_time: Date | null }>(
     `SELECT min(time) AS min_time FROM ${table}`,
   );
   const minTime = result.rows[0]?.min_time ?? null;
-  return minTime === null ? null : new Date(minTime).getTime();
+  return minTime === null ? null : minTime.getTime();
 }
 
 async function refreshTier(

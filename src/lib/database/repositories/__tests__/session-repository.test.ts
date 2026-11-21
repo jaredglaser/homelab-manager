@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { SessionRepository } from '../session-repository';
 import type { SessionRow, CreateSessionInput } from '../session-repository';
 import type { AuthUser } from '@/lib/auth/types';
@@ -251,6 +251,16 @@ describe('SessionRepository', () => {
 
       expect(result[0].userName).toBeNull();
       expect(result[0].userEmail).toBe('bob@example.com');
+    });
+  });
+
+  describe('role', () => {
+    it('refuses a joined user whose role is outside the CHECK constraint', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{ ...baseJoinRow, role: 'owner' } as unknown as Record<string, unknown>]);
+
+      await expect(repo.findById('hashed-session-id')).rejects.toThrow('Unrecognized users.role value');
+      errorSpy.mockRestore();
     });
   });
 });

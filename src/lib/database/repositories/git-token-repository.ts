@@ -32,19 +32,37 @@ export interface CreateGitTokenInput {
   label: string;
 }
 
-function rowToGitToken(row: {
-  id: unknown;
-  user_id: unknown;
-  label: unknown;
-  last_used_at: unknown;
-  created_at: unknown;
-}): GitTokenRow {
+interface GitTokenQueryRow {
+  id: number;
+  user_id: number;
+  label: string;
+  last_used_at: Date | null;
+  created_at: Date;
+}
+
+interface GitTokenWithUserQueryRow extends GitTokenQueryRow {
+  user_name: string | null;
+  user_email: string;
+}
+
+interface GitTokenHashQueryRow {
+  id: number;
+  user_id: number;
+}
+
+interface GitTokenEncryptedQueryRow {
+  id: number;
+  user_id: number;
+  encrypted_token: string;
+}
+
+function rowToGitToken(row: GitTokenQueryRow): GitTokenRow {
   return {
-    id: Number(row.id),
-    userId: Number(row.user_id),
-    label: row.label as string,
-    lastUsedAt: (row.last_used_at as Date | null) ?? null,
-    createdAt: row.created_at as Date,
+    id: row.id,
+    userId: row.user_id,
+    label: row.label,
+    lastUsedAt: row.last_used_at,
+    createdAt: row.created_at,
   };
 }
 
@@ -52,68 +70,60 @@ export class GitTokenRepository {
   constructor(private readonly pool: Pool) {}
 
   async create(input: CreateGitTokenInput): Promise<GitTokenRow> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<GitTokenQueryRow>(
       `INSERT INTO git_tokens (user_id, encrypted_token, token_hash, label)
        VALUES ($1, $2, $3, $4)
        RETURNING id, user_id, label, last_used_at, created_at`,
       [input.userId, input.encryptedToken, input.tokenHash, input.label]
     );
-    return rowToGitToken(result.rows[0] as Parameters<typeof rowToGitToken>[0]);
+    return rowToGitToken(result.rows[0]);
   }
 
   async findByUserId(userId: number): Promise<GitTokenRow[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<GitTokenQueryRow>(
       `SELECT id, user_id, label, last_used_at, created_at
        FROM git_tokens
        WHERE user_id = $1
        ORDER BY created_at DESC`,
       [userId]
     );
-    return (result.rows as Parameters<typeof rowToGitToken>[0][]).map(rowToGitToken);
+    return result.rows.map(rowToGitToken);
   }
 
   async findAll(): Promise<GitTokenWithUser[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<GitTokenWithUserQueryRow>(
       `SELECT gt.id, gt.user_id, gt.label, gt.last_used_at, gt.created_at,
               u.name AS user_name, u.email AS user_email
        FROM git_tokens gt
        JOIN users u ON gt.user_id = u.id
        ORDER BY gt.created_at DESC`
     );
-    return (result.rows as {
-      id: unknown;
-      user_id: unknown;
-      label: unknown;
-      last_used_at: unknown;
-      created_at: unknown;
-      user_name: unknown;
-      user_email: unknown;
-    }[]).map(row => ({
+    return result.rows.map(row => ({
       ...rowToGitToken(row),
-      userName: (row.user_name as string | null) ?? null,
-      userEmail: row.user_email as string,
+      userName: row.user_name,
+      userEmail: row.user_email,
     }));
   }
 
   async findByTokenHash(tokenHash: string): Promise<GitTokenHashMatch | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<GitTokenHashQueryRow>(
       `SELECT id, user_id FROM git_tokens WHERE token_hash = $1`,
       [tokenHash]
     );
-    const row = result.rows[0] as { id: unknown; user_id: unknown } | undefined;
-    if (!row) return null;
-    return { id: Number(row.id), userId: Number(row.user_id) };
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    return { id: row.id, userId: row.user_id };
   }
 
   /** Rows predating migration 027, for the startup hash backfill. */
   async findMissingHash(): Promise<GitTokenWithEncrypted[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<GitTokenEncryptedQueryRow>(
       `SELECT id, user_id, encrypted_token FROM git_tokens WHERE token_hash IS NULL`
     );
-    return (result.rows as { id: unknown; user_id: unknown; encrypted_token: unknown }[]).map(row => ({
-      id: Number(row.id),
-      userId: Number(row.user_id),
-      encryptedToken: row.encrypted_token as string,
+    return result.rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      encryptedToken: row.encrypted_token,
     }));
   }
 
