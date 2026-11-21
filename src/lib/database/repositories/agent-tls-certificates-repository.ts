@@ -1,6 +1,5 @@
 import type { Pool } from 'pg';
 
-/** The `cert_pem` column, the only one the read selects. */
 interface CertPemRow {
   cert_pem: string;
 }

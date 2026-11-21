@@ -40,13 +40,11 @@ interface GitTokenQueryRow {
   created_at: Date;
 }
 
-/** The git_tokens row plus the joined users columns. */
 interface GitTokenWithUserQueryRow extends GitTokenQueryRow {
   user_name: string | null;
   user_email: string;
 }
 
-/** The id/user_id pair the token-hash lookup selects. */
 interface GitTokenHashQueryRow {
   id: number;
   user_id: number;

@@ -145,6 +145,33 @@ describe('scrapeFile', () => {
     expect(site.dynamic).toEqual(['tier.relation']);
   });
 
+  test('reads a plain string literal statement', () => {
+    const file = fixture('plain.ts', [
+      'interface IdRow { id: number }',
+      "const a = pool.query<IdRow>('SELECT id FROM users WHERE id = $1', [id]);",
+    ].join('\n'));
+    expect(scrapeFile(file, fixtureDir)[0].sql).toBe('SELECT id FROM users WHERE id = $1');
+  });
+
+  test('joins a concatenation, following a top-level const', () => {
+    const file = fixture('concat.ts', [
+      'interface IdRow { id: number }',
+      "const COLUMNS = 'id, name';",
+      "const a = pool.query<IdRow>('SELECT ' + COLUMNS + ' FROM users');",
+    ].join('\n'));
+    expect(scrapeFile(file, fixtureDir)[0].sql).toBe('SELECT id, name FROM users');
+  });
+
+  test('keeps a site whose statement it cannot read, with a null statement, so the run can fail on it', () => {
+    const file = fixture('opaque.ts', [
+      'interface IdRow { id: number }',
+      'const a = pool.query<IdRow>(buildSql(), []);',
+      "const b = pool.query<IdRow>({ text: 'SELECT 1' });",
+      "const c = pool.query<IdRow>('SELECT ' + unknownName);",
+    ].join('\n'));
+    expect(scrapeFile(file, fixtureDir).map((site) => site.sql)).toEqual([null, null, null]);
+  });
+
   test('ignores calls that are not a typed query', () => {
     const file = fixture('other.ts', [
       'interface IdRow { id: number }',

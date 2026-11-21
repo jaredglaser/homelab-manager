@@ -6,12 +6,10 @@ export interface SettingRow {
   updated_at: Date;
 }
 
-/** The `value` column, the only one `get` selects. */
 interface SettingValueRow {
   value: string;
 }
 
-/** The `key`/`value` pair `getAll` selects, without the timestamp. */
 interface SettingKeyValueRow {
   key: string;
   value: string;

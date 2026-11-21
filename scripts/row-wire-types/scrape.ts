@@ -13,7 +13,7 @@ export interface QuerySite {
   line: number;
   rowType: string;
   rowFields: RowField[] | null;
-  sql: string;
+  sql: string | null;
   dynamic: string[];
 }
 
@@ -41,6 +41,38 @@ export function scrapeFile(file: string, baseDir: string): QuerySite[] {
     ts.forEachChild(node, collectDeclarations);
   };
   collectDeclarations(sourceFile);
+
+  const constants = new Map<string, ts.Expression>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) constants.set(declaration.name.text, declaration.initializer);
+    }
+  }
+
+  const resolveSql = (expression: ts.Expression, dynamic: string[], seen = new Set<string>()): string | null => {
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+    if (ts.isParenthesizedExpression(expression)) return resolveSql(expression.expression, dynamic, seen);
+    if (ts.isTemplateExpression(expression)) {
+      let built = expression.head.text;
+      for (const span of expression.templateSpans) {
+        const interpolated = span.expression.getText(sourceFile);
+        dynamic.push(interpolated);
+        built += `<DYN:${interpolated}>${span.literal.text}`;
+      }
+      return built;
+    }
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = resolveSql(expression.left, dynamic, seen);
+      const right = resolveSql(expression.right, dynamic, seen);
+      return left === null || right === null ? null : left + right;
+    }
+    if (ts.isIdentifier(expression) && !seen.has(expression.text)) {
+      const initializer = constants.get(expression.text);
+      return initializer ? resolveSql(initializer, dynamic, new Set(seen).add(expression.text)) : null;
+    }
+    return null;
+  };
 
   const membersToFields = (members: readonly ts.TypeElement[]): RowField[] | null => {
     const fields: RowField[] = [];
@@ -82,33 +114,20 @@ export function scrapeFile(file: string, baseDir: string): QuerySite[] {
       if (/\.query$|\.queryOne$/.test(callee)) {
         const typeArgument = node.typeArguments[0];
         const argument = node.arguments.at(0);
-        let sql: string | null = null;
         const dynamic: string[] = [];
-        if (argument !== undefined && ts.isNoSubstitutionTemplateLiteral(argument)) {
-          sql = argument.text;
-        } else if (argument !== undefined && ts.isTemplateExpression(argument)) {
-          let built = argument.head.text;
-          for (const span of argument.templateSpans) {
-            const expression = span.expression.getText(sourceFile);
-            dynamic.push(expression);
-            built += `<DYN:${expression}>${span.literal.text}`;
-          }
-          sql = built;
-        }
-        if (sql) {
-          sites.push({
-            file: path.relative(baseDir, file),
-            line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
-            rowType: typeArgument.getText(sourceFile).replace(/\s+/g, ' '),
-            rowFields: ts.isTypeReferenceNode(typeArgument)
-              ? fieldsByName(typeArgument.typeName.getText(sourceFile))
-              : ts.isTypeLiteralNode(typeArgument)
-                ? membersToFields(typeArgument.members)
-                : null,
-            sql,
-            dynamic: [...new Set(dynamic)],
-          });
-        }
+        const sql = argument === undefined ? null : resolveSql(argument, dynamic);
+        sites.push({
+          file: path.relative(baseDir, file),
+          line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
+          rowType: typeArgument.getText(sourceFile).replace(/\s+/g, ' '),
+          rowFields: ts.isTypeReferenceNode(typeArgument)
+            ? fieldsByName(typeArgument.typeName.getText(sourceFile))
+            : ts.isTypeLiteralNode(typeArgument)
+              ? membersToFields(typeArgument.members)
+              : null,
+          sql,
+          dynamic: [...new Set(dynamic)],
+        });
       }
     }
     ts.forEachChild(node, visit);

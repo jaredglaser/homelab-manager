@@ -9,12 +9,10 @@ export interface CreatedAgentKeypair {
   privateKey: CryptoKey;
 }
 
-/** The `private_jwk_jwe` column, the only one the read selects. */
 interface PrivateJwkRow {
   private_jwk_jwe: string;
 }
 
-/** The `public_jwk` column, the only one the read selects. */
 interface PublicJwkRow {
   public_jwk: JWK;
 }

@@ -75,7 +75,7 @@ interface ZFSStatsQueryRow {
   utilization_percent: number | null;
 }
 
-/** A proxmox_stats row from any tier; the SQL casts the BIGINT/numeric columns to float8. */
+/** Every tier's projection casts the BIGINT/numeric columns to float8. */
 interface ProxmoxStatsQueryRow {
   time: Date;
   host: string;
@@ -101,7 +101,6 @@ interface ProxmoxStatsQueryRow {
   cluster_version: number | null;
 }
 
-/** The single-column bounds projection getDockerStatsForContainer selects. */
 interface ActualSpanRow {
   actual_span_secs: number | null;
 }

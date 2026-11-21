@@ -54,7 +54,6 @@ interface DeployRow {
   post_success: string | null;
 }
 
-/** RETURNING id, shared by the insert and the queued-marker resolve. */
 interface DeployIdRow {
   id: number;
 }
@@ -64,7 +63,6 @@ interface DeployCountRow {
   count: string;
 }
 
-/** One deploy_queue row; `request` is the JSONB object enqueueDeploy wrote. */
 interface DeployQueueRow {
   request: DeployRequest;
   queued_at: Date;
@@ -74,7 +72,6 @@ interface DeployQueueMarkerRow {
   stack: string;
 }
 
-/** RETURNING projection shared by the watchdog sweeps. */
 interface StuckDeployQueryRow {
   id: number;
   stack: string;
