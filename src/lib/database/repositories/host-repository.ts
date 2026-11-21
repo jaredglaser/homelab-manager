@@ -14,10 +14,14 @@ export interface HostFailureRecord {
   detail: string | null;
 }
 
-/** A healthy status cannot carry a failure: the managed_hosts_failure_check constraint rejects it. */
+/** An unhealthy host always names its cause, and a healthy one never carries one (managed_hosts_failure_check). */
 export type HostHealthVerdict =
   | { status: 'healthy'; failure: null }
-  | { status: Exclude<HostStatus, 'healthy'>; failure: HostFailureRecord | null };
+  | { status: 'pending'; failure: HostFailureRecord | null }
+  | { status: 'unhealthy'; failure: HostFailureRecord };
+
+/** The probe's detail is raw error text, so it is cut before it is stored and broadcast to every viewer. */
+export const MAX_FAILURE_DETAIL_LENGTH = 512;
 
 export interface ManagedHost {
   id: number;
@@ -33,8 +37,7 @@ export interface ManagedHost {
   agentOutOfDate: boolean;
   status: HostStatus;
   /** Null when the last probe succeeded or the host has never been probed. */
-  failureCode: HostProbeFailureCode | null;
-  failureDetail: string | null;
+  failure: HostFailureRecord | null;
   createdAt: Date;
   updatedAt: Date;
   /**
@@ -65,6 +68,12 @@ export interface UpdateHostInput {
   capabilities?: HostCapabilities;
 }
 
+function toFailureRecord(row: Record<string, unknown>): HostFailureRecord | null {
+  const code = (row.failure_code as HostProbeFailureCode | null | undefined) ?? null;
+  if (code === null) return null;
+  return { code, detail: (row.failure_detail as string | null | undefined) ?? null };
+}
+
 function toManagedHost(row: Record<string, unknown>): ManagedHost {
   return {
     id: Number(row.id),
@@ -77,8 +86,7 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     agentImageDigest: (row.agent_image_digest as string | null | undefined) ?? null,
     agentOutOfDate: (row.agent_out_of_date as boolean | null | undefined) ?? false,
     status: row.status as HostStatus,
-    failureCode: (row.failure_code as HostProbeFailureCode | null | undefined) ?? null,
-    failureDetail: (row.failure_detail as string | null | undefined) ?? null,
+    failure: toFailureRecord(row),
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
     lastSweptAt: (row.last_swept_at as Date | null | undefined) ?? null,
@@ -173,10 +181,17 @@ export class HostRepository {
     return result.rows.length > 0 ? toManagedHost(result.rows[0] as Record<string, unknown>) : null;
   }
 
-  async updateHealth(id: number, verdict: HostHealthVerdict): Promise<void> {
+  /** Written only while the row still has the URL the verdict was probed at, so an edited host never gets its old URL's verdict back. */
+  async updateHealth(id: number, verdict: HostHealthVerdict, probedUrl: string): Promise<void> {
     await this.pool.query(
-      'UPDATE managed_hosts SET status = $1, failure_code = $2, failure_detail = $3, updated_at = NOW() WHERE id = $4',
-      [verdict.status, verdict.failure?.code ?? null, verdict.failure?.detail ?? null, id],
+      'UPDATE managed_hosts SET status = $1, failure_code = $2, failure_detail = $3, updated_at = NOW() WHERE id = $4 AND agent_url = $5',
+      [
+        verdict.status,
+        verdict.failure?.code ?? null,
+        verdict.failure?.detail?.slice(0, MAX_FAILURE_DETAIL_LENGTH) ?? null,
+        id,
+        probedUrl,
+      ],
     );
   }
 

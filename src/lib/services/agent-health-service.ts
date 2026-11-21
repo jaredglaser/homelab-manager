@@ -1,5 +1,5 @@
 import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
-import { agentFetch, isMissingPinError, toPlainHttpUrl } from '@/lib/clients/agent-http';
+import { agentFetch, isCertificateRejectionError, isMissingPinError, toPlainHttpUrl } from '@/lib/clients/agent-http';
 
 export interface AgentInfoDetail {
   version?: string;
@@ -14,8 +14,15 @@ export interface AgentInfoDetail {
  * Why a health check failed. `offline` means nothing answered at the network level. `unreachable`
  * means something answered but is not a healthy agent. `awaiting-enrollment` means the agent
  * answered on plain HTTP because it holds no certificate, so no https pin can match it.
+ * `agent-unhealthy` means the agent answered /health and reported itself unhealthy (no Docker and no ZFS).
+ * `certificate-rejected` means the agent's certificate failed verification against the pinned one.
  */
-export type AgentHealthFailureReason = 'offline' | 'unreachable' | 'awaiting-enrollment';
+export type AgentHealthFailureReason =
+  | 'offline'
+  | 'unreachable'
+  | 'awaiting-enrollment'
+  | 'agent-unhealthy'
+  | 'certificate-rejected';
 
 export type AgentHealthResult =
   | ({ healthy: true } & AgentInfoDetail)
@@ -123,6 +130,9 @@ export async function checkAgentHealth(
     }
 
     if (!response.ok) {
+      if (response.status === 503 && (await reportsItselfUnhealthy(response))) {
+        return { healthy: false, reason: 'agent-unhealthy', error: 'Agent reported itself unhealthy' };
+      }
       return {
         healthy: false,
         reason: 'unreachable',
@@ -168,11 +178,28 @@ export async function checkAgentHealth(
       }
     }
 
+    if (isCertificateRejectionError(err)) {
+      return {
+        healthy: false,
+        reason: 'certificate-rejected',
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
     return {
       healthy: false,
       reason: 'offline',
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+async function reportsItselfUnhealthy(response: Response): Promise<boolean> {
+  try {
+    const body = (await response.json()) as AgentHealthCheckResponse | null;
+    return body?.status === 'unhealthy';
+  } catch {
+    return false;
   }
 }
 

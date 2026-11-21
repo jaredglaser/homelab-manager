@@ -59,6 +59,7 @@ async function assertManagedHostFailureCheck(pool: Pool, checks: Checks): Promis
     for (const code of HOST_PROBE_FAILURE_CODES) {
       checks.equal(`managed_hosts accepts the ${code} failure code on an unhealthy row`, await accepts('unhealthy', code, 'detail'), true);
     }
+    checks.equal('managed_hosts accepts a pending row carrying a cause', await accepts('pending', 'awaiting-enrollment', 'detail'), true);
     checks.equal('managed_hosts accepts a healthy row with no cause', await accepts('healthy', null, null), true);
     checks.equal('managed_hosts rejects a failure code outside the probe set', await accepts('unhealthy', 'bogus', null), false);
     checks.equal('managed_hosts rejects a failure detail with no code', await accepts('unhealthy', null, 'detail'), false);

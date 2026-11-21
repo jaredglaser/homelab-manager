@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
 import { getAgentImage } from '@/lib/hosts/host-utils';
 import type { JWK } from 'jose';
@@ -31,8 +31,7 @@ function mockRow(overrides?: Record<string, unknown>) {
     agentImageTag: null,
     agentImageDigest: null,
     agentOutOfDate: false,
-    failureCode: null,
-    failureDetail: null,
+    failure: null,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
     lastSweptAt: null,
@@ -53,6 +52,10 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     updateAgentInfo: mock(() => Promise.resolve()),
     ...overrides,
   } as HostRepo;
+}
+
+function healthyProbe() {
+  return mock(() => Promise.resolve({ healthy: true as const }));
 }
 
 function baseDeps(repo?: Partial<HostRepo>): HostHandlerDeps {
@@ -93,7 +96,7 @@ describe('handleCheckHostHealth', () => {
     const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: true as const, version: '2.0.0', dockerVersion: '24.0' })) };
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(true);
-    expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null });
+    expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
     expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0' });
   });
 
@@ -153,7 +156,7 @@ describe('handleCheckHostHealth', () => {
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
     if (!result.healthy) expect(result.code).toBe('offline');
-    expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'offline', detail: 'refused' } });
+    expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'offline', detail: 'refused' } }, 'http://192.168.1.10:9090');
     expect(repo.updateAgentInfo).not.toHaveBeenCalled();
   });
 
@@ -162,14 +165,14 @@ describe('handleCheckHostHealth', () => {
     const deps = { ...baseDeps({ updateHealth }), checkHealth: mock(() => Promise.resolve({ healthy: false as const, error: 'boom' })) };
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     if (!result.healthy) expect(result.code).toBe('health_check_failed');
-    expect(updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'health_check_failed', detail: 'boom' } });
+    expect(updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'health_check_failed', detail: 'boom' } }, 'http://192.168.1.10:9090');
   });
 
   it('records an awaiting-enrollment probe as that cause', async () => {
     const updateHealth = mock(() => Promise.resolve());
     const deps = { ...baseDeps({ updateHealth }), checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'awaiting-enrollment' as const, error: 'plain HTTP' })) };
     await handleCheckHostHealth(deps, { hostId: 1 });
-    expect(updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'awaiting-enrollment', detail: 'plain HTTP' } });
+    expect(updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'awaiting-enrollment', detail: 'plain HTTP' } }, 'http://192.168.1.10:9090');
   });
 
   it('throws when host not found', async () => {
@@ -345,7 +348,7 @@ describe('handleRotateHostTls', () => {
       update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
     });
     const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
-    const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7 });
+    const result = await handleRotateHostTls({ repo, provisionTls, checkHealth: healthyProbe() }, { hostId: 7 });
     expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090', {
       allowPlaintextEnrollment: false,
     });
@@ -359,7 +362,7 @@ describe('handleRotateHostTls', () => {
       update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
     });
     const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
-    const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7, agentUrl: 'http://candidate:9090' });
+    const result = await handleRotateHostTls({ repo, provisionTls, checkHealth: healthyProbe() }, { hostId: 7, agentUrl: 'http://candidate:9090' });
     expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090', {
       allowPlaintextEnrollment: false,
     });
@@ -373,6 +376,7 @@ describe('handleRotateHostTls', () => {
     });
     const deps = {
       repo,
+      checkHealth: healthyProbe(),
       provisionTls: mock(async (_hostName: string, _agentUrl: string) => {
         throw new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
       }),
@@ -386,6 +390,7 @@ describe('handleRotateHostTls', () => {
     const repo = mockRepo();
     const deps = {
       repo,
+      checkHealth: healthyProbe(),
       provisionTls: mock(async () => {
         throw new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
       }),
@@ -399,6 +404,7 @@ describe('handleRotateHostTls', () => {
     const repo = mockRepo();
     const deps = {
       repo,
+      checkHealth: healthyProbe(),
       provisionTls: mock(async () => {
         throw new TlsProvisionFailure('signature_invalid', 'the agent does not trust this keypair');
       }),
@@ -411,10 +417,53 @@ describe('handleRotateHostTls', () => {
     expect(repo.update).not.toHaveBeenCalled();
   });
 
+  it('re-probes the rotated host and records its verdict, so a cause about the old certificate does not outlive the rotation', async () => {
+    let row = mockRow({
+      id: 7,
+      name: 'rot-host',
+      status: 'unhealthy',
+      agentUrl: 'https://old:9090',
+      failure: { code: 'certificate-rejected', detail: 'self signed certificate' },
+    });
+    const updateHealth = mock(() => Promise.resolve());
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(row)),
+      update: mock((id: number, fields: { agentUrl?: string }) => {
+        row = { ...row, id, ...fields };
+        return Promise.resolve(row);
+      }),
+      updateHealth,
+    });
+    const checkHealth = healthyProbe();
+    const provisionTls = mock(() => Promise.resolve({ agentUrl: 'https://new:9090' }));
+
+    await handleRotateHostTls({ repo, provisionTls, checkHealth }, { hostId: 7 });
+
+    expect(checkHealth).toHaveBeenCalledWith('https://new:9090', 'rot-host');
+    expect(updateHealth).toHaveBeenCalledWith(7, { status: 'healthy', failure: null }, 'https://new:9090');
+  });
+
+  it('does not probe after a failed rotation', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ status: 'unhealthy', failure: { code: 'offline', detail: null } }))),
+    });
+    const checkHealth = healthyProbe();
+    await handleRotateHostTls(
+      {
+        repo,
+        checkHealth,
+        provisionTls: mock(() => Promise.reject(new TlsProvisionFailure('signature_invalid', 'the agent does not trust this keypair'))),
+      },
+      { hostId: 1 },
+    );
+    expect(checkHealth).not.toHaveBeenCalled();
+  });
+
   it('maps a missing keypair to no_keypair rather than a throw', async () => {
     const repo = mockRepo();
     const deps = {
       repo,
+      checkHealth: healthyProbe(),
       provisionTls: mock(async () => {
         throw missingAgentKeypairError('test-host');
       }),
@@ -431,7 +480,7 @@ describe('handleUpdateHost', () => {
     const deps = baseDeps();
     deps.repo = repo;
 
-    const result = await handleUpdateHost(deps, { hostId: 1, name: 'test-host', agentUrl: 'http://new-url:9090' });
+    const result = await handleUpdateHost({ ...deps, checkHealth: healthyProbe() }, { hostId: 1, name: 'test-host', agentUrl: 'http://new-url:9090' });
 
     expect(result.name).toBe('test-host');
     expect(result.agentUrl).toBe('http://new-url:9090');
@@ -440,7 +489,7 @@ describe('handleUpdateHost', () => {
 
   it('throws when host not found', async () => {
     const deps = baseDeps({ findById: mock(() => Promise.resolve(null)) });
-    await expect(handleUpdateHost(deps, { hostId: 999 })).rejects.toThrow('not found');
+    await expect(handleUpdateHost({ ...deps, checkHealth: healthyProbe() }, { hostId: 999 })).rejects.toThrow('not found');
   });
 
   it('rejects a changed name and does not write', async () => {
@@ -449,7 +498,7 @@ describe('handleUpdateHost', () => {
     deps.repo = repo;
 
     await expect(
-      handleUpdateHost(deps, { hostId: 1, name: 'renamed', agentUrl: 'http://new-url:9090' }),
+      handleUpdateHost({ ...deps, checkHealth: healthyProbe() }, { hostId: 1, name: 'renamed', agentUrl: 'http://new-url:9090' }),
     ).rejects.toThrow(/cannot be changed after enrollment/);
     expect(repo.update).not.toHaveBeenCalled();
   });
@@ -459,7 +508,7 @@ describe('handleUpdateHost', () => {
     const deps = baseDeps();
     deps.repo = repo;
 
-    await handleUpdateHost(deps, { hostId: 1, name: '  test-host  ', agentUrl: 'http://x:9090' });
+    await handleUpdateHost({ ...deps, checkHealth: healthyProbe() }, { hostId: 1, name: '  test-host  ', agentUrl: 'http://x:9090' });
 
     expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'http://x:9090' });
   });
@@ -469,9 +518,88 @@ describe('handleUpdateHost', () => {
     const deps = baseDeps();
     deps.repo = repo;
 
-    await handleUpdateHost(deps, { hostId: 1, agentUrl: 'http://x:9090' });
+    await handleUpdateHost({ ...deps, checkHealth: healthyProbe() }, { hostId: 1, agentUrl: 'http://x:9090' });
 
     expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'http://x:9090' });
+  });
+
+  describe('re-probing after the URL changes', () => {
+    function staleHost(status: 'unhealthy' | 'pending') {
+      let row = mockRow({
+        status,
+        agentUrl: 'http://old:9090',
+        failure: status === 'unhealthy' ? { code: 'unreachable', detail: 'Agent returned status 404' } : null,
+      });
+      const updateHealth = mock(() => Promise.resolve());
+      const repo = mockRepo({
+        findById: mock(() => Promise.resolve(row)),
+        update: mock((id: number, fields: { agentUrl?: string }) => {
+          row = { ...row, id, ...fields };
+          return Promise.resolve(row);
+        }),
+        updateHealth,
+      });
+      return { repo, updateHealth };
+    }
+
+    it('probes the new URL and records its verdict, so the old cause does not outlive the edit', async () => {
+      const { repo, updateHealth } = staleHost('unhealthy');
+      const checkHealth = healthyProbe();
+
+      await handleUpdateHost({ repo, checkHealth }, { hostId: 1, agentUrl: 'http://new:9090' });
+
+      expect(checkHealth).toHaveBeenCalledWith('http://new:9090', 'test-host');
+      expect(updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://new:9090');
+    });
+
+    it('records the new cause when the new URL fails too', async () => {
+      const { repo, updateHealth } = staleHost('unhealthy');
+      const checkHealth = mock(() =>
+        Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'refused' }));
+
+      await handleUpdateHost({ repo, checkHealth }, { hostId: 1, agentUrl: 'http://new:9090' });
+
+      expect(updateHealth).toHaveBeenCalledWith(
+        1,
+        { status: 'unhealthy', failure: { code: 'offline', detail: 'refused' } },
+        'http://new:9090',
+      );
+    });
+
+    it('does not probe when the URL is unchanged', async () => {
+      const { repo } = staleHost('unhealthy');
+      const checkHealth = healthyProbe();
+
+      await handleUpdateHost({ repo, checkHealth }, { hostId: 1, agentUrl: 'http://old:9090' });
+
+      expect(checkHealth).not.toHaveBeenCalled();
+    });
+
+    it('probes a pending host after the edit and keeps it pending when the new URL fails', async () => {
+      const { repo, updateHealth } = staleHost('pending');
+      const checkHealth = mock(() =>
+        Promise.resolve({ healthy: false as const, reason: 'awaiting-enrollment' as const, error: 'plain HTTP' }));
+
+      await handleUpdateHost({ repo, checkHealth }, { hostId: 1, agentUrl: 'http://new:9090' });
+
+      expect(updateHealth).toHaveBeenCalledWith(
+        1,
+        { status: 'pending', failure: { code: 'awaiting-enrollment', detail: 'plain HTTP' } },
+        'http://new:9090',
+      );
+    });
+
+    it('still saves the edit when the re-check cannot be recorded', async () => {
+      const { repo } = staleHost('unhealthy');
+      const checkHealth = mock(() => Promise.reject(new Error('probe crashed')));
+      const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+
+      const result = await handleUpdateHost({ repo, checkHealth }, { hostId: 1, agentUrl: 'http://new:9090' });
+
+      expect(result.agentUrl).toBe('http://new:9090');
+      expect(consoleError).toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
   });
 });
 
@@ -643,7 +771,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(true);
       if (result.healthy) expect(result.version).toBe('2.0.0');
-      expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null });
+      expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0', imageDigest: TEST_DIGEST, outOfDate: false });
     } finally {
       restore();
@@ -790,7 +918,7 @@ describe('handleUpdateAgent', () => {
       ));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(true);
-      expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null });
+      expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
     } finally {
       timers.restore();

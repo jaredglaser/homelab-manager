@@ -11,7 +11,7 @@ const mockHostCreate = mock(() =>
 const mockHostUpdate = mock(() =>
   Promise.resolve({ id: 1, name: 'localhost', agentUrl: 'http://localhost:9090', status: 'pending' as const }),
 );
-const mockHostUpdateHealth = mock<(id: number, verdict: HostHealthVerdict) => Promise<void>>(() => Promise.resolve());
+const mockHostUpdateHealth = mock<(id: number, verdict: HostHealthVerdict, probedUrl: string) => Promise<void>>(() => Promise.resolve());
 
 mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
   HostRepository: class {
@@ -63,8 +63,7 @@ function mockHost(overrides: Partial<ManagedHost> & Pick<ManagedHost, 'id' | 'na
     agentImageTag: null,
     agentImageDigest: null,
     agentOutOfDate: false,
-    failureCode: null,
-    failureDetail: null,
+    failure: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     lastSweptAt: null,
@@ -123,7 +122,7 @@ describe('seedDevAgent', () => {
     expect(mockHostCreate).toHaveBeenCalledTimes(1);
     expect(mockKeypairCreateForHost).toHaveBeenCalledTimes(1);
     expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
-    expect(mockHostUpdateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null });
+    expect(mockHostUpdateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://localhost:9090');
   });
 
   it('updates agent URL when existing host has a stale URL', async () => {

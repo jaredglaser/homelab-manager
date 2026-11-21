@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { HostRepository } from '../host-repository';
-import type { CreateHostInput } from '../host-repository';
+import { HostRepository, MAX_FAILURE_DETAIL_LENGTH } from '../host-repository';
+import type { CreateHostInput, HostHealthVerdict } from '../host-repository';
 
 function createMockPool() {
   const queries: { sql: string; params: unknown[] }[] = [];
@@ -109,8 +109,8 @@ describe('HostRepository', () => {
 
       const [down, fresh] = await repo.findAll();
 
-      expect(down).toMatchObject({ failureCode: 'awaiting-enrollment', failureDetail: 'plain HTTP' });
-      expect(fresh).toMatchObject({ failureCode: null, failureDetail: null });
+      expect(down.failure).toEqual({ code: 'awaiting-enrollment', detail: 'plain HTTP' });
+      expect(fresh.failure).toBeNull();
     });
 
     it('getAll returns the camelCase host shape', async () => {
@@ -182,21 +182,43 @@ describe('HostRepository', () => {
   });
 
   describe('updateHealth', () => {
-    it('writes the status, the failure cause and updated_at in one statement', async () => {
+    it('writes the status, the failure cause and updated_at in one statement, scoped to the probed URL', async () => {
       mock.pushResult([]); // UPDATE returns no rows
-      await repo.updateHealth(1, {
-        status: 'unhealthy',
-        failure: { code: 'unreachable', detail: 'Agent returned status 502' },
-      });
+      await repo.updateHealth(
+        1,
+        { status: 'unhealthy', failure: { code: 'unreachable', detail: 'Agent returned status 502' } },
+        'http://192.168.1.10:9090',
+      );
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
       expect(mock.queries[0].sql).toContain('updated_at');
-      expect(mock.queries[0].params).toEqual(['unhealthy', 'unreachable', 'Agent returned status 502', 1]);
+      expect(mock.queries[0].sql).toContain('AND agent_url = $5');
+      expect(mock.queries[0].params).toEqual(['unhealthy', 'unreachable', 'Agent returned status 502', 1, 'http://192.168.1.10:9090']);
+    });
+
+    it('cuts a failure detail that exceeds the stored limit', async () => {
+      mock.pushResult([]);
+      await repo.updateHealth(
+        1,
+        { status: 'unhealthy', failure: { code: 'offline', detail: 'x'.repeat(MAX_FAILURE_DETAIL_LENGTH + 100) } },
+        'http://192.168.1.10:9090',
+      );
+      expect(mock.queries[0].params[2]).toBe('x'.repeat(MAX_FAILURE_DETAIL_LENGTH));
+    });
+
+    it('admits a pending verdict with a cause, and forbids a healthy or causeless unhealthy one', () => {
+      const pending: HostHealthVerdict = { status: 'pending', failure: { code: 'offline', detail: null } };
+      // @ts-expect-error a healthy status cannot carry a failure
+      const healthyWithCause: HostHealthVerdict = { status: 'healthy', failure: { code: 'offline', detail: null } };
+      // @ts-expect-error an unhealthy status must name its cause
+      const unhealthyWithoutCause: HostHealthVerdict = { status: 'unhealthy', failure: null };
+
+      expect([pending, healthyWithCause, unhealthyWithoutCause]).toHaveLength(3);
     });
 
     it('clears the failure cause on a healthy verdict', async () => {
       mock.pushResult([]);
-      await repo.updateHealth(1, { status: 'healthy', failure: null });
-      expect(mock.queries[0].params).toEqual(['healthy', null, null, 1]);
+      await repo.updateHealth(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
+      expect(mock.queries[0].params).toEqual(['healthy', null, null, 1, 'http://192.168.1.10:9090']);
     });
   });
 
@@ -391,7 +413,7 @@ describe('HostRepository', () => {
     it('does not notify on metadata-only updates (status/version)', async () => {
       mock.pushResult([]);
       mock.pushResult([]);
-      await repo.updateHealth(1, { status: 'healthy', failure: null });
+      await repo.updateHealth(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(pickNotify(mock)).toHaveLength(0);
     });
