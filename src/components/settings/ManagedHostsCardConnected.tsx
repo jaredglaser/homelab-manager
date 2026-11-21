@@ -5,6 +5,7 @@ import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
 import type { PendingHostState } from '@/components/settings/AddHostWizard'
 import { useToast } from '@/hooks/toastAtom'
 import { tlsFailureGuidance, type TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
+import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
 
@@ -244,7 +245,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       if (result.healthy) {
         showToast(`Host is healthy${result.version ? ` (v${result.version})` : ''}`, 'success')
       } else {
-        showToast(`Host unhealthy: ${result.error ?? 'unknown error'}`, 'error')
+        showToast(hostFailureMessage(result.code, result.message), 'error')
       }
     },
     onError: (err: unknown, hostId: number) => {

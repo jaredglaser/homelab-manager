@@ -75,9 +75,9 @@ interface ContainerEventQueryRow {
   name: string;
   image: string;
   image_digest: string | null;
-  labels: Record<string, string> | null;
-  ports: ContainerPort[] | null;
-  mounts: ContainerMount[] | null;
+  labels: Record<string, string>;
+  ports: ContainerPort[];
+  mounts: ContainerMount[];
   compose_project: string | null;
   service_key: string | null;
   started_at: Date | null;
@@ -104,9 +104,9 @@ function rowToEventRow(row: ContainerEventQueryRow): DockerContainerEventRow {
     name: row.name,
     image: row.image,
     imageDigest: row.image_digest ?? null,
-    labels: row.labels ?? {},
-    ports: row.ports ?? [],
-    mounts: row.mounts ?? [],
+    labels: row.labels,
+    ports: row.ports,
+    mounts: row.mounts,
     composeProject: row.compose_project ?? null,
     serviceKey: row.service_key ?? null,
     startedAt: row.started_at ?? null,

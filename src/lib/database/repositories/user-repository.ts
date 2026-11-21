@@ -37,7 +37,7 @@ interface UserQueryRow {
 
 function rowToUser(row: UserQueryRow): UserRow {
   return {
-    id: Number(row.id),
+    id: row.id,
     oidcSubject: row.oidc_subject,
     email: row.email,
     name: row.name,

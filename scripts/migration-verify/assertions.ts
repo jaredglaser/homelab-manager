@@ -385,6 +385,9 @@ export async function captureRowCounts(pool: Pool): Promise<RowCountSnapshot> {
     'SELECT count(*) FROM proxmox_stats WHERE host = $1',
     [PROXMOX_HOST]
   );
+  // 044 only adds a constraint, so a count that moves across the upgrade means state was dropped.
+  snapshot['managed_hosts'] = await count(pool, 'SELECT count(*) FROM managed_hosts');
+  snapshot['entity_metadata'] = await count(pool, 'SELECT count(*) FROM entity_metadata');
   return snapshot;
 }
 

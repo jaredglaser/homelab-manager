@@ -45,13 +45,13 @@ interface DeployRow {
   env_hash: string;
   status: string;
   trigger: string;
-  action: string | null;
-  force_recreate: boolean | null;
+  action: string;
+  force_recreate: boolean;
   logs: string | null;
   created_at: Date;
   /** Absent from the DISTINCT ON projection in getLatestDeployPerStack. */
   started_at?: Date | null;
-  post_success?: string | null;
+  post_success: string | null;
 }
 
 /** RETURNING id, shared by the insert and the queued-marker resolve. */
@@ -79,7 +79,7 @@ interface StuckDeployQueryRow {
   id: number;
   stack: string;
   host: string;
-  action: string | null;
+  action: string;
   trigger: string;
 }
 
@@ -110,7 +110,7 @@ export class DeployRepository {
         params.postSuccess ?? null,
       ]
     );
-    return Number(result.rows[0].id);
+    return result.rows[0].id;
   }
 
   /**
@@ -301,7 +301,7 @@ export class DeployRepository {
       [stack, host, logs]
     );
     if (result.rows.length === 0) return null;
-    return Number(result.rows[0].id);
+    return result.rows[0].id;
   }
 
   async getPendingDeploys(): Promise<DeployRecord[]> {
@@ -345,7 +345,7 @@ export class DeployRepository {
       [kind],
     );
     return result.rows.map((row) => ({
-      id: Number(row.id),
+      id: row.id,
       stack: row.stack,
       host: row.host,
     }));
@@ -410,10 +410,10 @@ export class DeployRepository {
 
 function toStuckDeployRow(row: StuckDeployQueryRow): StuckDeployRow {
   return {
-    id: Number(row.id),
+    id: row.id,
     stack: row.stack,
     host: row.host,
-    action: parseNullableRowEnum('deploy_history.action', row.action, isDeployAction) ?? 'deploy',
+    action: parseRowEnum('deploy_history.action', row.action, isDeployAction),
     trigger: parseRowEnum('deploy_history.trigger', row.trigger, isDeployTrigger),
   };
 }
@@ -427,7 +427,7 @@ function isActiveDeployConflict(err: unknown): boolean {
 
 function toDeployRecord(row: DeployRow): DeployRecord {
   return {
-    id: Number(row.id),
+    id: row.id,
     stack: row.stack,
     host: row.host,
     commitSha: row.commit_sha,
@@ -435,8 +435,8 @@ function toDeployRecord(row: DeployRow): DeployRecord {
     envHash: row.env_hash,
     status: parseRowEnum('deploy_history.status', row.status, isDeployStatus),
     trigger: parseRowEnum('deploy_history.trigger', row.trigger, isDeployTrigger),
-    action: parseNullableRowEnum('deploy_history.action', row.action, isDeployAction) ?? 'deploy',
-    forceRecreate: row.force_recreate === true,
+    action: parseRowEnum('deploy_history.action', row.action, isDeployAction),
+    forceRecreate: row.force_recreate,
     logs: row.logs,
     createdAt: row.created_at,
     startedAt: row.started_at ?? null,

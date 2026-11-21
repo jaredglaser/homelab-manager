@@ -23,8 +23,8 @@ function createMockPool(rows: Record<string, unknown>[] = []) {
 const now = new Date('2024-01-01T00:00:00Z');
 
 const baseTokenDbRow = {
-  id: '1',
-  user_id: '10',
+  id: 1,
+  user_id: 10,
   label: 'my-token',
   last_used_at: null as Date | null,
   created_at: now,
@@ -75,24 +75,29 @@ describe('GitTokenRepository', () => {
       expect(mock.calls[0].params).toEqual([10, 'enc:abc123', 'deadbeef', 'my-token']);
     });
 
-    it('coerces string id and user_id to numbers', async () => {
-      mock.pushResult([{ ...baseTokenDbRow, id: '42', user_id: '99' }]);
+    it('passes the numeric id and user_id from the wire through to the caller unchanged', async () => {
+      const dbRow = { ...baseTokenDbRow, id: 42, user_id: 99 };
+      mock.pushResult([dbRow]);
       const result = await repo.create({
         userId: 99,
         encryptedToken: 'enc:xyz',
         tokenHash: 'b'.repeat(64),
-        label: 'coerce-test',
+        label: 'passthrough-test',
       });
+      expect(result.id).toBe(dbRow.id);
+      expect(result.userId).toBe(dbRow.user_id);
       expect(result.id).toBe(42);
       expect(result.userId).toBe(99);
+      expect(typeof result.id).toBe('number');
+      expect(typeof result.userId).toBe('number');
     });
   });
 
   describe('findByUserId', () => {
     it('returns all tokens for a user', async () => {
       const rows = [
-        { ...baseTokenDbRow, id: '1', label: 'token-a' },
-        { ...baseTokenDbRow, id: '2', label: 'token-b' },
+        { ...baseTokenDbRow, id: 1, label: 'token-a' },
+        { ...baseTokenDbRow, id: 2, label: 'token-b' },
       ];
       mock.pushResult(rows);
       const result = await repo.findByUserId(10);
@@ -113,15 +118,15 @@ describe('GitTokenRepository', () => {
       const rows = [
         {
           ...baseTokenDbRow,
-          id: '1',
-          user_id: '10',
+          id: 1,
+          user_id: 10,
           user_name: 'Alice',
           user_email: 'alice@example.com',
         },
         {
           ...baseTokenDbRow,
-          id: '2',
-          user_id: '20',
+          id: 2,
+          user_id: 20,
           label: 'bob-token',
           user_name: null,
           user_email: 'bob@example.com',
@@ -131,9 +136,11 @@ describe('GitTokenRepository', () => {
       const result = await repo.findAll();
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe(1);
+      expect(result[0].userId).toBe(10);
       expect(result[0].userName).toBe('Alice');
       expect(result[0].userEmail).toBe('alice@example.com');
       expect(result[1].id).toBe(2);
+      expect(result[1].userId).toBe(20);
       expect(result[1].userName).toBeNull();
       expect(result[1].userEmail).toBe('bob@example.com');
     });
@@ -147,9 +154,11 @@ describe('GitTokenRepository', () => {
 
   describe('findByTokenHash', () => {
     it('returns id and userId for a matching row', async () => {
-      mock.pushResult([{ id: '1', user_id: '10' }]);
+      mock.pushResult([{ id: 1, user_id: 10 }]);
       const result = await repo.findByTokenHash('c'.repeat(64));
       expect(result).toEqual({ id: 1, userId: 10 });
+      expect(typeof result!.id).toBe('number');
+      expect(typeof result!.userId).toBe('number');
       expect(mock.calls[0].params).toEqual(['c'.repeat(64)]);
     });
 
@@ -163,8 +172,8 @@ describe('GitTokenRepository', () => {
   describe('findMissingHash', () => {
     it('returns id, userId, and encryptedToken for tokens without a hash', async () => {
       mock.pushResult([
-        { id: '1', user_id: '10', encrypted_token: 'enc:token1' },
-        { id: '2', user_id: '20', encrypted_token: 'enc:token2' },
+        { id: 1, user_id: 10, encrypted_token: 'enc:token1' },
+        { id: 2, user_id: 20, encrypted_token: 'enc:token2' },
       ]);
       const result = await repo.findMissingHash();
       expect(result).toHaveLength(2);

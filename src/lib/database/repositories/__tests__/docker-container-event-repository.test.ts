@@ -229,13 +229,37 @@ describe('DockerContainerEventRepository', () => {
       expect(row.exitCode).toBe(1);
     });
 
-    it('defaults null ports and mounts to empty arrays', async () => {
-      mock.pushResult([{ ...dbRow, ports: null, mounts: null }]);
+    it('passes already-parsed jsonb columns through unchanged and maps a destroy row without them', async () => {
+      const parsedLabels = { 'com.docker.compose.project': 'media' };
+      const parsedPorts = [{ containerPort: 8080, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }];
+      const parsedMounts = [{ type: 'bind', source: '/srv/data', destination: '/data', rw: false }];
+
+      mock.pushResult([{ ...dbRow, labels: parsedLabels, ports: parsedPorts, mounts: parsedMounts }]);
       const rows = await repo.getCurrentSnapshot();
       const row = rows[0];
       if (row.eventType !== 'upsert') throw new Error('expected upsert row');
-      expect(row.ports).toEqual([]);
-      expect(row.mounts).toEqual([]);
+      expect(row.labels).toBe(parsedLabels);
+      expect(row.ports).toBe(parsedPorts);
+      expect(row.mounts).toBe(parsedMounts);
+
+      mock.pushResult([{
+        ...dbRow,
+        event_type: 'destroy',
+        state: null,
+        name: null,
+        image: null,
+        labels: {},
+        ports: [],
+        mounts: [],
+        compose_project: null,
+        service_key: null,
+        started_at: null,
+      }]);
+      const destroyRows = await repo.getCurrentSnapshot();
+      const destroy = destroyRows[0];
+      expect(destroy.eventType).toBe('destroy');
+      expect(Object.keys(destroy)).not.toContain('ports');
+      expect(Object.keys(destroy)).not.toContain('mounts');
     });
 
     it('passes through ports and mounts from the row', async () => {

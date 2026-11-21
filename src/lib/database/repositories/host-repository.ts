@@ -61,16 +61,16 @@ interface ManagedHostRow {
   id: number;
   name: string;
   agent_url: string;
-  capabilities: HostCapabilities | null;
-  agent_version?: string | null;
-  agent_image?: string | null;
-  agent_image_tag?: string | null;
-  agent_image_digest?: string | null;
-  agent_out_of_date?: boolean | null;
+  capabilities: HostCapabilities;
+  agent_version: string | null;
+  agent_image: string | null;
+  agent_image_tag: string | null;
+  agent_image_digest: string | null;
+  agent_out_of_date: boolean;
   status: string;
   created_at: Date;
   updated_at: Date;
-  last_swept_at?: Date | null;
+  last_swept_at: Date | null;
 }
 
 interface HostIdRow {
@@ -83,15 +83,15 @@ interface HostNameRow {
 
 function toManagedHost(row: ManagedHostRow): ManagedHost {
   return {
-    id: Number(row.id),
+    id: row.id,
     name: row.name,
     agentUrl: row.agent_url,
-    capabilities: row.capabilities ?? {},
+    capabilities: row.capabilities,
     agentVersion: row.agent_version ?? null,
     agentImage: row.agent_image ?? null,
     agentImageTag: row.agent_image_tag ?? null,
     agentImageDigest: row.agent_image_digest ?? null,
-    agentOutOfDate: row.agent_out_of_date ?? false,
+    agentOutOfDate: row.agent_out_of_date,
     status: parseRowEnum('managed_hosts.status', row.status, isHostStatus),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -153,7 +153,7 @@ export class HostRepository {
       [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
     );
     await this.notifyChange('add', input.name);
-    return Number(result.rows[0].id);
+    return result.rows[0].id;
   }
 
   async findAll(): Promise<ManagedHost[]> {

@@ -61,8 +61,8 @@ interface GitTokenEncryptedQueryRow {
 
 function rowToGitToken(row: GitTokenQueryRow): GitTokenRow {
   return {
-    id: Number(row.id),
-    userId: Number(row.user_id),
+    id: row.id,
+    userId: row.user_id,
     label: row.label,
     lastUsedAt: row.last_used_at ?? null,
     createdAt: row.created_at,
@@ -115,7 +115,7 @@ export class GitTokenRepository {
     );
     if (result.rows.length === 0) return null;
     const row = result.rows[0];
-    return { id: Number(row.id), userId: Number(row.user_id) };
+    return { id: row.id, userId: row.user_id };
   }
 
   /** Rows predating migration 027, for the startup hash backfill. */
