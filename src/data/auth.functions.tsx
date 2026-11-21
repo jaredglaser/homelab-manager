@@ -6,22 +6,22 @@ import { requireRole } from '@/lib/auth/require-role';
 import type { AuthUser } from '@/lib/auth/types';
 
 /** Reads the session cookie and resolves the AuthUser (or null). Never throws: passes null when unauthenticated, unlike authMiddleware. */
-export const sessionReadMiddleware = createMiddleware().server(async ({ next, context }) => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ctx = context as any;
+export const sessionReadMiddleware = createMiddleware().server<{ sessionUser: AuthUser | null }>(
+  async ({ next }) => {
+    const { getRequest } = await import('@tanstack/start-server-core');
+    const { resolveUserFromCookie } = await import('@/lib/auth/resolve-user');
+    const sessionUser = await resolveUserFromCookie(getRequest());
 
-  const { getRequest } = await import('@tanstack/start-server-core');
-  const { resolveUserFromCookie } = await import('@/lib/auth/resolve-user');
-  const sessionUser = await resolveUserFromCookie(getRequest());
-
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return next({ context: { ...ctx, sessionUser: sessionUser as AuthUser | null } });
-});
+    return next({ context: { sessionUser } });
+  },
+);
 
 /**
  * Returns the currently authenticated user, or null if unauthenticated.
  * Used by the client-side auth hook to check session state without throwing.
  */
+// Unauthenticated by design: session bootstrap, callable without an existing session.
+// eslint-disable-next-line local/endpoint-auth
 export const getSession = createServerFn()
   .middleware([sessionReadMiddleware])
   .handler(async ({ context }): Promise<AuthUser | null> => {
@@ -72,7 +72,7 @@ export const listSessions = createServerFn()
  */
 export const revokeSession = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(z.object({ sessionId: z.string() }))
+  .validator(z.object({ sessionId: z.string() }))
   .handler(async ({ data, context }): Promise<void> => {
     requireRole('admin')(context.user);
 
@@ -92,7 +92,7 @@ export const revokeSession = createServerFn()
  */
 export const revokeAllUserSessions = createServerFn()
   .middleware([authMiddleware])
-  .inputValidator(z.object({ userId: z.number() }))
+  .validator(z.object({ userId: z.number() }))
   .handler(async ({ data, context }): Promise<void> => {
     requireRole('admin')(context.user);
 

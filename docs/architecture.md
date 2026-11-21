@@ -7,7 +7,7 @@ graph TD
     Browser["Browser<br/>(multiple tabs)"]
 
     subgraph TanStack_Start["TanStack Start Server"]
-        Mux["WS Mux<br/>(/api/mux topics)"]
+        Mux["WebSocket<br/>(/api/mux topics)"]
         PollSvc["StatsPollService<br/>(shared 1s poll)"]
         StackBroadcast["StackStatusBroadcastService<br/>(LISTEN docker_container_change + deploy_change)"]
     end
@@ -31,7 +31,6 @@ graph TD
     subgraph Hosts["Managed Docker Hosts"]
         Agent1["Agent Sidecar<br/>(Docker + ZFS)"]
         Agent2["Agent Sidecar<br/>(Docker + ZFS)"]
-        Updater["Agent-Updater<br/>(self-update)"]
     end
 
     ProxmoxHost["Proxmox VE<br/>REST API"]
@@ -53,7 +52,7 @@ graph TD
 ```
 
 The frontend reads stats from the database, not directly from Docker/ZFS APIs. This enables:
-- **Shared polling** - `StatsPollService` runs 1 query/sec per source, broadcasting results to every subscribed WS mux topic
+- **Shared polling** - `StatsPollService` runs 1 query/sec per source, broadcasting results to every subscribed WebSocket topic
 - **Direct DB queries** with seq-based cursors - no intermediate cache layer
 - **Stale data detection** at both global (30+ second warning) and per-entity levels (amber highlighting for individual hosts/containers)
 
@@ -81,7 +80,7 @@ The worker connects to agent sidecars on each managed host via SSE. For Docker s
 flowchart LR
     DB["TimescaleDB"]
     PollSvc["StatsPollService<br/>(1s shared poll)"]
-    Mux["WS Mux<br/>(/api/mux topic adapters)"]
+    Mux["WebSocket<br/>(/api/mux topic adapters)"]
     Hook["useTimeSeriesStream<br/>(hook)"]
     Table["Virtualized Table<br/>(CSS Grid)"]
 
@@ -97,15 +96,15 @@ flowchart LR
 4. **ContainerInventoryCollector** connects to each agent's `/containers/events` endpoint and persists container inventory events to `docker_container_events`
 5. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows, and inserts into TimescaleDB
 6. Stats are **inserted** into TimescaleDB wide hypertables
-7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to the mux topic adapters behind `stats:*`
-8. **One WebSocket at `/api/mux`** (`server/routes/api/mux.ts`) carries every live topic: `inventory`, `settings`, `stack-status` (control class), `stats:docker|zfs|proxmox`, and `logs:<host>/<containerId>` (bulk class). Multiple browser tabs share the same connection and the same poll - only 1 DB query/sec per source
+7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to the WebSocket topic adapters behind `stats:*`
+8. **One WebSocket at `/api/mux`** (`server/routes/api/mux.ts`) carries every live topic: `inventory`, `agent-inventory`, `settings`, `stack-status`, `image-updates` (control class), `stats:docker|zfs|proxmox`, and `logs:<host>/<containerId>` (bulk class). Multiple browser tabs share the same connection and the same poll - only 1 DB query/sec per source
 9. **Subscribe protocol** - the client sends `{ type: 'sub' | 'unsub', ref, topics }`; each command is answered by one `{ type: 'ack', ref, ok }` (with `error`/`code` on rejection), and topic data arrives as `{ type: 'event', topic, kind, payload }` with `kind` of `data`, `backlog_start`, `backlog_done`, `stream_end`, `error`, or `dropped`. Re-subscribing a topic restarts its adapter and re-delivers initial state (snapshots or log backlog) - that is the resync mechanism; after every reconnect the client re-sends its full topic set. Bulk frames are shed under socket backpressure and reported as `dropped` counts, and a session holds at most 250 topics (circuit breaker)
 10. The **`useTimeSeriesStream` hook** preloads history via REST, then merges topic updates into a time-windowed buffer with stale detection; shed frames surface as gap markers
 11. **Virtualized tables** render via the shared `DataTable` component (CSS Grid + conditional `useVirtualizer`). Tables under 150 rows use `contentVisibility: 'auto'` so the browser natively skips layout/paint for off-screen rows while preserving Collapse animations on nested detail panels (which break under virtualization); larger tables enable contained virtualization. Per-entity stale indicators highlight hosts that stop reporting
 
 ## Proxmox Data Model
 
-Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` discriminator column to distinguish cluster, node, qemu, lxc, and storage entities (similar to how ZFS uses `entity_type` for pool/vdev/disk). This keeps the architecture consistent: one table -> one StatsPollService source -> one mux topic -> one `useTimeSeriesStream` hook.
+Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` discriminator column to distinguish cluster, node, qemu, lxc, and storage entities (similar to how ZFS uses `entity_type` for pool/vdev/disk). This keeps the architecture consistent: one table -> one StatsPollService source -> one WebSocket topic -> one `useTimeSeriesStream` hook.
 
 - **Bidirectional conversion**: `overviewToRows()` converts the Proxmox API overview to flat DB rows; `buildProxmoxOverview()` reconstructs the overview from latest rows per entity
 - **Runtime-configurable interval**: The Proxmox poll interval (1s or 10s) can be changed via the settings UI; changes propagate via `SettingsListener` -> `ProxmoxCollector.pollInterval` setter
@@ -133,7 +132,6 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 | Component | Location | Description |
 |-----------|----------|-------------|
 | Agent container | `agent/` | Sidecar for Docker/ZFS operations on managed hosts |
-| Agent-updater | `agent-updater/` | Sidecar for automatic agent container updates |
 | Deploy pipeline | `src/lib/deploy/` | Trigger-agnostic deploy orchestration |
 | Git management | `src/lib/git/` | In-app bare git repo with HTTP smart protocol |
 | Crypto helpers | `src/lib/crypto/` | Master key resolution, JWE encrypted-value, Ed25519 agent JWT signing |
@@ -187,23 +185,32 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | POST | `/stacks/start` | Run `docker compose up -d` |
 | POST | `/stacks/stop` | Run `docker compose stop` |
 | GET | `/stacks/status` | List stacks in working directory |
+| GET | `/stacks/inventory` | List containerized stacks with image detail |
+| GET | `/stacks/compose` | Fetch a stack's compose file content |
+| WS | `/exec/:containerId` | Interactive shell into a container (WebSocket) |
+| GET | `/tls/challenge` | Issue a single-use nonce for the enrollment handshake |
+| POST | `/tls/enroll` | Enroll a TLS certificate for the agent, verified against a signed challenge (manager-driven) |
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
+| POST | `/agent/update` | Spawn a helper container that replaces the agent with the digest-pinned target image |
 
 **Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work. `ALLOW_LOGS=1` is required for container log streaming; without it the proxy returns 403 on `/containers/{id}/logs`.
 
-### Agent-Updater Sidecar (`agent-updater/`)
+### Agent Updates (`agent/src/handover.ts`)
 
-Separate Bun service that monitors and updates agent containers without manual Docker commands. Connects directly to the Docker socket proxy (bypasses the agent, which cannot replace its own container).
+Agent updates are manager-driven and manual only: the manager resolves the registry digest of its own agent image, the agents overview flags hosts whose running digest differs, and an admin applies the update per host.
 
-**Update sequence:**
-1. Inspect existing container to capture environment and host config
-2. Pull new agent image from registry
-3. Stop and remove old container
-4. Create new container with same config but new image
-5. Start new container
-6. Poll the Docker healthcheck at a fixed interval, then verify the agent's HTTP `/health` endpoint
-7. Roll back to the previous image if either health check fails
+**Mechanism:** a container cannot replace itself in-process (stopping it kills the process driving the recreate, and the replacement cannot bind the published port while the old container still runs). On `POST /agent/update` the agent spawns a one-shot helper container from its own current image through the Docker socket proxy; the helper outlives the agent container and performs the swap from outside.
+
+**Update sequence (helper container, `bun src/handover.ts`):**
+1. Pull the digest-pinned target image from the registry
+2. Inspect the agent container to capture environment and host config
+3. Stop and remove the old container
+4. Create a new container with the same config but the new image
+5. Start the new container
+6. Poll the Docker healthcheck, then verify the agent's HTTP `/health` endpoint, rolling back to the previous digest on failure
+
+**Detection:** the agent reports its running image digest on `/info`; the worker's inventory sweep compares it against the registry digest of the manager's agent image and persists the verdict the agents overview displays.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
@@ -277,7 +284,7 @@ Push:
   POST /api/git/stacks/git-receive-pack
 ```
 
-- Bearer token authentication
+- Bearer or Basic token authentication (the token is the Basic password field)
 - Repo name validation and path traversal protection
 - Request body size limit (50MB)
 - Subprocess exit code checking
@@ -342,7 +349,7 @@ stacks:
 At-rest encryption uses a versioned keyring of symmetric keys (base64, 256-bit) resolved at startup: `MASTER_KEY`/`MASTER_KEY_FILE` maps to KID `v1`, and `MASTER_KEY_<KID>` variants enroll additional keys for rotation (see the self-hosting guide's Master Key Rotation section).
 
 - **Stack secrets** (`stack_secrets` table): name/value pairs stored as JWE-encrypted blobs. The deploy pipeline resolves `${SECRET:name}` references in compose files before dispatching to agents (`src/lib/crypto/encrypted-value.ts`)
-- **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted; the public JWK is returned to the operator during the Add Host wizard's Verify step, who installs it in the agent as the `AGENT_TRUSTED_PUBKEY` env var and restarts it (`src/data/hosts/handlers.ts`). The dev compose flow writes the JWK to `data/dev-agent-pubkey.json` and the agent loads it via `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)
+- **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted. The public JWK is written to the wizard-generated .env at the Compose File step (the compose references it as `${AGENT_TRUSTED_PUBKEY}`), so the deployed agent trusts the manager from first boot (`src/data/hosts/handlers.ts`). The dev compose flow writes the JWK to `data/dev-agent-pubkey.json` and the agent loads it via `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)
 - `src/lib/crypto/master-key.ts` handles key resolution and exports the AES-GCM key object used by the JWE helpers
 
 ### Stacks UI
@@ -359,8 +366,17 @@ Full stack management interface at `/stacks` (top-level navigation).
 | `DeleteStackDialog` | Stack deletion confirmation |
 | `RollbackDialog` | Rollback to previous deployment |
 | `StackSettingsDialog` | Stack settings editor |
+| `ImageUpdateDialog` | Registry update check and release notes per container image |
 
 **Real-time updates:** The `useStackStatus` hook subscribes to the `stack-status` topic on the `/api/mux` WebSocket. Container status changes and deployment completions are broadcast to all connected browsers.
+
+### Image Update Checks (`src/lib/image-updates/`)
+
+On-demand registry checks behind two GET server functions (`getImageUpdateInfo`, `getImageChangelog`). The stack containers panel calls `getImageUpdateInfo` on mount. Each distinct image the stack runs is checked against its registry's tag list, and the running tag doubles as the constraint: `redis:7` matches newer 7.x only, `redis:7.4` newer 7.4.x, variant suffixes (`7-alpine`) must match exactly, and prereleases never count as updates unless the running tag is one. Floating tags (`latest`) are digest-compared instead: the agent resolves each container's `RepoDigests` at event time (cached per image ID in the broadcaster) and the inventory pipeline persists it as `docker_container_events.image_digest` (migration 039, also carried in the NOTIFY payload), so an update is a moved manifest digest on the registry side. Without a stored digest (locally built image) the check stays inconclusive. The running version used for the comparison is the image's declared `org.opencontainers.image.version` when it agrees with the version axes the tag pins; otherwise the check guesses from the tag name and records that (`versionSource`), which the dialog surfaces as a Version-unknown badge. Registries: Docker Hub via its Hub API, everything else through the anonymous Docker Registry v2 token flow with the token realm pinned to the registry's own host. Results are cached in memory (summaries 5 min, release notes 1 hour). Failures are not cached.
+
+The scheduled refresher (`src/lib/image-updates/update-refresher.ts`) re-checks every stack image every `IMAGE_UPDATE_REFRESH_INTERVAL_MS` (default 12h, wall-clock anchored to the newest row's `checked_at`) and persists results in `image_update_checks` (migration 042, rekeyed per stack by migration 043): one row per (host, stack, image) with the summary fields, a `checked_at` stamp, and the registry manifest `etag` plus the `manifest_digest` it was returned for, so floating-tag checks can send a conditional request and get a 304 when nothing moved - and the 304 is only honored while the stored digest still matches what the containers run. A failed check updates only the error columns and keeps the last known good tags. State changes versus the stored row are published in-process by `imageUpdateBroadcastService` onto the `image-updates` mux topic, where the client toasts and refetches the panel query. `getImageUpdateSummaries` serves panel reads from the persisted rows and falls back to a live check (writing through) only when rows are missing, errored without last-good tags, or older than twice the interval.
+
+Release notes come from GitHub Releases, resolved from the image's `org.opencontainers.image.source` label, and are fetched only when the dialog opens to stay inside GitHub's anonymous rate limit. A container label `homelab-manager.release-repo` overrides that resolution for images whose source label points at a wrapper repo (e.g. `caddyserver/caddy-docker` publishes no GitHub releases; the project's releases live at `caddyserver/caddy`). Its value is always a full repository URL and the host decides the provider, so adding a second forge later means adding its host and API grammar, not a new label syntax; only `github.com` is supported today, and other hosts get an error saying so. Empty and failed changelogs carry fix-it copy (add the label, fix its value) instead of a bare "no releases", and empty results are not cached so a label fix takes effect on the next dialog open. The dialog defaults to releases matching the running tag's constraint with an all-releases toggle, so an out-of-constraint major (3.0 while running `:2`) stays discoverable without being offered as the update. Releases render as collapsible rows (tag and date in the trigger, notes collapsed) with the newest expanded, so a long changelog does not take over the dialog.
 
 ### Host Management (Settings UI)
 
@@ -368,7 +384,7 @@ Managed hosts are configured via the Settings page:
 
 | Component | Purpose |
 |-----------|---------|
-| `AddHostWizard` | Multi-step wizard for onboarding new hosts with token generation |
+| `AddHostWizard` | Multi-step wizard for onboarding new hosts: keypair generation, agent stack and .env generation, and TLS provisioning |
 | `ManagedHostsCard` | Host list with status, capabilities, and actions |
 | `HostDialogs` | Edit and delete confirmation dialogs |
 | `HostRow` | Individual host row with health indicator |

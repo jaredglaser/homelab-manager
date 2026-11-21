@@ -1,0 +1,573 @@
+import { describe, expect, test, beforeEach } from 'bun:test';
+import { mockModule } from '@/lib/test/mock-module';
+import { hubTokenFlow, jsonResponse, withFetch } from '@/lib/test/fetch-mock';
+import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
+import type { ImageUpdateCheckRow } from '@/lib/database/repositories/image-update-check-repository';
+
+const checkRepoState: {
+  rows: ImageUpdateCheckRow[];
+  successes: number;
+  failures: number;
+  readError: boolean;
+  writeError: boolean;
+} = { rows: [], successes: 0, failures: 0, readError: false, writeError: false };
+
+mockModule<typeof import('@/lib/database/repositories/image-update-check-repository')>(
+  '@/lib/database/repositories/image-update-check-repository',
+  (real) => ({
+    ...real,
+    ImageUpdateCheckRepository: class {
+      async getAll() {
+        return checkRepoState.rows;
+      }
+      async getByStack(_host: string, _stack: string) {
+        if (checkRepoState.readError) throw new Error('db down');
+        return checkRepoState.rows;
+      }
+      async upsertSuccess() {
+        if (checkRepoState.writeError) throw new Error('write failed');
+        checkRepoState.successes++;
+      }
+      async upsertFailure() {
+        checkRepoState.failures++;
+      }
+    },
+  }),
+);
+
+function persistedRow(overrides: Partial<ImageUpdateCheckRow> = {}): ImageUpdateCheckRow {
+  return {
+    host: 'host1',
+    stack: 'web',
+    manifestDigest: null,
+    image: 'redis:7',
+    currentTag: '7',
+    latestMatchingTag: '7.4.1',
+    latestOverallTag: '8.0.0',
+    updateAvailable: true,
+    sourceRepo: null,
+    error: null,
+    lastErrorAt: null,
+    etag: null,
+    checkedAt: new Date('2026-01-02T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+function containerRow(overrides: Partial<DockerContainerEventUpsertRow>): DockerContainerEventUpsertRow {
+  return {
+    at: new Date('2026-01-01T00:00:00Z'),
+    host: 'host1',
+    containerId: 'abc123',
+    eventType: 'upsert',
+    state: 'running',
+    name: 'app',
+    image: 'redis:7',
+    imageDigest: null,
+    labels: {},
+    ports: [],
+    mounts: [],
+    composeProject: 'web',
+    serviceKey: 'web-app',
+    startedAt: null,
+    finishedAt: null,
+    exitCode: null,
+    ...overrides,
+  };
+}
+
+function mockSnapshot(rows: DockerContainerEventUpsertRow[]): void {
+  mockModule<typeof import('@/lib/config/database-config')>('@/lib/config/database-config', (real) => ({
+    ...real,
+    loadDatabaseConfig: () => ({}),
+  }));
+  mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({
+    ...real,
+    databaseConnectionManager: {
+      getClient: async () => ({ getPool: () => ({}), close: async () => {} }),
+    },
+  }));
+  mockModule<typeof import('@/lib/database/repositories/docker-container-event-repository')>(
+    '@/lib/database/repositories/docker-container-event-repository',
+    (real) => ({
+      ...real,
+      DockerContainerEventRepository: class {
+        async getCurrentSnapshot() {
+          return rows;
+        }
+      },
+    }),
+  );
+}
+
+const SOURCE_LABEL = 'org.opencontainers.image.source';
+const RELEASE_REPO_LABEL = 'homelab-manager.release-repo';
+
+beforeEach(() => {
+  checkRepoState.rows = [];
+  checkRepoState.successes = 0;
+  checkRepoState.failures = 0;
+  checkRepoState.readError = false;
+  checkRepoState.writeError = false;
+});
+
+describe('getImageUpdateSummaries', () => {
+  test('checks each distinct image once and sorts summaries by image', async () => {
+    mockSnapshot([
+      containerRow({ containerId: 'a', image: 'redis:7', composeProject: 'web' }),
+      containerRow({ containerId: 'b', image: 'redis:7', composeProject: 'web' }),
+      containerRow({ containerId: 'c', image: 'traefik:v3.1', composeProject: 'web' }),
+      containerRow({ containerId: 'd', image: 'redis:7', composeProject: 'other' }),
+      containerRow({ containerId: 'e', image: 'redis:7', host: 'host2', composeProject: 'web' }),
+    ]);
+    const { restore, fetchMock } = withFetch((url) => {
+      const target = String(url);
+      if (target.includes('library/redis')) {
+        return Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.1' }], next: null }));
+      }
+      return Promise.resolve(jsonResponse({ results: [{ name: 'v3.1' }, { name: 'v3.2' }], next: null }));
+    });
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const summaries = await getImageUpdateSummaries('web', 'host1');
+      expect(summaries.map((s) => s.image)).toEqual(['redis:7', 'traefik:v3.1']);
+      const redis = summaries[0];
+      expect(redis.updateAvailable).toBe(true);
+      expect(redis.latestMatchingTag).toBe('7.4.1');
+      expect(fetchMock.mock.calls.length).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('caches summaries for the stack+host key', async () => {
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'cached' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.1' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const first = await getImageUpdateSummaries('cached', 'host1');
+      const second = await getImageUpdateSummaries('cached', 'host1');
+      expect(second).toEqual(first);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('registry failures stay uncached so the next call retries', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', composeProject: 'uncached' })]);
+    let calls = 0;
+    const { restore } = withFetch(() => {
+      calls++;
+      if (calls === 1) return Promise.reject(new Error('network down'));
+      return Promise.resolve(jsonResponse({ results: [{ name: '1.0' }], next: null }));
+    });
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const first = await getImageUpdateSummaries('uncached', 'host1');
+      expect(first[0].error).toContain('network down');
+      const second = await getImageUpdateSummaries('uncached', 'host1');
+      expect(second[0].error).toBeNull();
+      expect(second[0].updateAvailable).toBe(false);
+      expect(calls).toBe(2);
+    } finally {
+      restore();
+    }
+  });
+
+  test('floating-tag docker.io images compare the stored digest through the auth.docker.io realm', async () => {
+    mockSnapshot([
+      containerRow({ image: 'myapp:latest', imageDigest: 'sha256:' + 'a'.repeat(64), composeProject: 'floating' }),
+    ]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({})));
+    hubTokenFlow(fetchMock, 'sha256:' + 'b'.repeat(64));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('floating', 'host1');
+      expect(summary.updateAvailable).toBe(true);
+      const targets = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(targets[0]).toBe('https://registry-1.docker.io/v2/');
+      expect(targets[1]).toContain('https://auth.docker.io/token');
+      expect(targets[2]).toBe('https://registry-1.docker.io/v2/library/myapp/manifests/latest');
+      expect(fetchMock.mock.calls.length).toBe(3);
+    } finally {
+      restore();
+    }
+  });
+
+  test('prefers a container whose labels carry the source repo', async () => {
+    mockSnapshot([
+      containerRow({ containerId: 'a', image: 'app:1.0', labels: {}, composeProject: 'labels' }),
+      containerRow({ containerId: 'b', image: 'app:1.0', labels: { [SOURCE_LABEL]: 'https://github.com/o/r' }, composeProject: 'labels' }),
+    ]);
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse({ results: [{ name: '1.0' }], next: null })));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('labels', 'host1');
+      expect(summary.sourceRepo).toBe('o/r');
+    } finally {
+      restore();
+    }
+  });
+
+  test('fresh persisted rows are served without registry calls', async () => {
+    const checkedAt = new Date(Date.now() - 3600_000);
+    checkRepoState.rows = [persistedRow({ checkedAt })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'freshrows', labels: { 'org.opencontainers.image.version': 'v7.4.1' } })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const summaries = await getImageUpdateSummaries('freshrows', 'host1');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0].updateAvailable).toBe(true);
+      expect(summaries[0].latestMatchingTag).toBe('7.4.1');
+      expect(summaries[0].currentVersion).toBe('7.4.1');
+      expect(summaries[0].checkedAt).toBe(checkedAt.toISOString());
+    } finally {
+      restore();
+    }
+  });
+
+  test('clearImageUpdateSummaryCache forces the next read back to the source', async () => {
+    checkRepoState.rows = [persistedRow({ checkedAt: new Date('2020-01-01T00:00:00Z') })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'cache-clear' })]);
+    let call = 0;
+    const { restore } = withFetch(() => {
+      call++;
+      return Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null }));
+    });
+    try {
+      const service = await import('../image-update-service');
+      const first = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(first[0].latestMatchingTag).toBe('7.4.2');
+      expect(call).toBe(1);
+      checkRepoState.rows = [persistedRow({ checkedAt: new Date(), latestMatchingTag: '7.5.0', updateAvailable: true })];
+      const second = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(second).toEqual(first);
+      expect(call).toBe(1);
+      service.clearImageUpdateSummaryCache();
+      const third = await service.getImageUpdateSummaries('cache-clear', 'host1');
+      expect(third[0].latestMatchingTag).toBe('7.5.0');
+      expect(call).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a malformed interval env var does not break panel reads', async () => {
+    checkRepoState.rows = [persistedRow({ checkedAt: new Date() })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'badenv' })]);
+    process.env.IMAGE_UPDATE_REFRESH_INTERVAL_MS = 'not-a-number';
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const summaries = await getImageUpdateSummaries('badenv', 'host1');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0].updateAvailable).toBe(true);
+    } finally {
+      delete process.env.IMAGE_UPDATE_REFRESH_INTERVAL_MS;
+      restore();
+    }
+  });
+
+  test('a stack with no containers returns empty summaries without registry calls', async () => {
+    mockSnapshot([]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse({ results: [], next: null })));
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      expect(await getImageUpdateSummaries('emptystack', 'host1')).toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('stale rows trigger a live check that writes through', async () => {
+    checkRepoState.rows = [persistedRow({ checkedAt: new Date('2020-01-01T00:00:00Z') })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'stalerows' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('stalerows', 'host1');
+      expect(fetchMock).toHaveBeenCalled();
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.latestMatchingTag).toBe('7.4.2');
+      expect(summary.checkedAt).not.toBe('2020-01-01T00:00:00.000Z');
+      expect(checkRepoState.successes).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an errored row with last-good tags is served from persistence within the freshness window', async () => {
+    checkRepoState.rows = [persistedRow({ error: 'Docker Hub returned 503', checkedAt: new Date() })];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'errorrows' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('errorrows', 'host1');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(summary.error).toBe('Docker Hub returned 503');
+      expect(summary.latestMatchingTag).toBe('7.4.1');
+      expect(checkRepoState.successes).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an errored row without last-good tags still live-checks', async () => {
+    checkRepoState.rows = [{
+      ...persistedRow({ error: 'Docker Hub returned 503', checkedAt: new Date() }),
+      currentTag: null,
+      latestMatchingTag: null,
+      latestOverallTag: null,
+      updateAvailable: null,
+    }];
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'errornull' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('errornull', 'host1');
+      expect(fetchMock).toHaveBeenCalled();
+      expect(summary.error).toBeNull();
+      expect(checkRepoState.successes).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a mixed stack live-checks only the unserveable images and merges the results', async () => {
+    checkRepoState.rows = [
+      persistedRow({ image: 'redis:7', error: 'Docker Hub returned 503', checkedAt: new Date() }),
+      persistedRow({ image: 'traefik:v3.1', checkedAt: new Date() }),
+    ];
+    mockSnapshot([
+      containerRow({ image: 'redis:7', composeProject: 'mixed' }),
+      containerRow({ image: 'traefik:v3.1', composeProject: 'mixed' }),
+      containerRow({ image: 'nginx:1', composeProject: 'mixed' }),
+    ]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '1' }, { name: '1.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const summaries = await getImageUpdateSummaries('mixed', 'host1');
+      expect(summaries.map((summary) => summary.image)).toEqual(['nginx:1', 'redis:7', 'traefik:v3.1']);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(checkRepoState.successes).toBe(1);
+      expect(checkRepoState.failures).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a failed persisted-row read falls back to the live check', async () => {
+    checkRepoState.readError = true;
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'readfail' })]);
+    const { restore, fetchMock } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('readfail', 'host1');
+      expect(fetchMock).toHaveBeenCalled();
+      expect(summary.updateAvailable).toBe(true);
+      expect(checkRepoState.successes).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a failed write-through does not break the read', async () => {
+    checkRepoState.writeError = true;
+    mockSnapshot([containerRow({ image: 'redis:7', composeProject: 'writefail' })]);
+    const { restore } = withFetch(() =>
+      Promise.resolve(jsonResponse({ results: [{ name: '7' }, { name: '7.4.2' }], next: null })),
+    );
+    try {
+      const { getImageUpdateSummaries } = await import('../image-update-service');
+      const [summary] = await getImageUpdateSummaries('writefail', 'host1');
+      expect(summary.updateAvailable).toBe(true);
+      expect(summary.checkedAt).not.toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('getImageChangelog', () => {
+  test('fetches releases from the source repo and caches them', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [SOURCE_LABEL]: 'https://github.com/o/r' }, composeProject: 'changelog-cache' })]);
+    const { restore, fetchMock } = withFetch((url) => {
+      expect(String(url)).toContain('api.github.com/repos/o/r/releases');
+      return Promise.resolve(jsonResponse([
+        { tag_name: 'v1.1.0', published_at: '2026-02-01T00:00:00Z', body: 'notes', draft: false },
+      ]));
+    });
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const first = await getImageChangelog('changelog-cache', 'host1', 'app:1.0');
+      expect(first.sourceRepo).toBe('o/r');
+      expect(first.releases[0].tagName).toBe('v1.1.0');
+      expect(first.error).toBeNull();
+      const second = await getImageChangelog('changelog-cache', 'host1', 'app:1.0');
+      expect(second).toEqual(first);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('reports a missing source repo instead of fetching', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: {}, composeProject: 'changelog-no-repo' })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-no-repo', 'host1', 'app:1.0');
+      expect(changelog.sourceRepo).toBeNull();
+      expect(changelog.error).toBe(
+        'No release repository is set for this image. Add the "homelab-manager.release-repo: https://github.com/owner/repo" label to the service in your compose file and recreate the stack to see its release notes.',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('surfaces GitHub failures as the changelog error', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [SOURCE_LABEL]: 'https://github.com/o/r' }, composeProject: 'changelog-error' })]);
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 404)));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-error', 'host1', 'app:1.0');
+      expect(changelog.releases).toEqual([]);
+      expect(changelog.error).toBe('No public releases are visible at github.com/o/r, so there are no release notes to show. A private repository looks the same from the outside; if the repository exists, publishing releases or making it public fixes this.');
+    } finally {
+      restore();
+    }
+  });
+
+  test('the override label wins over the OCI source label', async () => {
+    mockSnapshot([containerRow({
+      image: 'app:1.0',
+      labels: { [SOURCE_LABEL]: 'https://github.com/o/r', [RELEASE_REPO_LABEL]: 'https://github.com/upstream/project' },
+      composeProject: 'changelog-override',
+    })]);
+    const { restore, fetchMock } = withFetch((url) => {
+      expect(String(url)).toContain('api.github.com/repos/upstream/project/releases');
+      return Promise.resolve(jsonResponse([
+        { tag_name: 'v1.0.0', published_at: '2026-02-01T00:00:00Z', body: 'notes', draft: false },
+      ]));
+    });
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-override', 'host1', 'app:1.0');
+      expect(changelog.sourceRepo).toBe('upstream/project');
+      expect(changelog.releases[0].tagName).toBe('v1.0.0');
+      expect(changelog.error).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test('an unparseable override label explains how to fix it without fetching', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [RELEASE_REPO_LABEL]: 'not-a-repo' }, composeProject: 'changelog-bad-override' })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-bad-override', 'host1', 'app:1.0');
+      expect(changelog.sourceRepo).toBeNull();
+      expect(changelog.error).toBe(
+        'The "homelab-manager.release-repo" label is set to "not-a-repo", which is not a full repository URL. Use a URL like https://github.com/owner/repo.',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('an override URL on an unsupported host names the limitation', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [RELEASE_REPO_LABEL]: 'https://gitlab.com/o/r' }, composeProject: 'changelog-override-host' })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-override-host', 'host1', 'app:1.0');
+      expect(changelog.error).toBe(
+        'The "homelab-manager.release-repo" label points at gitlab.com, but release notes are only fetched from GitHub right now.',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('an override label pointing at an unknown repo names the label in the error', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [RELEASE_REPO_LABEL]: 'https://github.com/o/missing' }, composeProject: 'changelog-override-404' })]);
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse({}, 404)));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-override-404', 'host1', 'app:1.0');
+      expect(changelog.error).toBe(
+        'github.com/o/missing is set in the "homelab-manager.release-repo" label, but GitHub has no such public repository. Check the label value.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('an override repo with no releases explains the empty result', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [RELEASE_REPO_LABEL]: 'https://github.com/o/empty' }, composeProject: 'changelog-override-empty' })]);
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-override-empty', 'host1', 'app:1.0');
+      expect(changelog.error).toBeNull();
+      expect(changelog.releases).toEqual([]);
+      expect(changelog.emptyStateMessage).toBe(
+        'GitHub publishes no releases at github.com/o/empty, the repository set in the "homelab-manager.release-repo" label. Check the label value.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('a source-label repo with no releases points at the override label', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [SOURCE_LABEL]: 'https://github.com/o/r' }, composeProject: 'changelog-source-empty' })]);
+    const { restore } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      const changelog = await getImageChangelog('changelog-source-empty', 'host1', 'app:1.0');
+      expect(changelog.error).toBeNull();
+      expect(changelog.emptyStateMessage).toBe(
+        "No releases published at github.com/o/r, the repository this image's source label points to." +
+        ' If releases live in another repository, add the "homelab-manager.release-repo: https://github.com/owner/repo" label to the service in your compose file and recreate the stack.',
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test('an empty changelog is not cached so a later label fix takes effect', async () => {
+    mockSnapshot([containerRow({ image: 'app:1.0', labels: { [SOURCE_LABEL]: 'https://github.com/o/r' }, composeProject: 'changelog-empty-nocache' })]);
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(jsonResponse([])));
+    try {
+      const { getImageChangelog } = await import('../image-update-service');
+      await getImageChangelog('changelog-empty-nocache', 'host1', 'app:1.0');
+      await getImageChangelog('changelog-empty-nocache', 'host1', 'app:1.0');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      restore();
+    }
+  });
+});

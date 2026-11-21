@@ -1,9 +1,9 @@
 /**
- * Single source of truth for dependencies shared across the three packages
- * (root, agent, agent-updater): the root package.json. There is no shared
- * lockfile because each package installs independently: the Docker builds of
- * the agent and agent-updater resolve only their own lockfile, so this script
- * keeps the three package.json manifests in lockstep instead.
+ * Single source of truth for dependencies shared across the two packages
+ * (root, agent): the root package.json. There is no shared
+ * lockfile because each package installs independently: the Docker build of
+ * the agent resolves only its own lockfile, so this script
+ * keeps the two package.json manifests in lockstep instead.
  *
  *   bun run deps:check   fail if any package's shared dep differs from root
  *   bun run deps:sync    copy root's versions into the other manifests
@@ -11,7 +11,7 @@
  */
 import { $ } from "bun";
 
-const PACKAGES = ["package.json", "agent/package.json", "agent-updater/package.json"];
+const PACKAGES = ["package.json", "agent/package.json"];
 const SHARED_DEPS = ["dockerode", "jose", "zod", "@types/dockerode", "@types/bun", "typescript"];
 
 type Deps = Record<string, string>;

@@ -25,6 +25,7 @@ function createMockConfig(): WorkerConfig {
     zfs: { enabled: false },
     proxmox: { enabled: true },
     collection: { interval: 1000 },
+    agents: { allowInsecurePlaintext: true },
   };
 }
 

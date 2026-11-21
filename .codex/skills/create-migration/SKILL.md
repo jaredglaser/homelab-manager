@@ -18,7 +18,8 @@ Before editing:
 - Name files `NNN_description_in_snake_case.sql`.
 - Use `IF NOT EXISTS` or `if_not_exists => TRUE` for idempotency.
 - Use `TIMESTAMPTZ` for time columns.
-- For new time-series tables, add hypertable creation, compression settings, and a 7-day compression policy.
+- Take the highest migration number on `main` AND on every open PR. The collision guard only sees one working tree, so two branches can each add `033_*.sql` and both pass CI until the second merges. Never renumber an applied migration (the ledger keys on the exact filename), and never delete one without listing it in `ACKNOWLEDGED_REMOVALS` (see `AGENTS.md` gotcha 23).
+- For new time-series tables, follow the three-tier retention cascade pattern from migrations 030-032: a raw hypertable (24h retention), a `_1m` materialized view (30d retention), and a `_1h` materialized view (kept forever), each with its own compression policy (`_1m` compresses chunks older than 7d, `_1h` older than 30d).
 - Keep non-time-series tables simple; do not add hypertable/compression boilerplate unless the table stores time-series data.
 - If a new `BIGINT` column will be read through `pg`, add a short SQL comment when downstream code will need `Number(...)` coercion.
 

@@ -121,7 +121,7 @@ beforeEach(() => {
     setRetention: () => {},
     setDockerDebugLogging: () => {},
     setDbFlushDebugLogging: () => {},
-    setSseDebugLogging: () => {},
+    setStreamDebugLogging: () => {},
   }));
 });
 

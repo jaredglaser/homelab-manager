@@ -63,9 +63,9 @@ mockModule<typeof import('@/lib/stacks/stack-status-broadcast-service')>(
   }),
 );
 
-mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({
+mockModule<typeof import('@/lib/auth/ws-auth')>('@/lib/auth/ws-auth', (real) => ({
   ...real,
-  authenticateSSE: mockAuthenticate,
+  authenticateWsUpgrade: mockAuthenticate,
 }));
 
 mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({
@@ -93,6 +93,17 @@ mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository'
     getPrivateKeyForHost = mockGetPrivateKeyForHost;
   },
 }));
+
+const mockGetCertForHost = mock(async (_: string) => null as null | string);
+mockModule<typeof import('@/lib/database/repositories/agent-tls-certificates-repository')>(
+  '@/lib/database/repositories/agent-tls-certificates-repository',
+  (real) => ({
+    ...real,
+    AgentTlsCertificatesRepository: class {
+      getCertForHost = mockGetCertForHost;
+    },
+  }),
+);
 
 mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({
   ...real,
@@ -131,11 +142,12 @@ mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database
 
 import {
   MAX_PENDING_FRAMES,
+  STATIC_TOPIC_ADAPTERS,
   createMuxWsHandlers,
   defaultTopicAdapter,
   parseAgentSseBlock,
 } from '../mux';
-import { MAX_SESSION_TOPICS, MAX_SUB_BATCH, type MuxFrameBody } from '@/lib/mux/protocol';
+import { MAX_SESSION_TOPICS, MAX_SUB_BATCH, isValidTopic, type MuxFrameBody } from '@/lib/mux/protocol';
 import type { Peer } from 'crossws';
 import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
@@ -290,6 +302,22 @@ describe('mux ws route', () => {
     expect(peer.sent).toEqual([{ type: 'ack', ref: 0, ok: true }]);
   });
 
+  it('accepts the image-updates control topic', async () => {
+    const { calls, adapter } = makeAdapter();
+    const { peer, h } = await openWith({ adapter });
+
+    await h.message(peer as unknown as Peer, command('sub', ['image-updates']));
+
+    expect(calls.map((c) => c.topic)).toEqual(['image-updates']);
+    expect(peer.sent).toEqual([{ type: 'ack', ref: 0, ok: true }]);
+  });
+
+  it('accepts every statically handled topic as a valid command topic', () => {
+    for (const topic of Object.keys(STATIC_TOPIC_ADAPTERS)) {
+      expect(isValidTopic(topic)).toBe(true);
+    }
+  });
+
   it('forwards adapter frames to the peer as event frames', async () => {
     const { calls, adapter } = makeAdapter();
     const { peer, h } = await openWith({ adapter });
@@ -324,6 +352,26 @@ describe('mux ws route', () => {
 
     expect(calls[0].signal.aborted).toBe(true);
     expect(peer.sent.at(-1)).toEqual({ type: 'ack', ref: 2, ok: true });
+  });
+
+  it('reports a gone error frame when the topic adapter fails to start', async () => {
+    const { peer, h } = await openWith({ adapter: () => Promise.reject(new Error('adapter boom')) });
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+    const errorFrame = peer.sent.find((f) => f.type === 'event' && f.kind === 'error');
+    expect(errorFrame).toBeDefined();
+    expect((errorFrame?.payload as { message?: string }).message).toBe('Stream failed to start');
+  });
+
+  it('aborts the topic when the peer send fails mid-stream', async () => {
+    const { calls, adapter } = makeAdapter();
+    const { peer, h } = await openWith({ adapter });
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+
+    peer.send = () => { throw new Error('socket gone'); };
+    calls[0].emit({ topic: 'inventory', kind: 'data', payload: { type: 'init', containers: [] } });
+
+    expect(calls[0].signal.aborted).toBe(true);
   });
 
   it('accepts subscribes up to the 250-topic session circuit breaker', async () => {
@@ -522,6 +570,7 @@ describe('logs adapter pipe', () => {
   beforeEach(() => {
     mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'http://agent' }));
     mockGetPrivateKeyForHost.mockImplementation(async () => ({ kty: 'OKP' } as object));
+    mockGetCertForHost.mockImplementation(async () => 'FAKE-PEM');
   });
 
   afterEach(() => {
@@ -529,6 +578,7 @@ describe('logs adapter pipe', () => {
     (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
     mockFindByName.mockImplementation(async () => null);
     mockGetPrivateKeyForHost.mockImplementation(async () => null);
+    mockGetCertForHost.mockImplementation(async () => null);
   });
 
   it('re-emits agent frames as mux frames', async () => {
@@ -610,6 +660,48 @@ describe('logs adapter pipe', () => {
     expect((events[0].payload as { message?: string }).message).toContain('Unknown host');
     h.close(peer as unknown as Peer);
   });
+
+  it('emits a gone error when an https agent URL has no pinned TLS certificate', async () => {
+    mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent' }));
+    mockGetCertForHost.mockImplementation(async () => null);
+    (globalThis as unknown as Record<string, unknown>).fetch = mock(async () => {
+      throw new Error('should not fetch');
+    }) as unknown as typeof fetch;
+
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer('pipe-peer-4');
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['logs:server1/abc'], 1));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const events = peer.sent.filter((f) => f.type === 'event');
+    expect(events).toHaveLength(1);
+    expect(events[0].kind).toBe('error');
+    expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
+    expect((events[0].payload as { message?: string }).message).toBe(
+      'No pinned TLS certificate for host: server1. See the agent TLS recovery steps in the self-hosting guide.',
+    );
+    h.close(peer as unknown as Peer);
+  });
+
+  it('emits a gone error when the stored certificate is whitespace only', async () => {
+    mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent' }));
+    mockGetCertForHost.mockImplementation(async () => '   ');
+    (globalThis as unknown as Record<string, unknown>).fetch = mock(async () => {
+      throw new Error('should not fetch');
+    }) as unknown as typeof fetch;
+
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer('pipe-peer-5');
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['logs:server1/abc'], 1));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const events = peer.sent.filter((f) => f.type === 'event');
+    expect(events).toHaveLength(1);
+    expect((events[0].payload as { gone?: boolean }).gone).toBe(true);
+    h.close(peer as unknown as Peer);
+  });
 });
 
 type SentFrame = FakePeer['sent'][number];
@@ -629,7 +721,7 @@ describe('control topics (settings, stack-status)', () => {
     await import('@/lib/server-init');
     await import('@/lib/settings/settings-broadcast-service');
     await import('@/lib/stacks/stack-status-broadcast-service');
-    await import('@/lib/sse/channels/stack-status');
+    await import('@/lib/channels/stack-status');
   });
   const expectedStackEntry = {
     host: 'server1',
@@ -661,6 +753,7 @@ describe('control topics (settings, stack-status)', () => {
         containerId: 'c1',
         name: 'plex',
         image: 'plexinc/pms-docker',
+        imageDigest: null,
         state: 'running',
         composeProject: 'plex',
         serviceKey: 'plex/plex',

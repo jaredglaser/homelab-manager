@@ -1,9 +1,22 @@
 import { describe, it, expect, mock, beforeEach, beforeAll, afterAll } from 'bun:test';
 import { mockModule } from '@/lib/test/mock-module';
+import type { AuthUser } from '@/lib/auth/types';
 
 const mockFindByName = mock(async (_: string) => null as null | { name: string; agentUrl: string });
 const mockGetPrivateKeyForHost = mock(async (_: string) => null as null | object);
 const mockSignAgentJwt = mock(async () => 'fake.jwt.token');
+
+let authResult: AuthUser | null = null;
+const mockAuthenticateWsUpgrade = mock(async (): Promise<AuthUser | null> => authResult);
+
+mockModule<typeof import('@/lib/auth/ws-auth')>('@/lib/auth/ws-auth', (real) => ({
+  ...real,
+  authenticateWsUpgrade: mockAuthenticateWsUpgrade,
+}));
+
+function authUser(role: AuthUser['role']): AuthUser {
+  return { id: 1, email: 'operator@example.com', name: 'Operator', role };
+}
 
 mockModule<typeof import('@/lib/clients/database-client')>('@/lib/clients/database-client', (real) => ({ ...real, 
   databaseConnectionManager: {
@@ -21,11 +34,22 @@ mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/
   },
 }));
 
-mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real, 
+mockModule<typeof import('@/lib/database/repositories/agent-keypairs-repository')>('@/lib/database/repositories/agent-keypairs-repository', (real) => ({ ...real,
   AgentKeypairsRepository: class {
     getPrivateKeyForHost = mockGetPrivateKeyForHost;
   },
 }));
+
+const mockGetCertForHost = mock(async (_: string) => null as null | string);
+mockModule<typeof import('@/lib/database/repositories/agent-tls-certificates-repository')>(
+  '@/lib/database/repositories/agent-tls-certificates-repository',
+  (real) => ({
+    ...real,
+    AgentTlsCertificatesRepository: class {
+      getCertForHost = mockGetCertForHost;
+    },
+  }),
+);
 
 mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({ ...real, 
   loadMasterKeyring: async () => ({}),
@@ -80,7 +104,7 @@ const handlerModule = await import('../[containerId]');
 // hook callbacks themselves, call the exported handler with any event-shaped
 // argument and read `.crossws` off the resulting Response.
 interface HandlerHooks {
-  upgrade?: (req: { url: string }) => void;
+  upgrade?: (req: { url: string }) => Promise<void>;
   open: (peer: FakePeer) => Promise<void>;
   message: (peer: FakePeer, msg: FakeMessage) => void;
   close: (peer: FakePeer) => void;
@@ -115,28 +139,73 @@ beforeEach(() => {
   mockFindByName.mockReset();
   mockGetPrivateKeyForHost.mockReset();
   mockSignAgentJwt.mockClear();
+  mockGetCertForHost.mockReset();
   mockFindByName.mockImplementation(async () => null);
   mockGetPrivateKeyForHost.mockImplementation(async () => null);
   mockSignAgentJwt.mockImplementation(async () => 'fake.jwt.token');
+  mockGetCertForHost.mockImplementation(async () => 'FAKE-PEM');
+  authResult = authUser('operator');
 });
 
 describe('docker-exec websocket route', () => {
   describe('upgrade', () => {
-    it('rejects requests without host param with HTTP 400', () => {
-      const req = { url: 'http://localhost:3000/api/docker-exec/abc123' };
-      let thrown: unknown;
+    async function upgradeAndCatch(url: string): Promise<unknown> {
       try {
-        handler.upgrade?.(req);
+        await handler.upgrade?.({ url });
       } catch (e) {
-        thrown = e;
+        return e;
       }
+      return null;
+    }
+
+    it('rejects requests without host param with HTTP 400', async () => {
+      const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123');
       expect(thrown).toBeInstanceOf(Response);
       expect((thrown as Response).status).toBe(400);
     });
 
-    it('passes when host param is present', () => {
-      const req = { url: 'http://localhost:3000/api/docker-exec/abc123?host=server1' };
-      expect(() => handler.upgrade?.(req)).not.toThrow();
+    it('passes when an operator session resolves and host param is present', async () => {
+      const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+      expect(thrown).toBeNull();
+    });
+
+    it('rejects with HTTP 401 when no session resolves', async () => {
+      authResult = null;
+      const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+      expect(thrown).toBeInstanceOf(Response);
+      expect((thrown as Response).status).toBe(401);
+      expect(await (thrown as Response).json()).toEqual({ error: 'Unauthorized' });
+    });
+
+    it('rejects with HTTP 403 when the session role is below operator', async () => {
+      authResult = authUser('viewer');
+      const thrown = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+      expect(thrown).toBeInstanceOf(Response);
+      expect((thrown as Response).status).toBe(403);
+      expect(await (thrown as Response).json()).toEqual({ error: 'Insufficient permissions' });
+    });
+
+    it('returns an identical 401 rejection regardless of the supplied host name', async () => {
+      authResult = null;
+      const first = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+      const second = await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=does-not-exist');
+      expect(first).toBeInstanceOf(Response);
+      expect(second).toBeInstanceOf(Response);
+      expect((second as Response).status).toBe((first as Response).status);
+      expect(await (second as Response).text()).toBe(await (first as Response).text());
+    });
+
+    it('rejects before any host lookup or keypair work when unauthenticated', async () => {
+      authResult = null;
+      mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'http://agent.local:9000' }));
+      mockGetPrivateKeyForHost.mockImplementation(async () => ({}));
+
+      await upgradeAndCatch('http://localhost:3000/api/docker-exec/abc123?host=server1');
+
+      expect(mockFindByName).not.toHaveBeenCalled();
+      expect(mockGetPrivateKeyForHost).not.toHaveBeenCalled();
+      expect(mockSignAgentJwt).not.toHaveBeenCalled();
+      expect(constructedWebSockets).toHaveLength(0);
     });
   });
 
@@ -181,6 +250,38 @@ describe('docker-exec websocket route', () => {
       await handler.open(peer);
 
       expect(constructedWebSockets[0]!.url.startsWith('wss://agent.example.com/exec/')).toBe(true);
+      const init = constructedWebSockets[0]!.init as { tls?: { ca?: string; rejectUnauthorized?: boolean } };
+      expect(init.tls?.ca).toBe('FAKE-PEM');
+      expect(init.tls?.rejectUnauthorized).toBe(true);
+    });
+
+    it('closes with 1011 naming the TLS recovery steps when a wss agent URL has no pinned cert', async () => {
+      mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent.example.com' }));
+      mockGetPrivateKeyForHost.mockImplementation(async () => ({}));
+      mockGetCertForHost.mockImplementation(async () => null);
+      const peer = makePeer({ url: 'http://localhost:3000/api/docker-exec/abc123?host=server1' });
+
+      await handler.open(peer);
+
+      expect(constructedWebSockets).toHaveLength(0);
+      const closeMock = peer.close as unknown as ReturnType<typeof mock>;
+      expect(closeMock).toHaveBeenCalledWith(
+        1011,
+        'No pinned TLS certificate. See the agent TLS recovery steps in the self-hosting guide.',
+      );
+    });
+
+    it('closes with 1011 when the stored certificate is whitespace only', async () => {
+      mockFindByName.mockImplementation(async () => ({ name: 'server1', agentUrl: 'https://agent.example.com' }));
+      mockGetPrivateKeyForHost.mockImplementation(async () => ({}));
+      mockGetCertForHost.mockImplementation(async () => '   ');
+      const peer = makePeer({ url: 'http://localhost:3000/api/docker-exec/abc123?host=server1' });
+
+      await handler.open(peer);
+
+      expect(constructedWebSockets).toHaveLength(0);
+      const closeMock = peer.close as unknown as ReturnType<typeof mock>;
+      expect(closeMock).toHaveBeenCalledWith(1011, expect.stringContaining('No pinned TLS certificate'));
     });
 
     it('attaches the agent JWT as a Bearer Authorization header', async () => {

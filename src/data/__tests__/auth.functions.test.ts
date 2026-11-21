@@ -115,7 +115,8 @@ describe('auth.functions', () => {
     it('is defined and callable without throwing', async () => {
       const { getSession } = await import('@/data/auth.functions');
       expect(typeof getSession).toBe('function');
-      await withStartContext(() => getSession());
+      // Raw client-path direct calls reach the handler with context undefined in start-client-core >= 1.170.36, so call through the server path.
+      await withStartContext(() => (getSession as any).__executeServer?.({ data: undefined }));
     });
   });
 

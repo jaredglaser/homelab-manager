@@ -37,7 +37,7 @@ export default function ShellSelect({ value, onChange, resolvedShell, className 
 
   return (
     <Select value={value} onValueChange={(val) => onChange(val ?? 'auto')} disabled={IS_DEMO_MODE}>
-      <SelectTrigger aria-label="Shell" className={cn('h-8 min-w-[90px] text-xs', className)}>
+      <SelectTrigger aria-label="Shell" className={cn('h-8 w-auto min-w-[90px] text-xs', className)}>
         <SelectValue>{(current: string | null) => renderDisplay(current)}</SelectValue>
       </SelectTrigger>
       <SelectContent>

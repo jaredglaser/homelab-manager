@@ -18,6 +18,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
 import { Spinner } from '@/components/ui/spinner';
+import CopyButton from '@/components/settings/CopyButton'
+import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
 
 function RoleMappingPanel() {
   const { data: roleMapping } = useQuery({
@@ -275,10 +277,11 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
           {newToken ? (
             <>
               <Alert variant="warning">
-                <AlertDescription>Copy this token now — it will not be shown again.</AlertDescription>
+                <AlertDescription>Copy this token now. It will not be shown again.</AlertDescription>
               </Alert>
-              <div className="p-3 rounded bg-level1">
+              <div className="p-3 rounded bg-level1 flex items-start justify-between gap-2">
                 <p className="text-sm font-mono break-all">{newToken}</p>
+                <CopyButton text={newToken} label="token" />
               </div>
             </>
           ) : (
@@ -314,10 +317,16 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
   )
 }
 
-function GitTokensTable() {
+/**
+ * Git-token management section: generation, listing, and revocation.
+ * Admins see every user's tokens. Operators see only their own. The server
+ * functions scope the data by the caller's role.
+ */
+export function GitTokensSection() {
   const queryClient = useQueryClient()
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
   const [newToken, setNewToken] = useState<string | null>(null)
+  const [pendingRevoke, setPendingRevoke] = useState<{ id: number; label: string } | null>(null)
 
   const { data: tokens = [], isLoading, isError, error } = useQuery({
     queryKey: ['git-tokens'],
@@ -394,7 +403,7 @@ function GitTokensTable() {
                             size="icon-sm"
                             className="text-destructive"
                             disabled={revokeMutation.isPending}
-                            onClick={() => revokeMutation.mutate(token.id)}
+                            onClick={() => setPendingRevoke({ id: token.id, label: token.label })}
                             aria-label="Revoke token"
                           />
                         }
@@ -418,6 +427,18 @@ function GitTokensTable() {
         isGenerating={generateMutation.isPending}
         newToken={newToken}
       />
+      <UnsavedChangesDialog
+        open={pendingRevoke !== null}
+        onCancel={() => setPendingRevoke(null)}
+        onConfirm={() => {
+          if (pendingRevoke) revokeMutation.mutate(pendingRevoke.id)
+          setPendingRevoke(null)
+        }}
+        title="Revoke token"
+        description={`Revoke "${pendingRevoke?.label ?? ''}"? Applications using it will lose access. This cannot be undone.`}
+        confirmLabel="Revoke"
+        cancelLabel="Cancel"
+      />
     </div>
   )
 }
@@ -433,7 +454,7 @@ export function AuthManagementCard() {
         <RoleMappingPanel />
         <UsersTable />
         <SessionsTable />
-        <GitTokensTable />
+        <GitTokensSection />
       </div>
     </div>
   )

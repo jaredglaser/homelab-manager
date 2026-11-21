@@ -81,6 +81,9 @@ const registry: Record<string, ServerFnMock> = {
   updateStackSettings: fn(stacksFns.updateStackSettings),
   ensureVariablesExist: fn(stacksFns.ensureVariablesExist),
   controlStack: fn(stacksFns.controlStack),
+  getImageUpdateInfo: fn(stacksFns.getImageUpdateInfo),
+  getImageChangelog: fn(stacksFns.getImageChangelog),
+  checkImageUpdates: fn(stacksFns.checkImageUpdates),
 
   // Auth
   getSession: fn(authFns.getSession),
@@ -92,12 +95,15 @@ const registry: Record<string, ServerFnMock> = {
 
   // Managed hosts (mocks take the raw data object)
   listHosts: fn(hostsFns.listHosts),
-  verifyHost: withData(hostsFns.verifyHost),
+  listAgentsInventory: fn(hostsFns.listAgentsInventory),
+  createPendingHost: withData(hostsFns.createPendingHost),
   updateHost: withData(hostsFns.updateHost),
   removeHost: withData(hostsFns.removeHost),
   checkHostHealth: withData(hostsFns.checkHostHealth),
   getHostPublicJwk: withData(hostsFns.getHostPublicJwk),
   rotateHostKeypair: withData(hostsFns.rotateHostKeypair),
+  rotateHostTls: withData(hostsFns.rotateHostTls),
+  updateAgent: withData(hostsFns.updateAgent),
 
   // Git tokens
   listGitTokens: fn(gitTokenFns.listGitTokens),
@@ -179,7 +185,7 @@ export async function handleServerFn(request: Request): Promise<Response> {
 
 /**
  * Mirror the real server's success response exactly: a seroval cross-JSON body
- * of the `{ result, error, context }` envelope, plus the `x-tss-serialized`
+ * of the `{ result?, error?, context }` envelope, plus the `x-tss-serialized`
  * header. TanStack's client middleware reads `.result` off that envelope (and
  * throws `.error`), so returning the bare value resolves the call to undefined.
  */
@@ -187,7 +193,11 @@ async function serializedResponse(
   result: unknown,
   error: unknown = undefined,
 ): Promise<Response> {
-  const envelope = { result, error, context: {} };
+  // An own `error: undefined` key trips the client's `"error" in envelope` check into rejecting every success with undefined.
+  const envelope: Record<string, unknown> = {};
+  if (result !== undefined) envelope.result = result;
+  if (error !== undefined) envelope.error = error;
+  envelope.context = {};
   const crossJson = await toCrossJSONAsync(envelope, {
     refs: new Map(),
     plugins: defaultSerovalPlugins,

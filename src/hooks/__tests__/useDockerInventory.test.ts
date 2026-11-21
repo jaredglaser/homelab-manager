@@ -12,7 +12,7 @@ mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection'
 }));
 
 import { useDockerInventory, mergeUpsert } from '../useDockerInventory';
-import { dockerInventoryChannel } from '@/lib/sse/channels/docker-inventory';
+import { dockerInventoryChannel } from '@/lib/channels/docker-inventory';
 import type {
   DockerInventoryBroadcastEvent,
   DockerInventorySnapshotContainer,
@@ -43,6 +43,7 @@ function containerFixture(overrides: Partial<DockerInventorySnapshotContainer> =
     containerId: 'abc123',
     name: 'plex',
     image: 'img',
+    imageDigest: null,
     state: 'running',
     composeProject: null,
     serviceKey: '',
@@ -129,6 +130,7 @@ describe('useDockerInventory', () => {
           containerId: 'abc123',
           name: 'plex',
           image: 'img',
+          imageDigest: null,
           state: 'running',
           composeProject: null,
           serviceKey: '',
@@ -153,6 +155,7 @@ describe('useDockerInventory', () => {
           containerId: 'abc123',
           name: 'plex',
           image: 'img',
+          imageDigest: null,
           state: 'exited',
           composeProject: null,
           serviceKey: '',
@@ -224,6 +227,7 @@ describe('mergeUpsert', () => {
     containerId: 'abc123',
     name: 'plex',
     image: 'img',
+    imageDigest: null,
     state: 'running',
     composeProject: null,
     serviceKey: '',
@@ -245,6 +249,7 @@ describe('mergeUpsert', () => {
         containerId: 'abc123',
         name: 'plex',
         image: 'img',
+        imageDigest: null,
         state: 'running',
         composeProject: null,
         serviceKey: '',

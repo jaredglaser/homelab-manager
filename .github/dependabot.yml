@@ -24,24 +24,17 @@ updates:
       semver-patch-days: 7
       semver-minor-days: 14
       semver-major-days: 30
+    ignore:
+      # Shared deps flow from root via scripts/dep-sync.ts (root package.json is
+      # the source of truth); a per-package bump fails the bun run deps:check guard.
+      - dependency-name: "dockerode"
+      - dependency-name: "jose"
+      - dependency-name: "zod"
+      - dependency-name: "@types/dockerode"
+      - dependency-name: "@types/bun"
+      - dependency-name: "typescript"
     groups:
       agent-npm-patch-minor:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "bun"
-    directory: "/agent-updater"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      semver-patch-days: 7
-      semver-minor-days: 14
-      semver-major-days: 30
-    groups:
-      agent-updater-npm-patch-minor:
         patterns:
           - "*"
         update-types:
@@ -68,6 +61,10 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    ignore:
+      # Bumps must include .bun-version, which dependabot cannot edit; the
+      # guard test fails an oven/bun-only bump, so these are made manually.
+      - dependency-name: "oven/bun"
     groups:
       root-docker-patch-minor:
         patterns:
@@ -82,6 +79,8 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: "oven/bun"
     groups:
       agent-docker-patch-minor:
         patterns:
@@ -90,16 +89,3 @@ updates:
           - "minor"
           - "patch"
 
-  - package-ecosystem: "docker"
-    directory: "/agent-updater"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    groups:
-      agent-updater-docker-patch-minor:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"

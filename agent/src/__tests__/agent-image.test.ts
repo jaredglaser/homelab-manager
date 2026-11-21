@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
-import { createAgentImageResolver, parseImageTag, resolveAgentImage } from '../lib/agent-image';
+import { createAgentImageResolver, parseImageTag, resolveAgentImage, resolveRunningAgentDigest } from '../lib/agent-image';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -199,5 +199,92 @@ describe('createAgentImageResolver', () => {
     await resolve();
     await resolve();
     expect(calls()).toBe(2);
+  });
+});
+
+describe('resolveRunningAgentDigest', () => {
+  test('reports the repo digest of the image the agent container runs', async () => {
+    const digest = 'sha256:' + 'd'.repeat(64);
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Image: 'sha256:agent-image-id',
+          Config: { Image: 'ghcr.io/x/agent:latest' },
+        })),
+      })),
+      getImage: mock(() => ({
+        inspect: mock(() => Promise.resolve({ RepoDigests: ['ghcr.io/x/agent@' + digest] })),
+      })),
+    };
+
+    expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBe(digest);
+  });
+
+  test('reports null when the image carries no repo digest', async () => {
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Image: 'sha256:agent-image-id',
+          Config: { Image: 'ghcr.io/x/agent:latest' },
+        })),
+      })),
+      getImage: mock(() => ({
+        inspect: mock(() => Promise.resolve({ RepoDigests: [] })),
+      })),
+    };
+
+    expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBeNull();
+  });
+
+  test('reports null when the image inspect fails', async () => {
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Image: 'sha256:agent-image-id',
+          Config: { Image: 'ghcr.io/x/agent:latest' },
+        })),
+      })),
+      getImage: mock(() => ({
+        inspect: mock(() => Promise.reject(new Error('no such image'))),
+      })),
+    };
+
+    expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBeNull();
+  });
+
+  test('gives up on a hung image inspect instead of leaving /info awaiting it forever', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void) => realSetTimeout(fn, 0)) as typeof globalThis.setTimeout;
+    try {
+      const docker = {
+        getContainer: () => ({
+          inspect: () => Promise.resolve({
+            Image: 'sha256:agent-image-id',
+            Config: { Image: 'ghcr.io/x/agent:latest' },
+          }),
+        }),
+        getImage: () => ({
+          inspect: () => new Promise(() => {}),
+        }),
+      };
+
+      expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBeNull();
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
+  test('reports nothing on a ZFS-only host with no Docker', async () => {
+    expect(await resolveRunningAgentDigest(null, 'hlm-agent')).toBeNull();
+  });
+
+  test('reports nothing when the container inspect fails', async () => {
+    const docker = {
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.reject(new Error('no such container'))),
+      })),
+    };
+
+    expect(await resolveRunningAgentDigest(docker as never, 'hlm-agent')).toBeNull();
   });
 });

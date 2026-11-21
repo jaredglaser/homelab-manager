@@ -1,16 +1,25 @@
 import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
+import { agentFetch, isMissingPinError, toPlainHttpUrl } from '@/lib/clients/agent-http';
 
 export interface AgentInfoDetail {
   version?: string;
   dockerVersion?: string;
   agentImage?: string | null;
   agentImageTag?: string | null;
+  agentImageDigest?: string | null;
   infoSupported?: boolean;
 }
 
+/**
+ * Why a health check failed. `offline` means nothing answered at the network level. `unreachable`
+ * means something answered but is not a healthy agent. `awaiting-enrollment` means the agent
+ * answered on plain HTTP because it holds no certificate, so no https pin can match it.
+ */
+export type AgentHealthFailureReason = 'offline' | 'unreachable' | 'awaiting-enrollment';
+
 export type AgentHealthResult =
   | ({ healthy: true } & AgentInfoDetail)
-  | { healthy: false; error: string };
+  | { healthy: false; reason?: AgentHealthFailureReason; error: string };
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
@@ -41,7 +50,8 @@ async function fetchAgentInfo(
   agentUrl: string,
   timeoutMs: number,
   fetchFn: typeof fetch,
-  getToken: () => Promise<string>
+  getToken: () => Promise<string>,
+  caCertPem?: string | null,
 ): Promise<AgentInfoDetail> {
   let token: string;
   try {
@@ -51,11 +61,11 @@ async function fetchAgentInfo(
   }
 
   try {
-    const response = await fetchFn(`${agentUrl}/info`, {
+    const response = await agentFetch(`${agentUrl}/info`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'manual',
-    });
+    }, { caCertPem }, fetchFn);
     if (response.status === 404) {
       console.info(
         `[agent-health] ${agentUrl} has no /info endpoint; agent predates authenticated version reporting`
@@ -72,6 +82,7 @@ async function fetchAgentInfo(
       dockerVersion: boundedAgentField(data.capabilities?.docker?.version) ?? undefined,
       agentImage: boundedAgentField(data.agentImage),
       agentImageTag: boundedAgentField(data.agentImageTag),
+      agentImageDigest: boundedAgentField(data.agentImageDigest),
       infoSupported: true,
     };
   } catch (err) {
@@ -97,21 +108,24 @@ export async function checkAgentHealth(
   agentUrl: string,
   timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS,
   fetchFn: typeof fetch = globalThis.fetch,
-  getToken?: () => Promise<string>
+  getToken?: () => Promise<string>,
+  /** Pinned per-host TLS certificate (PEM), used when the agent URL is https. */
+  caCertPem?: string | null,
 ): Promise<AgentHealthResult> {
   try {
-    const response = await fetchFn(`${agentUrl}/health`, {
+    const response = await agentFetch(`${agentUrl}/health`, {
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'manual',
-    });
+    }, { caCertPem }, fetchFn);
 
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-      return { healthy: false, error: 'Agent URL returned an unexpected redirect' };
+      return { healthy: false, reason: 'unreachable', error: 'Agent URL returned an unexpected redirect' };
     }
 
     if (!response.ok) {
       return {
         healthy: false,
+        reason: 'unreachable',
         error: `Agent returned status ${response.status}`,
       };
     }
@@ -122,14 +136,14 @@ export async function checkAgentHealth(
     try {
       body = (await response.json()) as AgentHealthCheckResponse;
     } catch {
-      return { healthy: false, error: `Agent returned non-JSON response (status ${response.status})` };
+      return { healthy: false, reason: 'unreachable', error: `Agent returned non-JSON response (status ${response.status})` };
     }
     if (body?.status !== 'healthy') {
-      return { healthy: false, error: 'Agent /health response missing expected status field' };
+      return { healthy: false, reason: 'unreachable', error: 'Agent /health response missing expected status field' };
     }
 
     const info = getToken
-      ? await fetchAgentInfo(agentUrl, timeoutMs, fetchFn, getToken)
+      ? await fetchAgentInfo(agentUrl, timeoutMs, fetchFn, getToken, caCertPem)
       : {};
 
     return { healthy: true, ...info };
@@ -137,13 +151,49 @@ export async function checkAgentHealth(
     if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       return {
         healthy: false,
+        reason: 'offline',
         error: `Health check timed out after ${timeoutMs}ms`,
       };
     }
 
+    if (isMissingPinError(err)) {
+      const restricted = await probePlainHttpAgent(agentUrl, timeoutMs, fetchFn);
+      if (restricted) {
+        return {
+          healthy: false,
+          reason: 'awaiting-enrollment',
+          error:
+            'The agent is serving plain HTTP awaiting TLS enrollment, so the manager cannot verify it over https. Open the Managed Hosts card and run Rotate TLS to enroll a replacement certificate.',
+        };
+      }
+    }
+
     return {
       healthy: false,
+      reason: 'offline',
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+/** A plain-HTTP /health body carrying a status field identifies the agent, whether it reports healthy or not. */
+async function probePlainHttpAgent(agentUrl: string, timeoutMs: number, fetchFn: typeof fetch): Promise<boolean> {
+  let plainHttpUrl: string;
+  try {
+    const parsed = new URL(agentUrl);
+    if (parsed.protocol !== 'https:') return false;
+    plainHttpUrl = toPlainHttpUrl(parsed);
+  } catch {
+    return false;
+  }
+  try {
+    const response = await fetchFn(`${plainHttpUrl}/health`, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body = (await response.json().catch(() => null)) as { status?: unknown } | null;
+    return typeof body?.status === 'string';
+  } catch {
+    return false;
   }
 }

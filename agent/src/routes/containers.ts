@@ -1,4 +1,5 @@
 import type Dockerode from 'dockerode';
+import { routeErrorBody } from '../lib/error-body';
 
 type DockerodeError = { statusCode?: number; message?: string };
 
@@ -21,13 +22,13 @@ async function controlContainer(
   } catch (err) {
     const e = err as DockerodeError;
     if (e.statusCode === 404) {
-      return Response.json({ error: `Container not found: ${containerId}` }, { status: 404 });
+      return Response.json(routeErrorBody('container_not_found', { container: containerId }), { status: 404 });
     }
     if (isAlreadyInState(e)) {
-      return Response.json({ error: e.message ?? `Container already in target state` }, { status: 409 });
+      return Response.json(routeErrorBody('container_state_unchanged', { detail: e.message }), { status: 409 });
     }
     console.error(`[containers] ${action} failed for ${containerId}:`, err);
-    return Response.json({ error: e.message ?? 'Internal error' }, { status: 500 });
+    return Response.json(routeErrorBody('container_control_failed', { detail: e.message }), { status: 500 });
   }
 }
 
@@ -40,5 +41,12 @@ export function handleContainerStop(docker: Dockerode, containerId: string, _req
 }
 
 export function handleContainerRestart(docker: Dockerode, containerId: string, _request: Request): Promise<Response> {
+  // Restarting our own container kills this process mid-response, so answer before the swap.
+  if (containerId === (process.env.AGENT_CONTAINER_NAME ?? 'hlm-agent')) {
+    void controlContainer(docker, containerId, 'restart').catch((err) => {
+      console.error(`Self-restart of container '${containerId}' failed:`, err);
+    });
+    return Promise.resolve(Response.json({ started: true }, { status: 202 }));
+  }
   return controlContainer(docker, containerId, 'restart');
 }

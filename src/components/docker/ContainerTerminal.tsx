@@ -16,6 +16,8 @@ interface ContainerTerminalProps {
   wordWrap: boolean;
   /** Called when the agent reports which shell it actually spawned (for `auto`). */
   onShellResolved?: (shell: string) => void;
+  /** Drop incoming output frames while the modal exit animation runs. */
+  paused?: boolean;
 }
 
 export default memo(function ContainerTerminal({
@@ -25,6 +27,7 @@ export default memo(function ContainerTerminal({
   frozen,
   wordWrap,
   onShellResolved,
+  paused = false,
 }: ContainerTerminalProps) {
   const { containerRef, terminal, error: setupError, setWordWrap } = useXtermSetup({
     disableStdin: false,
@@ -44,6 +47,7 @@ export default memo(function ContainerTerminal({
     shell,
     terminal,
     enabled: !frozen,
+    paused,
   });
 
   // Surface either failure path: xterm bootstrap (dynamic import) or WS lifecycle.

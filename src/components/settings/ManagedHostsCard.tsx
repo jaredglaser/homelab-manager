@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
 import type { HostListItem } from '@/lib/hosts/host-utils'
-import { DEFAULT_AGENT_IMAGE_TAG, getAgentImage, getAgentImageTag, getAgentUpdaterImage } from '@/lib/hosts/host-utils'
+import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
+import { DEFAULT_AGENT_IMAGE_TAG, getAgentImage, getAgentImageTag } from '@/lib/hosts/host-utils'
 import HostRow from '@/components/settings/HostRow'
 import { KeypairDialog } from '@/components/settings/KeypairDialog'
 import { RemoveDialog, EditDialog } from '@/components/settings/HostDialogs'
@@ -12,10 +13,15 @@ import { Spinner } from '@/components/ui/spinner';
 export interface ManagedHostsCardProps {
   hosts: HostListItem[]
   isLoading: boolean
-  onAdd: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
-  isAdding: boolean
-  addError: string | null
-  verifyResult: { publicJwk: unknown } | null
+  isCreating: boolean
+  isProvisioning: boolean
+  createError: string | null
+  provisionError: TlsFailureGuidance | null
+  pendingHost: { id: number; name: string; status: string; publicJwk: unknown } | null
+  onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onVerify: (hostId: number, agentUrl: string) => void
+  onCancelVerify: () => void
+  onDiscard: () => void
   onRemove: (hostId: number) => void
   isRemoving: boolean
   onUpdate: (hostId: number, name: string, agentUrl: string) => void
@@ -27,6 +33,10 @@ export interface ManagedHostsCardProps {
   onRotateKeypair: (hostId: number) => void
   keypairRotating: boolean
   keypairJwkJson: string | null
+  /** Absent when the host has no pinned certificate to fingerprint. */
+  keypairFingerprint?: string | null
+  onRotateTls: (hostId: number) => void
+  rotatingTlsHostIds: Set<number>
 }
 
 export interface AgentChannelBuckets {
@@ -61,7 +71,6 @@ export function bucketHostsByAgentChannel(hosts: HostListItem[], expectedTag: st
 export interface AgentChannelNoticeProps extends AgentChannelBuckets {
   expectedTag: string
   agentImage: string
-  agentUpdaterImage: string
 }
 
 function noticeTitle({ expectedTag, mismatched, unreported }: AgentChannelNoticeProps): string {
@@ -77,7 +86,7 @@ function noticeTitle({ expectedTag, mismatched, unreported }: AgentChannelNotice
 }
 
 export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
-  const { expectedTag, agentImage, agentUpdaterImage, mismatched, unreported } = props
+  const { expectedTag, agentImage, mismatched, unreported } = props
 
   return (
     <Alert variant={mismatched.length > 0 ? 'warning' : 'info'} className="mb-4">
@@ -86,11 +95,9 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
         {expectedTag !== DEFAULT_AGENT_IMAGE_TAG && (
           <p>
             This dashboard is a <code className="font-mono">{expectedTag}</code> build, so hosts you add below
-            are enrolled on <code className="font-mono">{agentImage}</code> and{' '}
-            <code className="font-mono">{agentUpdaterImage}</code>.
+            are enrolled on <code className="font-mono">{agentImage}</code>.
           </p>
         )}
-
         {mismatched.length > 0 && (
           <>
             <ul className="list-disc pl-5">
@@ -102,8 +109,7 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
               ))}
             </ul>
             <p>
-              To move a host, set <code className="font-mono">AGENT_IMAGE</code> and{' '}
-              <code className="font-mono">AGENT_UPDATER_IMAGE</code> to the{' '}
+              To move a host, set <code className="font-mono">AGENT_IMAGE</code> to the{' '}
               <code className="font-mono">{expectedTag}</code> tag in its{' '}
               <code className="font-mono">.env</code>, then run{' '}
               <code className="font-mono">docker compose up -d</code> on the host.
@@ -128,10 +134,15 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
 export function ManagedHostsCardView({
   hosts,
   isLoading,
-  onAdd,
-  isAdding,
-  addError,
-  verifyResult,
+  isCreating,
+  isProvisioning,
+  createError,
+  provisionError,
+  pendingHost,
+  onCreateHost,
+  onVerify,
+  onCancelVerify,
+  onDiscard,
   onRemove,
   isRemoving,
   onUpdate,
@@ -143,6 +154,9 @@ export function ManagedHostsCardView({
   onRotateKeypair,
   keypairRotating,
   keypairJwkJson,
+  keypairFingerprint,
+  onRotateTls,
+  rotatingTlsHostIds,
 }: Readonly<ManagedHostsCardProps>) {
   const [removeTarget, setRemoveTarget] = useState<HostListItem | null>(null)
   const [editTarget, setEditTarget] = useState<HostListItem | null>(null)
@@ -174,7 +188,6 @@ export function ManagedHostsCardView({
           <AgentChannelNotice
             expectedTag={agentImageTag}
             agentImage={getAgentImage()}
-            agentUpdaterImage={getAgentUpdaterImage()}
             mismatched={channel.mismatched}
             unreported={channel.unreported}
           />
@@ -198,10 +211,12 @@ export function ManagedHostsCardView({
                 expectedImageTag={agentImageTag}
                 isChecking={checkingHostIds.has(host.id)}
                 isRemoving={isRemoving}
+                isRotatingTls={rotatingTlsHostIds.has(host.id)}
                 onHealthCheck={() => onHealthCheck(host.id)}
                 onEdit={() => setEditTarget(host)}
                 onRemove={() => setRemoveTarget(host)}
                 onKeypair={() => setKeypairTarget(host)}
+                onRotateTls={() => onRotateTls(host.id)}
               />
             ))}
           </div>
@@ -209,10 +224,15 @@ export function ManagedHostsCardView({
 
         <div className="mt-4">
           <AddHostWizard
-            isAdding={isAdding}
-            addError={addError}
-            onSubmit={onAdd}
-            verifyResult={verifyResult}
+            isCreating={isCreating}
+            isProvisioning={isProvisioning}
+            createError={createError}
+            provisionError={provisionError}
+            pendingHost={pendingHost}
+            onCreateHost={onCreateHost}
+            onVerify={onVerify}
+            onCancelVerify={onCancelVerify}
+            onDiscard={onDiscard}
           />
         </div>
       </div>
@@ -237,6 +257,7 @@ export function ManagedHostsCardView({
         open={keypairTarget !== null}
         host={keypairTarget}
         publicJwkJson={keypairJwkJson}
+        fingerprint={keypairFingerprint}
         isLoading={keypairLoading}
         isRotating={keypairRotating}
         onView={onViewKeypair}

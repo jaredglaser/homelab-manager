@@ -25,7 +25,7 @@ dev-viewer (role: viewer):
   http://localhost:1411/lc/<token>
 ```
 
-Open any URL in a browser to log in as that user. Each token is single-use; once consumed, logging out and back in uses normal username/password flow via Pocket ID at `http://localhost:1411`.
+Open any URL in a browser to log in as that user. Each token is single-use. Once consumed, logging out and back in uses Pocket ID's normal passkey login at `http://localhost:1411`.
 
 ## Dev users and roles
 
@@ -56,6 +56,8 @@ bun run dev:local:wipe
 This stops all containers and deletes all volumes, including the Pocket ID data volume (`pocketid-data`). The next `dev:local:up` will re-seed from scratch.
 
 ## Opting out
+
+> **Environment variables:** `POCKET_ID_API_KEY` and `POCKET_ID_ENCRYPTION_KEY` are consumed by `docker-compose.local.yml` from `~/.config/homelab-manager/.env`, which the standard [Environment Setup](development.md#environment-setup) already populates from `.env.example` (dev placeholders included). They only matter when Pocket ID actually runs. The opting-out flow below never starts it.
 
 The `dev:local:*` scripts pass `--profile management --profile oidc` explicitly, which overrides `COMPOSE_PROFILES` from `.env`, so editing that variable cannot skip Pocket ID. To run without it, invoke docker compose directly with only the management profile:
 

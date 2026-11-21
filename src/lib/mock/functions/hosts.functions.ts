@@ -1,7 +1,8 @@
 import type {
   HostListItem,
-  AddHostResult,
   HealthCheckResult,
+  UpdateAgentResult,
+  AgentInventoryEntry,
 } from '@/data/hosts/functions';
 
 /**
@@ -61,13 +62,14 @@ const mockHosts: readonly HostListItem[] = [
 let nextMockId = mockHosts.length + 1;
 
 /** Intentionally stateless: returns a plausible result without mutating mockHosts. Demo mode shows a fixed set of hosts. */
-export async function verifyHost(data: {
+export async function createPendingHost(data: {
   name: string;
-  agentUrl: string;
-  agentToken: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
-}): Promise<AddHostResult> {
-  return { host: buildHost(data) };
+}): Promise<{ host: HostListItem; publicJwk: Record<string, string> }> {
+  return {
+    host: buildHost({ name: data.name, agentUrl: '', capabilities: data.capabilities }),
+    publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'mock-public-key-x' },
+  };
 }
 
 export async function updateHost(data: {
@@ -79,10 +81,15 @@ export async function updateHost(data: {
   return buildHost(data, data.hostId);
 }
 
-/** Intentionally stateless: returns success without mutating mockHosts. */
-export async function removeHost(_data: {
+/** Intentionally stateless: never mutates mockHosts, but mirrors the server's expectStatus guard so demo mode behaves like production. */
+export async function removeHost(data: {
   hostId: number;
+  expectStatus?: 'pending';
 }): Promise<{ success: boolean }> {
+  const host = mockHosts.find((h) => h.id === data.hostId);
+  if (data.expectStatus && host && host.status !== data.expectStatus) {
+    throw new Error(`Host ${host.name} is no longer pending`);
+  }
   return { success: true };
 }
 
@@ -104,6 +111,42 @@ export async function rotateHostKeypair(_data: {
   return { hostId: _data.hostId, publicJwk: { ...MOCK_PUBLIC_JWK, x: 'rotated-key-x' } };
 }
 
+/** Intentionally stateless: mirrors handleRotateHostTls (https-flipped override or the stored URL). */
+export async function rotateHostTls(data: {
+  hostId: number;
+  agentUrl?: string;
+}): Promise<{ hostId: number; agentUrl: string }> {
+  if (data.agentUrl) return { hostId: data.hostId, agentUrl: data.agentUrl.replace(/^http:/, 'https:') };
+  const host = mockHosts.find((h) => h.id === data.hostId);
+  return { hostId: data.hostId, agentUrl: host ? host.agentUrl.replace(/^http:/, 'https:') : 'https://mock-host:9090' };
+}
+
+/** Demo inventory: a mixed-status set so the overview shows online, offline, and unknown rows. */
+export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
+  return [
+    {
+      ...mockHosts[0],
+      status: 'online',
+      version: mockHosts[0].agentVersion,
+      versionSource: 'live',
+      agentImageDigest: 'sha256:' + 'a'.repeat(64),
+      agentOutOfDate: false,
+      lastError: null,
+      checkedAt: new Date().toISOString(),
+    },
+    {
+      ...mockHosts[1],
+      status: 'offline',
+      version: mockHosts[1].agentVersion,
+      versionSource: 'stored',
+      agentImageDigest: 'sha256:' + 'a'.repeat(64),
+      agentOutOfDate: false,
+      lastError: 'Health check timed out after 5000ms',
+      checkedAt: new Date().toISOString(),
+    },
+  ];
+}
+
 export async function checkHostHealth(_data: {
   hostId: number;
 }): Promise<HealthCheckResult> {
@@ -116,3 +159,17 @@ export async function checkHostHealth(_data: {
     agentImageTag: 'latest',
   };
 }
+
+export async function updateAgent(data: {
+  hostId: number;
+}): Promise<UpdateAgentResult> {
+  return {
+    hostId: data.hostId,
+    healthy: true,
+    version: '0.1.0',
+    dockerVersion: '24.0.7',
+    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+    agentImageTag: 'latest',
+  };
+}
+

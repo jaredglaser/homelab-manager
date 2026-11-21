@@ -61,6 +61,7 @@ export class AgentStatsCollector extends BaseCollector {
   private readonly host: ManagedHost;
   private readonly signer: () => Promise<string>;
   private readonly streamConnector: StreamConnector;
+  private readonly caCertPem: string | null;
   private readonly entityMetadataRepository: EntityMetadataRepository;
   private readonly knownContainers = new Set<string>();
   private pendingRows: NewDockerStat[] = [];
@@ -72,16 +73,22 @@ export class AgentStatsCollector extends BaseCollector {
     signer: () => Promise<string>,
     abortController?: AbortController,
     streamConnector?: StreamConnector,
+    caCertPem?: string | null,
   ) {
     super(db, config, abortController);
     this.host = host;
     this.signer = signer;
     this.name = `AgentStatsCollector[${host.name}]`;
     this.streamConnector = streamConnector ?? connectAgentSseStream;
+    this.caCertPem = caCertPem ?? null;
     this.entityMetadataRepository = new EntityMetadataRepository(db.getPool());
   }
 
-  /** Upsert entity metadata for a newly seen container */
+  /**
+   * Writes name and image only: the stats stream carries no labels, so it must
+   * not write service_key. The inventory collector is the sole writer of the
+   * label-derived key the history fan-out joins on.
+   */
   private async registerContainer(event: AgentStatsEvent): Promise<void> {
     if (this.knownContainers.has(event.containerId)) return;
 
@@ -90,7 +97,6 @@ export class AgentStatsCollector extends BaseCollector {
       await this.entityMetadataRepository.upsertEntityMetadataBatch([
         { entity: entityPath, key: 'name', value: event.containerName },
         { entity: entityPath, key: 'image', value: event.image },
-        { entity: entityPath, key: 'service_key', value: event.containerName },
       ]);
       this.knownContainers.add(event.containerId);
     } catch (err) {
@@ -144,6 +150,7 @@ export class AgentStatsCollector extends BaseCollector {
       path: '/stats/stream',
       signer: this.signer,
       signal: this.signal,
+      caCertPem: this.caCertPem,
     });
 
     this.resetBackoff();

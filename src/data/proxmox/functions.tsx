@@ -6,11 +6,11 @@ import { getHistoricalProxmoxStatsSchema } from '@/data/proxmox/schemas';
 
 /**
  * Fetch historical Proxmox stats rows from the database.
- * Used by useTimeSeriesStream to preload data before SSE streaming begins.
+ * Used by useTimeSeriesStream to preload data before live streaming begins.
  */
 export const getHistoricalProxmoxStats = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(getHistoricalProxmoxStatsSchema)
+  .validator(getHistoricalProxmoxStatsSchema)
   .handler(async ({ context, data }): Promise<ProxmoxStatsRow[]> => {
     try {
       const { StatsRepository } = await import(

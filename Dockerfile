@@ -1,20 +1,32 @@
 # Dockerfile for homelab-manager
 # Multi-stage build: deps (dev), base (worker/cleanup), production (web)
 
+# Must match .bun-version; scripts/__tests__/bun-version.test.ts fails CI on drift.
+ARG BUN_VERSION=1.4.2
+
 # Dependencies only - used for dev containers (source mounted via volume)
-FROM oven/bun:1.4.2 AS deps
+FROM oven/bun:${BUN_VERSION} AS deps
+# Global ARGs do not carry into stages; re-declared for the cache mount id below.
+ARG BUN_VERSION
 WORKDIR /app
 COPY package.json bun.lock ./
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
-RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-1.4.2 \
+RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-${BUN_VERSION} \
     bun install --frozen-lockfile --ignore-scripts
+# Published images are copies: MIT/BSD/ISC require their copyright and license
+# notices to survive into the distribution, so generate them from the same
+# node_modules that ships (bunx pinned for a stable layer cache).
+RUN bunx license-checker-rseidelsohn@5.0.1 --plainVertical --out THIRD-PARTY-NOTICES.txt
 EXPOSE 3000
 
 # Source stage - includes source code (worker/cleanup in production)
 FROM deps AS base
 COPY . .
+# The worker reads this at runtime and the web inlines it at build, so a stage without it flags every host on a `main` dashboard as out of date.
+ARG VITE_AGENT_IMAGE_TAG=latest
+ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
 
 # Production stage - builds the web app for serving
 FROM base AS production
@@ -23,12 +35,6 @@ ENV NODE_ENV=production
 
 # git is needed at runtime for git-upload-pack and git-receive-pack (Git HTTP smart protocol)
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-
-# Tag the Add Host wizard pins new agents to. Declared after apt so a channel switch
-# does not invalidate that layer. Vite inlines it at build, so the copy that survives
-# into the runtime image does nothing.
-ARG VITE_AGENT_IMAGE_TAG=latest
-ENV VITE_AGENT_IMAGE_TAG=${VITE_AGENT_IMAGE_TAG}
 
 RUN bun run build
 

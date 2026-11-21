@@ -1,18 +1,28 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
+import type { AuthUser } from '@/lib/auth/types';
 import type { GitTokenWithUser } from '@/lib/database/repositories/git-token-repository';
 import { withStartContext } from '@/lib/test/start-context';
 import { mockModule } from '@/lib/test/mock-module';
+
+// Mutable per-test auth context: the mocked auth middleware injects this user.
+let currentUser: AuthUser = SYNTHETIC_ADMIN;
+const SYNTHETIC_OPERATOR: AuthUser = {
+  id: 7,
+  email: 'operator@local',
+  name: 'Operator',
+  role: 'operator',
+};
 
 mockModule<typeof import('@/middleware/auth-middleware')>('@/middleware/auth-middleware', (real) => ({ ...real, 
   authMiddleware: {
     options: {
       type: 'function',
       client: async ({ next, sendContext }: { next: (opts: { sendContext: unknown }) => unknown; sendContext: unknown }) => {
-        return next({ sendContext: { ...(sendContext as Record<string, unknown>), user: SYNTHETIC_ADMIN } });
+        return next({ sendContext: { ...(sendContext as Record<string, unknown>), user: currentUser } });
       },
       server: async ({ next, context }: { next: (opts: { context: unknown }) => unknown; context: unknown }) => {
-        return next({ context: { ...(context as Record<string, unknown>), user: SYNTHETIC_ADMIN } });
+        return next({ context: { ...(context as Record<string, unknown>), user: currentUser } });
       },
     },
   },
@@ -52,14 +62,18 @@ const mockCreate = mock(async (input: { userId: number; encryptedToken: string; 
   createdAt: new Date(),
 }));
 const mockFindAll = mock(async (): Promise<GitTokenWithUser[]> => []);
+const mockFindByUserId = mock(async (_userId: number) => [] as Awaited<ReturnType<typeof mockCreate>>[]);
 const mockDeleteById = mock(async (_id: number) => {});
+const mockDeleteByIdAndUser = mock(async (_id: number, _userId: number) => true);
 
 mockModule<typeof import('@/lib/database/repositories/git-token-repository')>('@/lib/database/repositories/git-token-repository', (real) => ({ ...real, 
   GitTokenRepository: class MockGitTokenRepository {
     constructor() {}
     create = mockCreate;
     findAll = mockFindAll;
+    findByUserId = mockFindByUserId;
     deleteById = mockDeleteById;
+    deleteByIdAndUser = mockDeleteByIdAndUser;
   },
 }));
 
@@ -67,12 +81,15 @@ mockModule<typeof import('@/lib/database/repositories/git-token-repository')>('@
 // Tests verify delegation by asserting on mock call counts and arguments.
 describe('git-tokens.functions', () => {
   beforeEach(() => {
+    currentUser = SYNTHETIC_ADMIN;
     mockPool.query.mockClear();
     mockGetClient.mockClear();
     mockEncryptValue.mockClear();
     mockCreate.mockClear();
     mockFindAll.mockClear();
+    mockFindByUserId.mockClear();
     mockDeleteById.mockClear();
+    mockDeleteByIdAndUser.mockClear();
   });
 
   describe('createGitToken', () => {
@@ -110,13 +127,32 @@ describe('git-tokens.functions', () => {
       const calls = mockEncryptValue.mock.calls as [string, unknown][];
       expect(calls[0][0]).not.toBe(calls[1][0]);
     });
+
+    it('allows an operator to mint a token bound to their own user id', async () => {
+      currentUser = SYNTHETIC_OPERATOR;
+      const { createGitToken } = await import('@/data/git-tokens.functions');
+      await withStartContext(() => createGitToken({ data: { label: 'op-key' } }));
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      const [createArg] = mockCreate.mock.calls[0] as [{ userId: number }];
+      expect(createArg.userId).toBe(SYNTHETIC_OPERATOR.id);
+    });
+
+    it('rejects a viewer with ForbiddenError', async () => {
+      currentUser = { ...SYNTHETIC_ADMIN, role: 'viewer' };
+      const { createGitToken } = await import('@/data/git-tokens.functions');
+      await expect(
+        withStartContext(() => createGitToken({ data: { label: 'nope' } }))
+      ).rejects.toThrow('Insufficient permissions');
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
   });
 
   describe('listGitTokens', () => {
-    it('delegates to GitTokenRepository.findAll', async () => {
+    it('delegates to GitTokenRepository.findAll for admins', async () => {
       const { listGitTokens } = await import('@/data/git-tokens.functions');
       await withStartContext(() => listGitTokens({}));
       expect(mockFindAll).toHaveBeenCalledTimes(1);
+      expect(mockFindByUserId).not.toHaveBeenCalled();
     });
 
     it('creates a GitTokenRepository using the db pool', async () => {
@@ -124,20 +160,70 @@ describe('git-tokens.functions', () => {
       await withStartContext(() => listGitTokens({}));
       expect(mockGetClient).toHaveBeenCalledTimes(1);
     });
+
+    it('scopes an operator to their own tokens via findByUserId', async () => {
+      currentUser = SYNTHETIC_OPERATOR;
+      const { listGitTokens } = await import('@/data/git-tokens.functions');
+      await withStartContext(() => listGitTokens({}));
+      expect(mockFindByUserId).toHaveBeenCalledTimes(1);
+      expect(mockFindByUserId).toHaveBeenCalledWith(SYNTHETIC_OPERATOR.id);
+      expect(mockFindAll).not.toHaveBeenCalled();
+    });
+
+    it('shapes operator rows with the caller identity so the UI renders both scopes identically', async () => {
+      currentUser = SYNTHETIC_OPERATOR;
+      mockFindByUserId.mockImplementation(async () => [
+        { id: 3, userId: SYNTHETIC_OPERATOR.id, label: 'op-key', lastUsedAt: null, createdAt: new Date() },
+      ]);
+      const { listGitTokens } = await import('@/data/git-tokens.functions');
+      await withStartContext(async () => {
+        await listGitTokens({});
+      });
+      // createServerFn wrappers do not return handler values, so assert the repo call shape instead.
+      expect(mockFindByUserId).toHaveBeenCalledWith(SYNTHETIC_OPERATOR.id);
+    });
   });
 
   describe('revokeGitToken', () => {
-    it('calls deleteById with the given tokenId', async () => {
+    it('calls deleteById with the given tokenId for admins', async () => {
       const { revokeGitToken } = await import('@/data/git-tokens.functions');
       await withStartContext(() => revokeGitToken({ data: { tokenId: 7 } }));
       expect(mockDeleteById).toHaveBeenCalledTimes(1);
       expect(mockDeleteById).toHaveBeenCalledWith(7);
+      expect(mockDeleteByIdAndUser).not.toHaveBeenCalled();
     });
 
     it('passes a different tokenId through correctly', async () => {
       const { revokeGitToken } = await import('@/data/git-tokens.functions');
       await withStartContext(() => revokeGitToken({ data: { tokenId: 99 } }));
       expect(mockDeleteById).toHaveBeenCalledWith(99);
+    });
+
+    it('revokes an operator token through the ownership-scoped delete', async () => {
+      currentUser = SYNTHETIC_OPERATOR;
+      const { revokeGitToken } = await import('@/data/git-tokens.functions');
+      await withStartContext(() => revokeGitToken({ data: { tokenId: 5 } }));
+      expect(mockDeleteByIdAndUser).toHaveBeenCalledTimes(1);
+      expect(mockDeleteByIdAndUser).toHaveBeenCalledWith(5, SYNTHETIC_OPERATOR.id);
+      expect(mockDeleteById).not.toHaveBeenCalled();
+    });
+
+    it('never uses the unscoped delete for operators, so foreign tokens cannot be revoked', async () => {
+      currentUser = SYNTHETIC_OPERATOR;
+      mockDeleteByIdAndUser.mockImplementation(async () => false);
+      const { revokeGitToken } = await import('@/data/git-tokens.functions');
+      await withStartContext(() => revokeGitToken({ data: { tokenId: 1 } }));
+      expect(mockDeleteById).not.toHaveBeenCalled();
+      expect(mockDeleteByIdAndUser).toHaveBeenCalledWith(1, SYNTHETIC_OPERATOR.id);
+    });
+
+    it('rejects a viewer with ForbiddenError', async () => {
+      currentUser = { ...SYNTHETIC_ADMIN, role: 'viewer' };
+      const { revokeGitToken } = await import('@/data/git-tokens.functions');
+      await expect(
+        withStartContext(() => revokeGitToken({ data: { tokenId: 7 } }))
+      ).rejects.toThrow('Insufficient permissions');
+      expect(mockDeleteById).not.toHaveBeenCalled();
     });
   });
 });

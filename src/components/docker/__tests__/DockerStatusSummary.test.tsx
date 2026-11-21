@@ -7,6 +7,7 @@ function makeContainer(overrides: Partial<DockerInventorySnapshotContainer> & { 
   return {
     name: 'container',
     image: 'img',
+    imageDigest: null,
     state: 'running',
     composeProject: null,
     serviceKey: '',

@@ -7,7 +7,7 @@
 <!-- The path through the system, not a list of files. Where does this sit, and what moves through it?
 Arrows are good:
 
-  AgentStatsCollector -> docker_stats -> StatsPollService -> /api/docker-stats -> useTimeSeriesStream
+  AgentStatsCollector -> docker_stats -> StatsPollService -> /api/mux (WebSocket) -> useTimeSeriesStream
   git push -> post-receive -> DeployRequest -> resolve secrets -> agent -> deploy_history
 
 If the path already exists and you are changing it, show before and after. If it is new, show the whole
@@ -16,7 +16,7 @@ thing. For work with no runtime path (CI, tooling, docs) describe what triggers 
 ## What else this touches
 
 <!-- Other callers of anything whose signature or behavior changed. Migrations, and whether the number
-collides. Anything reading the same table, SSE channel, or settings key. Anything gated on an env var or
+collides. Anything reading the same table, WebSocket topic, or settings key. Anything gated on an env var or
 event type. "Nothing outside <x>" is a good answer when it is true; say it rather than leaving this empty. -->
 
 ## Verification

@@ -16,5 +16,6 @@ function createTestStartContext(): StartStorageContext {
 }
 
 export function withStartContext<T>(fn: () => T | Promise<T>): Promise<T> {
-  return runWithStartContext(createTestStartContext(), fn);
+  // runWithStartContext is sync-typed, so this Promise.resolve is load-bearing.
+  return Promise.resolve(runWithStartContext(createTestStartContext(), fn));
 }

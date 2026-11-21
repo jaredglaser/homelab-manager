@@ -50,6 +50,7 @@ export function usePulseIndicator(lastUpdatedMs: number): {
         clearTimeout(lateTimer);
       };
     }
+    return undefined;
   }, [lastUpdatedMs]);
 
   return { indicatorRef, pingRef, dotRef };

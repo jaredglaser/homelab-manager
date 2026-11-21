@@ -19,6 +19,9 @@ function makeWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
     zfs: { enabled: true },
     proxmox: { enabled: false },
     collection: { interval: 1000 },
+    // Most tests exercise collection itself; plaintext http agents are the
+    // historical fixture shape, so insecure collection is allowed by default.
+    agents: { allowInsecurePlaintext: true },
   } as WorkerConfig;
   return { ...base, ...(overrides ?? {}) } as WorkerConfig;
 }
@@ -32,9 +35,12 @@ function makeHost(name: string, overrides?: Partial<ManagedHost>): ManagedHost {
     agentVersion: null,
     agentImage: null,
     agentImageTag: null,
+    agentImageDigest: null,
+    agentOutOfDate: false,
     status: 'healthy',
     createdAt: new Date(),
     updatedAt: new Date(),
+    lastSweptAt: null,
     ...overrides,
   };
 }
@@ -68,13 +74,14 @@ interface FactoryCall {
   hostName: string;
   signer: () => Promise<string>;
   controller: AbortController;
+  caCertPem: string | null;
 }
 
 function makeFactory(): { factory: HostCollectorFactory; calls: FactoryCall[]; created: FakeCollector[] } {
   const calls: FactoryCall[] = [];
   const created: FakeCollector[] = [];
-  const factory: HostCollectorFactory = (host, signer, controller, stack) => {
-    calls.push({ hostName: host.name, signer, controller });
+  const factory: HostCollectorFactory = (host, signer, controller, stack, caCertPem) => {
+    calls.push({ hostName: host.name, signer, controller, caCertPem });
     const { collector, runner } = makeFakeCollector(`fake-${host.name}`);
     stack.use(collector);
     created.push(collector);
@@ -118,6 +125,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       getSigner,
+      async () => null,
       factory,
     );
 
@@ -138,6 +146,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       async (n) => async () => `jwt-${n}`,
+      async () => null,
       factory,
     );
 
@@ -163,6 +172,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -189,6 +199,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -203,6 +214,55 @@ describe('HostCollectorManager', () => {
     await manager[Symbol.asyncDispose]();
   });
 
+  it('recreates a host when its pinned certificate changes', async () => {
+    const { factory, calls, created } = makeFactory();
+    let hosts = [makeHost('a')];
+    let cert: string | null = 'CERT-A';
+    const manager = new HostCollectorManager(
+      makeWorkerConfig(),
+      controller.signal,
+      async () => hosts,
+      okSigner,
+      async () => cert,
+      factory,
+    );
+
+    await manager.reconcile();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].caCertPem).toBe('CERT-A');
+
+    cert = 'CERT-B';
+    await manager.reconcile();
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1].caCertPem).toBe('CERT-B');
+    expect(created[0].stopped).toBe(true);
+    expect(created[1].stopped).toBe(false);
+
+    await manager[Symbol.asyncDispose]();
+  });
+
+  it('keeps collectors when the pinned certificate is unchanged', async () => {
+    const { factory, calls } = makeFactory();
+    let hosts = [makeHost('a')];
+    const manager = new HostCollectorManager(
+      makeWorkerConfig(),
+      controller.signal,
+      async () => hosts,
+      okSigner,
+      async () => 'CERT-A',
+      factory,
+    );
+
+    await manager.reconcile();
+    hosts = [makeHost('a', { status: 'unhealthy' })];
+    await manager.reconcile();
+
+    expect(calls).toHaveLength(1);
+
+    await manager[Symbol.asyncDispose]();
+  });
+
   it('skips hosts whose signer cannot be resolved', async () => {
     const { factory, calls } = makeFactory();
     const hosts = [makeHost('a'), makeHost('b')];
@@ -213,6 +273,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       getSigner,
+      async () => null,
       factory,
     );
 
@@ -237,6 +298,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       getSigner,
+      async () => null,
       factory,
     );
 
@@ -255,6 +317,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => { throw new Error('db down'); },
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -275,6 +338,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -299,6 +363,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       findAll as () => Promise<ManagedHost[]>,
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -322,6 +387,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => [makeHost('a')],
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -332,6 +398,95 @@ describe('HostCollectorManager', () => {
     expect(manager.hostNames()).toEqual([]);
   });
 
+  it('skips plain-http agent URLs unless insecure plaintext collection is allowed', async () => {
+    const originalConsoleWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = mock((msg?: unknown) => warns.push(String(msg)));
+    try {
+      const { factory, calls } = makeFactory();
+      // makeHost defaults to http:// URLs: the pre-TLS-provisioning shape.
+      let url = 'http://a:9090';
+      const manager = new HostCollectorManager(
+        makeWorkerConfig({ agents: { allowInsecurePlaintext: false } }),
+        controller.signal,
+        () => Promise.resolve([makeHost('a', { agentUrl: url })]),
+        okSigner,
+        () => Promise.resolve(null),
+        factory,
+      );
+
+      await manager.reconcile();
+      expect(calls).toHaveLength(0);
+      expect(manager.hostNames()).toEqual([]);
+      expect(warns.some((w) => w.includes("skipping host 'a'") && w.includes('plain http://'))).toBe(true);
+
+      // Reconciling again does not repeat the warning.
+      await manager.reconcile();
+      expect(calls).toHaveLength(0);
+      expect(warns.filter((w) => w.includes("skipping host 'a'"))).toHaveLength(1);
+
+      // Once TLS provisioning flips the URL to https, collectors start.
+      url = 'https://a:9090';
+      await manager.reconcile();
+      expect(calls).toHaveLength(1);
+      expect(manager.hostNames()).toEqual(['a']);
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+  });
+
+  it('skips pending hosts with an empty agent URL until the URL is provisioned', async () => {
+    const originalConsoleWarn = console.warn;
+    const warns: string[] = [];
+    console.warn = mock((msg?: unknown) => warns.push(String(msg)));
+    try {
+      const { factory, calls } = makeFactory();
+      let url = '';
+      const manager = new HostCollectorManager(
+        makeWorkerConfig({ agents: { allowInsecurePlaintext: false } }),
+        controller.signal,
+        () => Promise.resolve([makeHost('a', { agentUrl: url })]),
+        okSigner,
+        () => Promise.resolve(null),
+        factory,
+      );
+
+      await manager.reconcile();
+      expect(calls).toHaveLength(0);
+      expect(manager.hostNames()).toEqual([]);
+      expect(warns.some((w) => w.includes("skipping host 'a'") && w.includes('agent URL is empty'))).toBe(true);
+
+      // Reconciling again does not repeat the warning.
+      await manager.reconcile();
+      expect(calls).toHaveLength(0);
+      expect(warns.filter((w) => w.includes("skipping host 'a'"))).toHaveLength(1);
+
+      // Once TLS provisioning sets the URL, the host becomes eligible again.
+      url = 'https://a:9090';
+      await manager.reconcile();
+      expect(calls).toHaveLength(1);
+      expect(manager.hostNames()).toEqual(['a']);
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+  });
+
+  it('collects over plain http when WORKER_ALLOW_INSECURE_AGENTS-style config allows it', async () => {
+    const { factory, calls } = makeFactory();
+    const manager = new HostCollectorManager(
+      makeWorkerConfig({ agents: { allowInsecurePlaintext: true } }),
+      controller.signal,
+      () => Promise.resolve([makeHost('a')]),
+      okSigner,
+      () => Promise.resolve(null),
+      factory,
+    );
+
+    await manager.reconcile();
+    expect(calls).toHaveLength(1);
+    expect(manager.hostNames()).toEqual(['a']);
+  });
+
   it('asyncDispose stops collectors for all tracked hosts', async () => {
     const { factory, created } = makeFactory();
     const manager = new HostCollectorManager(
@@ -339,6 +494,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => [makeHost('a'), makeHost('b'), makeHost('c')],
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -358,6 +514,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => [makeHost('a'), makeHost('b')],
       async (n) => async () => `jwt-${n}`,
+      async () => null,
       factory,
     );
 
@@ -390,6 +547,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => [makeHost('a')],
       okSigner,
+      async () => null,
       factory,
     );
 
@@ -424,6 +582,7 @@ describe('HostCollectorManager', () => {
       controller.signal,
       async () => hosts,
       okSigner,
+      async () => null,
       factory,
     );
 

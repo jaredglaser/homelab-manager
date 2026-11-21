@@ -4,7 +4,6 @@ export interface AgentStackConfig {
   hostName: string;
   agentTrustedPubkey: string;
   agentImage: string;
-  agentUpdaterImage: string;
   capabilities: {
     docker: boolean;
     zfs: boolean;
@@ -24,7 +23,6 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
   }
 
   services['agent'] = buildAgent(config);
-  services['agent-updater'] = buildAgentUpdater(config);
 
   const doc: Record<string, unknown> = { services };
 
@@ -64,9 +62,11 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
 
   const lines: string[] = [
     `AGENT_IMAGE=${config.agentImage}`,
-    `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,
     `HLM_STACKS_DIR=/opt/homelab-manager/stacks`,
+    // A JWK is base64url + JSON punctuation, so a bare dotenv value is safe:
+    // compose dotenv takes a '{'-led value literally to end of line.
+    `AGENT_TRUSTED_PUBKEY=${config.agentTrustedPubkey}`,
   ];
 
   if (zfs) {
@@ -108,15 +108,45 @@ function buildSocketProxy(): Record<string, unknown> {
   };
 }
 
+const AGENT_STACKS_DIR = '/opt/homelab-manager/stacks';
+// Flat, host-independent directory: the agent writes cert.pem and key.pem here
+// and the manager targets the same fixed paths, so a renamed host cannot
+// desync the two sides.
+const TLS_DIR_NAME = 'hlm-agent-tls';
+
+export function hostTlsDir(): string {
+  return `${AGENT_STACKS_DIR}/${TLS_DIR_NAME}`;
+}
+
+export function hostTlsCertPath(): string {
+  return `${hostTlsDir()}/cert.pem`;
+}
+
+export function hostTlsKeyPath(): string {
+  return `${hostTlsDir()}/key.pem`;
+}
+
+const HEALTH_CHECK_RETRIES = 3;
+
 function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const { docker, zfs } = config.capabilities;
+  const tlsCertPath = hostTlsCertPath();
+  const tlsKeyPath = hostTlsKeyPath();
 
   const environment: Record<string, string> = {
-    AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
+    // The key value lives in the generated .env (compose interpolates it), so
+    // the YAML carries no escaped JSON.
+    AGENT_TRUSTED_PUBKEY: '${AGENT_TRUSTED_PUBKEY}',
     // Must match the managed host name: manager JWTs carry it as the aud claim.
     AGENT_HOST_NAME: config.hostName,
     // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.
     AGENT_IMAGE: '${AGENT_IMAGE}',
+    // Contractual: the manager restarts the agent over /containers/hlm-agent/restart.
+    AGENT_CONTAINER_NAME: 'hlm-agent',
+    TLS_CERT_PATH: tlsCertPath,
+    TLS_KEY_PATH: tlsKeyPath,
+    // Only the compose healthcheck below consumes this. Without it Bun fetch rejects the self-signed cert.
+    NODE_EXTRA_CA_CERTS: tlsCertPath,
   };
 
   if (docker) {
@@ -133,8 +163,8 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   };
 
   const volumes: string[] = [
-    // Bind-mounted host dir: the agent-updater recreates this container on image
-    // updates, so stack files in the container's writable layer would be lost.
+    // An agent update replaces this container, so stack files in the container's
+    // writable layer would be lost.
     '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks',
   ];
 
@@ -148,6 +178,17 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   }
 
   agent['volumes'] = volumes;
+
+  agent['healthcheck'] = {
+    test: [
+      'CMD-SHELL',
+      `bun -e "fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"`,
+    ],
+    interval: '30s',
+    timeout: '5s',
+    start_period: '15s',
+    retries: HEALTH_CHECK_RETRIES,
+  };
 
   if (docker && zfs) {
     agent['group_add'] = ['${DOCKER_GID}'];
@@ -163,24 +204,3 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   return agent;
 }
 
-function buildAgentUpdater(config: AgentStackConfig): Record<string, unknown> {
-  const agentUpdater: Record<string, unknown> = {
-    image: '${AGENT_UPDATER_IMAGE}',
-    container_name: 'hlm-agent-updater',
-    restart: 'unless-stopped',
-    volumes: ['/var/run/docker.sock:/var/run/docker.sock'],
-    environment: {
-      HLM_WATCH_CONTAINER: 'hlm-agent',
-      HLM_WATCH_IMAGE: '${AGENT_IMAGE}',
-      HLM_CHECK_INTERVAL: '${HLM_CHECK_INTERVAL:-6h}',
-      HLM_AGENT_URL: 'http://hlm-agent:9090',
-    },
-    labels: ['hlm.managed=true', 'hlm.role=agent-updater'],
-  };
-
-  if (config.capabilities.docker) {
-    agentUpdater['networks'] = ['agent-public'];
-  }
-
-  return agentUpdater;
-}

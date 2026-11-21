@@ -9,7 +9,7 @@ import { getHistoricalZFSStatsSchema } from '@/data/zfs/schemas';
  */
 export const getHistoricalZFSStats = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(getHistoricalZFSStatsSchema)
+  .validator(getHistoricalZFSStatsSchema)
   .handler(async ({ context, data }): Promise<ZFSStatsRow[]> => {
     try {
       const { StatsRepository } = await import(

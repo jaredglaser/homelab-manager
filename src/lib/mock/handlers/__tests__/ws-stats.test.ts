@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 
+import { mockSetInterval } from '@/lib/test/mock-timers';
+
 import {
   createConnectionHandler,
   statsTickFrame,
@@ -7,9 +9,9 @@ import {
   STATS_DROP_EVERY_TICKS,
   type MuxMockClient,
 } from '@/lib/mock/handlers/ws';
-import { dockerStatsChannel } from '@/lib/sse/channels/docker-stats';
-import { zfsStatsChannel } from '@/lib/sse/channels/zfs-stats';
-import { proxmoxStatsChannel } from '@/lib/sse/channels/proxmox-stats';
+import { dockerStatsChannel } from '@/lib/channels/docker-stats';
+import { zfsStatsChannel } from '@/lib/channels/zfs-stats';
+import { proxmoxStatsChannel } from '@/lib/channels/proxmox-stats';
 
 interface MuxFrame {
   type: string;
@@ -76,10 +78,6 @@ function withoutTimes(rows: Array<Record<string, unknown>>): Array<Record<string
     delete copy.time;
     return copy;
   });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe('mock mux stats topics', () => {
@@ -168,18 +166,23 @@ describe('mock mux stats topics', () => {
   });
 
   it('streams live snapshots until unsubscribe stops the feed', async () => {
-    const conn = connect();
-    conn.command('sub', ['stats:docker']);
-    // First poll tick lands at ~1s, like statsPollService.
-    const deadline = Date.now() + 2500;
-    while (conn.dataFrames('stats:docker').length < 2 && Date.now() < deadline) {
-      await sleep(50);
-    }
-    expect(conn.dataFrames('stats:docker').length).toBeGreaterThanOrEqual(2);
+    const timers = mockSetInterval();
+    try {
+      const conn = connect();
+      conn.command('sub', ['stats:docker']);
 
-    conn.command('unsub', ['stats:docker']);
-    const settled = conn.frames.length;
-    await sleep(1200);
-    expect(conn.frames.length).toBe(settled);
+      const feed = timers.scheduled.at(0);
+      if (feed === undefined) throw new Error('the stats feed scheduled no interval');
+      // One frame per poll tick, like statsPollService.
+      await timers.fire(feed);
+      await timers.fire(feed);
+      expect(conn.dataFrames('stats:docker')).toHaveLength(2);
+
+      conn.command('unsub', ['stats:docker']);
+      expect(feed.cleared).toBe(true);
+      expect(timers.pending).toHaveLength(0);
+    } finally {
+      timers.restore();
+    }
   });
 });

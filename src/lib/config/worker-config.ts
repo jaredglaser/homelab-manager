@@ -13,6 +13,10 @@ const WorkerConfigSchema = z.object({
   collection: z.object({
     interval: z.number().int().min(100).max(60000),
   }),
+  agents: z.object({
+    /** Allow collecting from agents over plain http:// (development only). */
+    allowInsecurePlaintext: z.boolean(),
+  }),
 });
 
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
@@ -39,6 +43,9 @@ export function loadWorkerConfig(): WorkerConfig {
     },
     collection: {
       interval: parseInt(process.env.WORKER_COLLECTION_INTERVAL_MS || '1000', 10),
+    },
+    agents: {
+      allowInsecurePlaintext: process.env.WORKER_ALLOW_INSECURE_AGENTS === 'true',
     },
   };
 

@@ -13,9 +13,9 @@ mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection'
   muxConnection: fakeMux,
 }));
 
-mockModule<typeof import('@/lib/auth/sse-auth')>('@/lib/auth/sse-auth', (real) => ({
+mockModule<typeof import('@/lib/auth/ws-auth')>('@/lib/auth/ws-auth', (real) => ({
   ...real,
-  authenticateSSE: mock(async () => ({ id: 'test-user' } as unknown)),
+  authenticateWsUpgrade: mock(async () => ({ id: 'test-user' } as unknown)),
 }));
 
 import { createMuxWsHandlers } from '../mux';

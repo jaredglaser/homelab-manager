@@ -1,14 +1,13 @@
 import { useCallback, useState } from 'react';
 import { useMuxQuery } from '@/lib/mux/use-mux-channel';
-import { STACK_STATUS_TOPIC } from '@/lib/mux/protocol';
-import { stackStatusChannel, type StackSSEMessage } from '@/lib/sse/channels/stack-status';
+import { stackStatusChannel, type StackStatusWireMessage } from '@/lib/channels/stack-status';
 import { useToast } from '@/hooks/toastAtom';
 import { deployToastGate, formatDeployOutcome } from '@/lib/stacks/deploy-outcome-toast';
 import type { StackStatusEntry } from '@/types/stacks';
 
-type DeployChangedMessage = Extract<StackSSEMessage, { type: 'deploy_changed' }>;
+type DeployChangedMessage = Extract<StackStatusWireMessage, { type: 'deploy_changed' }>;
 
-function isDeployChanged(data: StackSSEMessage): data is DeployChangedMessage {
+function isDeployChanged(data: StackStatusWireMessage): data is DeployChangedMessage {
   return !Array.isArray(data) && 'type' in data && data.type === 'deploy_changed';
 }
 
@@ -29,13 +28,13 @@ function shallowEqualContainers(
 }
 
 /**
- * Entry arrays merge into the map keyed by host/stack (same semantics as the old SSE
- * reducer: an unchanged entry keeps the previous Map reference); a deploy_changed frame
- * carries no entry data and leaves the map untouched.
+ * Entry arrays merge into the map keyed by host/stack (an unchanged entry keeps the
+ * previous Map reference). A deploy_changed frame carries no entry data and leaves the
+ * map untouched.
  */
 export function foldStackStatus(
   prev: Map<string, StackStatusEntry>,
-  data: StackSSEMessage,
+  data: StackStatusWireMessage,
 ): Map<string, StackStatusEntry> {
   if (isDeployChanged(data)) return prev;
   let changed = false;
@@ -56,7 +55,7 @@ export function useStackStatus() {
   const [deployVersion, setDeployVersion] = useState(0);
   const { showToast } = useToast();
 
-  const handleDeployChanged = useCallback((data: StackSSEMessage) => {
+  const handleDeployChanged = useCallback((data: StackStatusWireMessage) => {
     if (!isDeployChanged(data)) return;
     setDeployVersion((v) => v + 1);
     if (data.outcome !== undefined) {
@@ -70,7 +69,7 @@ export function useStackStatus() {
   }, [showToast]);
 
   const { state: statusMap, isConnected, error } = useMuxQuery(
-    { ...stackStatusChannel, topic: STACK_STATUS_TOPIC },
+    stackStatusChannel,
     {
       queryKey: ['stack-status'],
       initial: EMPTY_STATUS_MAP,

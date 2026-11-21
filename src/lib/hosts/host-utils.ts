@@ -1,4 +1,5 @@
 import type { HostStatus, HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { AgentHealthResult } from '@/lib/services/agent-health-service';
 
 /** Serialized ManagedHost for API responses (Date -> ISO string). */
 export interface HostListItem {
@@ -14,16 +15,7 @@ export interface HostListItem {
   updatedAt: string;
 }
 
-export type HealthCheckOutcome =
-  | {
-      healthy: true;
-      version?: string;
-      dockerVersion?: string;
-      agentImage?: string | null;
-      agentImageTag?: string | null;
-      infoSupported?: boolean;
-    }
-  | { healthy: false; error: string };
+export type HealthCheckOutcome = AgentHealthResult;
 
 /**
  * Convert a ManagedHost to an API-facing HostListItem (stringifies Date fields).
@@ -48,7 +40,6 @@ export function toHostListItem(
 }
 
 const AGENT_IMAGE_REPO = 'ghcr.io/jaredglaser/homelab-manager-agent';
-const AGENT_UPDATER_IMAGE_REPO = 'ghcr.io/jaredglaser/homelab-manager-agent-updater';
 export const DEFAULT_AGENT_IMAGE_TAG = 'latest';
 
 // Docker's tag grammar. The value lands unquoted in the generated agent .env, so a junk
@@ -61,15 +52,11 @@ export function normalizeAgentImageTag(raw: unknown): string {
   return raw;
 }
 
-/** Baked at build time from VITE_AGENT_IMAGE_TAG: Vite inlines it, so runtime env cannot drive it. */
+/** Vite inlines this at build for the web, and the worker reads it from its own environment at runtime. */
 export function getAgentImageTag(): string {
   return normalizeAgentImageTag(import.meta.env.VITE_AGENT_IMAGE_TAG);
 }
 
 export function getAgentImage(): string {
   return `${AGENT_IMAGE_REPO}:${getAgentImageTag()}`;
-}
-
-export function getAgentUpdaterImage(): string {
-  return `${AGENT_UPDATER_IMAGE_REPO}:${getAgentImageTag()}`;
 }

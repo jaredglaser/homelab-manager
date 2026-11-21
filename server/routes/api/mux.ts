@@ -1,5 +1,6 @@
 import { defineWebSocketHandler } from 'h3';
 import type { Peer, WSError } from 'crossws';
+import { agentFetch, isTlsUrl, missingPinMessage } from '../../../src/lib/clients/agent-http';
 import type { MuxFrameBody } from '../../../src/lib/mux/protocol';
 import type { MuxDropPolicyConfig, MuxWriteQueue } from '../../../src/lib/mux/drop-policy';
 import { PING_INTERVAL_MS, RECONNECT_BASE_BACKOFF_MS, RECONNECT_MAX_BACKOFF_MS } from '../../../src/lib/mux/keepalive';
@@ -9,6 +10,8 @@ const STATS_TOPIC_PREFIX = 'stats:';
 const INVENTORY_TOPIC = 'inventory';
 const SETTINGS_TOPIC = 'settings';
 const STACK_STATUS_TOPIC = 'stack-status';
+const AGENT_INVENTORY_TOPIC = 'agent-inventory';
+const IMAGE_UPDATES_TOPIC = 'image-updates';
 export const MAX_PENDING_FRAMES = 64;
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
@@ -80,6 +83,17 @@ async function inventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSig
   signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
+async function agentInventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  const { agentInventoryBroadcastService } = await import(
+    '../../../src/lib/agents/agent-inventory-broadcast-service'
+  );
+  const unsubscribe = agentInventoryBroadcastService.subscribe((snapshot) => {
+    emit({ topic, kind: 'data', payload: snapshot });
+  });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
 async function settingsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
   await import('../../../src/lib/server-init');
   const { settingsBroadcastService } = await import(
@@ -96,9 +110,22 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
   const { stackStatusBroadcastService } = await import(
     '../../../src/lib/stacks/stack-status-broadcast-service'
   );
-  const { toStackStatusWireMessage } = await import('../../../src/lib/sse/channels/stack-status');
+  const { toStackStatusWireMessage } = await import('../../../src/lib/channels/stack-status');
   const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
+  });
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
+async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  if (signal.aborted) return;
+  const { imageUpdateBroadcastService } = await import(
+    '../../../src/lib/stacks/image-update-broadcast-service'
+  );
+  const { toImageUpdateWireMessage } = await import('../../../src/lib/channels/image-updates');
+  const unsubscribe = imageUpdateBroadcastService.subscribe((event) => {
+    emit({ topic, kind: 'data', payload: toImageUpdateWireMessage(event) });
   });
   signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
@@ -155,6 +182,9 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   }
 
   const { AgentKeypairsRepository } = await import('../../../src/lib/database/repositories/agent-keypairs-repository');
+  const { AgentTlsCertificatesRepository } = await import(
+    '../../../src/lib/database/repositories/agent-tls-certificates-repository'
+  );
   const { loadMasterKeyring } = await import('../../../src/lib/crypto/master-key');
   const { signAgentJwt } = await import('../../../src/lib/crypto/agent-jwt');
   const keyring = await loadMasterKeyring();
@@ -162,6 +192,21 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   const privateKey = await keypairs.getPrivateKeyForHost(host);
   if (!privateKey) {
     emit({ topic, kind: 'error', payload: { message: `No agent keypair for host: ${host}`, gone: true } });
+    return;
+  }
+
+  // A missing pin is permanent, so fail as gone instead of looping as a fake agent outage.
+  const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
+  const caCertPem = (await tlsCerts.getCertForHost(host))?.trim() || null;
+  if (isTlsUrl(managedHost.agentUrl) && !caCertPem) {
+    emit({
+      topic,
+      kind: 'error',
+      payload: {
+        message: missingPinMessage(host),
+        gone: true,
+      },
+    });
     return;
   }
 
@@ -174,11 +219,11 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
     if (signal.aborted) return;
     attempt++;
     try {
-      const agentResponse = await fetch(agentUrl, {
+      const agentResponse = await agentFetch(agentUrl, {
         headers: { Authorization: 'Bearer ' + jwt },
         signal,
         redirect: 'manual',
-      });
+      }, { caCertPem });
       if (!agentResponse.ok || !agentResponse.body) {
         throw new Error(`Agent request failed with status ${agentResponse.status}`);
       }
@@ -300,8 +345,8 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
   return {
     async open(peer: Peer) {
       try {
-        const { authenticateSSE } = await import('../../../src/lib/auth/sse-auth');
-        const user = await authenticateSSE(peer.request as unknown as Request);
+        const { authenticateWsUpgrade } = await import('../../../src/lib/auth/ws-auth');
+        const user = await authenticateWsUpgrade(peer.request as unknown as Request);
         if (!user) {
           pendingMessages.delete(peer.id);
           try { peer.close(1008, 'Unauthorized'); } catch { /* already closed */ }
@@ -368,22 +413,24 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
   };
 }
 
+export const STATIC_TOPIC_ADAPTERS: Record<string, TopicAdapter> = {
+  [INVENTORY_TOPIC]: inventoryAdapter,
+  [SETTINGS_TOPIC]: settingsAdapter,
+  [STACK_STATUS_TOPIC]: stackStatusAdapter,
+  [AGENT_INVENTORY_TOPIC]: agentInventoryAdapter,
+  [IMAGE_UPDATES_TOPIC]: imageUpdatesAdapter,
+};
+
+const PREFIX_TOPIC_ADAPTERS = [
+  { prefix: LOGS_TOPIC_PREFIX, adapter: logsAdapter },
+  { prefix: STATS_TOPIC_PREFIX, adapter: statsAdapter },
+] as const;
+
 export const defaultTopicAdapter: TopicAdapter = (topic, emit, signal) => {
-  if (topic === INVENTORY_TOPIC) {
-    return inventoryAdapter(topic, emit, signal);
-  }
-  if (topic === SETTINGS_TOPIC) {
-    return settingsAdapter(topic, emit, signal);
-  }
-  if (topic === STACK_STATUS_TOPIC) {
-    return stackStatusAdapter(topic, emit, signal);
-  }
-  if (topic.startsWith(LOGS_TOPIC_PREFIX)) {
-    return logsAdapter(topic, emit, signal);
-  }
-  if (topic.startsWith(STATS_TOPIC_PREFIX)) {
-    return statsAdapter(topic, emit, signal);
-  }
+  const staticAdapter = STATIC_TOPIC_ADAPTERS[topic];
+  if (staticAdapter) return staticAdapter(topic, emit, signal);
+  const prefixAdapter = PREFIX_TOPIC_ADAPTERS.find(({ prefix }) => topic.startsWith(prefix));
+  if (prefixAdapter) return prefixAdapter.adapter(topic, emit, signal);
   emit({ topic, kind: 'error', payload: { message: `Unsupported topic: ${topic}`, gone: true } });
 };
 

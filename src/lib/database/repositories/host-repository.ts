@@ -16,9 +16,19 @@ export interface ManagedHost {
   agentVersion: string | null;
   agentImage: string | null;
   agentImageTag: string | null;
+  /** Image digest the agent container runs, reported by the agent's /info and persisted by the sweep. */
+  agentImageDigest: string | null;
+  /** True when the last sweep found this digest different from the manager's own agent image. */
+  agentOutOfDate: boolean;
   status: HostStatus;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * When the inventory sweep last probed this host, or null if it has never been
+   * swept. Deliberately separate from updatedAt, which every writer to this row
+   * bumps and so cannot answer "when was this agent last checked".
+   */
+  lastSweptAt: Date | null;
 }
 
 export interface CreateHostInput {
@@ -31,6 +41,8 @@ export interface UpdateAgentInfoInput {
   version?: string;
   image?: string | null;
   imageTag?: string | null;
+  imageDigest?: string | null;
+  outOfDate?: boolean;
 }
 
 export interface UpdateHostInput {
@@ -48,9 +60,12 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     agentVersion: (row.agent_version as string | null | undefined) ?? null,
     agentImage: (row.agent_image as string | null | undefined) ?? null,
     agentImageTag: (row.agent_image_tag as string | null | undefined) ?? null,
+    agentImageDigest: (row.agent_image_digest as string | null | undefined) ?? null,
+    agentOutOfDate: (row.agent_out_of_date as boolean | null | undefined) ?? false,
     status: row.status as HostStatus,
     createdAt: row.created_at as Date,
     updatedAt: row.updated_at as Date,
+    lastSweptAt: (row.last_swept_at as Date | null | undefined) ?? null,
   };
 }
 
@@ -149,6 +164,20 @@ export class HostRepository {
     );
   }
 
+  /**
+   * Record that the inventory sweep probed this host at `at`. Deliberately does
+   * not touch updated_at: that column is bumped by every writer and is what made
+   * the inventory report a fresher sweep than actually ran. Stamped for every
+   * probed host, including a pending one whose status is left alone, because
+   * checkedAt answers "when did we last look", not "when did the status change".
+   */
+  async updateLastSweptAt(id: number, at: Date): Promise<void> {
+    await this.pool.query(
+      'UPDATE managed_hosts SET last_swept_at = $1 WHERE id = $2',
+      [at, id],
+    );
+  }
+
   /** An omitted field is left as it was; an explicit null clears it. */
   async updateAgentInfo(id: number, fields: UpdateAgentInfoInput): Promise<void> {
     const setClauses: string[] = [];
@@ -165,6 +194,14 @@ export class HostRepository {
     if (fields.imageTag !== undefined) {
       params.push(fields.imageTag);
       setClauses.push(`agent_image_tag = $${params.length}`);
+    }
+    if (fields.imageDigest !== undefined) {
+      params.push(fields.imageDigest);
+      setClauses.push(`agent_image_digest = $${params.length}`);
+    }
+    if (fields.outOfDate !== undefined) {
+      params.push(fields.outOfDate);
+      setClauses.push(`agent_out_of_date = $${params.length}`);
     }
 
     if (setClauses.length === 0) return;

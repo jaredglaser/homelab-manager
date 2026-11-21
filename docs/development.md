@@ -61,10 +61,24 @@ HOMELAB_DEV_SEED="true"
 COMPOSE_PROFILES="management"
 ```
 
+#### Extra registries for image update checks
+
+Stack image update checks only query registries on a built-in allowlist: docker.io, ghcr.io, quay.io, gcr.io, registry.k8s.io, and lscr.io. To check images hosted on another registry, add its hostname to `IMAGE_UPDATE_EXTRA_REGISTRIES` in `.env` (comma-separated hostnames with an optional port):
+
+```env
+IMAGE_UPDATE_EXTRA_REGISTRIES="nas.lan:5000,registry.home.arpa"
+```
+
+Entries must be HTTPS-reachable because the registry token flow requires it. A malformed entry does not fail startup: image update checks refuse to run and every check reports the error until the variable is fixed.
+
+#### Scheduled image update refresher
+
+A server-side refresher re-checks every stack image against its registry on a schedule and persists the result in `image_update_checks` (one row per host, stack, and image), so the stacks panel shows update state without waiting for a live registry call. The interval comes from `IMAGE_UPDATE_REFRESH_INTERVAL_MS` in `.env` (milliseconds, default `43200000` = 12 hours). The schedule is wall-clock anchored to the newest `checked_at`, so server restarts do not reset it, and a boot with stale rows runs one catch-up check; a boot whose startup fails retries with backoff instead of staying down. A malformed value makes the refresher fail at startup, and panel reads fall back to the default interval. When a check fails, the row keeps its last known good tags and only the error columns move.
+
 ### Step 2: Start the Dev Stack
 
 ```bash
-bun run setup              # Installs homelab-manager, agent, and agent-updater
+bun run setup              # Installs homelab-manager and agent
 
 # Terminal 1: Start all Docker services
 bun run dev:local:up
@@ -172,11 +186,14 @@ bun run dev:local:logs:worker
 bun run dev:local:up           # Start all services
 bun run dev:local:down         # Stop all services
 bun run dev:local:restart      # Recreate containers (picks up .env changes)
-bun run dev:local:rebuild      # Full rebuild (no cache) and restart
+bun run dev:local:rebuild      # Rebuild images (layer cache, pulls base image updates) and restart
+bun run dev:local:rebuild:fresh # Rebuild + reset the node_modules volume (run after bun.lock changes)
 bun run dev:local:wipe         # Stop and delete all volumes (fresh database)
 bun run dev:local:logs         # Tail all service logs
 bun run dev:local:logs:worker  # Worker logs only
 bun run dev:local:logs:agent   # Agent logs only
+bun run dev:local:logs:db      # Postgres logs only
+bun run dev:local:logs:pocketid # Pocket ID logs only
 ```
 
 If the sample containers were started standalone, stop them with `docker compose -f ~/stacks/samples/docker-compose.yml down`.
@@ -219,20 +236,29 @@ bun run test:agent          # Run agent tests
 bun run test:coverage:agent # Agent tests with coverage thresholds
 
 # Combined
-bun run test:all            # Run tests in both
+bun run test:all            # Run both packages' tests in parallel shards
 bun run test:coverage:all   # Run tests in both with coverage thresholds
 ```
 
+`bun test --isolate` executes test files one at a time, so `bun run test:all` shards the
+suite across concurrent `bun test --isolate` child processes instead (`scripts/test-parallel.ts`).
+Files are discovered with `git ls-files --cached --others --exclude-standard` filtered through
+bun's test-name patterns, so untracked new test files are included and gitignored trees are not.
+Pass substring filters (`bun run test:all -- src/lib`) to shrink the set, or `--shards=N` to
+override the shard count (defaults to CPU count, capped at 12). Failing shards print the tail of
+their output; full per-shard logs land in `.tmp/test-parallel/`. Coverage runs stay
+single-process because Bun cannot merge V8 coverage tables across processes.
+
 ### Coverage Requirements
 
-- Function and line minimums live in the `THRESHOLDS` object in `scripts/check-coverage.js`. That file is the single source of truth for all three packages (homelab-manager, agent, agent-updater all pipe into it), so check the values there instead of relying on a number copied into docs.
+- Function and line minimums live in the `THRESHOLDS` object in `scripts/check-coverage.js`. That file is the single source of truth for both packages (homelab-manager and agent both pipe into it), so check the values there instead of relying on a number copied into docs.
 - Enforced by `bun run test` (which pipes `--coverage` to `scripts/check-coverage.js`) and CI. Bare `bun test --isolate` does NOT enforce the thresholds.
 
 Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).
 
 ### Shared Dependency Versions
 
-The three packages (homelab-manager, agent, agent-updater) are independent Bun projects with their own lockfiles; they install separately so each Docker image build resolves exactly its own `bun.lock` (the agent and agent-updater images are built from their own directories and pinned to their own lockfiles). Dependencies in the shared set (`dockerode`, `jose`, `zod`, `@types/dockerode`, `@types/bun`, `typescript`) are versioned once, in the root `package.json`:
+The two packages (homelab-manager, agent) are independent Bun projects with their own lockfiles; they install separately so each Docker image build resolves exactly its own `bun.lock` (the agent image is built from its own directory and pinned to its own lockfile). Dependencies in the shared set (`dockerode`, `jose`, `zod`, `@types/dockerode`, `@types/bun`, `typescript`) are versioned once, in the root `package.json`:
 
 - `bun run deps:check` fails when a package's shared dep differs from root or uses a caret/tilde range. CI runs this on every PR.
 - `bun run deps:sync` copies root's versions into the other manifests and reinstalls the affected packages.
@@ -260,7 +286,9 @@ bun run test:e2e:ui     # Playwright UI mode
 Two targets share the handlers in `src/lib/mock`: `demo` (the `VITE_DEMO_MODE`
 build, smoke-tested) and `app` (the real non-demo build with `VITE_ENABLE_MSW`,
 deep flows). Specs live in `e2e/`; `*.demo.e2e.ts` run on `demo`, all other
-`*.e2e.ts` on `app`. The `.e2e.ts` suffix is deliberate: `bun test` collects
+`*.e2e.ts` on `app`, and `*.mobile.e2e.ts` run on the dedicated `mobile`
+Playwright project (viewport-sized smoke checks that pin the shell chrome). The
+`.e2e.ts` suffix is deliberate: `bun test` collects
 `*.spec.ts`, and Playwright's `test()` throws when bun's runner loads it. Tests
 reshape individual responses per scenario with `overrideServerFn` (see
 `e2e/fixtures.ts`).
@@ -304,21 +332,45 @@ bun run typecheck:all       # Both
 ## Production Build
 
 ```bash
-bun build               # Production build (runs typecheck first)
+bun run build           # Production build (runs typecheck first)
 ```
 
 ## TLS Setup (Agent Communication)
 
-Agent sidecars can optionally serve over HTTPS. This is not required for local network use; agents work over plain HTTP by default.
+The manager provisions a per-host self-signed certificate automatically. It asks
+for a single-use nonce (`GET /tls/challenge`), signs that nonce together with the
+host name and the SAN list using the host key, and posts the signature to
+`POST /tls/enroll`, where the agent verifies it against its trusted public key and
+generates the keypair itself. The manager pins the returned public certificate as
+the trust anchor for that host and rewrites the host's agent URL to https. The
+handshake carries no bearer token, because for a host with no certificate it runs
+over plain HTTP, where a token would be readable and replayable by any observer. The wizard-generated agent stack sets `TLS_CERT_PATH` and
+`TLS_KEY_PATH` to the certificate files under the stacks mount, and the agent
+serves HTTPS with them. Re-run TLS provisioning from the Managed Hosts card to
+rotate a certificate.
 
-For production or untrusted networks, provision a certificate from your own CA (e.g., step-ca, Let's Encrypt, or a corporate PKI):
+Without a readable certificate the agent serves plain HTTP with a warning in its
+logs, so the manager can reach it to enroll one. In that state the plain-HTTP
+surface is restricted to `/health`, `/auth/verify`, `/tls/challenge` and
+`/tls/enroll`, and every other endpoint is refused (`403` for an authenticated
+request, `401` otherwise), because over plaintext the bearer-token auth is
+defeated by any network observer. An agent with no readable certificate serves that surface
+whether it is a first boot or a host whose certificates were removed, so the
+manager can enroll a replacement. A half-configured pair, one of
+`TLS_CERT_PATH`/`TLS_KEY_PATH` without the other, stops the agent at startup.
 
-- Set `TLS_CERT_PATH` and `TLS_KEY_PATH` on the agent container to point at the certificate and private key.
-- Set `NODE_EXTRA_CA_CERTS` on the web server and worker containers to trust your internal CA.
+Agents with no `TLS_CERT_PATH`/`TLS_KEY_PATH` at all keep the full API over
+plain HTTP, which is the intentional development setup (the dev compose does
+not set the TLS paths), and the worker only talks to such agents when
+`WORKER_ALLOW_INSECURE_AGENTS=true`, which `docker-compose.local.yml` sets.
 
+If the manager loses its pinned certificate record, enrollment over the existing
+https URL cannot succeed, because the manager cannot verify the agent it is
+enrolling with. The recovery steps are in the Self-Hosting Guide:
+[Agent TLS recovery](../self-hosting/README.md#agent-tls-recovery-the-manager-lost-its-pinned-certificate).
 ## Editor Setup (Zed)
 
-MCP servers are the one piece Zed configures at the user level (`~/.config/zed/settings.json`) rather than per project. To match the repo's Playwright MCP setup (`.mcp.json`, used by Claude Code), add:
+MCP servers are the one piece Zed configures at the user level (`~/.config/zed/settings.json`) rather than per project. To match the repo's Playwright MCP setup (`.mcp.json`, used by Claude Code. Note that the file is gitignored and not committed, so it may not exist in a fresh clone), add:
 
 ```json
 {

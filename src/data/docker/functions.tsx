@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { DockerStatsRow } from '@/types/docker';
+import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { databaseMiddleware } from '@/middleware/database-middleware';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
@@ -16,7 +17,7 @@ import {
  */
 export const getHistoricalDockerStats = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(getHistoricalDockerStatsSchema)
+  .validator(getHistoricalDockerStatsSchema)
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
       const { StatsRepository } = await import(
@@ -56,7 +57,7 @@ export const getDockerEntityIcons = createServerFn()
 
 export const getContainerHistory = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(getContainerHistorySchema)
+  .validator(getContainerHistorySchema)
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
       const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
@@ -99,7 +100,7 @@ export const getContainerHistory = createServerFn()
  */
 export const controlContainer = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(controlContainerSchema)
+  .validator(controlContainerSchema)
   .handler(async ({ context, data }): Promise<void> => {
     requireRole('admin', 'operator')(context.user);
     const { HostRepository } = await import('@/lib/database/repositories/host-repository');
@@ -115,10 +116,16 @@ export const controlContainer = createServerFn({ method: 'POST' })
     const keyring = await loadMasterKeyring();
     const agentKeypairs = new AgentKeypairsRepository(context.pool, keyring);
     const privateKey = await agentKeypairs.getPrivateKeyForHost(managedHost.name);
-    if (!privateKey) throw new Error(`No agent keypair for host "${managedHost.name}". Re-enroll the agent.`);
+    if (!privateKey) throw missingAgentKeypairError(managedHost.name);
 
     const signer = () => signAgentJwt(privateKey, managedHost.name);
-    const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer });
+    // Without the pin an https control call fails verification and reads as an agent outage.
+    const { AgentTlsCertificatesRepository } = await import(
+      '@/lib/database/repositories/agent-tls-certificates-repository'
+    );
+    const tlsCerts = new AgentTlsCertificatesRepository(context.pool);
+    const caCertPem = await tlsCerts.getCertForHost(managedHost.name);
+    const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer, caCertPem });
 
     try {
       if (data.action === 'start') await agent.startContainer(data.containerId);
@@ -132,7 +139,7 @@ export const controlContainer = createServerFn({ method: 'POST' })
 
 export const updateContainerIcon = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(updateContainerIconSchema)
+  .validator(updateContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
     const { EntityMetadataRepository } = await import(
       '@/lib/database/repositories/entity-metadata-repository'
@@ -144,7 +151,7 @@ export const updateContainerIcon = createServerFn()
 
 export const clearContainerIcon = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
-  .inputValidator(clearContainerIconSchema)
+  .validator(clearContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
     const { EntityMetadataRepository } = await import(
       '@/lib/database/repositories/entity-metadata-repository'

@@ -1,18 +1,32 @@
 import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
-import { toHostListItem } from '@/lib/hosts/host-utils';
+import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
+import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
+import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
+import type { TlsFailureCode } from '@homelab-manager/agent/types';
+import type { HostFailureCode } from '@/lib/errors/host-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
+import { agentFetch } from '@/lib/clients/agent-http';
+import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
+import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
+export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
 
 export interface KeypairsDep {
-  createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
+  createForHost: (hostName: string) => Promise<{ publicJwk: JWK }>;
   deleteForHost: (hostName: string) => Promise<void>;
-  getPublicJwkForHost: (hostName: string) => Promise<import('jose').JWK | null>;
+  getPublicJwkForHost: (hostName: string) => Promise<JWK | null>;
+  getOrCreateForHost: (hostName: string) => Promise<JWK>;
 }
 
 export interface AddHostResult {
   host: HostListItem;
-  publicJwk?: import('jose').JWK;
+  publicJwk?: JWK;
+  /** Set when TLS provisioning failed but the keypair was still created and returned. The host stays pending. */
+  provisioningError?: string;
 }
 
 export type HostOperationResult =
@@ -24,17 +38,26 @@ export type HostOperationResult =
       agentImage?: string | null;
       agentImageTag?: string | null;
     }
-  | { hostId: number; healthy: false; error: string; suggestions?: string[] };
+  | { hostId: number; healthy: false; code: HostFailureCode; message: string };
 
 export type HealthCheckResult = HostOperationResult;
+export type UpdateAgentResult = HostOperationResult;
+
+const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
+
+function digestPinnedImageRef(imageRef: string, digest: string): string {
+  return `${imageRef.slice(0, imageRef.lastIndexOf(':'))}@${digest}`;
+}
 
 export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
   findAll(): Promise<ManagedHost[]>;
   create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  findByName(name: string): Promise<ManagedHost | null>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
-  updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null }): Promise<void>;
+  updateLastSweptAt(id: number, at: Date): Promise<void>;
+  updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null; imageDigest?: string | null; outOfDate?: boolean }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
 
@@ -80,15 +103,26 @@ export async function handleCheckHostHealth(
         agentImage: healthResult.agentImage,
         agentImageTag: healthResult.agentImageTag,
       }
-    : { hostId: host.id, healthy: false, error: healthResult.error };
+    : {
+        hostId: host.id,
+        healthy: false,
+        code: healthResult.reason ?? 'health_check_failed',
+        message: healthResult.error,
+      };
 }
 
 export async function handleRemoveHost(
   deps: HostHandlerDeps & { keypairs: Pick<KeypairsDep, 'deleteForHost'> },
-  data: { hostId: number },
+  data: { hostId: number; expectStatus?: 'pending' },
 ): Promise<{ success: boolean }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  // The row just read is the arbiter: a wizard-driven removal must not delete a
+  // host whose status flipped after the client's snapshot was taken.
+  if (data.expectStatus && host.status !== data.expectStatus) {
+    throw new Error(`Host ${host.name} is no longer pending`);
+  }
 
   try {
     await deps.keypairs.deleteForHost(host.name);
@@ -124,23 +158,35 @@ export async function handleUpdateHost(
 }
 
 export async function handleGetHostPublicJwk(
-  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  deps: HostHandlerDeps & {
+    keypairs: KeypairsDep;
+    /** Pinned certificate lookup. Absent when the caller has no certificate store. */
+    getPinnedCert?: (hostName: string) => Promise<string | null>;
+  },
   data: { hostId: number },
-): Promise<{ publicJwk: import('jose').JWK }> {
+): Promise<{ publicJwk: JWK; fingerprint: string | null }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   const publicJwk = await deps.keypairs.getPublicJwkForHost(host.name);
   if (!publicJwk) {
-    throw new Error(`No agent keypair found for host ${host.name}`);
+    throw missingAgentKeypairError(host.name);
   }
-  return { publicJwk };
+  // Derived here rather than stored, so the value cannot drift from the certificate it describes.
+  // The agent prints the same value at startup, which is what makes the two comparable.
+  let certPem: string | null = null;
+  try {
+    certPem = (await deps.getPinnedCert?.(host.name)) ?? null;
+  } catch (err) {
+    console.error(`[hosts] TLS cert lookup failed for ${host.name}:`, err instanceof Error ? err.message : err);
+  }
+  return { publicJwk, fingerprint: certPem ? certificateFingerprint(certPem) : null };
 }
 
 export async function handleRotateHostKeypair(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
-): Promise<{ hostId: number; publicJwk: import('jose').JWK }> {
+): Promise<{ hostId: number; publicJwk: JWK }> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -149,32 +195,388 @@ export async function handleRotateHostKeypair(
 }
 
 /**
- * Register a user-managed agent. Generates an Ed25519 keypair and returns the
- * public JWK to the operator, who installs it in the agent's AGENT_TRUSTED_PUBKEY
- * env. Status is pending until the operator installs the pubkey and a follow-up
- * health check passes.
+ * Create (or reuse) the pending host record and its Ed25519 keypair, and return
+ * the public JWK. Called when the Add Host wizard enters the Compose File step,
+ * so the generated .env (referenced by the compose) carries the real
+ * AGENT_TRUSTED_PUBKEY and the agent boots already trusting the manager.
+ * Provisioning is a separate step (handleRotateHostTls) that runs once the
+ * operator has deployed the stack and entered the agent URL.
  */
-export async function handleVerifyHost(
+export async function handleCreatePendingHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
-  data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
-): Promise<AddHostResult> {
+  data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+): Promise<{ host: HostListItem; publicJwk: JWK }> {
   const name = data.name.trim();
-  const host = await deps.repo.create({
+  const capabilities = data.capabilities ?? { docker: false, zfs: false };
+  const existing = await deps.repo.findByName(name);
+  const host = existing ?? (await deps.repo.create({
     name,
-    agentUrl: data.agentUrl,
-    capabilities: data.capabilities,
-  });
+    // agent_url is NOT NULL but unknown at this point. The operator enters the
+    // URL on the Verify step, which persists it before provisioning runs.
+    agentUrl: '',
+    capabilities,
+  }));
 
-  let publicJwk;
+  // Get-or-create: re-entering the wizard must reuse the enrolled keypair. Rotating
+  // here would invalidate the AGENT_TRUSTED_PUBKEY the operator already deployed.
+  let publicJwk: JWK | null;
   try {
-    ({ publicJwk } = await deps.keypairs.createForHost(name));
+    publicJwk = await deps.keypairs.getPublicJwkForHost(name);
+    if (!publicJwk) publicJwk = await deps.keypairs.getOrCreateForHost(name);
   } catch (err) {
-    await deps.repo.delete(host.id);
-    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`);
+    if (!existing) await deps.repo.delete(host.id);
+    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}${existing ? '' : '. Host record cleaned up.'}`);
+  }
+
+  // Capability toggles may have changed since creation. Keep the record honest, but
+  // only for pending hosts the wizard is still enrolling.
+  if (existing && host.status === 'pending'
+      && JSON.stringify(host.capabilities ?? {}) !== JSON.stringify(capabilities)) {
+    const updated = await deps.repo.update(host.id, { capabilities });
+    return { host: toHostListItem(updated), publicJwk };
   }
 
   return {
-    host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
+    host: toHostListItem(host, existing ? undefined : { agentVersion: null, status: 'pending' }),
     publicJwk,
   };
+}
+
+/**
+ * Runs TLS provisioning for a host: the Add Host wizard's first contact, or a
+ * re-run for an enrolled host. Failure leaves the host record and its enrolled
+ * keypair untouched.
+ *
+ * An explicit `agentUrl` re-points the host: provisioning runs against it, and
+ * only a successful run (which flips the URL to https) is persisted. A failed
+ * attempt never writes, so a bad address cannot clobber a working one.
+ */
+/**
+ * Expected failures come back as data rather than as a throw, so the UI maps a code to its fix
+ * instead of matching on prose. A rejected session, a transport failure or a bug still throws.
+ */
+export type RotateHostTlsResult =
+  | { ok: true; hostId: number; agentUrl: string; enrolledOverPlainHttp: boolean; fingerprint: string }
+  | { ok: false; code: TlsFailureCode; message: string };
+
+export async function handleRotateHostTls(
+  deps: HostHandlerDeps & {
+    provisionTls: (
+      hostName: string,
+      agentUrl: string,
+      options: { allowPlaintextEnrollment: boolean },
+    ) => Promise<{ agentUrl: string; enrolledOverPlainHttp?: boolean; fingerprint?: string }>;
+  },
+  data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean },
+): Promise<RotateHostTlsResult> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  // A host the wizard is still enrolling has no established trust to protect, so it confirms by existing.
+  const allowPlaintextEnrollment = host.status === 'pending' || data.acceptPlaintextEnrollment === true;
+  let provisioned: { agentUrl: string; enrolledOverPlainHttp?: boolean; fingerprint?: string };
+  try {
+    provisioned = await deps.provisionTls(host.name, data.agentUrl ?? host.agentUrl, { allowPlaintextEnrollment });
+  } catch (err) {
+    if (err instanceof TlsProvisionFailure) return { ok: false, code: err.code, message: err.message };
+    // The manager has no keypair to sign with, which is the one failure that names a control in the UI.
+    if (err instanceof MissingAgentKeypairError) return { ok: false, code: 'no_keypair', message: err.message };
+    throw err;
+  }
+  await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+  return {
+    ok: true,
+    hostId: host.id,
+    agentUrl: provisioned.agentUrl,
+    enrolledOverPlainHttp: provisioned.enrolledOverPlainHttp === true,
+    fingerprint: provisioned.fingerprint ?? '',
+  };
+}
+
+// Scoped to this host's agentUrl. Never touches any other host.
+export async function handleUpdateAgent(
+  deps: HostHandlerDeps & {
+    getSigner: (hostname: string) => Promise<() => Promise<string>>;
+    checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+    /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
+    getCaCert?: (hostname: string) => Promise<string | null>;
+  },
+  data: { hostId: number },
+): Promise<HostOperationResult> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const preCheck = await deps.checkHealth(host.agentUrl, host.name);
+  if (!preCheck.healthy) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      code: preCheck.reason ?? 'health_check_failed',
+      message: preCheck.error,
+    };
+  }
+  const currentVersion = preCheck.version;
+  // A missing pre-update version only implies an upgrade when /info 404s. Any
+  // other cause would make a later version read look like a change that never happened.
+  const preInfoUnsupported = preCheck.infoSupported === false;
+
+  const resolveDigest = deps.resolveAgentImageDigest ?? resolveAgentImageDigest;
+  const imageRef = getAgentImage();
+  const digest = await resolveDigest(imageRef);
+  if (!digest) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      code: 'image_digest_unresolved',
+      message: 'Could not resolve the agent image digest from the registry',
+    };
+  }
+  const targetImage = digestPinnedImageRef(imageRef, digest);
+
+  let signer: () => Promise<string>;
+  try {
+    signer = await deps.getSigner(host.name);
+  } catch {
+    return {
+      hostId: host.id,
+      healthy: false,
+      code: 'keypair_unavailable',
+      message: 'Could not retrieve agent keypair',
+    };
+  }
+
+  let jwt: string;
+  try {
+    jwt = await signer();
+  } catch {
+    return {
+      hostId: host.id,
+      healthy: false,
+      code: 'token_signing_failed',
+      message: 'Could not sign the agent request token',
+    };
+  }
+
+  let triggerResponse: Response;
+  try {
+    const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
+    triggerResponse = await agentFetch(`${agentBaseUrl}/agent/update`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetImage }),
+      redirect: 'manual',
+    }, { caCertPem: deps.getCaCert ? await deps.getCaCert(host.name) : null });
+  } catch (err) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      code: 'agent_unreachable',
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+
+  if (triggerResponse.type === 'opaqueredirect' || (triggerResponse.status >= 300 && triggerResponse.status < 400)) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      code: 'unexpected_redirect',
+      message: 'Agent URL returned an unexpected redirect',
+    };
+  }
+
+  if (triggerResponse.status === 200) {
+    // The agent checked its own image and found nothing newer.
+    return { hostId: host.id, healthy: true };
+  }
+
+  if (triggerResponse.status !== 202) {
+    const body = await triggerResponse.text().catch(() => '');
+    // The agent answers with JSON like {"error":"..."}; surface the message,
+    // not the raw body.
+    let message = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown };
+      if (typeof parsed?.error === 'string') message = parsed.error;
+    } catch {
+      // Body was not JSON; keep the raw text.
+    }
+    return {
+      hostId: host.id,
+      healthy: false,
+      code: 'agent_reported_error',
+      message,
+    };
+  }
+
+  let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
+  let newVersion: string | undefined;
+  // The helper pulls the new image before stopping the old agent, so on an /info-less host a
+  // healthy poll alone proves nothing. A restart is only evidenced by an observed failed poll.
+  let sawRestart = false;
+
+  for (const delay of HEALTH_CHECK_DELAYS_MS) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    lastResult = await deps.checkHealth(host.agentUrl, host.name);
+    if (!lastResult.healthy) {
+      sawRestart = true;
+      continue;
+    }
+    if (lastResult.version === undefined) continue;
+    if (preInfoUnsupported) {
+      if (sawRestart) {
+        newVersion = lastResult.version;
+        break;
+      }
+      continue;
+    }
+    if (currentVersion !== undefined && lastResult.version !== currentVersion) {
+      newVersion = lastResult.version;
+      break;
+    }
+  }
+
+  if (!newVersion) {
+    if (lastResult.healthy && currentVersion !== undefined && lastResult.version === currentVersion) {
+      // An image rebuilt without a version bump keeps the version string, so the digest is what proves the swap happened.
+      if (typeof lastResult.agentImageDigest === 'string') {
+        if (lastResult.agentImageDigest !== digest) {
+          return {
+            hostId: host.id,
+            healthy: false,
+            code: 'update_interrupted',
+            message: 'The agent is still running its previous image, so the update was interrupted before it completed',
+          };
+        }
+        await deps.repo.updateStatus(host.id, 'healthy');
+        await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
+        return { hostId: host.id, healthy: true };
+      }
+      return { hostId: host.id, healthy: true };
+    }
+    if (lastResult.healthy && preInfoUnsupported && !sawRestart) {
+      return {
+        hostId: host.id,
+        healthy: false,
+        code: 'restart_unconfirmed',
+        message: 'The agent stayed reachable throughout the update window, so its restart could not be confirmed',
+      };
+    }
+    if (lastResult.healthy) {
+      return {
+        hostId: host.id,
+        healthy: false,
+        code: 'version_unconfirmed',
+        message: 'Agent is reachable but its version could not be read, so the update could not be confirmed',
+      };
+    }
+    return {
+      hostId: host.id,
+      healthy: false,
+      code: 'agent_did_not_restart',
+      message: 'Agent did not restart after update',
+    };
+  }
+
+  await deps.repo.updateStatus(host.id, 'healthy');
+  await deps.repo.updateAgentInfo(host.id, { version: newVersion, imageDigest: digest, outOfDate: false });
+  return { hostId: host.id, healthy: true, version: newVersion };
+}
+
+export interface AgentsInventoryDeps extends HostHandlerDeps {
+  checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+  resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+}
+
+function agentOutOfDateFor(outcome: HealthCheckOutcome | undefined, expected: string | null): boolean {
+  return !!(
+    outcome?.healthy &&
+    outcome.agentImageDigest &&
+    expected &&
+    outcome.agentImageDigest !== expected
+  );
+}
+
+/**
+ * One sweep over every registered host: probe each agent and persist
+ * healthy/unhealthy plus reported agent info exactly like
+ * handleCheckHostHealth, except a pending host stays pending on failure
+ * (pending means enrollment was never confirmed, which is not the same as an
+ * agent that went down). Persistence is best-effort per host: one failing
+ * write is logged and never crashes the sweep or drops the host from the
+ * result. Runs in the worker on an interval, never on the request path.
+ */
+export async function handleSweepAgentInventory(
+  deps: AgentsInventoryDeps,
+  now: Date = new Date(),
+): Promise<AgentInventoryEntry[]> {
+  const hosts = await deps.repo.findAll();
+  // Absent resolver means no comparison this sweep: every host stays unflagged instead of guessing.
+  // Resolved concurrently with the probes so a slow registry call cannot delay host health updates.
+  const [expectedAgentDigest, probeOutcomes] = await Promise.all([
+    deps.resolveAgentImageDigest
+      ? deps.resolveAgentImageDigest(getAgentImage()).catch(() => null)
+      : Promise.resolve(null),
+    Promise.all(
+      hosts.map(async (host): Promise<HealthCheckOutcome> => {
+        try {
+          return await deps.checkHealth(host.agentUrl, host.name);
+        } catch (err) {
+          return {
+            healthy: false,
+            reason: 'offline' as const,
+            error: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }),
+    ),
+  ]);
+  const outcomes = probeOutcomes;
+
+  await Promise.all(
+    hosts.map(async (host, i) => {
+      const outcome = outcomes[i];
+      if (!outcome) return;
+      try {
+        // Stamp the probe time for every host we probed, including a pending one
+        // whose status is left alone below: checkedAt answers "when did the sweep
+        // last look at this agent", not "when did its status last change".
+        await deps.repo.updateLastSweptAt(host.id, now);
+        if (host.status === 'pending' && !outcome.healthy) return;
+        await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
+        const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentDigest);
+        if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
+          await deps.repo.updateAgentInfo(host.id, {
+            version: outcome.version,
+            ...(outcome.infoSupported
+              ? {
+                  image: outcome.agentImage ?? null,
+                  imageTag: outcome.agentImageTag ?? null,
+                  imageDigest: outcome.agentImageDigest ?? null,
+                  outOfDate: agentOutOfDate,
+                }
+              : {}),
+          });
+        }
+      } catch (err) {
+        console.error(
+          `[agent-inventory] Failed to persist sweep result for host ${host.name}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }),
+  );
+
+  return hosts.map((host, i) => buildAgentInventoryEntry(host, outcomes[i], now, agentOutOfDateFor(outcomes[i], expectedAgentDigest)));
+}
+
+/**
+ * Stored inventory snapshot for the listing endpoint. Zero network I/O: reads
+ * the rows the worker sweep persists and derives entries from them.
+ */
+export async function handleListAgentsInventorySnapshot(
+  deps: HostHandlerDeps,
+): Promise<AgentInventoryEntry[]> {
+  const hosts = await deps.repo.findAll();
+  return hosts.map(buildStoredAgentInventoryEntry);
 }

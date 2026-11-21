@@ -7,12 +7,25 @@ dist
 .output
 .vinxi
 .react-router
+.tanstack
+e2e-build
 
 # Development files
 .git
 .github
 .vscode
+.claude
+.codex
 *.log
+
+# Secrets and local runtime state (supplied at runtime via env or volume mounts)
+.secrets
+agent-token
+data
+.worktrees
+
+# Test output
+test-results
 
 # Environment files
 .env

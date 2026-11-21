@@ -10,7 +10,7 @@ import { useDockerInventory } from '@/hooks/useDockerInventory'
 import { getDockerEntityIcons, updateContainerIcon, clearContainerIcon } from '@/data/docker/functions'
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings'
 import { PRELOAD_STALE_TIME, dockerPreloadQueryKey, dockerStatsWindowSeconds, preloadDockerStats } from '@/lib/constants/preload-queries'
-import { dockerStatsMuxChannel } from '@/lib/sse/channels/docker-stats'
+import { dockerStatsChannel } from '@/lib/channels/docker-stats'
 
 
 export const Route = createFileRoute('/docker')({
@@ -89,7 +89,7 @@ function DockerContainersPage() {
   )
 
   const stream = useTimeSeriesStream({
-    channel: dockerStatsMuxChannel,
+    channel: dockerStatsChannel,
     preloadFn,
     getKey: (row) => `${row.time}_${row.host}_${row.container_id}`,
     getTime: (row) => row.time,
@@ -98,7 +98,7 @@ function DockerContainersPage() {
     updateIntervalMs: general.updateIntervalMs,
     refreshIntervalMs: 60_000,
     initialData,
-    debug: developer.sseDebugLogging,
+    debug: developer.streamDebugLogging,
   })
 
   const { inventory, isConnected: isInventoryConnected, error: inventoryError } = useDockerInventory()

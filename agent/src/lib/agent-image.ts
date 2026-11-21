@@ -26,7 +26,6 @@ export function parseImageTag(reference: string): string | null {
 }
 
 const UNRESOLVED: AgentImageInfo = { image: null, tag: null };
-
 // Dockerode sets no request timeout. Without this a socket-proxy that accepts the
 // connection and never answers leaves the resolver's in-flight promise pending forever,
 // and every later /info awaits that same promise instead of retrying.
@@ -96,4 +95,52 @@ export async function resolveAgentImage(
     );
     return UNRESOLVED;
   }
+}
+
+// Resolved fresh on every /info, never cached: the manager compares this digest
+// against the registry digest of its own agent image to flag an update, and a
+// cached value would freeze the comparison at whatever the first probe saw.
+export interface RunningAgentReference {
+  repo: string;
+  digest: string;
+}
+
+export async function resolveRunningAgentReference(
+  docker: Dockerode | null,
+  containerName: string,
+): Promise<RunningAgentReference | null> {
+  if (!docker) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const info = await inspectWithTimeout(docker, containerName);
+    try {
+      // Dockerode sets no request timeout, so the image inspect gets the same bounded race as the container inspect above.
+      const imageInfo = await Promise.race([
+        docker.getImage(info.Image).inspect(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`image inspect timed out after ${INSPECT_TIMEOUT_MS}ms`)), INSPECT_TIMEOUT_MS);
+        }),
+      ]);
+      const repoDigest = imageInfo.RepoDigests?.[0];
+      if (!repoDigest || !repoDigest.includes('@')) return null;
+      const at = repoDigest.indexOf('@');
+      return { repo: repoDigest.slice(0, at), digest: repoDigest.slice(at + 1) };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  } catch (error) {
+    console.error(
+      `Could not determine the running agent image reference from container '${containerName}':`,
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+export async function resolveRunningAgentDigest(
+  docker: Dockerode | null,
+  containerName: string,
+): Promise<string | null> {
+  const reference = await resolveRunningAgentReference(docker, containerName);
+  return reference ? reference.digest : null;
 }

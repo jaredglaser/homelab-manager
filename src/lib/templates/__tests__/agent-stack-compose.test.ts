@@ -16,7 +16,6 @@ const dockerOnlyConfig: AgentStackConfig = {
   hostName: 'test-host',
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-  agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
   capabilities: { docker: true, zfs: false },
 };
 
@@ -24,7 +23,6 @@ const zfsOnlyConfig: AgentStackConfig = {
   hostName: 'test-host',
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:v1.0.0',
-  agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:v1.0.0',
   capabilities: { docker: false, zfs: true },
   hlmZfsUid: 1100,
   hlmZfsGid: 1100,
@@ -34,7 +32,6 @@ const dockerZfsConfig: AgentStackConfig = {
   hostName: 'test-host',
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-  agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
   capabilities: { docker: true, zfs: true },
   hlmZfsUid: 1100,
   hlmZfsGid: 1100,
@@ -75,11 +72,12 @@ describe('generateAgentStackCompose', () => {
     expect(zfsParsed.networks).toBeUndefined();
   });
 
-  it('sets AGENT_TRUSTED_PUBKEY env var in all cases', () => {
+  it('references AGENT_TRUSTED_PUBKEY from the .env in all cases, without embedding the key', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackCompose(config);
       const parsed = parseYaml(result);
-      expect(parsed.services.agent.environment.AGENT_TRUSTED_PUBKEY).toBe(MOCK_PUBKEY);
+      expect(parsed.services.agent.environment.AGENT_TRUSTED_PUBKEY).toBe('${AGENT_TRUSTED_PUBKEY}');
+      expect(result).not.toContain('kty');
       expect(parsed.services.agent.environment.AGENT_HOST_NAME).toBe('test-host');
       expect(parsed.services.agent.environment.AGENT_TOKEN_FILE).toBeUndefined();
       expect(parsed.services.agent.environment.AGENT_TOKEN).toBeUndefined();
@@ -90,7 +88,6 @@ describe('generateAgentStackCompose', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const parsed = parseYaml(generateAgentStackCompose(config));
       expect(parsed.services.agent.environment.AGENT_IMAGE).toBe('${AGENT_IMAGE}');
-      expect(parsed.services['agent-updater'].environment.HLM_WATCH_IMAGE).toBe('${AGENT_IMAGE}');
     }
   });
 
@@ -168,42 +165,34 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.group_add).toEqual(['${DOCKER_GID}']);
   });
 
-  it('agent-updater always mounts Docker socket directly', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
-      const result = generateAgentStackCompose(config);
-      const parsed = parseYaml(result);
-      expect(parsed.services['agent-updater'].volumes).toContain(
-        '/var/run/docker.sock:/var/run/docker.sock'
-      );
-    }
+  it('generates only the agent service, plus the socket proxy for docker hosts', () => {
+    const dockerParsed = parseYaml(generateAgentStackCompose(dockerOnlyConfig));
+    expect(Object.keys(dockerParsed.services).sort()).toEqual(['agent', 'socket-proxy']);
+
+    const zfsParsed = parseYaml(generateAgentStackCompose(zfsOnlyConfig));
+    expect(Object.keys(zfsParsed.services)).toEqual(['agent']);
   });
 
-  it('agent-updater is always included', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
-      const result = generateAgentStackCompose(config);
-      const parsed = parseYaml(result);
-      expect(parsed.services['agent-updater']).toBeDefined();
-    }
+  it('agent gets TLS env, ca trust, and an https healthcheck override', () => {
+    const result = generateAgentStackCompose(dockerOnlyConfig);
+    const parsed = parseYaml(result);
+    const agent = parsed.services['agent'];
+    expect(agent.container_name).toBe('hlm-agent');
+    expect(agent.environment.AGENT_CONTAINER_NAME).toBe('hlm-agent');
+    expect(agent.environment.TLS_CERT_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
+    expect(agent.environment.TLS_KEY_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/key.pem');
+    expect(agent.environment.NODE_EXTRA_CA_CERTS).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
+    expect(agent.healthcheck.test[0]).toBe('CMD-SHELL');
+    expect(agent.healthcheck.test[1]).toContain("fetch('https://localhost:'");
   });
 
-  it('agent-updater always points at the agent for health checks', () => {
+  it('TLS paths never vary with the host name', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
-      const result = generateAgentStackCompose(config);
-      const parsed = parseYaml(result);
-      expect(parsed.services['agent-updater'].environment.HLM_AGENT_URL).toBe(
-        'http://hlm-agent:9090'
-      );
+      const parsed = parseYaml(generateAgentStackCompose(config));
+      const agent = parsed.services['agent'];
+      expect(agent.environment.TLS_CERT_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
+      expect(agent.environment.TLS_KEY_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/key.pem');
     }
-  });
-
-  it('agent-updater joins agent-public only when docker capability is enabled', () => {
-    const dockerResult = generateAgentStackCompose(dockerOnlyConfig);
-    const dockerParsed = parseYaml(dockerResult);
-    expect(dockerParsed.services['agent-updater'].networks).toEqual(['agent-public']);
-
-    const zfsResult = generateAgentStackCompose(zfsOnlyConfig);
-    const zfsParsed = parseYaml(zfsResult);
-    expect(zfsParsed.services['agent-updater'].networks).toBeUndefined();
   });
 
   it('agent attached to both internal and public networks when docker capability', () => {
@@ -223,19 +212,17 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.networks).toBeUndefined();
   });
 
-  it('neither docker nor zfs: minimal agent + updater only', () => {
+  it('neither docker nor zfs: minimal agent only', () => {
     const noneConfig: AgentStackConfig = {
       hostName: 'test-host',
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-      agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
       capabilities: { docker: false, zfs: false },
     };
     const result = generateAgentStackCompose(noneConfig);
     const parsed = parseYaml(result);
     expect(parsed.services['socket-proxy']).toBeUndefined();
     expect(parsed.services['agent']).toBeDefined();
-    expect(parsed.services['agent-updater']).toBeDefined();
     expect(parsed.networks).toBeUndefined();
     expect(parsed.services.agent.networks).toBeUndefined();
     expect(parsed.services.agent.depends_on).toBeUndefined();
@@ -263,7 +250,6 @@ describe('generateAgentStackEnv', () => {
       const result = generateAgentStackEnv(config);
       expect(result).not.toContain('HLM_AGENT_TOKEN=');
       expect(result).toContain('AGENT_IMAGE=');
-      expect(result).toContain('AGENT_UPDATER_IMAGE=');
       expect(result).toContain('HLM_AGENT_PORT=9090');
       expect(result).toContain('HLM_STACKS_DIR=/opt/homelab-manager/stacks');
     }
@@ -300,7 +286,6 @@ describe('generateAgentStackEnv', () => {
       hostName: 'test-host',
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
-      agentUpdaterImage: 'upd',
       capabilities: { docker: false, zfs: true },
       hlmZfsGid: 1100,
     };
@@ -314,7 +299,6 @@ describe('generateAgentStackEnv', () => {
       hostName: 'test-host',
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
-      agentUpdaterImage: 'upd',
       capabilities: { docker: false, zfs: true },
       hlmZfsUid: 1100,
     };
@@ -328,13 +312,23 @@ describe('generateAgentStackEnv', () => {
       hostName: 'test-host',
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
-      agentUpdaterImage: 'upd',
       capabilities: { docker: true, zfs: true },
       hlmZfsUid: 1100,
       hlmZfsGid: 1100,
     };
     expect(() => generateAgentStackEnv(bad)).toThrow(
       'dockerGid is required when both docker and zfs capabilities are enabled'
+    );
+  });
+  it('generates exactly the documented env lines for a docker host', () => {
+    const result = generateAgentStackEnv(dockerOnlyConfig);
+    expect(result).toBe(
+      [
+        `AGENT_IMAGE=${dockerOnlyConfig.agentImage}`,
+        'HLM_AGENT_PORT=9090',
+        'HLM_STACKS_DIR=/opt/homelab-manager/stacks',
+        `AGENT_TRUSTED_PUBKEY=${MOCK_PUBKEY}`,
+      ].join('\n') + '\n',
     );
   });
 

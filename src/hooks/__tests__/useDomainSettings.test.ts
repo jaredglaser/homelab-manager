@@ -126,7 +126,7 @@ describe('cross-domain re-render isolation', () => {
     const initialDockerRenders = dockerRenders;
 
     // Mutate a ZFS setting directly in the atom store (bypass optimisticSet,
-    // which is async). This simulates an SSE 'change' event updating the raw atom.
+    // which is async). This simulates a settings 'change' event updating the raw atom.
     act(() => {
       store.set(rawSettingsAtom, {
         [SETTINGS_KEYS.zfs.expandedHosts]: '["host-a"]',

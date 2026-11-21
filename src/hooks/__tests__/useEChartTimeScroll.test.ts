@@ -1,5 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 
+import { subscribeRafTicker } from '@/lib/utils/raf-ticker';
+
 const { renderHook, act } = await import('@testing-library/react');
 const { useEChartTimeScroll } = await import('../useEChartTimeScroll');
 
@@ -135,11 +137,13 @@ describe('useEChartTimeScroll', () => {
     const { result } = renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
     ioInstances[0].emit(targetRef.current, true);
 
-    expect(() => rafCallbacks[0](performance.now())).not.toThrow();
+    // Timestamps advance past the ticker's idle gate (an unready chart no
+    // longer holds full rate, so consecutive same-time frames would skip).
+    expect(() => rafCallbacks[0](1000)).not.toThrow();
     expect(mockSetOption).not.toHaveBeenCalled();
 
     markReady(result, instance);
-    rafCallbacks[1](performance.now());
+    rafCallbacks[1](1200);
 
     expect(mockSetOption).toHaveBeenCalledTimes(1);
   });
@@ -163,11 +167,11 @@ describe('useEChartTimeScroll', () => {
     ioInstances[0].emit(targetRef.current, true);
     markReady(result, readyInstance);
 
-    expect(() => rafCallbacks[0](performance.now())).not.toThrow();
+    expect(() => rafCallbacks[0](1000)).not.toThrow();
     expect(bareSetOption).not.toHaveBeenCalled();
 
     live = readyInstance;
-    rafCallbacks[1](performance.now());
+    rafCallbacks[1](1200);
 
     expect(readySetOption).toHaveBeenCalledTimes(1);
   });
@@ -226,6 +230,59 @@ describe('useEChartTimeScroll', () => {
 
     expect(() => rafCallbacks[0](performance.now())).not.toThrow();
     expect(mockSetOption).not.toHaveBeenCalled();
+  });
+
+  it('an unready chart does not hold full ticker rate', () => {
+    const mockSetOption = mock(() => {});
+    const chartRef = {
+      current: {
+        getEchartsInstance: () => makeInstance(mockSetOption),
+      },
+    };
+    const targetRef = makeTargetRef();
+
+    renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
+    ioInstances[0].emit(targetRef.current, true);
+
+    // A probe subscriber shares the ticker: with the unready chart idle-gated,
+    // rapid frames reach it exactly once. If the guard held full rate, the
+    // probe would tick on every frame.
+    const probe = mock((_t: number) => {});
+    const unsubProbe = subscribeRafTicker(probe);
+
+    try {
+      rafCallbacks[0](1000);
+      rafCallbacks[1](1008);
+      rafCallbacks[2](1016);
+
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(mockSetOption).not.toHaveBeenCalled();
+    } finally {
+      unsubProbe();
+    }
+  });
+
+  it('keeps every-vsync slide while visible (busy pin)', () => {
+    const mockSetOption = mock(() => {});
+    const instance = makeInstance(mockSetOption);
+    const chartRef = {
+      current: {
+        getEchartsInstance: () => instance,
+      },
+    };
+    const targetRef = makeTargetRef();
+
+    const { result } = renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000, targetRef));
+    ioInstances[0].emit(targetRef.current, true);
+    markReady(result, instance);
+
+    // Frames closer together than the ticker's 100ms idle gate: each successful
+    // setOption must return true so full rate is held (3 calls, not 1-2).
+    rafCallbacks[0](1000);
+    rafCallbacks[1](1008);
+    rafCallbacks[2](1016);
+
+    expect(mockSetOption).toHaveBeenCalledTimes(3);
   });
 
   it('cancels animation frame on unmount', () => {

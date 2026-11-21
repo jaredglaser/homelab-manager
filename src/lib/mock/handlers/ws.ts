@@ -74,7 +74,7 @@ export interface MuxMockClient {
   addEventListener(type: 'message' | 'close', listener: (event: { data?: unknown }) => void): void;
 }
 
-// Event payloads follow the channel wire schemas in src/lib/sse/channels.
+// Event payloads follow the channel wire schemas in src/lib/channels.
 export function createConnectionHandler({ client }: { client: MuxMockClient }): void {
   const topicCleanups = new Map<string, () => void>();
   const stopTopic = (topic: string) => {
@@ -96,6 +96,14 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
         client.send(eventFrame(topic, 'data', message));
       }));
       client.send(eventFrame(topic, 'data', { type: 'init', settings: loadDemoSettings() }));
+      return;
+    }
+    if (topic === 'agent-inventory') {
+      void import('@/lib/mock/functions/hosts.functions').then(({ listAgentsInventory }) =>
+        listAgentsInventory().then((entries) => {
+          client.send(eventFrame(topic, 'data', { entries, sweptAt: new Date().toISOString() }));
+        }),
+      );
       return;
     }
     if (topic === 'stack-status') {

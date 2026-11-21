@@ -2,6 +2,17 @@ import { jwtVerify, importJWK, type JWK } from 'jose';
 
 export const AGENT_JWT_ISSUER = 'homelab-manager';
 
+/** Verifies a detached Ed25519 signature (base64) over an enrollment payload. */
+export async function verifyPayloadSignature(
+  payload: string,
+  signatureBase64: string,
+  publicKey: CryptoKey,
+): Promise<boolean> {
+  const signature = Buffer.from(signatureBase64, 'base64');
+  if (signature.byteLength === 0) return false;
+  return crypto.subtle.verify('Ed25519', publicKey, signature, new TextEncoder().encode(payload));
+}
+
 export async function loadTrustedPublicKey(jwkJson: string): Promise<CryptoKey> {
   const parsed = JSON.parse(jwkJson) as JWK;
   if (parsed.kty !== 'OKP' || parsed.crv !== 'Ed25519' || typeof parsed.x !== 'string' || 'd' in parsed) {

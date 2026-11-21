@@ -110,6 +110,20 @@ describe('handleInfo', () => {
     expect(body.agentImageTag).toBeNull();
   });
 
+  test('reports the running agent image digest', async () => {
+    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, undefined, async () => 'sha256:' + 'c'.repeat(64));
+    const body = await response.json();
+
+    expect(body.agentImageDigest).toBe('sha256:' + 'c'.repeat(64));
+  });
+
+  test('reports a null agent image digest when the agent cannot inspect itself', async () => {
+    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, undefined);
+    const body = await response.json();
+
+    expect(body.agentImageDigest).toBeNull();
+  });
+
   test('resolves the image per request, so a later call can recover from an early failure', async () => {
     let call = 0;
     const resolveImage = async () => {
@@ -147,6 +161,33 @@ describe('handleInfo', () => {
       const expected = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD']).stdout.toString().trim();
 
       expect(body.agentVersion).toBe(expected);
+    } finally {
+      if (original !== undefined) process.env.AGENT_VERSION = original;
+    }
+  });
+
+  test('spawns git once for the version, not per request', async () => {
+    const original = process.env.AGENT_VERSION;
+    delete process.env.AGENT_VERSION;
+    const docker = mockDockerClient() as unknown as Parameters<typeof handleInfo>[0];
+    try {
+      // Warm the revision first: the initial resolution may legitimately spawn.
+      await (await handleInfo(docker, zfsAvailable)).json();
+
+      const spawned: string[][] = [];
+      const realSpawnSync = Bun.spawnSync;
+      Bun.spawnSync = ((command: string[]) => {
+        spawned.push(command);
+        return realSpawnSync(command);
+      }) as typeof Bun.spawnSync;
+      try {
+        await (await handleInfo(docker, zfsAvailable)).json();
+        await (await handleInfo(docker, zfsAvailable)).json();
+      } finally {
+        Bun.spawnSync = realSpawnSync;
+      }
+
+      expect(spawned.filter((command) => command.includes('rev-parse'))).toEqual([]);
     } finally {
       if (original !== undefined) process.env.AGENT_VERSION = original;
     }

@@ -1,5 +1,7 @@
 export const DOCKER_HOST = 'ci-docker-a';
 export const ZFS_HOST = 'ci-zfs-a';
+export const TLS_HOST = 'ci-tls-host';
+export const TLS_CERT = '-----BEGIN CERTIFICATE-----\nci-tls-cert\n-----END CERTIFICATE-----\n';
 export const PROXMOX_HOST = 'ci-pve-a';
 
 export const ACTIVE_CONTAINER = {
@@ -55,6 +57,67 @@ export const NULL_METRIC_HOUR = {
   samplesPerMinute: 60,
   nullMinutes: 30,
   cpuPercent: 40,
+};
+
+/**
+ * entity_metadata rows seeded as if the live collectors had already registered
+ * the sparse-hour container, with values that differ from the container name.
+ * Migration 037's backfill is ON CONFLICT DO NOTHING against exactly these
+ * (entity, key) pairs, so a rerun that rewrites them is clobbering live
+ * collector state; the backfill assertion reads them back after rerunning it.
+ */
+export const BACKFILL_SENTINEL = {
+  entity: `${DOCKER_HOST}/${SPARSE_HOUR.containerId}`,
+  serviceKey: 'sentinel-live-service-key',
+  name: 'sentinel-live-name',
+};
+
+/**
+ * Fixtures for migration 038's service_key rewrite. docker_container_events
+ * carries the label-derived key. Entity_metadata rows are seeded with the
+ * name-based values the pre-038 collectors wrote. One fixture per rewrite
+ * branch: latest-of-two events, destroy-after-upsert, a replica pair, an
+ * unlabeled container, and a container with no event row at all.
+ */
+export const UNIFY_COMPOSE = {
+  containerId: 'sk-compose',
+  name: 'plex',
+  image: 'ghcr.io/example/plex:1.0.0',
+  staleEventKey: 'media/stale',
+  latestEventKey: 'media/plex',
+  seededNameKey: 'plex',
+  seededOldIcon: 'compose-old-icon',
+  targetIcon: 'compose-target-icon',
+};
+
+export const UNIFY_DESTROYED = {
+  containerId: 'sk-destroyed',
+  name: 'gone',
+  image: 'ghcr.io/example/gone:1.0.0',
+  latestUpsertKey: 'gone/svc',
+  seededNameKey: 'destroyed-name',
+};
+
+export const UNIFY_REPLICA = {
+  containerIds: ['sk-replica-a', 'sk-replica-b'],
+  names: ['web-1', 'web-2'],
+  image: 'ghcr.io/example/web:2.0.0',
+  eventKey: 'app/web',
+  seededIcon: 'web-icon',
+};
+
+export const UNIFY_PLAIN = {
+  containerId: 'sk-plain',
+  name: 'plain',
+  image: 'ghcr.io/example/plain:1.0.0',
+  eventKey: 'plain',
+  seededIcon: 'plain-icon',
+};
+
+export const UNIFY_ORPHAN = {
+  containerId: 'sk-orphan',
+  seededNameKey: 'stale-name',
+  seededIcon: 'orphan-icon',
 };
 
 export const ZFS_ENTITIES = [
@@ -132,12 +195,14 @@ export const PROXMOX_SUPPORTING_GAP_MINUTES = 1;
 
 export const EXPECTED_TABLES = [
   'agent_keypairs',
+  'agent_tls_certificates',
   'deploy_history',
   'deploy_queue',
   'docker_container_events',
   'docker_stats',
   'entity_metadata',
   'git_tokens',
+  'image_update_checks',
   'managed_hosts',
   'migrations',
   'proxmox_stats',

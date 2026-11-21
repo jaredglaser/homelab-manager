@@ -72,6 +72,33 @@ describe('CopyButton', () => {
     expect(screen.getByLabelText('Copy greeting')).toBeDefined()
   })
 
+  it('still gives copied feedback on insecure origins where navigator.clipboard is undefined', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    })
+    const execCommandMock = mock(() => true)
+    Object.defineProperty(document, 'execCommand', {
+      value: execCommandMock,
+      writable: true,
+      configurable: true,
+    })
+
+    render(<CopyButton text="insecure" label="token" />)
+    const button = screen.getByLabelText('Copy token')
+    await act(async () => {
+      fireEvent.click(button)
+    })
+
+    expect(execCommandMock).toHaveBeenCalledWith('copy')
+    // Optimistic feedback: the check icon (with its enter animation) renders
+    // immediately without waiting on a clipboard promise.
+    expect(button.querySelector('.lucide-check')).toBeDefined()
+
+    delete (document as { execCommand?: unknown }).execCommand
+  })
+
   it('does not throw when clipboard.writeText resolves', async () => {
     writeTextMock = mock(() => Promise.resolve())
     Object.defineProperty(navigator, 'clipboard', {

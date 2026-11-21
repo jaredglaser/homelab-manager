@@ -1,14 +1,23 @@
 import { describe, it, expect, mock } from 'bun:test';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
+import { getAgentImage } from '@/lib/hosts/host-utils';
+import type { JWK } from 'jose';
 import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
 import {
   handleListHosts,
   handleCheckHostHealth,
   handleRemoveHost,
-  handleVerifyHost,
+  handleCreatePendingHost,
   handleUpdateHost,
   handleGetHostPublicJwk,
   handleRotateHostKeypair,
+  handleRotateHostTls,
+  handleUpdateAgent,
 } from '../handlers';
+import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
+import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
+
+const MOCK_JWK: JWK = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' };
 
 const NOW = new Date('2026-03-01T00:00:00Z');
 
@@ -20,8 +29,11 @@ function mockRow(overrides?: Record<string, unknown>) {
     agentVersion: null,
     agentImage: null,
     agentImageTag: null,
+    agentImageDigest: null,
+    agentOutOfDate: false,
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
+    lastSweptAt: null,
     ...overrides,
   };
 }
@@ -30,7 +42,9 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
   return {
     findById: mock(() => Promise.resolve(mockRow())),
     findAll: mock(() => Promise.resolve([mockRow()])),
-    create: mock(() => Promise.resolve(mockRow())),
+    create: mock((input: { name: string; agentUrl: string }) =>
+      Promise.resolve(mockRow({ name: input.name, agentUrl: input.agentUrl }))),
+    findByName: mock((_name: string) => Promise.resolve(null)),
     update: mock(() => Promise.resolve(mockRow())),
     delete: mock(() => Promise.resolve()),
     updateStatus: mock(() => Promise.resolve()),
@@ -49,9 +63,9 @@ function makeKeypairsMock(): KeypairsDep {
       publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' } as import('jose').JWK,
     })),
     deleteForHost: mock(async () => undefined),
-    getPublicJwkForHost: mock(async (_name: string) => ({
-      kty: 'OKP', crv: 'Ed25519', x: 'mock-x',
-    } as import('jose').JWK)),
+    // Default: no keypair enrolled yet, so the create path is exercised.
+    getPublicJwkForHost: mock(async (_name: string) => null),
+    getOrCreateForHost: mock(() => Promise.resolve(MOCK_JWK)),
   };
 }
 
@@ -133,9 +147,10 @@ describe('handleCheckHostHealth', () => {
 
   it('updates status to unhealthy on failure', async () => {
     const repo = mockRepo();
-    const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: false as const, error: 'refused' })) };
+    const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'refused' })) };
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
+    if (!result.healthy) expect(result.code).toBe('offline');
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
     expect(repo.updateAgentInfo).not.toHaveBeenCalled();
   });
@@ -175,81 +190,223 @@ describe('handleRemoveHost', () => {
     await expect(handleRemoveHost(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 
-});
-
-describe('handleVerifyHost', () => {
-  function verifyDeps(repo?: Partial<HostRepo>) {
-    return {
-      ...baseDeps(repo),
-      keypairs: makeKeypairsMock(),
-    };
-  }
-
-  it('generates keypair and returns public JWK', async () => {
-    const deps = verifyDeps();
-    const result = await handleVerifyHost(deps, { name: 'newhost', agentUrl: 'http://x:9090' });
-    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('newhost');
-    expect(result.publicJwk).toBeDefined();
-    expect(result.publicJwk?.kty).toBe('OKP');
-  });
-
-  it('creates host record with name, url, and capabilities', async () => {
-    const deps = verifyDeps();
-    await handleVerifyHost(deps, {
-      name: 'new-host',
-      agentUrl: 'http://192.168.1.10:9090',
-      capabilities: { docker: true },
-    });
-    expect(deps.repo.create).toHaveBeenCalledWith({
-      name: 'new-host',
-      agentUrl: 'http://192.168.1.10:9090',
-      capabilities: { docker: true },
-    });
-  });
-
-  it('returns pending status', async () => {
-    const deps = verifyDeps();
-    const result = await handleVerifyHost(deps, { name: 'new-host', agentUrl: 'http://x:9090' });
-    expect(result.host.status).toBe('pending');
-    expect(deps.repo.updateStatus).not.toHaveBeenCalled();
-    expect(deps.repo.updateAgentInfo).not.toHaveBeenCalled();
-  });
-
-  it('rolls back DB record on keypair generation failure', async () => {
-    const deps = verifyDeps();
-    deps.keypairs.createForHost = mock(() => Promise.reject(new Error('keygen failed')));
+  it('rejects an expectStatus removal when the host is no longer pending and deletes nothing', async () => {
+    const deps = removeDeps({ findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) });
     await expect(
-      handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090' })
-    ).rejects.toThrow(/Failed to generate agent keypair/);
+      handleRemoveHost(deps, { hostId: 1, expectStatus: 'pending' }),
+    ).rejects.toThrow('Host test-host is no longer pending');
+    expect(deps.keypairs.deleteForHost).not.toHaveBeenCalled();
+    expect(deps.repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('still deletes a healthy host when no expectStatus is requested', async () => {
+    const deps = removeDeps({ findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) });
+    const result = await handleRemoveHost(deps, { hostId: 1 });
+    expect(result.success).toBe(true);
+    expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('test-host');
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 
-  it('passes capabilities to repo.create', async () => {
-    const deps = verifyDeps();
-    await handleVerifyHost(deps, {
-      name: 'zfs-host',
-      agentUrl: 'http://x:9090',
-      capabilities: { docker: true, zfs: true },
-    });
-    expect(deps.repo.create).toHaveBeenCalledWith({
-      name: 'zfs-host',
-      agentUrl: 'http://x:9090',
-      capabilities: { docker: true, zfs: true },
-    });
+});
+
+describe('handleCreatePendingHost', () => {
+  function createDeps(repo?: Partial<HostRepo>) {
+    return { ...baseDeps(repo), keypairs: makeKeypairsMock() };
+  }
+
+  it('creates a pending host with an empty agent URL and returns the public JWK', async () => {
+    const deps = createDeps();
+    const result = await handleCreatePendingHost(deps, { name: 'newhost', capabilities: { docker: true } });
+    expect(deps.repo.create).toHaveBeenCalledWith({ name: 'newhost', agentUrl: '', capabilities: { docker: true } });
+    expect(deps.keypairs.getOrCreateForHost).toHaveBeenCalledWith('newhost');
+    expect(result.publicJwk).toBeDefined();
+    expect(result.host.status).toBe('pending');
   });
 
-  it('trims the host name before create and keypair generation', async () => {
-    const deps = verifyDeps();
-    await handleVerifyHost(deps, { name: '  padded-host  ', agentUrl: 'http://x:9090' });
-    expect(deps.repo.create).toHaveBeenCalledWith({
-      name: 'padded-host',
-      agentUrl: 'http://x:9090',
-      capabilities: undefined,
+  it('reuses an existing pending host and its enrolled keypair (get-or-create)', async () => {
+    const repo = mockRepo({ findByName: mock((_n: string) => Promise.resolve(mockRow())) });
+    const keypairs = {
+      ...makeKeypairsMock(),
+      getPublicJwkForHost: mock(async (_n: string) =>
+        ({ kty: 'OKP', crv: 'Ed25519', x: 'enrolled-x' } as import('jose').JWK)),
+    };
+    const deps = { ...baseDeps(repo), keypairs };
+    const result = await handleCreatePendingHost(deps, { name: 'dev' });
+    expect(repo.create).not.toHaveBeenCalled();
+    expect(deps.keypairs.createForHost).not.toHaveBeenCalled();
+    expect(deps.keypairs.getOrCreateForHost).not.toHaveBeenCalled();
+    expect(result.publicJwk?.x).toBe('enrolled-x');
+    expect(result.host.status).toBe('pending');
+  });
+
+  it('refreshes capabilities on a pending host when they changed', async () => {
+    const repo = mockRepo({
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ capabilities: { docker: true } }))),
+      update: mock(() => Promise.resolve(mockRow({ capabilities: { docker: true, zfs: true } }))),
     });
-    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('padded-host');
+    const deps = createDeps(repo);
+    await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true, zfs: true } });
+    expect(repo.update).toHaveBeenCalledWith(1, { capabilities: { docker: true, zfs: true } });
+  });
+
+  it('does not update a pending host whose capabilities already match', async () => {
+    const repo = mockRepo({
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ capabilities: { docker: true } }))),
+    });
+    const deps = createDeps(repo);
+    await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true } });
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('does not touch capabilities on a host that is not pending', async () => {
+    const repo = mockRepo({
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ status: 'healthy' }))),
+    });
+    const deps = createDeps(repo);
+    const result = await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true, zfs: true } });
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(result.host.status).toBe('healthy');
+  });
+
+  it('rolls back a newly created record when keypair generation fails', async () => {
+    const deps = createDeps();
+    deps.keypairs.getOrCreateForHost = mock(() => Promise.reject(new Error('keygen failed')));
+    await expect(handleCreatePendingHost(deps, { name: 'new' })).rejects.toThrow(/Failed to generate agent keypair/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('keeps a pre-existing record when keypair generation fails', async () => {
+    const repo = mockRepo({ findByName: mock((_n: string) => Promise.resolve(mockRow())) });
+    const deps = createDeps(repo);
+    deps.keypairs.getOrCreateForHost = mock(() => Promise.reject(new Error('keygen failed')));
+    await expect(handleCreatePendingHost(deps, { name: 'dev' })).rejects.toThrow(/Failed to generate agent keypair/);
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('rolls back a freshly created record when the keypair read fails', async () => {
+    const deps = createDeps();
+    deps.keypairs.getPublicJwkForHost = mock(() => Promise.reject(new Error('keypair store unreachable')));
+    await expect(
+      handleCreatePendingHost(deps, { name: 'new' }),
+    ).rejects.toThrow(/Failed to generate agent keypair: keypair store unreachable/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('trims the host name', async () => {
+    const deps = createDeps();
+    await handleCreatePendingHost(deps, { name: '  padded  ' });
+    expect(deps.repo.create).toHaveBeenCalledWith({ name: 'padded', agentUrl: '', capabilities: { docker: false, zfs: false } });
+  });
+
+  it('keeps a pre-existing record when the keypair read fails', async () => {
+    const repo = mockRepo({
+      findByName: mock((_name: string) => Promise.resolve(mockRow())),
+    });
+    const deps = {
+      ...baseDeps(repo),
+      keypairs: {
+        ...makeKeypairsMock(),
+        getPublicJwkForHost: mock((_name: string) => Promise.reject(new Error('keypair store unreachable'))),
+      },
+    };
+    let message = '';
+    try {
+      await handleCreatePendingHost(deps, { name: 'tlshost' });
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    expect(message).toMatch(/Failed to generate agent keypair/);
+    expect(message).not.toContain('cleaned up');
+    expect(repo.delete).not.toHaveBeenCalled();
   });
 });
 
+describe('handleRotateHostTls', () => {
+  it('re-runs provisioning against the current agent URL and stores the resulting https URL', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090', status: 'healthy' }))),
+      update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
+    });
+    const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
+    const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7 });
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'https://old:9090', {
+      allowPlaintextEnrollment: false,
+    });
+    expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ ok: true, hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
+  });
+
+  it('provisions against an explicit agentUrl override and persists only the flipped https URL', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://old:9090', status: 'healthy' }))),
+      update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://new:9090' }))),
+    });
+    const provisionTls = mock(async (_hostName: string, _agentUrl: string) => ({ agentUrl: 'https://new:9090' }));
+    const result = await handleRotateHostTls({ repo, provisionTls }, { hostId: 7, agentUrl: 'http://candidate:9090' });
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://candidate:9090', {
+      allowPlaintextEnrollment: false,
+    });
+    expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://new:9090' });
+    expect(result).toEqual({ ok: true, hostId: 7, agentUrl: 'https://new:9090', enrolledOverPlainHttp: false, fingerprint: '' });
+  });
+
+  it('never writes the row when provisioning with an agentUrl override fails', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: 'https://working:9090' }))),
+    });
+    const deps = {
+      repo,
+      provisionTls: mock(async (_hostName: string, _agentUrl: string) => {
+        throw new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
+      }),
+    };
+    await expect(handleRotateHostTls(deps, { hostId: 7, agentUrl: 'http://candidate:9090' })).rejects.toThrow(/TLS provisioning failed/);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('propagates an uncoded provisioning error without touching the host record', async () => {
+    const repo = mockRepo();
+    const deps = {
+      repo,
+      provisionTls: mock(async () => {
+        throw new Error('TLS provisioning failed: the agent could not be reached to create its certificate (unreachable). Fix the agent, then re-run TLS provisioning from the Managed Hosts card.');
+      }),
+    };
+    await expect(handleRotateHostTls(deps, { hostId: 1 })).rejects.toThrow(/TLS provisioning failed/);
+    expect(repo.update).not.toHaveBeenCalled();
+    expect(repo.delete).not.toHaveBeenCalled();
+  });
+
+  it('returns the failure code as data instead of throwing, so the UI can map it', async () => {
+    const repo = mockRepo();
+    const deps = {
+      repo,
+      provisionTls: mock(async () => {
+        throw new TlsProvisionFailure('signature_invalid', 'the agent does not trust this keypair');
+      }),
+    };
+    expect(await handleRotateHostTls(deps, { hostId: 1 })).toEqual({
+      ok: false,
+      code: 'signature_invalid',
+      message: 'the agent does not trust this keypair',
+    });
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('maps a missing keypair to no_keypair rather than a throw', async () => {
+    const repo = mockRepo();
+    const deps = {
+      repo,
+      provisionTls: mock(async () => {
+        throw missingAgentKeypairError('test-host');
+      }),
+    };
+    const result = await handleRotateHostTls(deps, { hostId: 1 });
+    expect(result).toMatchObject({ ok: false, code: 'no_keypair' });
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+});
 describe('handleUpdateHost', () => {
   it('updates agentUrl and returns mapped HostListItem when name is unchanged', async () => {
     const updatedRow = mockRow({ name: 'test-host', agentUrl: 'http://new-url:9090' });
@@ -328,7 +485,7 @@ describe('handleGetHostPublicJwk', () => {
       ...baseDeps(),
       keypairs: { ...makeKeypairsMock(), getPublicJwkForHost: mock(async () => null) },
     };
-    await expect(handleGetHostPublicJwk(deps, { hostId: 1 })).rejects.toThrow(/No agent keypair/);
+    await expect(handleGetHostPublicJwk(deps, { hostId: 1 })).rejects.toThrow(/no keypair for host/);
   });
 });
 
@@ -363,3 +520,358 @@ describe('handleRotateHostKeypair', () => {
     await expect(handleRotateHostKeypair(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 });
+
+describe('handleUpdateAgent', () => {
+  const getSigner = mock(async (_name: string) => mock(async () => 'jwt-token'));
+
+  const TEST_DIGEST = 'sha256:' + 'b'.repeat(64);
+  const TEST_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent@${TEST_DIGEST}`;
+
+  function updateDeps(
+    repo?: Partial<HostRepo>,
+    checkHealth?: (url: string, hostName: string) => Promise<import('@/lib/hosts/host-utils').HealthCheckOutcome>,
+    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>,
+  ) {
+    return {
+      ...baseDeps(repo),
+      getSigner,
+      checkHealth: checkHealth ?? mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })),
+      resolveAgentImageDigest: resolveAgentImageDigest ?? mock(async (_imageRef: string) => TEST_DIGEST),
+    };
+  }
+
+  function withFetch(impl: () => Promise<Response>): { restore: () => void; fetchMock: ReturnType<typeof mock> } {
+    const fetchMock = mock(impl);
+    const original = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    return { restore: () => { globalThis.fetch = original; }, fetchMock };
+  }
+
+  it('throws when host not found', async () => {
+    const deps = updateDeps({ findById: mock(() => Promise.resolve(null)) });
+    await expect(handleUpdateAgent(deps, { hostId: 99 })).rejects.toThrow('not found');
+  });
+
+  it('resolves the build-time image to a digest and sends it as the trigger target', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      const resolveAgentImageDigest = mock(async (_imageRef: string) => TEST_DIGEST);
+      const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentImage());
+      expect(resolveAgentImageDigest).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://192.168.1.10:9090/agent/update',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ targetImage: TEST_TARGET }),
+        }),
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('fails without triggering when the registry cannot resolve the digest', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, undefined, mock(async (_imageRef: string) => null));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.code).toBe('image_digest_unresolved');
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('fails before update when the agent is offline', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'connection refused' })));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('offline');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports success without polling when no update is available', async () => {
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith('http://192.168.1.10:9090/agent/update', expect.objectContaining({ method: 'POST' }));
+    } finally {
+      restore();
+    }
+  });
+
+  it('polls until the version changes and records the new version', async () => {
+    let polls = 0;
+    const repo = mockRepo();
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(repo, mock(() => {
+        polls++;
+        return Promise.resolve({ healthy: true as const, version: polls === 1 ? '1.0.0' : '2.0.0' });
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      if (result.healthy) expect(result.version).toBe('2.0.0');
+      expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0', imageDigest: TEST_DIGEST, outOfDate: false });
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports a keypair failure when the signer throws', async () => {
+    const deps = {
+      ...updateDeps(),
+      getSigner: mock(async () => {
+        throw new Error('keyring locked');
+      }),
+    };
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.code).toBe('keypair_unavailable');
+    }
+  });
+
+  it('reports a signing failure when the signer call throws', async () => {
+    const signingSigner = mock(async () => {
+      throw new Error('key encoding failed');
+    });
+    const deps = {
+      ...updateDeps(),
+      getSigner: mock(async () => signingSigner),
+    };
+    const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
+    try {
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.code).toBe('token_signing_failed');
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports a network failure when the trigger request throws', async () => {
+    const { restore } = withFetch(() => Promise.reject(new Error('ECONNREFUSED')));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('agent_unreachable');
+      if (!result.healthy) expect(result.message).toBe('ECONNREFUSED');
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports an unexpected redirect from the agent URL', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(null, { status: 302 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('unexpected_redirect');
+    } finally {
+      restore();
+    }
+  });
+
+  it('requires an observed restart before accepting a version when /info is unsupported', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: undefined, infoSupported: false })));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('restart_unconfirmed');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('accepts the version after an observed restart when /info is unsupported', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        // Pre-check succeeds without a version. Poll two observes the restart, then the agent is back.
+        return Promise.resolve(calls === 1
+          ? { healthy: true as const, version: undefined, infoSupported: false }
+          : calls === 2
+            ? ({ healthy: false as const, error: 'restarting' })
+            : { healthy: true as const, version: '9.9.9', infoSupported: false }
+        );
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      if (result.healthy) expect(result.version).toBe('9.9.9');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('reports success when the version is unchanged after the trigger', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('reports an interrupted update when the agent still runs the previous digest', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const staleDigest = 'sha256:' + 'a'.repeat(64);
+      const deps = updateDeps(undefined, mock(() =>
+        Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: staleDigest }),
+      ));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.code).toBe('update_interrupted');
+      }
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('records the applied digest when a rebuilt image keeps the version string', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const repo = mockRepo();
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const deps = updateDeps(repo, mock(() =>
+        Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: TEST_DIGEST }),
+      ));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(true);
+      expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('reports an unreadable version when the agent is healthy but reports none after the trigger', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        // Pre-check succeeds without a version. Every poll stays healthy but versionless.
+        return Promise.resolve(calls === 1
+          ? { healthy: true as const, version: undefined }
+          : { healthy: true as const, version: undefined });
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('version_unconfirmed');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('reports the agent did not restart when health goes down after the trigger', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        return calls === 1
+          ? Promise.resolve({ healthy: true as const, version: '1.0.0' })
+          : Promise.resolve({ healthy: false as const, error: 'connection refused during health check' });
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('agent_did_not_restart');
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('reports an unconfirmed update when an info-less agent never restarts', async () => {
+    const timers = mockSetTimeout({ fireImmediately: true });
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const deps = updateDeps(undefined, mock(() => {
+        calls += 1;
+        // The pre-check answers without a version and /info 404s. Every poll is healthy with a version.
+        return Promise.resolve(
+          calls === 1
+            ? { healthy: true as const, infoSupported: false }
+            : { healthy: true as const, version: '1.0.0', infoSupported: false },
+        );
+      }));
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) {
+        expect(result.code).toBe('restart_unconfirmed');
+      }
+    } finally {
+      timers.restore();
+      restore();
+    }
+  });
+
+  it('surfaces a non-202 trigger response as a failure', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'Agent updates require Docker capability, which this agent does not have.' }), { status: 503 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('agent_reported_error');
+      if (!result.healthy) expect(result.message).toContain('Docker capability');
+    } finally {
+      restore();
+    }
+  });
+
+  it('surfaces a plain-text check-failure body from the trigger endpoint', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response('Update check failed. Verify the agent host can reach the image registry, then retry the update.', { status: 503 })));
+    try {
+      const deps = updateDeps();
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('agent_reported_error');
+      if (!result.healthy) expect(result.message).toBe('Update check failed. Verify the agent host can reach the image registry, then retry the update.');
+    } finally {
+      restore();
+    }
+  });
+
+});
+

@@ -302,6 +302,29 @@ describe('AuthManagementCard', () => {
       })
     })
 
+    it('revokes a token only after confirmation', async () => {
+      const gitFns = require('@/data/git-tokens.functions') as {
+        listGitTokens: ReturnType<typeof mock>
+        revokeGitToken: ReturnType<typeof mock>
+      }
+      gitFns.listGitTokens.mockImplementation(() => Promise.resolve([mockTokens[0]]))
+      gitFns.revokeGitToken.mockImplementation(() => Promise.resolve())
+
+      renderCard()
+      await waitFor(() => expect(screen.getByLabelText('Revoke token')).toBeDefined())
+
+      fireEvent.click(screen.getByLabelText('Revoke token'))
+      expect(screen.getByText('Revoke "CI deploy key"? Applications using it will lose access. This cannot be undone.')).toBeDefined()
+      expect(gitFns.revokeGitToken).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(gitFns.revokeGitToken).not.toHaveBeenCalled()
+
+      fireEvent.click(screen.getByLabelText('Revoke token'))
+      fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+      await waitFor(() => expect(gitFns.revokeGitToken).toHaveBeenCalledWith({ data: { tokenId: 1 } }))
+    })
+
     it('opens generate token dialog when Generate Token is clicked', () => {
       renderCard()
       fireEvent.click(screen.getByText('Generate Token'))
@@ -322,8 +345,9 @@ describe('AuthManagementCard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
 
       await waitFor(() => {
-        expect(screen.getByText('Copy this token now — it will not be shown again.')).toBeDefined()
+        expect(screen.getByText('Copy this token now. It will not be shown again.')).toBeDefined()
         expect(screen.getByText('test-token-abc123')).toBeDefined()
+        expect(screen.getByLabelText('Copy token')).toBeDefined()
       })
     })
 

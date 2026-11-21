@@ -180,6 +180,7 @@ describe('HostRepository', () => {
     });
   });
 
+
   describe('updateAgentInfo', () => {
     it('updates the agent_version field', async () => {
       mock.pushResult([]);
@@ -228,6 +229,24 @@ describe('HostRepository', () => {
     it('issues no query when given nothing to set', async () => {
       await repo.updateAgentInfo(1, {});
       expect(mock.queries).toHaveLength(0);
+    });
+
+    it('writes the digest and the out-of-date verdict', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentInfo(1, { imageDigest: 'sha256:' + 'a'.repeat(64), outOfDate: true });
+      expect(mock.queries[0].sql).toContain('agent_image_digest = $1');
+      expect(mock.queries[0].sql).toContain('agent_out_of_date = $2');
+      expect(mock.queries[0].params).toEqual(['sha256:' + 'a'.repeat(64), true, 1]);
+    });
+  });
+
+  describe('updateLastSweptAt', () => {
+    it('stamps last_swept_at without touching updated_at', async () => {
+      const at = new Date('2026-03-01T00:00:00Z');
+      await repo.updateLastSweptAt(1, at);
+      expect(mock.queries[0].sql).toContain('last_swept_at = $1');
+      expect(mock.queries[0].sql).not.toContain('updated_at');
+      expect(mock.queries[0].params).toEqual([at, 1]);
     });
   });
 

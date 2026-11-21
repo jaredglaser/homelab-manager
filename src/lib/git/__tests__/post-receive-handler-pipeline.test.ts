@@ -46,9 +46,12 @@ const TEST_HOST: ManagedHost = {
   agentVersion: '0.1.0',
   agentImage: null,
   agentImageTag: null,
+  agentImageDigest: null,
+  agentOutOfDate: false,
   status: 'healthy',
   createdAt: new Date(),
   updatedAt: new Date(),
+  lastSweptAt: null,
 };
 
 async function buildPlexChangeCommits(repoPath: string): Promise<{ sha1: string; sha2: string }> {

@@ -65,6 +65,6 @@ export function generateDefaultSettings(): Record<string, string> {
 
     [SETTINGS_KEYS.developer.dockerDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.dbFlushDebugLogging]: 'false',
-    [SETTINGS_KEYS.developer.sseDebugLogging]: 'false',
+    [SETTINGS_KEYS.developer.streamDebugLogging]: 'false',
   };
 }

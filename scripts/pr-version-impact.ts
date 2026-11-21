@@ -15,6 +15,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { fetchWithRetry } from './fetch-retry';
+
 export type Kind = 'none' | 'patch' | 'minor' | 'major';
 
 export interface Classification {
@@ -244,12 +246,12 @@ function realApi(token: string): GhApi {
     'X-GitHub-Api-Version': '2022-11-28',
   };
   async function getJson(url: string): Promise<unknown> {
-    const res = await fetch(url, { headers });
+    const res = await fetchWithRetry(fetch, url, { headers });
     if (!res.ok) throw new Error(`GET ${url} failed: HTTP ${res.status}`);
     return res.json();
   }
   async function send(method: string, url: string, body: string): Promise<void> {
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(fetch, url, {
       method,
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ body }),

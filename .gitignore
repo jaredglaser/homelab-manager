@@ -37,9 +37,9 @@ docs/superpowers
 ov.conf
 /data/
 /.worktrees/
-.paul
 .superpowers
 agent-token
+.secrets/
 
 # Playwright
 /test-results/
@@ -47,3 +47,4 @@ agent-token
 /blob-report/
 /playwright/.cache/
 /e2e-build/
+/THIRD-PARTY-NOTICES.txt

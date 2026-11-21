@@ -220,7 +220,7 @@ export function DataTable<TRow extends RowData>({
     onExpandedChange: setExpanded,
     // v9 auto-resets expansion on every data change (createCoreRowModel →
     // autoResetExpanded → onExpandedChange({})); the docker/zfs tables churn
-    // data every second via SSE, which would collapse expanded rows and echo
+    // data every second via the WebSocket, which would collapse expanded rows and echo
     // toggles into the persisted settings atoms. autoResetExpanded: false opts
     // out of the reset while keeping the expanded row model active
     // (manualExpanding would bypass expansion entirely).

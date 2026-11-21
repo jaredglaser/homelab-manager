@@ -8,7 +8,7 @@ import ZFSStatusSummary from '@/components/zfs/ZFSStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useGeneralSettings } from '@/hooks/useSettings'
 import { ZFS_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadZFSStats } from '@/lib/constants/preload-queries'
-import { zfsStatsMuxChannel } from '@/lib/sse/channels/zfs-stats'
+import { zfsStatsChannel } from '@/lib/channels/zfs-stats'
 
 export const Route = createFileRoute('/zfs')({
   ssr: false,
@@ -27,7 +27,7 @@ function ZFSPageContent() {
   })
 
   const stream = useTimeSeriesStream({
-    channel: zfsStatsMuxChannel,
+    channel: zfsStatsChannel,
     preloadFn,
     getKey: (row) => `${row.time}_${row.host}_${row.entity}`,
     getTime: (row) => row.time,

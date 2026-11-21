@@ -1,6 +1,6 @@
 # Project Structure
 
-Directory-level map of the repo's four packages. For how the subsystems fit together, see [Architecture](architecture.md); for file-level detail, read the directory itself. Tests live in `__tests__/` folders co-located with the code they cover (omitted below).
+Directory-level map of the repo's two packages. For how the subsystems fit together, see [Architecture](architecture.md). For file-level detail, read the directory itself. Tests live in `__tests__/` folders co-located with the code they cover (omitted below).
 
 ```text
 src/                        # Web app + worker (TanStack Start SPA, Bun)
@@ -14,11 +14,11 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 │   ├── stacks/             # Stack management UI: compose editor, deploy history, variables
 │   ├── ui/                 # Vendored shadcn-style Base UI components; datatable/ is the shared DataTable
 │   └── zfs/                # ZFS dashboard: pool table (subtables/), speed charts
-├── hooks/                  # Settings slices, mux consumers, color mode; timeSeriesStream/ internals
+├── hooks/                  # Settings slices, WebSocket consumers, color mode; timeSeriesStream/ internals
 ├── data/                   # Server functions + Zod schemas per domain (docker, hosts, proxmox, settings, stacks, zfs)
 ├── middleware/             # createServerFn middleware (database client injection)
 ├── lib/
-│   ├── auth/               # OIDC client, sessions, role mapping, WS auth (sse-auth)
+│   ├── auth/               # OIDC client, sessions, role mapping, WS auth (ws-auth)
 │   ├── charts/             # ECharts helpers (CSS var colors, y-axis scaling)
 │   ├── clients/            # Agent, database (pg pool), and Proxmox clients
 │   ├── config/             # Env-based config loaders
@@ -35,7 +35,7 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 │   ├── schemas/            # Shared Zod schemas
 │   ├── services/           # Agent health, secret resolution, token generation
 │   ├── settings/           # Settings broadcast service
-│   ├── sse/                # Channel descriptors; channels/ holds per-topic schemas + wire messages consumed by the mux
+│   ├── channels/           # Per-topic wire schemas + wire messages shared by the WebSocket server adapters and client hooks
 │   ├── stacks/             # Stack CRUD, mappers, status broadcast
 │   ├── streaming/          # Core streaming interfaces
 │   ├── templates/          # Agent compose stack generator
@@ -53,7 +53,6 @@ server/                     # Nitro WS routes outside TanStack Router (/api/mux,
 agent/                      # Agent sidecar (separate Bun package with its own lockfile)
 └── src/                    # Bun.serve entry + JWT middleware; routes/ per endpoint, lib/ helpers
 
-agent-updater/              # Agent auto-update sidecar (separate Bun package)
 
 migrations/                 # SQL migrations (hypertables, settings, stacks, deploys, auth)
 scripts/                    # check-coverage, icon/schema downloads, migrate-master-key, dev/ seeders

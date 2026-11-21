@@ -60,9 +60,12 @@ const sampleHost: ManagedHost = {
   agentVersion: '0.1.0',
   agentImage: null,
   agentImageTag: null,
+  agentImageDigest: null,
+  agentOutOfDate: false,
   status: 'healthy',
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),
+  lastSweptAt: null,
 };
 
 const sampleAgentEvent = {
@@ -151,7 +154,7 @@ describe('AgentStatsCollector', () => {
 
     await (collector as any).collect();
 
-    // Should upsert name, image, and service_key for the container
+    // Should upsert name and image for the container
     const nameUpsert = mockDb.upsertedMetadata.find(m => m.key === 'name');
     expect(nameUpsert).toBeDefined();
     expect(nameUpsert!.entity).toBe('homeserver/abc123def456');
@@ -160,6 +163,8 @@ describe('AgentStatsCollector', () => {
     const imageUpsert = mockDb.upsertedMetadata.find(m => m.key === 'image');
     expect(imageUpsert).toBeDefined();
     expect(imageUpsert!.value).toBe('plexinc/plex-media-server:latest');
+
+    expect(mockDb.upsertedMetadata.find(m => m.key === 'service_key')).toBeUndefined();
   });
 
   it('propagates a connection failure from the stream connector', async () => {

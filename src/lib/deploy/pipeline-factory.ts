@@ -1,4 +1,5 @@
 import type { DeployPipeline, StackRepoWriter } from '@/lib/deploy/pipeline';
+import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import { StackSecretsResolver } from '@/lib/deploy/secret-resolver';
 
@@ -25,6 +26,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
   const { HostRepository } = await import('@/lib/database/repositories/host-repository');
   const { AgentClient } = await import('@/lib/clients/agent-client');
+  const { AgentTlsCertificatesRepository } = await import('@/lib/database/repositories/agent-tls-certificates-repository');
   const { DeployPipeline } = await import('@/lib/deploy/pipeline');
   const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
   const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
@@ -38,6 +40,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   const keyring = await loadMasterKeyring();
   const stackSecrets = new StackSecretsRepository(pool, keyring);
   const agentKeypairs = new AgentKeypairsRepository(pool, keyring);
+  const tlsCerts = new AgentTlsCertificatesRepository(pool);
 
   // DeployRepository and HostRepository are lightweight pool wrappers.
   // The pool itself is cached by databaseConnectionManager, so per-call allocation
@@ -46,17 +49,31 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
 
   const { createStackRepoWriter } = await import('@/lib/deploy/stack-repo-writer');
   const stackRepoWriter = createStackRepoWriter();
+  const { postUpdateWatcher } = await import('@/lib/image-updates/post-update-watcher');
+  const { clearImageUpdateSummaryCache } = await import('@/lib/image-updates/image-update-service');
 
   const pipeline = new DeployPipeline({
     deployRepo,
     hostsRepo: new HostRepository(pool),
-    agentClientFactory: (url, signer) => new AgentClient({ agentUrl: url, signer }),
+    agentClientFactory: async (url, signer, hostName) => {
+      let caCertPem: string | null = null;
+      if (hostName) {
+        try {
+          caCertPem = await tlsCerts.getCertForHost(hostName);
+        } catch (err) {
+          console.error(`[DeployPipeline] TLS cert lookup failed for ${hostName}:`, err instanceof Error ? err.message : err);
+        }
+      }
+      return new AgentClient({ agentUrl: url, signer, caCertPem });
+    },
     stackRepoWriter,
     secretResolver: new StackSecretsResolver(stackSecrets),
+    onUpdateSuccess: (stack, host, completedAt) => postUpdateWatcher.arm(stack, host, completedAt),
+    onDeploySuccess: () => clearImageUpdateSummaryCache(),
     tokenResolver: async (host) => {
       const privateKey = await agentKeypairs.getPrivateKeyForHost(host.name);
       if (!privateKey) {
-        throw new Error(`No agent keypair found for host "${host.name}". Re-enroll the agent.`);
+        throw missingAgentKeypairError(host.name);
       }
       return () => signAgentJwt(privateKey, host.name);
     },

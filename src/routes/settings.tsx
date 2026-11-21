@@ -14,7 +14,7 @@ import {
 } from '@/hooks/useSettings'
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
-import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
+import { AuthManagementCard, GitTokensSection } from '@/components/settings/AuthManagementCard'
 import { useAuth } from '@/hooks/useAuth'
 import {
   CHART_WINDOW_MARKS,
@@ -48,7 +48,7 @@ function SettingsContent() {
     setLightPalette,
     setDockerDebugLogging,
     setDbFlushDebugLogging,
-    setSseDebugLogging,
+    setStreamDebugLogging,
   } = useGeneralSettings();
   const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
   const { zfs, setZfsDecimal } = useZfsSettings();
@@ -276,6 +276,11 @@ function SettingsContent() {
         </div>
 
         {user?.role === 'admin' && <AuthManagementCard />}
+        {user?.role === 'operator' && (
+          <div className="p-4 bg-card rounded-lg border border-border">
+            <GitTokensSection />
+          </div>
+        )}
 
         <div id="developer" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
           <h6 className="text-xl font-medium mb-4">Developer</h6>
@@ -306,14 +311,14 @@ function SettingsContent() {
             </div>
             <div className="flex justify-between items-center">
               <div>
-                <Label>SSE Pipeline Logging</Label>
+                <Label>Stream Debug Logging</Label>
                 <span className="text-xs text-muted-foreground block">
-                  Log NOTIFY reception, cache updates, and SSE event emission
+                  Log live stream preload and buffer refresh activity
                 </span>
               </div>
               <Switch
-                checked={developer.sseDebugLogging}
-                onCheckedChange={setSseDebugLogging}
+                checked={developer.streamDebugLogging}
+                onCheckedChange={setStreamDebugLogging}
               />
             </div>
           </div>

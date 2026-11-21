@@ -107,9 +107,9 @@ export function formatDriftResolutionOutcome(
 export interface DeployToastGate {
   /** Atomic test-and-set: true (and marks seen) the first time a deployId is passed, false on every later call. */
   shouldToast(deployId: number): boolean;
-  /** Alias for shouldToast, used at mutation onMutate time to pre-claim a deployId before the SSE outcome can arrive. */
+  /** Alias for shouldToast, used at mutation onMutate time to pre-claim a deployId before the stream outcome can arrive. */
   claim(deployId: number): boolean;
-  /** Undo a claim so a later SSE outcome can still toast; used when the mutation that pre-claimed fails client-side. */
+  /** Undo a claim so a later stream outcome can still toast. Used when the mutation that pre-claimed fails client-side. */
   release(deployId: number): void;
 }
 

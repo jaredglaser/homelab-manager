@@ -168,7 +168,7 @@ export const DOCKER_ENTITIES: readonly DockerEntityDef[] = [
     hostName: 'server02',
     containerId: 'c9d0e1f2a3b4',
     containerName: 'pihole',
-    image: 'pihole/pihole:latest',
+    image: 'pihole/pihole:2025.08.0',
     iconSlug: 'pi-hole',
     serviceKey: 'pihole',
     cpu: { base: 1.2, amplitude: 0.8, periods: [9 * MINUTE, 2.5 * MINUTE, 45_000, 15_000], min: 0.2, max: 4 },

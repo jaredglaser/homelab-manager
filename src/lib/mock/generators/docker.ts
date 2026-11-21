@@ -148,6 +148,7 @@ export function generateDockerInventorySnapshot(now: Date): DockerInventorySnaps
     return {
       host: e.host,
       containerId: e.containerId,
+      imageDigest: `sha256:${e.containerId.repeat(8).slice(0, 64)}`,
       name: e.containerName,
       image: e.image,
       state,
@@ -208,7 +209,7 @@ export function generateContainerHistory(
 
 // ─── Mock Container Log Generation ──────────────────────────────────────────
 
-/** Log line in the same shape the SSE docker-logs endpoint emits. */
+/** Log line in the same shape the `logs` WebSocket topic streams. */
 export interface MockLogLine {
   text: string;
   stream: 'stdout' | 'stderr';

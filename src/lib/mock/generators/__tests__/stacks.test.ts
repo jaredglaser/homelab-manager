@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 
 import { generateStackStatusEntry, generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
 import { listStacks } from '@/lib/mock/functions/stacks.functions';
-import { stackStatusChannel } from '@/lib/sse/channels/stack-status';
+import { stackStatusChannel } from '@/lib/channels/stack-status';
 
 describe('generateStackStatusSnapshot', () => {
   it('covers every demo stack with its declared containers', async () => {

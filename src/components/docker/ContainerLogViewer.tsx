@@ -9,6 +9,8 @@ interface ContainerLogViewerProps {
   containerId: string;
   host: string;
   wordWrap: boolean;
+  /** Unsubscribe from the log stream while the modal exit animation runs. */
+  paused?: boolean;
 }
 
 const MIN_THUMB_HEIGHT = 24;
@@ -116,6 +118,7 @@ export default memo(function ContainerLogViewer({
   containerId,
   host,
   wordWrap,
+  paused = false,
 }: ContainerLogViewerProps) {
   const { containerRef, terminal, error: setupError, setWordWrap } = useXtermSetup({ disableStdin: true, convertEol: true });
   const [ready, setReady] = useState(false);
@@ -131,6 +134,7 @@ export default memo(function ContainerLogViewer({
     containerId,
     host,
     terminal,
+    enabled: !paused,
   });
 
   // Surface either failure path: xterm bootstrap (dynamic import) or logs stream.

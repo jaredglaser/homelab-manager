@@ -47,9 +47,9 @@ type ChartArtifacts = { chartData: DockerStatsRow[] } & ReturnType<typeof buildC
 
 interface ContainerTableProps {
   inventory: Map<string, DockerInventorySnapshotContainer>;
-  /** Whether the inventory SSE stream has connected (false until first event received) */
+  /** Whether the inventory stream has connected (false until first event received) */
   isInventoryConnected: boolean;
-  /** Error from the inventory SSE stream, if it permanently failed */
+  /** Error from the inventory stream, if it permanently failed */
   inventoryError?: Error | null;
   latestByEntity: Map<string, DockerStatsRow>;
   rows: DockerStatsRow[];
@@ -444,8 +444,8 @@ export default function ContainerTable({
     );
   }
 
-  // Show spinner until both streams are ready: stats SSE (isConnected or hasData)
-  // and inventory SSE (isInventoryConnected or inventory has data). Without this guard,
+  // Show spinner until both streams are ready: stats (isConnected or hasData)
+  // and inventory (isInventoryConnected or inventory has data). Without this guard,
   // the table would render zero rows when stats arrive before inventory.
   if ((!isConnected && !hasData) || (!isInventoryConnected && inventory.size === 0)) {
     return (

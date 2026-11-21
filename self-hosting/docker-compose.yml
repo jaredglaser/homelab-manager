@@ -2,12 +2,15 @@
 # push to main and on every release tag; HLM_IMAGE_TAG selects the image tag
 # for the whole stack (see self-hosting/README.md, "Image tags").
 
+x-postgres-required: &postgres-required
+  POSTGRES_DB: ${POSTGRES_DB:?create .env from the Quick Start template}
+  POSTGRES_USER: ${POSTGRES_USER:?create .env from the Quick Start template}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?create .env from the Quick Start template}
+
 x-postgres-env: &postgres-env
+  <<: *postgres-required
   POSTGRES_HOST: postgres
   POSTGRES_PORT: 5432
-  POSTGRES_DB: ${POSTGRES_DB}
-  POSTGRES_USER: ${POSTGRES_USER}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: ${POSTGRES_SSL:-false}
   POSTGRES_SSL_REJECT_UNAUTHORIZED: ${POSTGRES_SSL_REJECT_UNAUTHORIZED:-true}
 
@@ -36,12 +39,9 @@ services:
   # PostgreSQL / TimescaleDB - persistent time-series database
   postgres:
     image: timescale/timescaledb:latest-pg16
-    container_name: homelab-db
     command: postgres -c synchronous_commit=off
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      <<: *postgres-required
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -59,7 +59,6 @@ services:
   # install or upgrade before the web dashboard has a usable schema.
   worker:
     image: ghcr.io/jaredglaser/homelab-manager-worker:${HLM_IMAGE_TAG:-latest}
-    container_name: homelab-worker
     command: bun src/worker/collector.ts
     environment:
       <<: [*postgres-env, *proxmox-env]
@@ -87,7 +86,6 @@ services:
   # Web server - serves the dashboard UI and API
   web:
     image: ghcr.io/jaredglaser/homelab-manager-web:${HLM_IMAGE_TAG:-latest}
-    container_name: homelab-web
     ports:
       - "${WEB_PORT:-3000}:3000"
     volumes:

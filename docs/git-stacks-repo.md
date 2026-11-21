@@ -17,7 +17,7 @@ The repo is accessible via Git HTTP smart protocol at:
 http://localhost:3000/api/git/stacks
 ```
 
-Authentication uses per-user git tokens. Generate one in **Settings → Auth Management → Generate Git Token** (visible to admins). The token is stored encrypted (JWE, master keyring) in the `git_tokens` table and shown once at creation; pushes require the token's owner to have the `admin` or `operator` role.
+Authentication uses per-user git tokens. Generate one in **Settings → Auth Management → Generate Git Token** (available to admins and operators). The token is stored encrypted (JWE, master keyring) in the `git_tokens` table and shown once at creation. Pushes require the token's owner to have the `admin` or `operator` role. Admins see and can revoke every user's token. Operators see and revoke only their own.
 
 ### Clone
 
@@ -102,7 +102,7 @@ The repo URL is the same: `http://localhost:3000/api/git/stacks`.
 ## Troubleshooting
 
 **"Unauthorized" (401)**
-Check that you're passing a valid git token generated in **Settings → Auth Management**. With curl: `curl -H "Authorization: Bearer <your-git-token>" http://localhost:3000/api/git/stacks/info/refs?service=git-upload-pack`. A 401 also occurs when the token was revoked or its owner lost the `admin`/`operator` role.
+Check that you're passing a valid git token generated in **Settings → Auth Management**. With curl: `curl -H "Authorization: Bearer <your-git-token>" http://localhost:3000/api/git/stacks/info/refs?service=git-upload-pack`. A 401 also occurs when the token was revoked. A `403 Forbidden` (not a 401) means the token is valid but its owner no longer holds a required role. Since git clients do not re-prompt on 403, check the token's owner before assuming the token itself is bad.
 
 **Clone hangs or times out**
 Ensure the web server is running and reachable.

@@ -19,7 +19,7 @@
 
 ## Overview
 
-Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Docker hosts, Proxmox clusters, and Docker Compose stacks from a single interface. Agent sidecars on each managed host stream stats into TimescaleDB, and the frontend streams them in real time via Server-Sent Events.
+Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Docker hosts, Proxmox clusters, and Docker Compose stacks from a single interface. Agent sidecars on each managed host stream stats into TimescaleDB, and the frontend streams them in real time over a WebSocket.
 
 ## Documentation
 
@@ -39,11 +39,12 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 - **ZFS Dashboard** - Hierarchical view of pools, vdevs, and disks with capacity, IOPS, and bandwidth metrics via agent sidecar
 - **Proxmox Dashboard** - Cluster overview with per-node CPU, memory, and disk metrics via REST API polling
 - **Stack Management** - GitOps-style Docker Compose stack management with in-app editor (Monaco + YAML validation), deploy, teardown, rollback, and deploy history
+- **Image Update Checks** - Per-container update detection against the registry tag matching the compose pin (digest comparison for floating tags like `latest`), with release notes pulled from the image's source repository
 - **Host Management** - Add and configure managed Docker hosts via a setup wizard; agent sidecars handle stats streaming, log access, and deployments
 - **Secrets Management** - JWE-encrypted stack secrets and per-agent keypairs stored in TimescaleDB
 - **TimescaleDB Persistence** - 1-second collection interval, rolled up into 1-minute and 1-hour continuous aggregates so hourly history is kept forever
-- **Live-Updating UI** - SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
-- **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated SSE channel
+- **Live-Updating UI** - One muxed WebSocket with shared server-side polling (1 DB query/sec per source, regardless of client count)
+- **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated settings topic on that socket
 - **Theming** - Dark/light color modes with selectable light-mode palettes
 - **Virtualized Tables** - Shared DataTable with CSS Grid + conditional contained virtualization for large datasets
 - **Stale Detection** - Per-entity amber highlighting when a host or container stops reporting
@@ -78,7 +79,7 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
 - [x] Stack management with GitOps deploy pipeline
 - [x] Host management UI with agent sidecar enrollment
 - [x] Encrypted-at-rest stack secrets and agent keypairs (JWE)
-- [x] Agent-updater sidecar for automatic container updates
+- [x] Manual agent updates driven from the manager
 - [x] Pre-built Docker image on a container registry
 - [x] Automated releases (release-please): versioned images, changelog, and GitHub Releases
 - [x] Live demo deployed to GitHub Pages
