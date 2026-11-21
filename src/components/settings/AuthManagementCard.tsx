@@ -270,7 +270,7 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose() }}>
+    <Dialog open={open} busy={isGenerating} onOpenChange={(isOpen) => { if (!isOpen) handleClose() }}>
       <DialogContent>
         <DialogTitle>Generate Git Token</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">

@@ -79,7 +79,7 @@ export default function CreateStackDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+    <Dialog open={open} busy={isLoading} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
       <DialogContent>
         <DialogTitle>Create Stack</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">

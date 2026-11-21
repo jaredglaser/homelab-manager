@@ -86,7 +86,7 @@ export default function StackDriftResolveDialog({
   const label = getStackDriftResolutionLabel(item.kind, resolution);
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+    <Dialog open={open} busy={isLoading} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent>
         <DialogTitle>
           {label}: {item.host}/{item.stack}?

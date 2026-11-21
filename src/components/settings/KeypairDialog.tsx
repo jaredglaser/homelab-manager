@@ -78,7 +78,7 @@ export function KeypairDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+    <Dialog open={open} busy={isRotating} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent>
         <DialogTitle>Agent Keypair</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">

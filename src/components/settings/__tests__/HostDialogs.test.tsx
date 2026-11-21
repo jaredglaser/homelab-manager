@@ -82,6 +82,15 @@ describe('RemoveDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('stays open on Escape while isRemoving', async () => {
+    const user = setupUser()
+    const onClose = mock(() => undefined)
+    render(<RemoveDialog {...defaultProps} isRemoving={true} onClose={onClose} />)
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(0)
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1)
+  })
+
   it('does not call onConfirm while isRemoving', async () => {
     const user = setupUser()
     const onConfirm = mock(() => undefined)
@@ -253,6 +262,15 @@ describe('EditDialog', () => {
     render(<EditDialog {...defaultProps} onClose={onClose} />)
     await user.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays open on Escape while isUpdating', async () => {
+    const user = setupUser()
+    const onClose = mock(() => undefined)
+    render(<EditDialog {...defaultProps} isUpdating={true} onClose={onClose} />)
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(0)
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1)
   })
 
   it('does not render when open is false', () => {

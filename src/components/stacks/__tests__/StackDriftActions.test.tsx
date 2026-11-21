@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDriftItem, StackDriftResolutionResult } from '@/types/stacks';
 
@@ -17,6 +17,7 @@ mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', 
 import { deployToastGate } from '@/lib/stacks/deploy-outcome-toast';
 import StackDriftActions from '../StackDriftActions';
 import { mockModule } from '@/lib/test/mock-module';
+import { setupUser } from '@/lib/test/user-event';
 
 const ghostItem: StackDriftItem = {
   kind: 'ghost',
@@ -111,5 +112,25 @@ describe('StackDriftActions', () => {
     );
     // The later terminal stream frame must still be able to toast.
     expect(deployToastGate.shouldToast(deployId)).toBe(true);
+  });
+
+  it('stays open on Escape while the resolution is in flight and closes once it succeeds', async () => {
+    const user = setupUser();
+    let settle: (result: StackDriftResolutionResult) => void = () => undefined;
+    mockResolveDrift.mockImplementationOnce(
+      () => new Promise<StackDriftResolutionResult>((resolve) => { settle = resolve; }),
+    );
+
+    renderActions();
+    fireEvent.click(screen.getByRole('button', { name: 'Redeploy from repo' }));
+    const confirmButtons = await screen.findAllByRole('button', { name: 'Redeploy from repo' });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]);
+    await waitFor(() => expect(mockResolveDrift).toHaveBeenCalledTimes(1));
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+
+    act(() => settle(resolutionResult({})));
+    await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
   });
 });

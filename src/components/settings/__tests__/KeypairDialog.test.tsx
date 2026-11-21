@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { setupUser } from '@/lib/test/user-event'
 import '@/lib/test/testing-library'
 import { KeypairDialog } from '@/components/settings/KeypairDialog'
 import type { HostListItem } from '@/lib/hosts/host-utils'
@@ -101,5 +102,16 @@ describe('KeypairDialog', () => {
 
     expect(screen.queryByText(/Keypair rotated/)).toBeNull()
     expect(screen.getByRole('button', { name: 'Rotate keypair' })).toBeDefined()
+  })
+
+  it('stays open on Escape while a rotation is in flight', async () => {
+    const user = setupUser()
+    const onClose = mock(() => undefined)
+    render(<KeypairDialog {...makeProps({ isRotating: true, onClose })} />)
+
+    await user.keyboard('{Escape}')
+
+    expect(onClose).toHaveBeenCalledTimes(0)
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1)
   })
 })

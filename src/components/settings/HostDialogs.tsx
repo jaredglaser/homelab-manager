@@ -23,7 +23,7 @@ interface RemoveDialogProps {
 
 export function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }: RemoveDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+    <Dialog open={open} busy={isRemoving} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent className="w-auto min-w-75">
         <DialogTitle>Remove Host</DialogTitle>
         <DialogBody>
@@ -69,7 +69,7 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+    <Dialog open={open} busy={isUpdating} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent>
         <DialogTitle>Edit Host</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">

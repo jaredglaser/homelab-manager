@@ -1,24 +1,32 @@
 import type { ComponentProps } from 'react';
 import { AlertDialog as AlertDialogPrimitive } from '@base-ui/react/alert-dialog';
 import { cn } from '@/lib/utils/cn';
+import { guardOpenChange, ModalBusyProvider, useModalBusy, type ModalBusyProps } from '@/components/ui/modal-busy';
 
 /*
  * Confirmation dialog for decisions that must not be dismissed by accident.
- * Base UI's AlertDialog renders role="alertdialog" and, unlike Dialog, does not
- * light-dismiss on backdrop click or Escape, so the user has to pick an action.
+ * Base UI's AlertDialog renders role="alertdialog" and, unlike Dialog, ignores
+ * backdrop clicks, so the user has to pick an action. Escape still closes it.
  * Mirrors dialog.tsx styling.
  */
 
-function AlertDialog(props: Readonly<ComponentProps<typeof AlertDialogPrimitive.Root>>) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
+type AlertDialogProps = ComponentProps<typeof AlertDialogPrimitive.Root> & ModalBusyProps;
+
+function AlertDialog({ busy = false, onOpenChange, ...props }: Readonly<AlertDialogProps>) {
+  return (
+    <ModalBusyProvider value={busy}>
+      <AlertDialogPrimitive.Root data-slot="alert-dialog" onOpenChange={guardOpenChange(busy, onOpenChange)} {...props} />
+    </ModalBusyProvider>
+  );
 }
 
 function AlertDialogTrigger(props: Readonly<ComponentProps<typeof AlertDialogPrimitive.Trigger>>) {
   return <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />;
 }
 
-function AlertDialogClose(props: Readonly<ComponentProps<typeof AlertDialogPrimitive.Close>>) {
-  return <AlertDialogPrimitive.Close data-slot="alert-dialog-close" {...props} />;
+function AlertDialogClose({ disabled, ...props }: Readonly<ComponentProps<typeof AlertDialogPrimitive.Close>>) {
+  const busy = useModalBusy();
+  return <AlertDialogPrimitive.Close data-slot="alert-dialog-close" disabled={disabled || busy} {...props} />;
 }
 
 function AlertDialogContent({ className, children, ...props }: ComponentProps<typeof AlertDialogPrimitive.Popup>) {

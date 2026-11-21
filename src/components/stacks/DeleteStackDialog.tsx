@@ -44,7 +44,7 @@ export default function DeleteStackDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+    <Dialog open={open} busy={isLoading} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
       <DialogContent>
         <DialogTitle>Delete {stackName}?</DialogTitle>
         <DialogBody>

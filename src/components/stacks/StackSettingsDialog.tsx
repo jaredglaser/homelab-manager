@@ -44,7 +44,7 @@ export default function StackSettingsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+    <Dialog open={open} busy={isLoading} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent>
         <DialogTitle>Stack Settings</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">

@@ -239,6 +239,76 @@ const noErrorMessageMatchingRule = {
   },
 };
 
+const MODAL_ROOTS = {
+  '@/components/ui/dialog': 'Dialog',
+  '@/components/ui/alert-dialog': 'AlertDialog',
+  '@/components/ui/sheet': 'Sheet',
+};
+
+const IN_FLIGHT_NAME = /^(?:is)?(?:pending|loading|busy|saving|submitting|updating|removing|deleting|rotating|generating|creating)$/i;
+
+const isInFlightFlag = (node) => {
+  switch (node.type) {
+    case 'LogicalExpression':
+      return isInFlightFlag(node.left) || isInFlightFlag(node.right);
+    case 'ChainExpression':
+      return isInFlightFlag(node.expression);
+    case 'Identifier':
+      return IN_FLIGHT_NAME.test(node.name);
+    case 'MemberExpression':
+      return !node.computed && node.property.type === 'Identifier' && IN_FLIGHT_NAME.test(node.property.name);
+    default:
+      return false;
+  }
+};
+
+const modalBusyRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'A modal that disables its controls while an action is in flight must also block Escape, a backdrop click and its close button.',
+    },
+    schema: [],
+    messages: {
+      missingBusy:
+        'This modal disables a control while an action is in flight but never sets busy, so Escape or a backdrop click can still dismiss it mid-action. Pass busy={...} with the same condition that disables the buttons. If nothing inside is an action in flight, disable this rule on the line with the reason.',
+    },
+  },
+  create(context) {
+    const rootNames = new Set();
+    const reported = new Set();
+    return {
+      ImportDeclaration(node) {
+        const root = MODAL_ROOTS[node.source.value];
+        if (!root) return;
+        for (const specifier of node.specifiers) {
+          if (specifier.type === 'ImportSpecifier' && specifier.imported.name === root) rootNames.add(specifier.local.name);
+        }
+      },
+      JSXAttribute(node) {
+        if (node.name.type !== 'JSXIdentifier' || node.name.name !== 'disabled') return;
+        if (node.value?.type !== 'JSXExpressionContainer' || !isInFlightFlag(node.value.expression)) return;
+        for (let ancestor = node.parent.parent; ancestor; ancestor = ancestor.parent) {
+          if (ancestor.type !== 'JSXElement') continue;
+          const { name, attributes } = ancestor.openingElement;
+          if (name.type !== 'JSXIdentifier' || !rootNames.has(name.name)) continue;
+          const setsBusy = attributes.some(
+            (attribute) =>
+              attribute.type === 'JSXSpreadAttribute' ||
+              (attribute.name.type === 'JSXIdentifier' && attribute.name.name === 'busy'),
+          );
+          if (!setsBusy && !reported.has(ancestor)) {
+            reported.add(ancestor);
+            context.report({ node: name, messageId: 'missingBusy' });
+          }
+          return;
+        }
+      },
+    };
+  },
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -468,6 +538,7 @@ export default tseslint.config(
     plugins: {
       local: {
         rules: {
+          'modal-busy': modalBusyRule,
           'endpoint-auth': endpointAuthRule,
           'no-error-message-matching': noErrorMessageMatchingRule,
           'agent-error-code': agentErrorCodeRule,
@@ -488,6 +559,12 @@ export default tseslint.config(
     files: ['src/lib/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     ignores: ['**/__tests__/**'],
     rules: { 'local/no-error-message-matching': 'error' },
+  },
+
+  {
+    files: ['src/components/**/*.tsx'],
+    ignores: ['**/__tests__/**', 'src/components/ui/**'],
+    rules: { 'local/modal-busy': 'error' },
   },
 
   // A stale eslint-disable is enforcement that reads as done, so it fails the build instead of warning.

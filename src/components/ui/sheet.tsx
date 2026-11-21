@@ -2,17 +2,25 @@ import type { ComponentProps } from 'react';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
+import { guardOpenChange, ModalBusyProvider, useModalBusy, type ModalBusyProps } from '@/components/ui/modal-busy';
 
-function Sheet(props: Readonly<ComponentProps<typeof DialogPrimitive.Root>>) {
-  return <DialogPrimitive.Root data-slot="sheet" {...props} />;
+type SheetProps = ComponentProps<typeof DialogPrimitive.Root> & ModalBusyProps;
+
+function Sheet({ busy = false, onOpenChange, ...props }: Readonly<SheetProps>) {
+  return (
+    <ModalBusyProvider value={busy}>
+      <DialogPrimitive.Root data-slot="sheet" onOpenChange={guardOpenChange(busy, onOpenChange)} {...props} />
+    </ModalBusyProvider>
+  );
 }
 
 function SheetTrigger(props: Readonly<ComponentProps<typeof DialogPrimitive.Trigger>>) {
   return <DialogPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
 }
 
-function SheetClose(props: Readonly<ComponentProps<typeof DialogPrimitive.Close>>) {
-  return <DialogPrimitive.Close data-slot="sheet-close" {...props} />;
+function SheetClose({ disabled, ...props }: Readonly<ComponentProps<typeof DialogPrimitive.Close>>) {
+  const busy = useModalBusy();
+  return <DialogPrimitive.Close data-slot="sheet-close" disabled={disabled || busy} {...props} />;
 }
 
 const sheetVariants = cva(

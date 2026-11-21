@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { setupUser } from '@/lib/test/user-event';
 import DeleteStackDialog from '../DeleteStackDialog';
 
 const defaultProps = {
@@ -74,5 +75,14 @@ describe('DeleteStackDialog', () => {
   it('does not render when open is false', () => {
     render(<DeleteStackDialog {...defaultProps} open={false} />);
     expect(screen.queryByText('Delete my-stack?')).toBeNull();
+  });
+
+  it('stays open on Escape while the delete is in flight', async () => {
+    const user = setupUser();
+    const onClose = mock(() => undefined);
+    render(<DeleteStackDialog {...defaultProps} isLoading={true} onClose={onClose} />);
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(0);
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1);
   });
 });
