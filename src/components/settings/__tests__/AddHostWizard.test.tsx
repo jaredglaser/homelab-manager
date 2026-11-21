@@ -311,7 +311,7 @@ describe('AddHostWizard', () => {
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
-            // A doubled [[ is user-event keyboard escaping for a literal bracket.
+      // A doubled [[ is user-event keyboard escaping for a literal bracket.
       await user.type(screen.getByLabelText('Agent host or IP'), '[[2001:db8::1]')
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
       await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
@@ -348,12 +348,13 @@ describe('AddHostWizard', () => {
     it('does not call onVerify when isProvisioning is true', async () => {
       const user = userEvent.setup()
       const onVerify = mock(() => {})
-      render(<AddHostWizard {...makeProps({ onVerify, isProvisioning: true })} />)
+      const { rerender } = render(<AddHostWizard {...makeProps({ onVerify })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+      rerender(<AddHostWizard {...makeProps({ onVerify, isProvisioning: true })} />)
       const btn = screen.getByRole('button', { name: /Verifying/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
       await user.click(btn)
