@@ -140,7 +140,7 @@ export function evaluate(
   onlyType?: string,
 ): Evaluation {
   const compared = compareObservations(result.observations, onlyType);
-  const { allowed, real, stale } = applyAllowlist(compared.findings, allowlist);
+  const { allowed, real, stale } = applyAllowlist(compared.findings, allowlist, onlyType);
   const problems = [...result.problems, ...compared.problems];
   if (scan.sites < scan.minSites) {
     problems.push(`only ${scan.sites} typed query sites were found, fewer than the ${scan.minSites} recorded in floor.ts: statements may be hidden from the scan`);

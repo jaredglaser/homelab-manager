@@ -16,7 +16,10 @@ interface QueryCall {
 interface FakeClient {
   calls: QueryCall[];
   releaseCount: number;
+  listeners: Set<(notice: { message?: string }) => void>;
   query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }>;
+  on(event: 'notice', listener: (notice: { message?: string }) => void): void;
+  off(event: 'notice', listener: (notice: { message?: string }) => void): void;
   release(): void;
 }
 
@@ -26,6 +29,13 @@ function createFakeClient(
   const client: FakeClient = {
     calls: [],
     releaseCount: 0,
+    listeners: new Set(),
+    on(_event, listener) {
+      client.listeners.add(listener);
+    },
+    off(_event, listener) {
+      client.listeners.delete(listener);
+    },
     async query(text: string, values?: unknown[]) {
       client.calls.push({ text, values });
       return handler(text, values) ?? { rows: [] };
@@ -46,13 +56,16 @@ function createFakeDb(client: FakeClient): DatabaseClient {
 describe('runMigrations', () => {
   let logSpy: ReturnType<typeof spyOn>;
   let errorSpy: ReturnType<typeof spyOn>;
+  let infoSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
+    infoSpy = spyOn(console, 'info').mockImplementation(() => {});
     logSpy = spyOn(console, 'log').mockImplementation(() => {});
     errorSpy = spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    infoSpy.mockRestore();
     logSpy.mockRestore();
     errorSpy.mockRestore();
   });
@@ -130,5 +143,36 @@ describe('runMigrations', () => {
       values: [MIGRATIONS_ADVISORY_LOCK_KEY],
     });
     expect(client.releaseCount).toBe(1);
+  });
+
+  test('logs a notice raised while a migration runs, then detaches the listener', async () => {
+    let pendingChecks = 0;
+    const client = createFakeClient((text) => {
+      if (text.startsWith('SELECT name FROM migrations')) {
+        pendingChecks += 1;
+        return pendingChecks === 1 ? { rows: [] } : { rows: [{ name: 'applied' }] };
+      }
+      if (text !== 'BEGIN' && !text.startsWith('INSERT') && text !== 'COMMIT' && !text.startsWith('SELECT') && !text.startsWith('CREATE TABLE IF NOT EXISTS migrations')) {
+        for (const listener of client.listeners) listener({ message: '044: deleted 2 entity_metadata rows with a NULL value' });
+      }
+      return undefined;
+    });
+
+    await runMigrations(createFakeDb(client));
+
+    expect(infoSpy).toHaveBeenCalledWith(`[Migrations] ${migrationFiles[0]}: 044: deleted 2 entity_metadata rows with a NULL value`);
+    expect(client.listeners.size).toBe(0);
+  });
+
+  test('detaches the notice listener when the migration fails', async () => {
+    const client = createFakeClient((text) => {
+      if (text.startsWith('SELECT name FROM migrations')) return { rows: [] };
+      if (text.startsWith('INSERT INTO migrations')) throw new Error('insert failed');
+      return undefined;
+    });
+
+    await expect(runMigrations(createFakeDb(client))).rejects.toThrow('insert failed');
+
+    expect(client.listeners.size).toBe(0);
   });
 });

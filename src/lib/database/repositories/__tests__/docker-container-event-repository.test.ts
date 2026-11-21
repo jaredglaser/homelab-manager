@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { DockerContainerEventRepository } from '../docker-container-event-repository';
 import type { NewContainerEvent } from '../docker-container-event-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
+import { resetDegradedRowEnums } from '../row-enum';
 
 const baseEvent: NewContainerEvent = {
   at: new Date('2026-04-16T10:00:00Z'),
@@ -45,6 +46,7 @@ describe('DockerContainerEventRepository', () => {
   let mock: ReturnType<typeof createMockPool>;
 
   beforeEach(() => {
+    resetDegradedRowEnums();
     mock = createMockPool();
     repo = new DockerContainerEventRepository(mock.pool);
   });
