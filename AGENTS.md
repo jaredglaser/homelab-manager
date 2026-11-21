@@ -56,6 +56,7 @@ bun run test                  # Same as above + coverage enforcement
 bun test --isolate --watch    # Run tests in watch mode
 bun run build                 # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)
+bun run check:row-types       # Assert every query<Row> interface against the schema (needs a reachable Postgres)
 bun worker                    # Run background collector locally
 bun icons:download            # Download dashboard icons from homarr-labs/dashboard-icons
 
@@ -227,7 +228,7 @@ Encrypted columns (`stack_secrets.ciphertext_jwe`, `agent_keypairs.private_jwk_j
 
 Non-obvious pitfalls (not restated from the rules above):
 
-1. **BIGINT string coercion**: PostgreSQL `BIGINT` returns strings via node-postgres. Always wrap with `Number()` in row converters or arithmetic becomes string concatenation.
+1. **BIGINT string coercion**: PostgreSQL `BIGINT` and `numeric` return strings via node-postgres. Always wrap with `Number()` in row converters or arithmetic becomes string concatenation. The rule is scoped to those types: `SERIAL`/`INTEGER` is `int4` and arrives as a number, so an id typed `number | string`, or coerced with `Number()`, is a covering type over a case the schema forbids. `bun run check:row-types` fails on one.
 2. **Never add framework packages to `optimizeDeps.include`**: Adding `@tanstack/react-start` pulls `node:async_hooks` into the client bundle.
 3. **Stable ordering from Maps**: Map iteration is insertion-order, not sorted. Always sort data from Maps before rendering to prevent layout shift.
 4. **PostgreSQL extended query protocol**: Parameterized queries use extended protocol which doesn't support multi-statement. INSERT and NOTIFY must be separate `client.query()` calls.
@@ -254,6 +255,7 @@ Non-obvious pitfalls (not restated from the rules above):
 ## CI/CD
 
 All changes to `main` via PR. CI runs build, test, coverage, license check. Docker images published to GHCR.
+The `migrations` job also runs `bun run check:row-types`, which asserts every `query<Row>` interface under `src/` and `server/` against the result set Postgres describes for that statement. A covering union, a field no projection returns, a type narrower than the column, a statement it cannot read, a `.query(...)` whose rows are read without a row type, or an allowlist entry that is no longer needed fails it.
 One trunk. `main` publishes `:main` plus a short-sha tag and deploys the GitHub Pages demo. A `vX.Y.Z` tag publishes `{{version}}`, `{{major}}.{{minor}}`, a short sha, and `latest`. `latest` is gated on the tag having no pre-release suffix so an RC never claims it. The `{{major}}` pattern carries `docker/metadata-action`'s major-version-zero guard (`enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}`), so no bare `0` tag exists while the project is pre-1.0, and it switches itself on at 1.0.0.
 Releases are cut by merging the standing release PR that release-please (`.github/workflows/release-please.yml`) keeps updated from conventional commits: while the project is pre-1.0, `feat` and `fix` bump the patch and a breaking change bumps the minor (`bump-patch-for-minor-pre-major` with `bump-minor-pre-major`). From 1.0.0 on, `feat` bumps the minor and a breaking change the major. The version lives in `version.txt` and `.release-please-manifest.json`. The merge push tags `v<version>` and dispatches `ci.yml` at the tag (a GITHUB_TOKEN tag push triggers no workflows), the tag build publishes the versioned images, and the `release` job creates the GitHub Release only after they push. That job also still covers manually pushed tags. The release PR is created with a GitHub App token (Actions secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`), because a PR created with GITHUB_TOKEN runs no workflows and could never report the required checks. It only ever touches `version.txt`, `.release-please-manifest.json`, and `CHANGELOG.md`, and merging it needs one approving review.
 The `web` image carries its own channel: CI passes `VITE_AGENT_IMAGE_TAG` as a build arg to the `production` stage, `getAgentImageTag()` (`src/lib/hosts/host-utils.ts`) reads it through `import.meta.env` (Vite inlines it at build; a missing or non-Docker-grammar value falls back to `latest`), and the Add Host wizard pins both agent images to it. The build-arg value comes from a resolver step rather than an inline expression, because `docker/metadata-action` has no `major` output: a `main` push resolves to `main`, a pre-release to its exact version (no rolling tag is published for one), a `0.x` release to its minor line, and anything later to its major line.

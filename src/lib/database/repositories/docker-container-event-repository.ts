@@ -1,5 +1,9 @@
 import type { Pool } from 'pg';
 import type { ContainerState, ContainerPort, ContainerMount } from '@/types/docker-inventory';
+import { CONTAINER_STATE_VALUES } from '@/types/docker-inventory';
+import { parseRowEnum, parseRowEnumOr } from '@/lib/database/repositories/row-enum';
+
+const CONTAINER_EVENT_TYPE_VALUES = ['upsert', 'destroy'] as const;
 
 export type NewContainerEvent =
   | {
@@ -55,12 +59,32 @@ export interface DockerContainerEventDestroyRow {
 
 export type DockerContainerEventRow = DockerContainerEventUpsertRow | DockerContainerEventDestroyRow;
 
-function rowToEventRow(row: Record<string, unknown>): DockerContainerEventRow {
-  const eventType = row.event_type as 'upsert' | 'destroy';
+/** The fields_match_type CHECK keeps state/name/image set on upsert rows and NULL on destroy rows, so they are only read on the upsert branch. */
+interface ContainerEventQueryRow {
+  at: Date;
+  host: string;
+  container_id: string;
+  event_type: string;
+  state: string;
+  name: string;
+  image: string;
+  image_digest: string | null;
+  labels: Record<string, string>;
+  ports: ContainerPort[];
+  mounts: ContainerMount[];
+  compose_project: string | null;
+  service_key: string | null;
+  started_at: Date | null;
+  finished_at: Date | null;
+  exit_code: number | null;
+}
+
+function rowToEventRow(row: ContainerEventQueryRow): DockerContainerEventRow {
+  const eventType = parseRowEnum('docker_container_events.event_type', row.event_type, CONTAINER_EVENT_TYPE_VALUES);
   const base = {
-    at: row.at as Date,
-    host: row.host as string,
-    containerId: row.container_id as string,
+    at: row.at,
+    host: row.host,
+    containerId: row.container_id,
   };
 
   if (eventType === 'destroy') {
@@ -70,18 +94,18 @@ function rowToEventRow(row: Record<string, unknown>): DockerContainerEventRow {
   return {
     ...base,
     eventType,
-    state: row.state as ContainerState,
-    name: row.name as string,
-    image: row.image as string,
-    imageDigest: (row.image_digest as string | null) ?? null,
-    labels: (row.labels as Record<string, string>) ?? {},
-    ports: (row.ports as ContainerPort[]) ?? [],
-    mounts: (row.mounts as ContainerMount[]) ?? [],
-    composeProject: (row.compose_project as string | null) ?? null,
-    serviceKey: (row.service_key as string | null) ?? null,
-    startedAt: (row.started_at as Date | null) ?? null,
-    finishedAt: (row.finished_at as Date | null) ?? null,
-    exitCode: (row.exit_code as number | null) ?? null,
+    state: parseRowEnumOr('docker_container_events.state', row.state, CONTAINER_STATE_VALUES, 'unknown'),
+    name: row.name,
+    image: row.image,
+    imageDigest: row.image_digest,
+    labels: row.labels,
+    ports: row.ports,
+    mounts: row.mounts,
+    composeProject: row.compose_project,
+    serviceKey: row.service_key,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    exitCode: row.exit_code,
   };
 }
 
@@ -91,7 +115,7 @@ export class DockerContainerEventRepository {
   /** Append one event row. Returns the inserted row. */
   async insert(event: NewContainerEvent): Promise<DockerContainerEventRow> {
     const isUpsert = event.eventType === 'upsert';
-    const { rows } = await this.pool.query(
+    const { rows } = await this.pool.query<ContainerEventQueryRow>(
       `INSERT INTO docker_container_events
          (at, host, container_id, event_type, state, name, image, image_digest, labels, ports, mounts,
           service_key, started_at, finished_at, exit_code)
@@ -117,19 +141,19 @@ export class DockerContainerEventRepository {
         isUpsert ? event.exitCode : null,
       ],
     );
-    return rowToEventRow(rows[0] as Record<string, unknown>);
+    return rowToEventRow(rows[0]);
   }
 
   /** Latest event per (host, container_id) across all hosts. Used for init snapshots. */
   async getCurrentSnapshot(): Promise<DockerContainerEventRow[]> {
-    const { rows } = await this.pool.query(
+    const { rows } = await this.pool.query<ContainerEventQueryRow>(
       `SELECT DISTINCT ON (host, container_id)
          at, host, container_id, event_type, state, name, image, image_digest, labels, ports, mounts,
          compose_project, service_key, started_at, finished_at, exit_code
        FROM docker_container_events
        ORDER BY host, container_id, at DESC`,
     );
-    return (rows as Record<string, unknown>[]).map(rowToEventRow);
+    return rows.map(rowToEventRow);
   }
 
 }

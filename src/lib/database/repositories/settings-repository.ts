@@ -1,16 +1,19 @@
 import type { Pool } from 'pg';
 
-export interface SettingRow {
+interface SettingValueRow {
+  value: string;
+}
+
+interface SettingKeyValueRow {
   key: string;
   value: string;
-  updated_at: Date;
 }
 
 export class SettingsRepository {
   constructor(private pool: Pool) {}
 
   async get(key: string): Promise<string | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<SettingValueRow>(
       'SELECT value FROM settings WHERE key = $1',
       [key]
     );
@@ -18,9 +21,9 @@ export class SettingsRepository {
   }
 
   async getAll(): Promise<Map<string, string>> {
-    const result = await this.pool.query('SELECT key, value FROM settings');
+    const result = await this.pool.query<SettingKeyValueRow>('SELECT key, value FROM settings');
     const map = new Map<string, string>();
-    for (const row of result.rows as SettingRow[]) {
+    for (const row of result.rows) {
       map.set(row.key, row.value);
     }
     return map;
