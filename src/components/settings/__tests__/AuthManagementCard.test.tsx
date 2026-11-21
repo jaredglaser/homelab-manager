@@ -1,7 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { render, screen, waitFor, act, configure } from '@testing-library/react'
-import { getConfig } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
+import { render, screen, waitFor, act } from '@testing-library/react'
+import { setupUser, installPassthroughAsyncWrapper, activateWithKey } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Mock server functions before importing the component
@@ -305,7 +304,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('revokes a token only after confirmation', async () => {
-      const user = userEvent.setup()
+      const user = setupUser()
       const gitFns = require('@/data/git-tokens.functions') as {
         listGitTokens: ReturnType<typeof mock>
         revokeGitToken: ReturnType<typeof mock>
@@ -329,21 +328,28 @@ describe('AuthManagementCard', () => {
     })
 
     it('opens generate token dialog when Generate Token is clicked', async () => {
-      const user = userEvent.setup()
+      const user = setupUser()
       renderCard()
       await user.click(screen.getByText('Generate Token'))
       expect(screen.getByText('Generate Git Token')).toBeDefined()
     })
 
+    it('opens generate token dialog when Generate Token is activated from the keyboard', async () => {
+      const user = setupUser()
+      renderCard()
+      await activateWithKey(user, screen.getByRole('button', { name: 'Generate Token' }), '{Enter}')
+      expect(screen.getByText('Generate Git Token')).toBeDefined()
+    })
+
     it('generate token dialog has label input', async () => {
-      const user = userEvent.setup()
+      const user = setupUser()
       renderCard()
       await user.click(screen.getByText('Generate Token'))
       expect(screen.getByLabelText('Token label')).toBeDefined()
     })
 
     it('shows generated token after generation with warning', async () => {
-      const user = userEvent.setup()
+      const user = setupUser()
       renderCard()
       await user.click(screen.getByText('Generate Token'))
       const labelInput = screen.getByLabelText('Token label')
@@ -360,7 +366,7 @@ describe('AuthManagementCard', () => {
     describe('dialog close (handleClose / handleDialogClose)', () => {
       const origSetTimeout = globalThis.setTimeout
       const origClearTimeout = globalThis.clearTimeout
-      const rtlConfig = { ...getConfig() }
+      let restoreAsyncWrapper: () => void
       let pendingCallbacks: Array<{ fn: () => void; id: number }> = []
       let nextTimerId = 9000
 
@@ -375,14 +381,13 @@ describe('AuthManagementCard', () => {
         ;(globalThis as any).clearTimeout = (id?: number) => {
           pendingCallbacks = pendingCallbacks.filter((cb) => cb.id !== id)
         }
-        // RTL's asyncWrapper drains microtasks via setTimeout, which the timer replacement above captures and never fires, so user-event calls would hang without a passthrough wrapper.
-        configure({ asyncWrapper: (cb: () => unknown) => Promise.resolve(cb()) })
+        restoreAsyncWrapper = installPassthroughAsyncWrapper()
       })
 
       afterEach(() => {
         globalThis.setTimeout = origSetTimeout
         globalThis.clearTimeout = origClearTimeout
-        configure(rtlConfig)
+        restoreAsyncWrapper()
       })
 
       function flushTimers() {
@@ -391,13 +396,8 @@ describe('AuthManagementCard', () => {
         for (const cb of cbs) cb.fn()
       }
 
-      // delay: null keeps user-event's internal wait timer out of the captured callback list.
-      function setupUser() {
-        return userEvent.setup({ delay: null, skipHover: true })
-      }
-
       it('Cancel resets label and calls handleDialogClose', async () => {
-        const user = setupUser()
+        const user = setupUser({ timersCaptured: true })
         renderCard()
         act(() => { flushTimers() })
 

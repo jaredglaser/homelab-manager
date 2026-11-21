@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { render, screen, waitFor, act } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { setupUser, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
 // Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
@@ -139,7 +139,7 @@ beforeEach(() => {
 
 describe('ManagedHostsCardConnected rotate TLS toasts', () => {
   it('shows the pinned success toast after a successful rotation', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await screen.findByText('server1')
     rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
@@ -155,7 +155,7 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
   })
 
   it('shows the pinned fallback toast when rotation fails without an Error', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await screen.findByText('server1')
     rotateTlsResult = Promise.reject('boom')
@@ -172,7 +172,7 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
 
 describe('ManagedHostsCardConnected health check toasts', () => {
   it('maps an unhealthy result to its code copy', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     healthCheckResult = Promise.resolve({
       hostId: 1,
       healthy: false,
@@ -219,7 +219,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     })
   }
 
-  async function navigateToVerify(user: ReturnType<typeof userEvent.setup>) {
+  async function navigateToVerify(user: TestUser) {
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'newhost')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -229,7 +229,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   }
 
   it('references the created host key in the compose when entering the Compose step', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'newhost')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -240,7 +240,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('provisions TLS against the candidate URL in one call and leaves the row untouched on failure', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     await navigateToVerify(user)
     // The Verify button enables once the pending host exists and a URL is entered.
     await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
@@ -259,7 +259,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a failed verify leaves the stored URL alone', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     await navigateToVerify(user)
     await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
@@ -274,7 +274,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('cancel stops waiting, re-enables the form, and discards the late result', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     await navigateToVerify(user)
     await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
@@ -307,7 +307,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('maps an Unauthorized enrollment rejection to key-mismatch guidance', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     await navigateToVerify(user)
     await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
@@ -322,7 +322,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('shows the provisioning error with a re-run action when provisioning fails', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     await navigateToVerify(user)
     await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
@@ -338,7 +338,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('shows unrecognized provisioning failures with a re-run hint appended', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     await navigateToVerify(user)
     await user.type(screen.getByLabelText('Agent host or IP'), '10.1.1.99')
     await waitFor(() => {
@@ -352,7 +352,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('drops the stale pending host and creates a new one when the name changes', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'host-a')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -368,7 +368,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('Reset treats a no-longer-pending rejection as a silent success and clears the wizard', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     // Stale-cache simulation: the list still serves the row as pending, but the
     // server flips it between the snapshot and the removal, so removeHost rejects.
     renderCard()
@@ -386,7 +386,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a rename treats a no-longer-pending stale record as gone and still creates the renamed one', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'host-a')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -405,7 +405,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('treats a discard whose pending row was already removed elsewhere as a silent success', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'newhost')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -417,7 +417,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('treats a stale pending host removed elsewhere as gone and still creates the renamed one', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'host-a')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -434,7 +434,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('restores the original pending host when the rename stale removal fails', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     // A distinctive keypair makes the restored host-a record observable in the
     // rendered .env: a duplicated creation would carry a different publicJwk.
     createPendingHostResult = Promise.resolve({
@@ -464,7 +464,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('Reset removes the wizard-created pending host', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'newhost')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -474,7 +474,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('Reset does not remove an enrolled host returned by get-or-create', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     createPendingHostResult = Promise.resolve({
       host: makeHost({ status: 'healthy' }),
       publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
@@ -488,7 +488,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a server-side status flip keeps a rename from deleting the enrolled host', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'host-a')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -507,7 +507,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a server-side status flip keeps Reset from deleting the enrolled host', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'newhost')
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -519,7 +519,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
   })
 
   it('a rename clears the previous host\'s provisioning error from the Verify step', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     renderCard()
     await user.type(screen.getByLabelText('Host Name'), 'host-a')
     await user.click(screen.getByRole('button', { name: 'Next' }))
