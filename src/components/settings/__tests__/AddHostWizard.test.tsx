@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import '@/lib/test/testing-library'
@@ -455,6 +455,16 @@ describe('AddHostWizard', () => {
       expect(composeStep.textContent).toContain('AGENT_HOST_NAME: my-host')
     })
 
+    it('bakes the trimmed host name into AGENT_HOST_NAME, the audience the agent matches against the managed host', async () => {
+      const user = setupUser()
+      const onCreateHost = mock(() => undefined)
+      render(<AddHostWizard {...makeProps({ onCreateHost })} />)
+      await enterHostName(user, '  my-host  ')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(onCreateHost).toHaveBeenCalledWith('my-host', { docker: true, zfs: false })
+      expect(screen.getByTestId('step-compose').textContent).toMatch(/AGENT_HOST_NAME: my-host$/m)
+    })
+
     it('references the key in the compose without embedding it, and puts the real key in the .env', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
@@ -736,6 +746,18 @@ describe('AddHostWizard', () => {
       expect(nextButton().hasAttribute('disabled')).toBe(false)
     })
 
+    it.each(['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID'])('accepts a value padded with whitespace in %s', async (field) => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      for (const name of ['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID']) await user.type(screen.getByLabelText(name), '1001')
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+      fireEvent.change(screen.getByLabelText(field), { target: { value: '1001 ' } })
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+      fireEvent.change(screen.getByLabelText(field), { target: { value: ' ' } })
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
     it('keeps Next disabled on the Compose step until the keypair exists, even when nothing is in flight', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
@@ -919,7 +941,7 @@ describe('AddHostWizard', () => {
         await advanceToVerify(user)
         expect(screen.getByLabelText<HTMLInputElement>('Agent host or IP').disabled).toBe(false)
         expect(screen.getByLabelText<HTMLInputElement>('Agent port').disabled).toBe(false)
-        expect(screen.queryByTestId('cancel-provisioning')).toBeNull()
+        expect(screen.queryAllByTestId('cancel-provisioning').length).toBe(0)
         view.rerender(<AddHostWizard {...makeProps({ isProvisioning: true })} />)
         expect(screen.getByLabelText<HTMLInputElement>('Agent host or IP').disabled).toBe(true)
         expect(screen.getByLabelText<HTMLInputElement>('Agent port').disabled).toBe(true)
@@ -934,7 +956,7 @@ describe('AddHostWizard', () => {
         expect(screen.getByText('Use Re-run provisioning below to try again.')).toBeDefined()
         view.rerender(<AddHostWizard {...makeProps({ provisionError: { message: 'Connection refused', retryUseless: true } })} />)
         expect(screen.getByText('Connection refused')).toBeDefined()
-        expect(screen.queryByText('Use Re-run provisioning below to try again.')).toBeNull()
+        expect(screen.queryAllByText('Use Re-run provisioning below to try again.').length).toBe(0)
       })
     })
 

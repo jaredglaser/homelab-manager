@@ -50,7 +50,7 @@ describe('CopyButton', () => {
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
     expect(button.querySelector('.lucide-copy')).not.toBeNull()
-    expect(button.querySelector('.lucide-check')).toBeNull()
+    expect(button.querySelectorAll('.lucide-check').length).toBe(0)
   })
 
   it('shows the Copy label tooltip before anything is copied', async () => {
@@ -90,7 +90,7 @@ describe('CopyButton', () => {
       await user.click(button)
     })
     expect(button.querySelector('.lucide-check')).not.toBeNull()
-    expect(button.querySelector('.lucide-copy')).toBeNull()
+    expect(button.querySelectorAll('.lucide-copy').length).toBe(0)
     await reopenTooltip(user)
     expect(tooltipText()).toBe('Copied!')
   })
@@ -116,7 +116,7 @@ describe('CopyButton', () => {
     revertCopiedState()
 
     expect(button.querySelector('.lucide-copy')).not.toBeNull()
-    expect(button.querySelector('.lucide-check')).toBeNull()
+    expect(button.querySelectorAll('.lucide-check').length).toBe(0)
     await reopenTooltip(user)
     expect(tooltipText()).toBe('Copy greeting')
   })
@@ -147,7 +147,7 @@ describe('CopyButton', () => {
         await user.click(screen.getByLabelText('Copy token'))
       })
       expect(copiedValues).toEqual(['copy:insecure-token'])
-      expect(document.querySelector('textarea')).toBeNull()
+      expect(document.querySelectorAll('textarea').length).toBe(0)
     })
 
     it('still gives copied feedback and reverts it', async () => {

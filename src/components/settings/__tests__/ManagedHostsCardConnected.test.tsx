@@ -73,6 +73,11 @@ const createPendingHost = (data: { data: { name: string; capabilities?: { docker
   })
 }
 
+// Production falls back to fixed copy when a rejection is not an Error, so the tests must be able to reject with one.
+const rejectWith = (reason: unknown): Promise<never> =>
+  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+  Promise.reject(reason)
+
 let removeHostCalls: number[] = []
 let removeHostData: Array<{ hostId: number; expectStatus?: 'pending' }> = []
 // When set, removeHost rejects with this error instead of resolving.
@@ -80,14 +85,9 @@ let removeHostError: unknown = null
 const removeHost = (data: { data: { hostId: number; expectStatus?: 'pending' } }): Promise<{ success: boolean }> => {
   removeHostCalls.push(data.data.hostId)
   removeHostData.push(data.data)
-  if (removeHostError != null) return Promise.reject(removeHostError)
+  if (removeHostError != null) return rejectWith(removeHostError)
   return Promise.resolve({ success: true })
 }
-
-// Production falls back to fixed copy when a rejection is not an Error, so the tests must be able to reject with one.
-const rejectWith = (reason: unknown): Promise<never> =>
-  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
-  Promise.reject(reason)
 
 let updateHostCalls: Array<{ hostId: number; agentUrl?: string }> = []
 let updateHostError: unknown = null
@@ -230,7 +230,7 @@ describe('ManagedHostsCardConnected row actions', () => {
     hostsRows = [makeHost({ id: 1, name: 'server1' }), makeHost({ id: 2, name: 'server2' })]
     renderCard({ filterHostName: 'server2' })
     await screen.findByText('server2')
-    expect(screen.queryByText('server1')).toBeNull()
+    expect(screen.queryAllByText('server1').length).toBe(0)
   })
 
   it('lists every host when filterHostName is not set', async () => {
@@ -443,15 +443,14 @@ describe('ManagedHostsCardConnected row actions', () => {
     await user.click(screen.getByRole('button', { name: 'Close' }))
     await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
 
-    await user.click(screen.getAllByLabelText('edit host')[1])
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(updateHostCalls).toEqual([{ hostId: 2, agentUrl: 'http://192.168.1.10:9090' }]))
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
-    await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
-
     await user.click(screen.getAllByLabelText('remove host')[1])
     await user.click(screen.getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(removeHostData).toEqual([{ hostId: 2 }]))
+    await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
+
+    await user.click(screen.getAllByLabelText('edit host')[1])
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(updateHostCalls).toEqual([{ hostId: 2, agentUrl: 'http://192.168.1.10:9090' }]))
   })
 
   describe('keypair dialog', () => {
@@ -530,49 +529,49 @@ describe('ManagedHostsCardConnected row actions', () => {
   })
 
   describe('host list refresh', () => {
-    const hostsKey = { queryKey: ['managed-hosts'] }
-
-    it('reloads after a health check', async () => {
+    it('shows the refreshed host after a health check', async () => {
       const user = setupUser()
       renderCard()
-      await screen.findByText('server1')
-      const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
+      await screen.findByText('v1.2.3')
+      hostsRows = [makeHost({ agentVersion: '2.0.0' })]
       await user.click(screen.getByLabelText('check health'))
-      await waitFor(() => expect(invalidate).toHaveBeenCalledWith(hostsKey))
+      await screen.findByText('v2.0.0')
     })
 
-    it('reloads after a successful TLS rotation but not after a failed one', async () => {
+    it('shows the refreshed host after a successful TLS rotation but does not reload after a failed one', async () => {
       const user = setupUser()
       renderCard()
-      await screen.findByText('server1')
+      await screen.findByText('v1.2.3')
       const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
       rotateTlsResult = Promise.resolve({ ok: false, code: 'pin_missing', message: 'no pin' })
       await user.click(screen.getByLabelText('rotate TLS'))
       await waitFor(() => expect(toasts).toHaveLength(1))
       expect(invalidate).not.toHaveBeenCalled()
+      hostsRows = [makeHost({ agentVersion: '2.0.0' })]
       rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
       await user.click(screen.getByLabelText('rotate TLS'))
-      await waitFor(() => expect(invalidate).toHaveBeenCalledWith(hostsKey))
+      await screen.findByText('v2.0.0')
     })
 
-    it('reloads after a removal', async () => {
+    it('shows the refreshed list after a removal', async () => {
       const user = setupUser()
       renderCard()
       await screen.findByText('server1')
-      const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
+      hostsRows = [makeHost({ id: 2, name: 'server2' })]
       await user.click(screen.getByLabelText('remove host'))
       await user.click(screen.getByRole('button', { name: 'Remove' }))
-      await waitFor(() => expect(invalidate).toHaveBeenCalledWith(hostsKey))
+      await screen.findByText('server2')
+      await waitFor(() => expect(screen.queryAllByText('server1').length).toBe(0))
     })
 
-    it('reloads after an update', async () => {
+    it('shows the refreshed host after an update', async () => {
       const user = setupUser()
       renderCard()
       await screen.findByText('server1')
-      const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
+      hostsRows = [makeHost({ name: 'renamed' })]
       await user.click(screen.getByLabelText('edit host'))
       await user.click(screen.getByRole('button', { name: 'Save' }))
-      await waitFor(() => expect(invalidate).toHaveBeenCalledWith(hostsKey))
+      await screen.findByText('renamed')
     })
   })
 })
@@ -622,6 +621,15 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       expect(screen.getByTestId('step-compose').textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
     })
     expect(createPendingHostCalls).toEqual([{ name: 'newhost' }])
+  })
+
+  it('creates the host and bakes AGENT_HOST_NAME into the compose under the same trimmed name', async () => {
+    const user = setupUser()
+    renderCard()
+    await user.type(screen.getByLabelText('Host Name'), '  padded-host  ')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(createPendingHostCalls).toEqual([{ name: 'padded-host' }]))
+    expect(screen.getByTestId('step-compose').textContent).toMatch(/AGENT_HOST_NAME: padded-host$/m)
   })
 
   it('provisions TLS against the candidate URL in one call and leaves the row untouched on failure', async () => {
@@ -766,7 +774,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ['managed-hosts'] })
     })
-    expect(screen.queryByTestId('step-compose')).toBeNull()
+    expect(screen.queryAllByTestId('step-compose').length).toBe(0)
     expect(removeHostCalls).toEqual([1])
     expect(removeHostData).toEqual([{ hostId: 1, expectStatus: 'pending' }])
     expect(toasts).toEqual([])
@@ -793,6 +801,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     })
     expect(screen.getByTestId('step-compose')).toBeDefined()
     expect(screen.queryAllByRole('alert').length).toBe(0)
+    expect(toasts).toEqual([])
   })
 
   it('treats a discard whose pending row was already removed elsewhere as a silent success', async () => {
@@ -829,6 +838,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     })
     expect(screen.getByTestId('step-compose')).toBeDefined()
     expect(screen.queryAllByRole('alert').length).toBe(0)
+    expect(toasts).toEqual([])
   })
 
   it('restores the original pending host when the rename stale removal fails', async () => {
@@ -979,7 +989,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(rotateTlsCalls[2].data.acceptPlaintextEnrollment).toBe(false)
   })
 
-  it('reloads the hosts after a successful verification but not after a failed one', async () => {
+  it('shows the refreshed hosts after a successful verification but does not reload after a failed one', async () => {
     const user = setupUser()
     await startVerify(user)
     const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
@@ -987,9 +997,10 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => expect(screen.getByTestId('rerun-provisioning')).toBeDefined())
     expect(invalidate).not.toHaveBeenCalled()
+    hostsRows = [makeHost({ agentVersion: '2.0.0', status: 'healthy' })]
     rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://10.1.1.99:9090' })
     await user.click(screen.getByTestId('rerun-provisioning'))
-    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['managed-hosts'] }))
+    await screen.findByText('v2.0.0')
   })
 
   it('verifies the host the wizard created, not a fixed id', async () => {
@@ -1021,7 +1032,7 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(screen.getByRole('alert')).toBeDefined()
 
     await user.click(screen.getByTestId('cancel-provisioning'))
-    await waitFor(() => expect(screen.queryByTestId('cancel-provisioning')).toBeNull())
+    await waitFor(() => expect(screen.queryAllByTestId('cancel-provisioning').length).toBe(0))
     expect(screen.queryAllByRole('alert').length).toBe(0)
   })
 
@@ -1046,13 +1057,11 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => expect(screen.getByTestId('cancel-provisioning')).toBeDefined())
     await user.click(screen.getByTestId('cancel-provisioning'))
-    await waitFor(() => expect(screen.queryByTestId('cancel-provisioning')).toBeNull())
+    await waitFor(() => expect(screen.queryAllByTestId('cancel-provisioning').length).toBe(0))
 
     rejectRotate(new Error('late throw after cancel'))
-    await waitFor(() => {
-      expect(lastQueryClient!.getMutationCache().getAll().some((m) => m.state.status === 'error')).toBe(true)
-    })
-    expect(screen.queryByText('late throw after cancel')).toBeNull()
+    await waitFor(() => expect(lastQueryClient!.isMutating()).toBe(0))
+    expect(screen.queryAllByText('late throw after cancel').length).toBe(0)
     expect(screen.queryAllByRole('alert').length).toBe(0)
   })
 

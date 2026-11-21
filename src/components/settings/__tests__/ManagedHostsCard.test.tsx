@@ -628,7 +628,7 @@ describe('ManagedHostsCard host actions', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts, onRemove })} />)
       await user.click(screen.getAllByLabelText('remove host')[1])
       expect(within(confirmDialog()).getByText('server2')).toBeDefined()
-      expect(within(confirmDialog()).queryByText('server1')).toBeNull()
+      expect(within(confirmDialog()).queryAllByText('server1').length).toBe(0)
       await user.click(screen.getByRole('button', { name: 'Remove' }))
       expect(onRemove).toHaveBeenCalledTimes(1)
       expect(onRemove).toHaveBeenCalledWith(2)
