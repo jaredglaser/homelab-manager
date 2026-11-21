@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { TEST_TIMEOUT_MS } from '@/lib/test/test-timeout';
 
 const root = join(import.meta.dir, '..', '..');
 const fixture = join(import.meta.dir, 'fixtures', 'never-settles.ts');
@@ -29,10 +28,10 @@ describe('per-test timeout', () => {
     async (_name, cwd) => {
       const { code, output } = await runFixture(cwd);
 
-      expect(output).toContain(`this test timed out after ${TEST_TIMEOUT_MS}ms`);
+      expect(output).toContain('this test timed out after 2000ms');
       expect(code).not.toBe(0);
     },
-    // The child bun test has to wait out the full limit, which is longer than the limit itself.
-    TEST_TIMEOUT_MS * 10,
+    // The child waits out the full 2000ms, then needs bun startup headroom on a loaded runner.
+    20_000,
   );
 });
