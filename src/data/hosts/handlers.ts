@@ -30,7 +30,9 @@ export interface AddHostResult {
   provisioningError?: string;
 }
 
-export type HostOperationResult<Code extends string = HostFailureCode> =
+type UpdateFailureCode = HostFailureCode | AgentRouteFailureCode;
+
+export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode> =
   | {
       hostId: number;
       healthy: true;
@@ -43,7 +45,7 @@ export type HostOperationResult<Code extends string = HostFailureCode> =
 
 export type HealthCheckResult = HostOperationResult;
 /** An update refusal carries an agent route code, which the operator copy branches on. */
-export type UpdateAgentResult = HostOperationResult<HostFailureCode | AgentRouteFailureCode>;
+export type UpdateAgentResult = HostOperationResult<UpdateFailureCode>;
 
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
@@ -397,7 +399,7 @@ export async function handleUpdateAgent(
     // The agent answers with JSON like {"error":"...","code":"..."}. Surface both, never the
     // raw body.
     let message = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
-    let code: HostFailureCode | AgentRouteFailureCode = 'agent_reported_error';
+    let code: UpdateFailureCode = 'agent_reported_error';
     try {
       const parsed = JSON.parse(body) as { error?: unknown; code?: unknown } | null;
       if (typeof parsed?.error === 'string') message = parsed.error;

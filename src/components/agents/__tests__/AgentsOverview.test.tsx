@@ -277,9 +277,27 @@ describe('AgentsOverview (connected)', () => {
       expect(screen.getByText(/The agent is already running an update\./)).toBeDefined(),
     )
     expect(screen.queryByText(/The agent refused the update\./)).toBeNull()
-    // update_in_progress names its own action, so the agent's detail is dropped rather than repeated.
     expect(screen.getByTestId('agent-row-homeserver').textContent).not.toContain('the guard rejected a second update')
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('already running an update')
+  })
+
+  it('keeps the generic refusal sentence and the agent detail when the refusal carries no route code', async () => {
+    updateResult = Promise.resolve({
+      hostId: 1,
+      healthy: false,
+      code: 'agent_reported_error',
+      message: 'a refusal from an older agent',
+    })
+    await renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'The agent refused the update. Correct the cause on the agent host, then retry the update. a refusal from an older agent',
+        ),
+      ).toBeDefined(),
+    )
   })
 
   it('pins the fallback failure copy when the update mutation rejects with a non-Error', async () => {

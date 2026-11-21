@@ -860,6 +860,42 @@ describe('handleUpdateAgent', () => {
     }
   });
 
+  it('promotes the code of a coded refusal and keeps the agent message beside it', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'An update is already in progress', code: 'update_in_progress' }), { status: 409 })));
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: 'An update is already in progress' });
+    } finally {
+      restore();
+    }
+  });
+
+  it.each([
+    ['a code this manager does not know', { error: 'newer refusal', code: 'update_from_the_future' }],
+    ['a code that is not a string', { error: 'newer refusal', code: 409 }],
+    ['a code that is null', { error: 'newer refusal', code: null }],
+    ['a host failure code outside the agent route set', { error: 'newer refusal', code: 'offline' }],
+    ['a body with no code, as an agent before codes sends', { error: 'newer refusal' }],
+  ])('keeps the generic refusal code for %s', async (_label, payload) => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify(payload), { status: 409 })));
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: 'newer refusal' });
+    } finally {
+      restore();
+    }
+  });
+
+  it.each([['null'], ['"update_in_progress"'], ['[]'], ['42']])('keeps the generic refusal code and the raw text for the JSON body %s', async (body) => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(body, { status: 500 })));
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: body });
+    } finally {
+      restore();
+    }
+  });
+
   it('surfaces a plain-text check-failure body from the trigger endpoint', async () => {
     const { restore } = withFetch(() => Promise.resolve(new Response('Update check failed. Verify the agent host can reach the image registry, then retry the update.', { status: 503 })));
     try {

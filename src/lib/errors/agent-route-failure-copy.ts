@@ -13,8 +13,8 @@ export interface AgentRouteFailureCopy {
 }
 
 /**
- * The one place an agent route failure code becomes what the operator reads. The agent's own sentence is
- * the diagnostic layer: it reaches the logs, and the codes whose copy already names the cause hide it.
+ * The one place an agent route failure code becomes what the operator reads. The agent's own sentence
+ * carries the diagnosis, and the codes whose copy already names the cause hide it.
  */
 const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureCopy> = {
   invalid_json: {
@@ -68,7 +68,7 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureC
   },
   compose_spawn_failed: {
     headline: 'The agent could not run docker compose for this stack.',
-    fix: 'Read the output below, correct the compose file or the agent access to Docker, then run the operation again.',
+    fix: 'Read the error below, check that docker compose is installed and runnable by the agent on its host, then run the operation again.',
     includeDetail: true,
   },
   stack_write_failed: {
@@ -122,18 +122,18 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureC
     includeDetail: false,
   },
   update_request_invalid: {
-    headline: 'The agent was sent an update request without an image pinned to a digest.',
-    fix: 'Report this as a manager bug. The update request has to name an image pinned to a digest.',
+    headline: 'The agent could not read the update request it was sent.',
+    fix: 'Run the update again. If it repeats, check for a proxy between the manager and the agent that alters requests, then report it as a manager bug.',
     includeDetail: false,
   },
   update_target_not_pinned: {
-    headline: 'The update target image was not pinned to a digest.',
-    fix: 'Pick an update target by its digest rather than by its tag, then run the update again.',
+    headline: 'The agent did not accept the image reference the manager sent for this update.',
+    fix: 'The manager always sends a pinned image, so the manager and this agent disagree about the format. Report this as a manager bug, and update the agent by hand on its host in the meantime.',
     includeDetail: false,
   },
   update_target_repo_mismatch: {
-    headline: 'The update target belongs to a different image repository than the one this agent runs from.',
-    fix: "Point the update at an image in this agent's own repository, then run it again.",
+    headline: 'This agent runs from a different image repository than the one the manager updates agents from.',
+    fix: 'Update this agent by hand on its host from the image it runs from, or redeploy it from the image repository the manager uses.',
     includeDetail: false,
   },
   update_in_progress: {
@@ -143,7 +143,7 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, AgentRouteFailureC
   },
   update_start_failed: {
     headline: 'The agent could not start its update.',
-    fix: 'Read the error below, check the agent access to Docker and its update target, then run the update again.',
+    fix: 'Read the error below, check that the agent can create and start containers through its Docker connection, then run the update again.',
     includeDetail: true,
   },
   container_not_found: {
