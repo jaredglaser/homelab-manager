@@ -1,6 +1,5 @@
 [test]
-preload = ["./src/lib/test/happydom.ts", "./src/lib/test/testing-library.ts"]
-timeout = 2000
+preload = ["./src/lib/test/test-timeout.ts", "./src/lib/test/happydom.ts", "./src/lib/test/testing-library.ts"]
 coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [
   "src/data/*/functions.tsx",
