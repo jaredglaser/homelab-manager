@@ -75,13 +75,13 @@ export default function DeleteStackDialog({
           </RadioGroup>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" className="text-foreground" onClick={handleClose} disabled={isLoading}>
+          <Button variant="ghost" className="text-foreground" onClick={handleClose}>
             Cancel
           </Button>
           <Button
             variant="destructive"
             onClick={handleConfirm}
-            disabled={mode === null || isLoading}
+            disabled={mode === null}
           >
             Delete Stack
           </Button>

@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDriftItem, StackDriftResolutionResult } from '@/types/stacks';
 
@@ -129,6 +129,9 @@ describe('StackDriftActions', () => {
 
     await user.keyboard('{Escape}');
     expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+    const dialogButtons = within(screen.getByRole('dialog')).getAllByRole('button');
+    expect(dialogButtons).toHaveLength(2);
+    expect(dialogButtons.every((button) => button.hasAttribute('disabled'))).toBe(true);
 
     act(() => settle(resolutionResult({})));
     await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));

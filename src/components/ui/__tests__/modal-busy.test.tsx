@@ -1,9 +1,11 @@
 import { useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { describe, it, expect, mock } from 'bun:test';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import type { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { setupUser } from '@/lib/test/user-event';
 import '@/lib/test/testing-library';
+import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogClose, AlertDialogContent, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -97,10 +99,14 @@ function Harness({
         }}
       >
         <kind.Close>Dismiss</kind.Close>
+        <Button>Action</Button>
+        <Button allowWhileBusy>Stay usable</Button>
+        <Button disabled>Own disabled</Button>
       </kind.Modal>
       <button type="button" onClick={() => setOpen(false)}>
         Parent close
       </button>
+      <Button>Outside</Button>
     </>
   );
 }
@@ -151,6 +157,30 @@ describe.each(KINDS)('$name busy', (kind) => {
 
     expect(openCount()).toBe(1);
     expect(closeCalls(onOpenChange)).toHaveLength(0);
+  });
+
+  it('disables a plain Button inside the modal while busy and honors allowWhileBusy', async () => {
+    render(<Harness kind={kind} busy onOpenChange={mock<(open: boolean) => void>()} />);
+    await screen.findByRole(kind.role);
+
+    expect(screen.getByRole('button', { name: 'Action' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Stay usable' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Own disabled' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('leaves Buttons enabled when not busy, and keeps a Button\'s own disabled', async () => {
+    render(<Harness kind={kind} onOpenChange={mock<(open: boolean) => void>()} />);
+    await screen.findByRole(kind.role);
+
+    expect(screen.getByRole('button', { name: 'Action' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Own disabled' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('does not touch a Button outside the modal', async () => {
+    render(<Harness kind={kind} busy onOpenChange={mock<(open: boolean) => void>()} />);
+    await screen.findByRole(kind.role);
+
+    expect(screen.getByRole('button', { name: 'Outside', hidden: true }).hasAttribute('disabled')).toBe(false);
   });
 
   it('closes on Escape when not busy', async () => {
@@ -294,5 +324,42 @@ describe('nested dialogs', () => {
 
     expect(titles()).toEqual({ parent: 1, child: 1 });
     expect(closeCalls(onParentOpenChange)).toHaveLength(0);
+  });
+});
+
+describe('busy Buttons across modal boundaries', () => {
+  it('does not reach a Button in a nested modal that is not busy', async () => {
+    render(
+      <Dialog open busy>
+        <DialogContent>
+          <DialogTitle>Parent title</DialogTitle>
+          <Button>Parent action</Button>
+          <Dialog open>
+            <DialogContent>
+              <DialogTitle>Child title</DialogTitle>
+              <Button>Child action</Button>
+            </DialogContent>
+          </Dialog>
+        </DialogContent>
+      </Dialog>,
+    );
+    await screen.findByText('Child title');
+
+    expect(screen.getByRole('button', { name: 'Child action' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Parent action', hidden: true }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('reaches a Button portaled out of a busy modal, because context crosses portals', async () => {
+    render(
+      <Dialog open busy>
+        <DialogContent>
+          <DialogTitle>Busy title</DialogTitle>
+          {createPortal(<Button>Portaled action</Button>, document.body)}
+        </DialogContent>
+      </Dialog>,
+    );
+    await screen.findByText('Busy title');
+
+    expect(screen.getByText('Portaled action').closest('button')?.hasAttribute('disabled')).toBe(true);
   });
 });

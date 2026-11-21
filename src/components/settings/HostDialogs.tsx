@@ -32,8 +32,8 @@ export function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }:
           </DialogDescription>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={isRemoving}>Cancel</Button>
-          <Button variant="ghost" className="text-destructive" onClick={onConfirm} disabled={isRemoving}>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" className="text-destructive" onClick={onConfirm}>
             {isRemoving ? <Spinner className="size-4" /> : 'Remove'}
           </Button>
         </DialogFooter>
@@ -97,8 +97,8 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={isUpdating}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!isValid || isUpdating}>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={!isValid}>
             {isUpdating ? <Spinner className="size-4" /> : 'Save'}
           </Button>
         </DialogFooter>

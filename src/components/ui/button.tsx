@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
+import { useModalBusy } from '@/components/ui/modal-busy';
 
 /*
  * default = filled, outline = outlined, ghost = text. Uppercase + tracking
@@ -34,16 +35,19 @@ const buttonVariants = cva(
   },
 );
 
-function Button({
-  className,
-  variant,
-  size,
-  ...props
-}: ComponentProps<typeof ButtonPrimitive> & VariantProps<typeof buttonVariants>) {
+type ButtonProps = ComponentProps<typeof ButtonPrimitive> &
+  VariantProps<typeof buttonVariants> & {
+    /** Keeps the button usable inside a busy modal, where every other button disables. */
+    allowWhileBusy?: boolean;
+  };
+
+function Button({ className, variant, size, disabled, allowWhileBusy = false, ...props }: ButtonProps) {
+  const busy = useModalBusy();
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size }), className)}
+      disabled={disabled || (busy && !allowWhileBusy)}
       {...props}
     />
   );

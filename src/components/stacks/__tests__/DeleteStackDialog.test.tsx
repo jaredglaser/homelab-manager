@@ -84,5 +84,7 @@ describe('DeleteStackDialog', () => {
     await user.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledTimes(0);
     expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Delete Stack' }).hasAttribute('disabled')).toBe(true);
   });
 });

@@ -149,10 +149,10 @@ export default function CreateStackDialog({
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" className="text-foreground" onClick={handleClose} disabled={isLoading}>
+          <Button variant="ghost" className="text-foreground" onClick={handleClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!isValid || isLoading}>
+          <Button onClick={handleSubmit} disabled={!isValid}>
             Create Stack
           </Button>
         </DialogFooter>

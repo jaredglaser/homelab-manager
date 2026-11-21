@@ -142,12 +142,11 @@ export function KeypairDialog({
           )}
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={isRotating}>Close</Button>
+          <Button variant="ghost" onClick={onClose}>Close</Button>
           {publicJwkJson && !rotated && (
             <Button
               variant={confirmingRotate ? 'destructive' : 'ghost'}
               onClick={handleRotate}
-              disabled={isRotating}
             >
               {isRotating ? <Spinner className="size-4" /> : null}
               {confirmingRotate ? 'Confirm rotation' : 'Rotate keypair'}

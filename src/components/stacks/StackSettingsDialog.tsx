@@ -81,8 +81,8 @@ export default function StackSettingsDialog({
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" className="text-foreground" onClick={onClose} disabled={isLoading}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!host || isLoading}>
+          <Button variant="ghost" className="text-foreground" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={!host}>
             {isLoading ? <Spinner className="size-4" /> : 'Save'}
           </Button>
         </DialogFooter>

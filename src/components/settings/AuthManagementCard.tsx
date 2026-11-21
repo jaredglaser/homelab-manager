@@ -305,8 +305,8 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
             <Button variant="ghost" onClick={handleClose}>Done</Button>
           ) : (
             <>
-              <Button variant="ghost" onClick={handleClose} disabled={isGenerating}>Cancel</Button>
-              <Button onClick={handleGenerate} disabled={!label.trim() || isGenerating}>
+              <Button variant="ghost" onClick={handleClose}>Cancel</Button>
+              <Button onClick={handleGenerate} disabled={!label.trim()}>
                 {isGenerating ? <Spinner className="size-4" /> : 'Generate'}
               </Button>
             </>

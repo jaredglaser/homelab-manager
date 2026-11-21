@@ -245,21 +245,19 @@ const MODAL_ROOTS = {
   '@/components/ui/sheet': 'Sheet',
 };
 
-const IN_FLIGHT_NAME = /^(?:is)?(?:pending|loading|busy|saving|submitting|updating|removing|deleting|rotating|generating|creating)$/i;
+const IN_FLIGHT_NAME =
+  /^(?:is)?(?:pending|loading|busy|saving|submitting|updating|removing|deleting|rotating|generating|creating|deploying|approving|rejecting)$/i;
 
-const isInFlightFlag = (node) => {
-  switch (node.type) {
-    case 'LogicalExpression':
-      return isInFlightFlag(node.left) || isInFlightFlag(node.right);
-    case 'ChainExpression':
-      return isInFlightFlag(node.expression);
-    case 'Identifier':
-      return IN_FLIGHT_NAME.test(node.name);
-    case 'MemberExpression':
-      return !node.computed && node.property.type === 'Identifier' && IN_FLIGHT_NAME.test(node.property.name);
-    default:
-      return false;
+const jsxRootName = (name, rootNames, namespaces) => {
+  if (name.type === 'JSXIdentifier') return rootNames.has(name.name) ? name : null;
+  if (
+    name.type === 'JSXMemberExpression' &&
+    name.object.type === 'JSXIdentifier' &&
+    namespaces.get(name.object.name) === name.property.name
+  ) {
+    return name;
   }
+  return null;
 };
 
 const modalBusyRule = {
@@ -267,43 +265,56 @@ const modalBusyRule = {
     type: 'problem',
     docs: {
       description:
-        'A modal that disables its controls while an action is in flight must also block Escape, a backdrop click and its close button.',
+        'A modal that runs an action must pass busy so Escape, a backdrop click, its close button and every Button inside stop working while the action is in flight.',
     },
     schema: [],
     messages: {
       missingBusy:
-        'This modal disables a control while an action is in flight but never sets busy, so Escape or a backdrop click can still dismiss it mid-action. Pass busy={...} with the same condition that disables the buttons. If nothing inside is an action in flight, disable this rule on the line with the reason.',
+        'This modal references an in-flight flag (isPending, isLoading, isSaving and similar) but never sets busy, so Escape, a backdrop click or a button can still act mid-action. Pass busy={...} with that condition. This is a name-based heuristic: it does not see a spread, nor a footer rendered by a child component. If the flag is not an action in flight, disable this rule on the line with the reason.',
     },
   },
   create(context) {
     const rootNames = new Set();
-    const reported = new Set();
+    const namespaces = new Map();
+    const { visitorKeys } = context.sourceCode;
+
+    const referencesInFlightFlag = (node) => {
+      if (node.type === 'Identifier' && IN_FLIGHT_NAME.test(node.name)) return true;
+      if (jsxRootName(node.type === 'JSXElement' ? node.openingElement.name : { type: '' }, rootNames, namespaces)) return false;
+      for (const key of visitorKeys[node.type] ?? []) {
+        const child = node[key];
+        const children = Array.isArray(child) ? child : [child];
+        if (children.some((entry) => entry && typeof entry.type === 'string' && referencesInFlightFlag(entry))) return true;
+      }
+      return false;
+    };
+
+    const setsBusy = (attributes) =>
+      attributes.some(
+        (attribute) =>
+          attribute.type === 'JSXSpreadAttribute' ||
+          (attribute.name.type === 'JSXIdentifier' &&
+            attribute.name.name === 'busy' &&
+            !(
+              attribute.value?.type === 'JSXExpressionContainer' &&
+              attribute.value.expression.type === 'Literal' &&
+              attribute.value.expression.value === false
+            )),
+      );
+
     return {
       ImportDeclaration(node) {
         const root = MODAL_ROOTS[node.source.value];
         if (!root) return;
         for (const specifier of node.specifiers) {
           if (specifier.type === 'ImportSpecifier' && specifier.imported.name === root) rootNames.add(specifier.local.name);
+          if (specifier.type === 'ImportNamespaceSpecifier') namespaces.set(specifier.local.name, root);
         }
       },
-      JSXAttribute(node) {
-        if (node.name.type !== 'JSXIdentifier' || node.name.name !== 'disabled') return;
-        if (node.value?.type !== 'JSXExpressionContainer' || !isInFlightFlag(node.value.expression)) return;
-        for (let ancestor = node.parent.parent; ancestor; ancestor = ancestor.parent) {
-          if (ancestor.type !== 'JSXElement') continue;
-          const { name, attributes } = ancestor.openingElement;
-          if (name.type !== 'JSXIdentifier' || !rootNames.has(name.name)) continue;
-          const setsBusy = attributes.some(
-            (attribute) =>
-              attribute.type === 'JSXSpreadAttribute' ||
-              (attribute.name.type === 'JSXIdentifier' && attribute.name.name === 'busy'),
-          );
-          if (!setsBusy && !reported.has(ancestor)) {
-            reported.add(ancestor);
-            context.report({ node: name, messageId: 'missingBusy' });
-          }
-          return;
-        }
+      JSXElement(node) {
+        const name = jsxRootName(node.openingElement.name, rootNames, namespaces);
+        if (!name || setsBusy(node.openingElement.attributes)) return;
+        if (node.children.some(referencesInFlightFlag)) context.report({ node: name, messageId: 'missingBusy' });
       },
     };
   },

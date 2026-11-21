@@ -100,12 +100,11 @@ export default function VariableRow({ stackName, varName, isReferenced, revealed
             )}
           </DialogBody>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeleteOpen(false)} disabled={deleteMutation.isPending}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setDeleteOpen(false)}>Cancel</Button>
             <Button
               variant="ghost"
               className="text-destructive"
               onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending}
             >
               Delete
             </Button>

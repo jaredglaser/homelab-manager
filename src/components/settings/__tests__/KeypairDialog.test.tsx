@@ -113,5 +113,7 @@ describe('KeypairDialog', () => {
 
     expect(onClose).toHaveBeenCalledTimes(0)
     expect(screen.queryAllByRole('dialog')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Close' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Rotate keypair' }).hasAttribute('disabled')).toBe(true)
   })
 })

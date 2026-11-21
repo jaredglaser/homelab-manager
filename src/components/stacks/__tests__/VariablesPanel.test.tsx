@@ -289,6 +289,7 @@ describe('VariablesPanel', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryAllByRole('dialog')).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Delete' }).hasAttribute('disabled')).toBe(true);
 
     act(() => settle());
     await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
