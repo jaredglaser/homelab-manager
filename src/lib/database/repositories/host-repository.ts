@@ -9,18 +9,15 @@ export interface HostCapabilities {
   zfs?: boolean;
 }
 
-/** Why a host's last probe failed: the code the operator's copy keys on, plus the probe's own detail. */
 export interface HostFailureRecord {
   code: HostProbeFailureCode;
-  /** The probe's diagnostic detail, or null when it named none. */
   detail: string | null;
 }
 
-/** A health verdict for one host: the status, and the cause it came from. */
-export interface HostHealthVerdict {
-  status: HostStatus;
-  failure: HostFailureRecord | null;
-}
+/** A healthy status cannot carry a failure: the managed_hosts_failure_check constraint rejects it. */
+export type HostHealthVerdict =
+  | { status: 'healthy'; failure: null }
+  | { status: Exclude<HostStatus, 'healthy'>; failure: HostFailureRecord | null };
 
 export interface ManagedHost {
   id: number;
@@ -35,9 +32,8 @@ export interface ManagedHost {
   /** True when the last sweep found this digest different from the manager's own agent image. */
   agentOutOfDate: boolean;
   status: HostStatus;
-  /** Why the last probe failed, or null when it succeeded or the host has never been probed. */
+  /** Null when the last probe succeeded or the host has never been probed. */
   failureCode: HostProbeFailureCode | null;
-  /** The probe's own detail for `failureCode`, which the copy may or may not show. */
   failureDetail: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -177,13 +173,6 @@ export class HostRepository {
     return result.rows.length > 0 ? toManagedHost(result.rows[0] as Record<string, unknown>) : null;
   }
 
-  /**
-   * Record a health verdict for this host: the status and the failure cause it came
-   * from, in one write. The two travel together because a status write that left the
-   * previous cause behind would report a failure the host no longer has, and a
-   * healthy status cannot carry one (enforced by the managed_hosts_failure_check
-   * constraint). `failure: null` is a success, so it clears both columns.
-   */
   async updateHealth(id: number, verdict: HostHealthVerdict): Promise<void> {
     await this.pool.query(
       'UPDATE managed_hosts SET status = $1, failure_code = $2, failure_detail = $3, updated_at = NOW() WHERE id = $4',

@@ -3,10 +3,7 @@ import type { AgentHealthFailureReason } from '@/lib/services/agent-health-servi
 import type { HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
-/**
- * Every reachability status an agent can be reported as. The runtime list is the source of truth for
- * the wire schema, which has to accept all of them or the client drops the whole snapshot.
- */
+/** The wire schema reads its members from this list: a status it rejects drops the client's whole snapshot. */
 export const AGENT_INVENTORY_STATUSES = [
   'online',
   'offline',
@@ -27,11 +24,9 @@ export type AgentInventoryStatus = (typeof AGENT_INVENTORY_STATUSES)[number];
 
 export type AgentVersionSource = 'live' | 'stored' | 'unknown';
 
-/** Why an agent is not online, in the coded form the card turns into copy. */
 export interface AgentInventoryFailure {
-  /** A code the shared host-failure copy is keyed by. */
   code: HostProbeFailureCode;
-  /** The probe's own detail, or an empty string when it named none. */
+  /** Empty when the probe named no detail. */
   message: string;
 }
 
@@ -50,7 +45,6 @@ export interface AgentInventoryEntry {
   agentImageDigest: string | null;
   /** True when the last sweep found the running digest different from the manager's own agent image. */
   agentOutOfDate: boolean;
-  /** Why the last probe failed when status is not online, else null. */
   failure: AgentInventoryFailure | null;
   /** ISO timestamp of the inventory pass that produced this entry. */
   checkedAt: string;
@@ -154,12 +148,6 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
   };
 }
 
-/**
- * Reachability of a stored host. The recorded cause wins when there is one, so
- * an agent that answered as something other than a healthy agent, or that is
- * waiting on a certificate, is reported as that rather than as generically down.
- * A host with no recorded cause has only its status column to go on.
- */
 function storedStatus(host: ManagedHost): AgentInventoryStatus {
   if (host.failureCode === 'awaiting-enrollment') return 'awaiting-enrollment';
   if (host.failureCode === 'unreachable') return 'unreachable';

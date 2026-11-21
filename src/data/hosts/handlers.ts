@@ -83,8 +83,6 @@ export async function handleCheckHostHealth(
   const healthResult = await deps.checkHealth(host.agentUrl, host.name);
 
   if (!healthResult.healthy) {
-    // A probe that fails without naming a reason still needs a code: the copy is keyed by it, and the
-    // inventory keeps showing that code until the next probe reports something else.
     const code = healthResult.reason ?? 'health_check_failed';
     await deps.repo.updateHealth(host.id, {
       status: 'unhealthy',
@@ -547,14 +545,12 @@ export async function handleSweepAgentInventory(
         // last look at this agent", not "when did its status last change".
         await deps.repo.updateLastSweptAt(host.id, now);
         if (host.status === 'pending' && !outcome.healthy) return;
-        // The sweep's classification travels with the status: without it the listing could only
-        // report "not healthy", losing unreachable and awaiting-enrollment entirely.
-        await deps.repo.updateHealth(host.id, {
-          status: outcome.healthy ? 'healthy' : 'unhealthy',
-          failure: outcome.healthy
-            ? null
-            : { code: outcome.reason ?? 'health_check_failed', detail: outcome.error },
-        });
+        await deps.repo.updateHealth(
+          host.id,
+          outcome.healthy
+            ? { status: 'healthy', failure: null }
+            : { status: 'unhealthy', failure: { code: outcome.reason ?? 'health_check_failed', detail: outcome.error } },
+        );
         const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentDigest);
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
           await deps.repo.updateAgentInfo(host.id, {

@@ -1,13 +1,6 @@
 -- migrations/045_managed_hosts_failure.sql
--- Why the last probe of this host failed, plus the probe's own detail, so the
--- Agents card can name the cause and the next step instead of re-deriving a
--- coarser status from managed_hosts.status. The sweep classifies every failure
--- as offline (nothing answered at the network level), unreachable (something
--- answered that is not a healthy agent) or awaiting-enrollment (the agent serves
--- plain HTTP until it holds a certificate); health_check_failed covers a probe
--- that failed without naming a reason. NULL in both columns means the last probe
--- succeeded, or the host has never been probed. A healthy status cannot carry a
--- cause, and a detail cannot outlive the code it explains.
+-- NULL in both columns means the last probe succeeded or the host was never probed.
+-- The code list mirrors HOST_PROBE_FAILURE_CODES (src/lib/errors/host-failure-copy.ts): a new code needs a new migration.
 
 ALTER TABLE managed_hosts ADD COLUMN IF NOT EXISTS failure_code TEXT;
 ALTER TABLE managed_hosts ADD COLUMN IF NOT EXISTS failure_detail TEXT;

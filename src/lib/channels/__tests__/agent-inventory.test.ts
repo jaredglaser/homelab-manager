@@ -28,8 +28,6 @@ function snapshot(overrides: Record<string, unknown> = {}) {
 }
 
 describe('agent inventory wire schema', () => {
-  // A status or code the server can send but the client rejects drops the whole snapshot, so every
-  // member of both unions has to survive the parse.
   it('accepts every status the inventory can report', () => {
     for (const status of AGENT_INVENTORY_STATUSES) {
       const parsed = zAgentInventorySnapshotWire.safeParse(snapshot({ status }));

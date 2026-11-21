@@ -18,12 +18,7 @@ export type HostFailureCode =
   | 'version_unconfirmed'
   | 'agent_did_not_restart';
 
-/**
- * The codes a host health probe reports: the agent's own reason, or the fallback when the probe
- * failed without naming one. This is the set a host row can carry, so a code outside it can never
- * reach the inventory. The runtime list is the source of truth for the wire schema, which must
- * accept every value the persisted code can hold or the client drops the whole snapshot.
- */
+/** The codes a host row can carry. The CHECK in migration 045 lists the same members, so a new one needs a migration. */
 export const HOST_PROBE_FAILURE_CODES = [
   'offline',
   'unreachable',

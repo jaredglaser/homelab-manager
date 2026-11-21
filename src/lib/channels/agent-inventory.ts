@@ -15,8 +15,6 @@ const zAgentInventoryFailureWire = z.object({
   message: z.string(),
 });
 
-// Both enums read their members from the runtime lists the types are derived from, so a status or
-// code the server can send is one the client accepts; a narrower schema would drop the whole snapshot.
 const zAgentInventoryEntryWire = z.object({
   id: z.number(),
   name: z.string(),

@@ -101,6 +101,18 @@ describe('HostRepository', () => {
       expect(result[0].agentUrl).toBe('http://192.168.1.10:9090');
     });
 
+    it('maps the recorded failure columns, and a row that has none to null', async () => {
+      mock.pushResult([
+        { ...sampleRow, name: 'down', failure_code: 'awaiting-enrollment', failure_detail: 'plain HTTP' },
+        { ...sampleRow, id: 2, name: 'fresh' },
+      ]);
+
+      const [down, fresh] = await repo.findAll();
+
+      expect(down).toMatchObject({ failureCode: 'awaiting-enrollment', failureDetail: 'plain HTTP' });
+      expect(fresh).toMatchObject({ failureCode: null, failureDetail: null });
+    });
+
     it('getAll returns the camelCase host shape', async () => {
       mock.pushResult([sampleRow]);
 

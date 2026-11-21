@@ -112,10 +112,7 @@ function AgentRow({
           </div>
           <span className="text-xs font-mono text-muted-foreground block truncate">{agent.agentUrl}</span>
           {agent.status !== 'online' && agent.failure && (
-            <p
-              className="text-xs text-muted-foreground truncate"
-              title={hostFailureMessage(agent.failure.code, agent.failure.message)}
-            >
+            <p className="text-xs text-muted-foreground break-words">
               {hostFailureMessage(agent.failure.code, agent.failure.message)}
             </p>
           )}

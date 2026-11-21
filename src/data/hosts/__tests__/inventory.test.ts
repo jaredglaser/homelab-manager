@@ -295,6 +295,26 @@ describe('handleListAgentsInventorySnapshot', () => {
     expect(entry.failure).toEqual({ code: 'unreachable', message: '' });
   });
 
+  it('reports a row with a fallback cause as offline and keeps the cause', async () => {
+    const repo = mockRepo([
+      mockRow({ status: 'unhealthy', failureCode: 'health_check_failed', failureDetail: 'boom' }),
+    ]);
+
+    const [entry] = await handleListAgentsInventorySnapshot({ repo });
+
+    expect(entry.status).toBe('offline');
+    expect(entry.failure).toEqual({ code: 'health_check_failed', message: 'boom' });
+  });
+
+  it('reports a legacy unhealthy row with no recorded cause as offline with no failure', async () => {
+    const repo = mockRepo([mockRow({ status: 'unhealthy' })]);
+
+    const [entry] = await handleListAgentsInventorySnapshot({ repo });
+
+    expect(entry.status).toBe('offline');
+    expect(entry.failure).toBeNull();
+  });
+
   it('reports checkedAt from lastSweptAt, ignoring an updatedAt bumped by other writes', async () => {
     const hosts = [
       mockRow({

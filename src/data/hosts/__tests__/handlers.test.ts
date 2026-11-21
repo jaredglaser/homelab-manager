@@ -157,6 +157,21 @@ describe('handleCheckHostHealth', () => {
     expect(repo.updateAgentInfo).not.toHaveBeenCalled();
   });
 
+  it('records the fallback code when the probe failed without naming a reason', async () => {
+    const updateHealth = mock(() => Promise.resolve());
+    const deps = { ...baseDeps({ updateHealth }), checkHealth: mock(() => Promise.resolve({ healthy: false as const, error: 'boom' })) };
+    const result = await handleCheckHostHealth(deps, { hostId: 1 });
+    if (!result.healthy) expect(result.code).toBe('health_check_failed');
+    expect(updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'health_check_failed', detail: 'boom' } });
+  });
+
+  it('records an awaiting-enrollment probe as that cause', async () => {
+    const updateHealth = mock(() => Promise.resolve());
+    const deps = { ...baseDeps({ updateHealth }), checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'awaiting-enrollment' as const, error: 'plain HTTP' })) };
+    await handleCheckHostHealth(deps, { hostId: 1 });
+    expect(updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'awaiting-enrollment', detail: 'plain HTTP' } });
+  });
+
   it('throws when host not found', async () => {
     const deps = { ...baseDeps({ findById: mock(() => Promise.resolve(null)) }), checkHealth: mock() };
     await expect(handleCheckHostHealth(deps, { hostId: 999 })).rejects.toThrow('Host with id 999 not found');
