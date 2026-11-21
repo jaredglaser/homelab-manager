@@ -11,14 +11,17 @@ import {
   parserFor,
   runtimeTypeOf,
 } from '../row-wire-types/wire-types';
-import { collectSites, scrapeFile, type QuerySite } from '../row-wire-types/scrape';
-import { observe, type Catalog } from '../row-wire-types/observe';
+import { collectSites, collectUntypedReads, scrapeFile, scrapeUntypedReads, type QuerySite } from '../row-wire-types/scrape';
+import { observe } from '../row-wire-types/observe';
+import { outerJoinedTables, returningNullability, selectNullability, type AttributeCatalog } from '../row-wire-types/nullability';
+import { checkSites, evaluate } from '../row-wire-types/check';
 import {
   isReturningDmlStatement,
   isSelectStatement,
   probeDml,
   probeSelect,
   resolveDynamicSql,
+  returningItems,
   returningNames,
   tierRelationsFor,
 } from '../row-wire-types/probe';
@@ -27,6 +30,7 @@ import {
   compareField,
   compareObservations,
   parseDeclaredType,
+  type AllowedNarrowing,
   type Finding,
   type ObservedField,
   type ObservedRowType,
@@ -313,7 +317,7 @@ describe('compareObservations', () => {
 });
 
 describe('applyAllowlist', () => {
-  const finding = (verdict: Finding['verdict']): Finding => ({
+  const finding = (verdict: Finding['verdict'], overrides: Partial<Finding> = {}): Finding => ({
     verdict,
     file: 'repo.ts',
     line: 1,
@@ -322,13 +326,15 @@ describe('applyAllowlist', () => {
     declared: 'string',
     wire: 'string',
     detail: 'the column is nullable and the declared type has no null',
+    ...overrides,
   });
-  const entry = { 'repo.ts|Row.state': 'CHECK keeps it set on the branch that reads it' };
+  const reason = 'CHECK keeps it set on the branch that reads it';
+  const entry: Record<string, AllowedNarrowing> = { 'repo.ts|Row.state': { reason, declared: 'string', wire: 'string' } };
 
   test('suppresses an unsound finding the entry names', () => {
     const { allowed, real, stale } = applyAllowlist([finding('unsound')], entry);
     expect(allowed).toHaveLength(1);
-    expect(allowed[0].reason).toBe('CHECK keeps it set on the branch that reads it');
+    expect(allowed[0].reason).toBe(reason);
     expect(real).toEqual([]);
     expect(stale).toEqual([]);
   });
@@ -342,6 +348,19 @@ describe('applyAllowlist', () => {
     expect(allowed).toEqual([]);
     expect(real).toHaveLength(1);
     expect(stale).toEqual(['repo.ts|Row.state']);
+  });
+
+  test('an entry does not survive a change of the wire type, so the finding surfaces', () => {
+    const { allowed, real, stale } = applyAllowlist([finding('unsound', { wire: 'number' })], entry);
+    expect(allowed).toEqual([]);
+    expect(real).toHaveLength(1);
+    expect(stale).toEqual(['repo.ts|Row.state']);
+  });
+
+  test('an entry does not survive a change of the declared type', () => {
+    const { allowed, real } = applyAllowlist([finding('unsound', { declared: 'string | number' })], entry);
+    expect(allowed).toEqual([]);
+    expect(real).toHaveLength(1);
   });
 });
 
@@ -363,12 +382,15 @@ function poolStub(respond: (text: string) => unknown): { pool: Pool; texts: stri
 
 describe('probeSelect', () => {
   test('wraps the statement in a LIMIT 0 subquery with the parameters nulled out', async () => {
-    const { pool, texts, values } = poolStub(() => ({ fields: [{ name: 'id', dataTypeID: 23 }, { name: 'host', dataTypeID: 25 }] }));
+    const { pool, texts, values } = poolStub(() => ({ fields: [{ name: 'id', dataTypeID: 23, tableID: 100, columnID: 1 }, { name: 'host', dataTypeID: 25, tableID: 0, columnID: 0 }] }));
     const result = await probeSelect(pool, 'SELECT id, host FROM deploy_history WHERE host = $1 AND stack = $2');
     expect(texts[0]).toContain('AS __row_wire_probe LIMIT 0');
     expect(texts[0]).toContain('SELECT id, host FROM deploy_history');
     expect(values[0]).toEqual([null, null]);
-    expect(result.columns).toEqual([{ name: 'id', pgType: '23' }, { name: 'host', pgType: '25' }]);
+    expect(result.columns).toEqual([
+      { name: 'id', pgType: '23', tableID: 100, columnID: 1 },
+      { name: 'host', pgType: '25', tableID: 0, columnID: 0 },
+    ]);
   });
 
   test('returns the driver error instead of throwing', async () => {
@@ -452,58 +474,246 @@ describe('scrapeFile row shapes', () => {
 });
 
 describe('observe: one row type fed by several statements', () => {
-  const catalog: Catalog = {
-    columnsOf: () => [],
-    tablesIn: () => ['proxmox_stats'],
-    nullability: () => false,
-  };
-  const site = (sql: string): QuerySite => ({
+  const key = 'src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow';
+  const site = (rowFields: QuerySite['rowFields'] = null): QuerySite => ({
     file: 'src/lib/database/repositories/proxmox-stats-repository.ts',
     line: 12,
     rowType: 'ProxmoxStatsQueryRow',
-    rowFields: null,
-    sql,
+    rowFields,
+    sql: 'SELECT host, mem FROM proxmox_stats',
     dynamic: [],
   });
   const columns = [
-    { name: 'host', wire: 'string' },
-    { name: 'mem', wire: 'number' },
+    { name: 'host', wire: 'string', nullable: false as const },
+    { name: 'mem', wire: 'number', nullable: false as const },
   ];
 
   test('counts a field once per statement that returns it', () => {
     const observations = new Map<string, ObservedRowType>();
-    observe(observations, site('SELECT host, mem FROM proxmox_stats'), columns, 'SELECT host, mem FROM proxmox_stats', catalog);
-    observe(observations, site('SELECT host, mem FROM proxmox_stats_1h_avg'), columns, 'SELECT host, mem FROM proxmox_stats_1h_avg', catalog);
-    const observed = observations.get('src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow');
-    expect(observed?.fields.get('host')?.seen).toBe(2);
-    expect(observed?.fields.get('host')?.wire).toEqual(new Set(['string']));
+    observe(observations, site(), columns);
+    observe(observations, site(), columns);
+    expect(observations.get(key)?.fields.get('host')?.seen).toBe(2);
+    expect(observations.get(key)?.fields.get('host')?.wire).toEqual(new Set(['string']));
   });
 
-  test('records the projections separately, and keeps the first row shape', () => {
+  test('keeps the first resolved row shape and fills one the first site could not resolve', () => {
     const observations = new Map<string, ObservedRowType>();
-    const rowFields = [{ name: 'host', type: 'string', optional: false }];
-    observe(observations, { ...site('SELECT host FROM proxmox_stats'), rowFields }, [columns[0]], 'SELECT host FROM proxmox_stats', catalog);
-    expect(observations.size).toBe(1);
-    const observed = observations.get('src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow');
-    expect(observed?.rowFields).toEqual(rowFields);
-    expect(observed?.projections).toEqual([]);
+    const first = [{ name: 'host', type: 'string', optional: false }];
+    const second = [{ name: 'host', type: 'number', optional: false }];
+    observe(observations, site(first), [columns[0]]);
+    observe(observations, site(second), [columns[0]]);
+    expect(observations.get(key)?.rowFields).toEqual(first);
+
+    const late = new Map<string, ObservedRowType>();
+    observe(late, site(null), [columns[0]]);
+    observe(late, site(second), [columns[0]]);
+    expect(late.get(key)?.rowFields).toEqual(second);
   });
 
-  test('calls a column mixed when the tiers disagree about nullability', () => {
+  test('calls a column mixed only when two statements truly disagree about nullability', () => {
     const observations = new Map<string, ObservedRowType>();
-    const perTier: Catalog = { ...catalog, nullability: (column) => (column === 'mem' ? true : false) };
-    observe(observations, site('SELECT host, mem FROM proxmox_stats'), columns, 'SELECT host, mem FROM proxmox_stats', catalog);
-    observe(observations, site('SELECT host, mem FROM proxmox_stats_1h_avg'), columns, 'SELECT host, mem FROM proxmox_stats_1h_avg', perTier);
-    const observed = observations.get('src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow');
-    expect(observed?.fields.get('mem')?.nullable).toBe('mixed');
-    expect(observed?.fields.get('host')?.nullable).toBe(false);
+    observe(observations, site(), columns);
+    observe(observations, site(), [{ name: 'host', wire: 'string', nullable: false }, { name: 'mem', wire: 'number', nullable: true }]);
+    expect(observations.get(key)?.fields.get('mem')?.nullable).toBe('mixed');
+    expect(observations.get(key)?.fields.get('host')?.nullable).toBe(false);
   });
 
-  test('leaves nullability unknown when the catalog cannot answer', () => {
-    const unknown: Catalog = { ...catalog, nullability: () => '?' };
+  test('an unknown nullability from a view does not hide what a base table proved', () => {
     const observations = new Map<string, ObservedRowType>();
-    observe(observations, site('SELECT host FROM proxmox_stats'), [columns[0]], 'SELECT host FROM proxmox_stats', unknown);
-    const observed = observations.get('src/lib/database/repositories/proxmox-stats-repository.ts|ProxmoxStatsQueryRow');
-    expect(observed?.fields.get('host')?.nullable).toBe('?');
+    observe(observations, site(), [{ name: 'host', wire: 'string', nullable: false }]);
+    observe(observations, site(), [{ name: 'host', wire: 'string', nullable: '?' }]);
+    expect(observations.get(key)?.fields.get('host')?.nullable).toBe(false);
+  });
+
+  test('leaves nullability unknown when no statement can answer', () => {
+    const observations = new Map<string, ObservedRowType>();
+    observe(observations, site(), [{ name: 'host', wire: 'string', nullable: '?' }]);
+    expect(observations.get(key)?.fields.get('host')?.nullable).toBe('?');
+  });
+});
+
+describe('nullability from result metadata', () => {
+  const attributes: Record<string, { oid: number; kind: string; notNull: Record<number, boolean> }> = {
+    managed_hosts: { oid: 10, kind: 'r', notNull: { 1: true, 2: false } },
+    entity_metadata: { oid: 20, kind: 'r', notNull: { 1: true } },
+    proxmox_stats_1m: { oid: 30, kind: 'v', notNull: { 1: false } },
+  };
+  const catalog: AttributeCatalog = {
+    relation: (oid) => Object.entries(attributes).map(([name, value]) => ({ name, ...value })).find((relation) => relation.oid === oid),
+    attributeNotNull: (oid, attnum) => Object.values(attributes).find((relation) => relation.oid === oid)?.notNull[attnum],
+    columnsOf: (table) => Object.keys(attributes[table]?.notNull ?? {}),
+    columnNotNull: (table, column) => (table === 'managed_hosts' ? { id: true, agent_version: false }[column] : undefined),
+  };
+
+  test('a NOT NULL column of an ordinary table is not nullable and a nullable one is', () => {
+    expect(selectNullability({ tableID: 10, columnID: 1 }, 'SELECT id FROM managed_hosts', catalog)).toBe(false);
+    expect(selectNullability({ tableID: 10, columnID: 2 }, 'SELECT agent_version FROM managed_hosts', catalog)).toBe(true);
+  });
+
+  test('a computed column is unknown, so an aggregate aliased to a NOT NULL column is not taken as NOT NULL', () => {
+    expect(selectNullability({ tableID: 0, columnID: 0 }, 'SELECT max(id) AS id FROM managed_hosts', catalog)).toBe('?');
+  });
+
+  test('a view or aggregate column is unknown because views report every column nullable', () => {
+    expect(selectNullability({ tableID: 30, columnID: 1 }, 'SELECT host FROM proxmox_stats_1m', catalog)).toBe('?');
+  });
+
+  test('the right side of a LEFT JOIN is unknown while the left side keeps its answer', () => {
+    const sql = 'SELECT me.value, h.id FROM entity_metadata me LEFT JOIN managed_hosts h ON h.name = me.entity';
+    expect(selectNullability({ tableID: 20, columnID: 1 }, sql, catalog)).toBe(false);
+    expect(selectNullability({ tableID: 10, columnID: 1 }, sql, catalog)).toBe('?');
+  });
+
+  test('a RIGHT or FULL join makes every column unknown', () => {
+    expect(outerJoinedTables('SELECT 1 FROM a FULL OUTER JOIN b ON true').everything).toBe(true);
+    expect(selectNullability({ tableID: 20, columnID: 1 }, 'SELECT me.value FROM entity_metadata me RIGHT JOIN managed_hosts h ON true', catalog)).toBe('?');
+  });
+
+  test('only a bare column of the target table answers for a RETURNING item', () => {
+    expect(returningNullability({ name: 'id', plain: true }, 'managed_hosts', catalog)).toBe(false);
+    expect(returningNullability({ name: 'agent_version', plain: true }, 'managed_hosts', catalog)).toBe(true);
+    expect(returningNullability({ name: 'id', plain: false }, 'managed_hosts', catalog)).toBe('?');
+    expect(returningNullability({ name: 'id', plain: true }, undefined, catalog)).toBe('?');
+  });
+
+  test('marks which RETURNING items are bare columns', () => {
+    expect(returningItems('UPDATE t SET a = 1 RETURNING id, count(*) AS total, t.name', () => [])).toEqual([
+      { name: 'id', plain: true },
+      { name: 'total', plain: false },
+      { name: 'name', plain: true },
+    ]);
+  });
+});
+
+describe('untyped reads', () => {
+  const reads = (source: string): number[] => scrapeUntypedReads(fixture(`untyped-${Math.random()}.ts`, source), fixtureDir).map((read) => read.line);
+
+  test('flags an untyped query whose rows are read', () => {
+    expect(reads('async function f(pool) {\n  const result = await pool.query(`SELECT 1`);\n  return result.rows[0];\n}')).toEqual([2]);
+    expect(reads('async function f(pool) {\n  const { rows } = await pool.query(`SELECT 1`);\n  return rows;\n}')).toEqual([2]);
+    expect(reads('async function f(pool) {\n  return (await pool.query(`SELECT 1`)).rows;\n}')).toEqual([2]);
+    expect(reads('function f(pool) {\n  return pool.query(`SELECT 1`);\n}')).toEqual([2]);
+  });
+
+  test('leaves a discarded result, a row count and a typed query alone', () => {
+    expect(reads('async function f(pool) {\n  await pool.query(`LISTEN x`);\n}')).toEqual([]);
+    expect(reads('async function f(pool) {\n  const result = await pool.query(`DELETE FROM t`);\n  return result.rowCount;\n}')).toEqual([]);
+    expect(reads('async function f(pool) {\n  const result = await pool.query<{ id: number }>(`SELECT 1`);\n  return result.rows;\n}')).toEqual([]);
+  });
+
+  test('collectUntypedReads walks several directories and skips tests', () => {
+    const dir = fs.mkdtempSync(path.join(fixtureDir, 'untyped-tree-'));
+    fs.mkdirSync(path.join(dir, '__tests__'));
+    fs.writeFileSync(path.join(dir, 'a.ts'), 'const r = (await pool.query(`SELECT 1`)).rows;');
+    fs.writeFileSync(path.join(dir, '__tests__', 'b.ts'), 'const r = (await pool.query(`SELECT 1`)).rows;');
+    expect(collectUntypedReads([dir, path.join(dir, 'missing')], fixtureDir)).toHaveLength(1);
+  });
+});
+
+describe('scrapeFile declarations', () => {
+  test('refuses a row type declared twice in one file instead of merging them', () => {
+    const file = fixture('twice.ts', [
+      'function a() { interface Row { id: number } return pool.query<Row>(`SELECT id FROM t`); }',
+      'function b() { interface Row { name: string } return pool.query<Row>(`SELECT name FROM t`); }',
+    ].join('\n'));
+    expect(scrapeFile(file, fixtureDir).map((site) => site.rowFields)).toEqual([null, null]);
+  });
+
+  test('refuses a row type that extends a base it cannot see', () => {
+    const file = fixture('imported-base.ts', 'import type { Base } from "./base";\ninterface Row extends Base { id: number }\nconst q = pool.query<Row>(`SELECT id FROM t`);');
+    expect(scrapeFile(file, fixtureDir)[0].rowFields).toBeNull();
+  });
+
+  test('follows a base declared in the same file', () => {
+    const file = fixture('local-base.ts', 'interface Base { id: number }\ninterface Row extends Base { name: string }\nconst q = pool.query<Row>(`SELECT id, name FROM t`);');
+    expect(scrapeFile(file, fixtureDir)[0].rowFields?.map((field) => field.name)).toEqual(['name', 'id']);
+  });
+});
+
+describe('checkSites and evaluate', () => {
+  const columnsOf = (table: string): string[] => (table === 't' ? ['id', 'name'] : []);
+  const catalog: AttributeCatalog = {
+    relation: (oid) => (oid === 1 ? { name: 't', kind: 'r' } : undefined),
+    attributeNotNull: (_oid, attnum) => attnum === 1,
+    columnsOf,
+    columnNotNull: (table, column) => (table === 't' ? column === 'id' : undefined),
+  };
+  const pgTypeByOid = new Map([['23', 'int4'], ['25', 'text'], ['3614', 'tsvector']]);
+  const site = (overrides: Partial<QuerySite> = {}): QuerySite => ({
+    file: 'repo.ts',
+    line: 3,
+    rowType: 'Row',
+    rowFields: [{ name: 'id', type: 'number', optional: false }, { name: 'name', type: 'string | null', optional: false }],
+    sql: 'SELECT id, name FROM t',
+    dynamic: [],
+    ...overrides,
+  });
+  const selectPool = poolStub(() => ({
+    fields: [{ name: 'id', dataTypeID: 23, tableID: 1, columnID: 1 }, { name: 'name', dataTypeID: 25, tableID: 1, columnID: 2 }],
+  })).pool;
+  const scan = { sites: 1, untypedReads: [], minSites: 1 };
+
+  test('a matching row type passes with exit code zero', async () => {
+    const result = await checkSites([site()], { pool: selectPool, pgTypeByOid, catalog });
+    expect(result.problems).toEqual([]);
+    expect(result.probed).toBe(1);
+    expect(evaluate(result, scan, {}).failed).toBe(false);
+  });
+
+  test('a mismatching field fails', async () => {
+    const result = await checkSites([site({ rowFields: [{ name: 'id', type: 'string', optional: false }, { name: 'name', type: 'string | null', optional: false }] })], { pool: selectPool, pgTypeByOid, catalog });
+    const evaluation = evaluate(result, scan, {});
+    expect(evaluation.failed).toBe(true);
+    expect(evaluation.real.map((finding) => `${finding.field}:${finding.verdict}`)).toEqual(['id:unsound']);
+  });
+
+  test('a stale allowlist entry fails even when every field matches', async () => {
+    const result = await checkSites([site()], { pool: selectPool, pgTypeByOid, catalog });
+    const evaluation = evaluate(result, scan, { 'repo.ts|Row.name': { reason: 'r', declared: 'string', wire: 'string' } });
+    expect(evaluation.failed).toBe(true);
+    expect(evaluation.stale).toEqual(['repo.ts|Row.name']);
+  });
+
+  test('a scan below the recorded floor fails', async () => {
+    const result = await checkSites([site()], { pool: selectPool, pgTypeByOid, catalog });
+    const evaluation = evaluate(result, { ...scan, minSites: 5 }, {});
+    expect(evaluation.failed).toBe(true);
+    expect(evaluation.problems[0]).toContain('fewer than the 5 recorded');
+  });
+
+  test('an untyped read fails', async () => {
+    const result = await checkSites([site()], { pool: selectPool, pgTypeByOid, catalog });
+    const evaluation = evaluate(result, { ...scan, untypedReads: [{ file: 'repo.ts', line: 9 }] }, {});
+    expect(evaluation.failed).toBe(true);
+    expect(evaluation.problems[0]).toContain('repo.ts:9');
+  });
+
+  test('a statement it cannot read, a row type it cannot resolve and an unmapped pg type are problems, not skips', async () => {
+    const unmapped = poolStub(() => ({ fields: [{ name: 'doc', dataTypeID: 3614, tableID: 0, columnID: 0 }] })).pool;
+    const result = await checkSites(
+      [
+        site({ sql: null }),
+        site({ rowFields: null, line: 4 }),
+        site({ line: 5, rowFields: [{ name: 'doc', type: 'string', optional: false }] }),
+        site({ line: 6, sql: 'EXPLAIN SELECT 1' }),
+      ],
+      { pool: unmapped, pgTypeByOid, catalog },
+    );
+    expect(result.problems).toHaveLength(4);
+    expect(result.problems.join('\n')).toContain('tsvector');
+  });
+
+  test('an unmapped pg type on a RETURNING statement is a problem like on a SELECT', async () => {
+    const dml = poolStub((text) => (text.includes('pg_prepared_statements') ? { rows: [{ oids: [3614] }] } : {})).pool;
+    const result = await checkSites(
+      [site({ sql: 'UPDATE t SET a = 1 RETURNING doc', rowFields: [{ name: 'doc', type: 'string', optional: false }] })],
+      { pool: dml, pgTypeByOid, catalog },
+    );
+    expect(result.problems.join('\n')).toContain('tsvector');
+  });
+
+  test('a nullable column declared without null is unsound only when the table proves it', async () => {
+    const result = await checkSites([site({ rowFields: [{ name: 'id', type: 'number', optional: false }, { name: 'name', type: 'string', optional: false }] })], { pool: selectPool, pgTypeByOid, catalog });
+    expect(evaluate(result, scan, {}).real.map((finding) => finding.field)).toEqual(['name']);
   });
 });

@@ -1,13 +1,19 @@
 import type { RowField } from './scrape';
 
+export interface AllowedNarrowing {
+  reason: string;
+  /** The declared and wire types the entry was written for: a change to either stops it matching. */
+  declared: string;
+  wire: string;
+}
+
+const FIELDS_MATCH_TYPE = 'docker_container_events_fields_match_type CHECK: an upsert row carries it and a destroy row has NULL, and only the upsert branch reads it';
+
 /** Narrowings the schema enforces and the wire cannot express, keyed `<file>|<RowType>.<field>`. An entry that stops matching a finding fails the check. */
-export const ALLOWED_NARROWINGS: Record<string, string> = {
-  'src/lib/database/repositories/docker-container-event-repository.ts|ContainerEventQueryRow.state':
-    'docker_container_events_fields_match_type CHECK: an upsert row always carries state, a destroy row always has NULL, and state is only read on the upsert branch',
-  'src/lib/database/repositories/docker-container-event-repository.ts|ContainerEventQueryRow.name':
-    'docker_container_events_fields_match_type CHECK: an upsert row always carries name, a destroy row always has NULL, and name is only read on the upsert branch',
-  'src/lib/database/repositories/docker-container-event-repository.ts|ContainerEventQueryRow.image':
-    'docker_container_events_fields_match_type CHECK: an upsert row always carries image, a destroy row always has NULL, and image is only read on the upsert branch',
+export const ALLOWED_NARROWINGS: Record<string, AllowedNarrowing> = {
+  'src/lib/database/repositories/docker-container-event-repository.ts|ContainerEventQueryRow.state': { reason: FIELDS_MATCH_TYPE, declared: 'string', wire: 'string' },
+  'src/lib/database/repositories/docker-container-event-repository.ts|ContainerEventQueryRow.name': { reason: FIELDS_MATCH_TYPE, declared: 'string', wire: 'string' },
+  'src/lib/database/repositories/docker-container-event-repository.ts|ContainerEventQueryRow.image': { reason: FIELDS_MATCH_TYPE, declared: 'string', wire: 'string' },
 };
 
 const PRIMITIVE_WIRE_TYPES = new Set(['number', 'string', 'boolean', 'Date', 'Buffer', 'PostgresInterval']);
@@ -102,7 +108,6 @@ export interface ObservedRowType {
   projections: Map<string, boolean>[];
 }
 
-/** Field-by-field comparison of every observed row type, skipping any type the caller filtered out. */
 export function compareObservations(
   observations: Map<string, ObservedRowType>,
   onlyType?: string,
@@ -139,16 +144,16 @@ export function allowlistKey(finding: Pick<Finding, 'file' | 'rowType' | 'field'
 
 export function applyAllowlist(
   findings: Finding[],
-  allowlist: Record<string, string>,
+  allowlist: Record<string, AllowedNarrowing>,
 ): { allowed: { finding: Finding; reason: string }[]; real: Finding[]; stale: string[] } {
   const allowed: { finding: Finding; reason: string }[] = [];
   const real: Finding[] = [];
   const used = new Set<string>();
   for (const finding of findings) {
     const key = allowlistKey(finding);
-    const reason = allowlist[key];
-    if (reason && finding.verdict === 'unsound') {
-      allowed.push({ finding, reason });
+    const entry = allowlist[key];
+    if (entry && finding.verdict === 'unsound' && finding.declared === entry.declared && finding.wire === entry.wire) {
+      allowed.push({ finding, reason: entry.reason });
       used.add(key);
     } else {
       real.push(finding);

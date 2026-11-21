@@ -3,7 +3,9 @@ import type { Pool } from 'pg';
 export interface ProbedColumn {
   name: string;
   pgType: string;
-  wire?: string;
+  /** Source relation and attribute number, or 0 for a computed column. */
+  tableID: number;
+  columnID: number;
 }
 
 export interface ProbeResult {
@@ -12,7 +14,6 @@ export interface ProbeResult {
   error?: string;
 }
 
-/** Which base table a tier-interpolating query reads, per row type. */
 export const TIER_BASE_BY_ROW_TYPE: Readonly<Record<string, string | undefined>> = {
   DockerStatsQueryRow: 'docker_stats',
   ZFSStatsQueryRow: 'zfs_stats',
@@ -27,7 +28,6 @@ export function isReturningDmlStatement(sql: string): boolean {
   return /^\s*(insert|update|delete)/i.test(sql) && /RETURNING/i.test(sql);
 }
 
-/** The relations to probe a tier-interpolating statement against, or null when it reads one table. */
 export function tierRelationsFor(sql: string, rowType: string): (string | null)[] {
   if (!sql.includes('<DYN:tier.relation>')) return [null];
   const base = TIER_BASE_BY_ROW_TYPE[rowType] ?? 'docker_stats';
@@ -54,7 +54,7 @@ export async function probeSelect(pool: Pool, sql: string): Promise<ProbeResult>
   const wrapped = `SELECT * FROM (\n${sql.replace(/;\s*$/, '')}\n) AS __row_wire_probe LIMIT 0`;
   try {
     const result = await pool.query({ text: wrapped, values });
-    return { columns: result.fields.map((field) => ({ name: field.name, pgType: String(field.dataTypeID) })) };
+    return { columns: result.fields.map((field) => ({ name: field.name, pgType: String(field.dataTypeID), tableID: field.tableID, columnID: field.columnID })) };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
@@ -78,20 +78,33 @@ export async function probeDml(pool: Pool, sql: string): Promise<ProbeResult> {
   }
 }
 
-/** Column names of a RETURNING list, aligned with the type list Postgres reported. */
-export function returningNames(sql: string, columnsOf: (table: string) => string[]): string[] | null {
+export interface ReturningItem {
+  name: string;
+  plain: boolean;
+}
+
+export function returningItems(sql: string, columnsOf: (table: string) => string[]): ReturningItem[] | null {
   const match = /RETURNING\s+([\s\S]+?)\s*(?:;|$)/i.exec(sql);
   if (!match) return null;
-  const names: string[] = [];
+  const items: ReturningItem[] = [];
   for (const item of match[1].split(',').map((part) => part.trim()).filter(Boolean)) {
     if (item === '*') {
-      const table = /\b(?:INSERT\s+INTO|UPDATE|FROM)\s+([a-z0-9_]+)/i.exec(sql)?.[1];
+      const table = returningTable(sql);
       if (!table) return null;
-      names.push(...columnsOf(table));
+      items.push(...columnsOf(table).map((name) => ({ name, plain: true })));
       continue;
     }
     const alias = /\s+AS\s+([a-z0-9_]+)\s*$/i.exec(item);
-    names.push((alias ? alias[1] : item.replace(/[()]/g, '').split('.').pop() ?? item).trim());
+    const name = (alias ? alias[1] : item.replace(/[()]/g, '').split('.').pop() ?? item).trim();
+    items.push({ name, plain: !alias && /^[a-z0-9_.]+$/i.test(item) });
   }
-  return names;
+  return items;
+}
+
+export function returningTable(sql: string): string | undefined {
+  return /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|FROM)\s+([a-z0-9_]+)/i.exec(sql)?.[1];
+}
+
+export function returningNames(sql: string, columnsOf: (table: string) => string[]): string[] | null {
+  return returningItems(sql, columnsOf)?.map((item) => item.name) ?? null;
 }
