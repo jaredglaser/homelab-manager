@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { StatsRepository, resolveStatsTier } from '../stats-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
+import { resetDegradedRowEnums } from '../row-enum';
 
 const NOW_MS = Date.now();
 
@@ -21,6 +22,7 @@ describe('StatsRepository', () => {
   let consoleErrorSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
+    resetDegradedRowEnums();
     mockPool = createMockPool();
     repo = new StatsRepository(mockPool.pool);
     consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
@@ -774,6 +776,24 @@ describe('StatsRepository', () => {
 
       expect(result).toEqual([{ ...valid, time: rowTime.getTime() }]);
       expect(String(errorSpy.mock.calls[0][0])).toContain('proxmox_stats.entity_type');
+      errorSpy.mockRestore();
+    });
+
+    it('logs an unknown entity_type once across repeated polls, while still skipping every row', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      const bad = {
+        time: new Date(), host: 'h', entity_type: 'vm',
+        node: null, entity_id: 'x', entity_name: null, status: null, cpu: null, max_cpu: null,
+        mem: null, max_mem: null, disk: null, max_disk: null,
+        uptime: null, vmid: null, netin: null, netout: null,
+        storage_type: null, storage_content: null, storage_avail: null,
+        storage_shared: null, cluster_version: null,
+      };
+      for (let poll = 0; poll < 5; poll += 1) {
+        mockPool.pushResult([bad, bad]);
+        expect(await repo.getProxmoxStatsSince(new Date())).toEqual([]);
+      }
+      expect(errorSpy).toHaveBeenCalledTimes(1);
       errorSpy.mockRestore();
     });
 
