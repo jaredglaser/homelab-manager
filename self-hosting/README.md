@@ -107,9 +107,9 @@ Two more images run on **monitored hosts** (not in this compose file). The Add H
 | Tag | Built from | Use it for |
 |-----|-----------|-----------|
 | `latest` | the newest stable release | Normal self-hosting. Prereleases do not advance it, so it stays on the prior stable until the next stable is cut. |
-| `0.3` | the newest `v0.3.x` release | Staying on the current minor line and taking its patches automatically. |
-| `0.2` | the newest `v0.2.x` release | Staying one minor behind on purpose, or pinning before an upgrade you don't trust. Note: once a bad release has run, there is no downgrade path (its worker already applied migrations) - recover from a backup instead. |
-| `0.3.0` | `v0.3.0` | Pinning to an exact release - to pin before upgrading, or to roll back a release that has not run yet (there is no downgrade path after one has). |
+| `0.4` | the newest `v0.4.x` release | Staying on the current minor line and taking its patches automatically. |
+| `0.3` | the newest `v0.3.x` release | Staying one minor behind on purpose, or pinning before an upgrade you don't trust. Note: once a bad release has run, there is no downgrade path (its worker already applied migrations) - recover from a backup instead. |
+| `0.4.0` | `v0.4.0` | Pinning to an exact release - to pin before upgrading, or to roll back a release that has not run yet (there is no downgrade path after one has). |
 | `main` | every push to `main` | Early access to work that has not been released yet. Expect breakage; run it on a throwaway stack, not your only one. |
 | `<short-sha>` | any push to `main` or a release tag | Pinning to an exact build. |
 
