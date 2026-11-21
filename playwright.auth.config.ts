@@ -32,13 +32,13 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'bun scripts/e2e-auth-server.ts http',
+      command: 'bun --no-env-file scripts/e2e-auth-server.ts http',
       port: HTTP_PORT,
       reuseExistingServer: false,
       timeout: 120_000,
     },
     {
-      command: 'bun scripts/e2e-auth-server.ts https',
+      command: 'bun --no-env-file scripts/e2e-auth-server.ts https',
       url: `https://localhost:${HTTPS_PORT}/`,
       ignoreHTTPSErrors: true,
       reuseExistingServer: false,

@@ -67,7 +67,7 @@ if (mode === 'http') {
   const internalPort = 3212;
   startNitro(internalPort, 'https://localhost:3202/api/auth/callback');
   children.push(
-    Bun.spawn(['bun', path.resolve('scripts/e2e-tls-proxy.ts'), '3202', String(internalPort)], {
+    Bun.spawn(['bun', '--no-env-file', path.resolve('scripts/e2e-tls-proxy.ts'), '3202', String(internalPort)], {
       stdout: 'inherit',
       stderr: 'inherit',
     }),

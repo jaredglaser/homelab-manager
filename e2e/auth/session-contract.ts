@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import type { Browser, Page } from '@playwright/test';
+import { expect, request, test } from '@playwright/test';
+import type { Browser, BrowserContext, Cookie, Page } from '@playwright/test';
 import {
   expectClearedSessionCookie,
   expectIssuedSessionCookie,
@@ -45,14 +45,49 @@ export async function expectSignedIn(page: Page, base: string, email: string): P
   return new URL(response.url()).pathname;
 }
 
-/** getSession must answer 200 without the user, so a server error cannot pass as a rejection. */
-export async function expectSignedOut(page: Page, base: string, getSessionPath: string, email: string) {
+/** A cookie Chromium silently drops would also read as signed out, so the cookie must be in the jar. */
+export async function plantCookie(context: BrowserContext, cookie: Cookie | PlantedCookie) {
+  await context.addCookies([cookie]);
+  const stored = (await context.cookies()).find((c) => c.name === cookie.name);
+  expect(stored?.value, `${cookie.name} should be accepted into the cookie jar`).toBe(cookie.value);
+}
+
+type PlantedCookie = { name: string; value: string; domain: string; path: string };
+
+/**
+ * A thrown server error also reaches the client as a 200 and sends it to /login, so a rejection
+ * only counts when getSession returns the same body as an anonymous request, the planted cookie
+ * was actually sent, and useAuth did not log a failed session check.
+ */
+export async function expectSignedOut(
+  page: Page,
+  base: string,
+  getSessionPath: string,
+  sent: { name: string; value: string },
+) {
+  const failedChecks: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().includes('[useAuth] Session check failed')) failedChecks.push(message.text());
+  });
+
   const answered = page.waitForResponse((r) => new URL(r.url()).pathname === getSessionPath);
   await page.goto(`${base}/docker`);
   const response = await answered;
-  expect(response.status(), 'getSession should answer, not fail').toBe(200);
-  expect(await response.text()).not.toContain(email);
+
+  const anonymous = await request.newContext({ ignoreHTTPSErrors: true });
+  const baseline = await anonymous.get(response.url(), { headers: { 'x-tsr-serverfn': 'true' } });
+  expect(baseline.status(), 'the anonymous baseline should answer').toBe(200);
+  const baselineBody = await baseline.text();
+  await anonymous.dispose();
+
+  expect(response.status()).toBe(200);
+  expect(await response.text()).toBe(baselineBody);
+
+  const { cookie: cookieHeader = '' } = await response.request().allHeaders();
+  expect(cookieHeader).toMatch(new RegExp(`(^|;\\s*)${sent.name}=${sent.value}(;|$)`));
+
   await expect(page).toHaveURL(/\/login/);
+  expect(failedChecks).toEqual([]);
 }
 
 export function defineSessionContract({ base, cookieName, secure }: ContractLane) {
@@ -118,18 +153,19 @@ export function defineSessionContract({ base, cookieName, secure }: ContractLane
     if (!stored) throw new Error(`${cookieName} should be in the cookie jar`);
     const tampered = stored.value.slice(0, -1) + (stored.value.endsWith('0') ? '1' : '0');
     await context.clearCookies();
-    await context.addCookies([{ ...stored, value: tampered }]);
+    await plantCookie(context, { ...stored, value: tampered });
 
-    await expectSignedOut(page, base, getSessionPath, adminEmail());
+    await expectSignedOut(page, base, getSessionPath, { name: cookieName, value: tampered });
   });
 
   test('a session row past its expiry is rejected', async ({ page }) => {
     await login(page, base);
     const getSessionPath = await expectSignedIn(page, base, adminEmail());
 
-    await expireSessionRow(await sessionToken(page, cookieName));
+    const token = await sessionToken(page, cookieName);
+    await expireSessionRow(token);
 
-    await expectSignedOut(page, base, getSessionPath, adminEmail());
+    await expectSignedOut(page, base, getSessionPath, { name: cookieName, value: token });
   });
 
   test('logout clears the cookie and deletes the server-side session row', async ({

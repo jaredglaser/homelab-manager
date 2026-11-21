@@ -322,17 +322,18 @@ Pocket ID and Postgres must already be reachable. The `e2e-auth` job in
 `.github/workflows/ci.yml` shows the service containers and the env a local
 run needs (`POCKET_ID_URL`, `POCKET_ID_API_KEY`, `POSTGRES_*`, `MASTER_KEY`).
 
-The lane writes users and sessions, so the seed, the migration script, the
-servers and the specs all refuse to run unless `POSTGRES_DB` is exactly
-`homelab_test`. Export it in the shell: a `.env` file is not enough, because
-`.env.example` ships `POSTGRES_DB="homelab"`. The app servers start with
-`bun --no-env-file`, force `AUTH_DISABLED=false`, drop `AUTH_ENABLED`, and use the
-fixed `SESSION_TTL_HOURS` from `e2e/auth/lane-config.ts` (3, so a hard-coded 8h
-default cannot pass), so a developer `.env` cannot switch auth off or change the
-TTL. The specs also read and edit the `sessions` table directly (expiry, role,
-logout deleting the row). Servers are never reused between runs, because the seed
-rotates the OIDC client secret on every run and a leftover server would hold the
-old one.
+The lane writes users and sessions, so the seed, the servers and the specs
+refuse to run unless `POSTGRES_DB` is exactly `homelab_test`. Export it in the
+shell: `.env.example` ships `POSTGRES_DB="homelab"`. Every Bun process in the
+lane (seed, migrations, servers, TLS proxy) starts with `--no-env-file`, so a
+`.env` file is never read and the Bun and Playwright processes see the same
+shell values. The servers also force `AUTH_DISABLED=false`, drop `AUTH_ENABLED`,
+and use the fixed `SESSION_TTL_HOURS` from `e2e/auth/lane-config.ts` (3, so a
+hard-coded 8 hour default cannot pass). Any other variable exported in the shell
+(`POSTGRES_SSL`, `MASTER_KEY_FILE`, ...) still reaches the servers. The specs
+also read and edit the `sessions` table directly (expiry, role, logout deleting
+the row). Servers are never reused between runs, because the seed rotates the
+OIDC client secret on every run and a leftover server would hold the old one.
 
 ## Type Checking
 

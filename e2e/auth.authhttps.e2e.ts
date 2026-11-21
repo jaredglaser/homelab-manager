@@ -4,6 +4,7 @@ import {
   defineSessionContract,
   expectSignedIn,
   expectSignedOut,
+  plantCookie,
   sessionToken,
 } from './auth/session-contract';
 
@@ -21,7 +22,7 @@ test('a valid token planted under the plain session name does not authenticate',
 
   // The token is real, so only the single-name read keeps this request unauthenticated.
   await context.clearCookies();
-  await context.addCookies([{ name: 'session', value: token, domain: 'localhost', path: '/' }]);
+  await plantCookie(context, { name: 'session', value: token, domain: 'localhost', path: '/' });
 
-  await expectSignedOut(page, BASE, getSessionPath, emailOf('admin'));
+  await expectSignedOut(page, BASE, getSessionPath, { name: 'session', value: token });
 });

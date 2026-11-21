@@ -74,7 +74,7 @@ bun run test:e2e              # Build demo + app targets, then run Playwright
 bun run test:e2e:run          # Run Playwright against already-built targets (e2e-build/)
 bun run e2e:build             # Build + stage both static targets under e2e-build/
 bun run test:e2e:ui           # Playwright UI mode
-bun run test:e2e:auth         # Real-server session cookie lane (needs Pocket ID + Postgres, see docs/development.md)
+bun run test:e2e:auth         # Real-server session cookie lane (needs Pocket ID + Postgres, POSTGRES_DB must be homelab_test, see docs/development.md)
 ```
 
 E2e runs against static production builds served over MSW (not a dev server), so

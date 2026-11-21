@@ -108,7 +108,7 @@ async function ensureClient(): Promise<string> {
 
 await waitForHealth();
 
-await Bun.spawn(['bun', path.resolve('scripts/run-migrations.ts')], {
+await Bun.spawn(['bun', '--no-env-file', path.resolve('scripts/run-migrations.ts')], {
   stdout: 'inherit',
   stderr: 'inherit',
 }).exited.then((code) => {
