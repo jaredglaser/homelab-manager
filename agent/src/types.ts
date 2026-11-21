@@ -114,6 +114,11 @@ export const AGENT_ROUTE_FAILURE_CODES = [
 ] as const;
 export type AgentRouteFailureCode = (typeof AGENT_ROUTE_FAILURE_CODES)[number];
 
+/** Narrows a code an agent sent, so a code this manager does not know degrades instead of crashing. */
+export function isAgentRouteFailureCode(value: unknown): value is AgentRouteFailureCode {
+  return typeof value === 'string' && (AGENT_ROUTE_FAILURE_CODES as readonly string[]).includes(value);
+}
+
 /** The agent's JSON error shape wherever it reports a TLS failure: a human message plus the reason. */
 export interface AgentErrorBody {
   error: string;

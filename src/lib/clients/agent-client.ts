@@ -1,10 +1,12 @@
-import type {
-  AgentStackResponse,
-  AgentInfoResponse,
-  AgentStackInventoryResponse,
-  AgentStackInventoryEntry,
-  AgentStackInventoryError,
-  AgentStackComposeResponse,
+import {
+  isAgentRouteFailureCode,
+  type AgentInfoResponse,
+  type AgentRouteFailureCode,
+  type AgentStackComposeResponse,
+  type AgentStackInventoryEntry,
+  type AgentStackInventoryError,
+  type AgentStackInventoryResponse,
+  type AgentStackResponse,
 } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from '@/lib/deploy/types';
 import { retry } from '@/lib/utils/backoff';
@@ -33,6 +35,7 @@ export class AgentClientError extends Error {
      *  re-running a long-running operation (e.g. `docker compose up`) that may still
      *  be in flight on the agent. */
     public readonly wasTimeout: boolean = false,
+    public readonly code?: AgentRouteFailureCode,
   ) {
     super(message);
     this.name = 'AgentClientError';
@@ -255,12 +258,14 @@ export class AgentClient {
     }
 
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
+      const raw = await response.text().catch(() => '');
+      const failure = readAgentFailure(raw);
       throw new AgentClientError(
-        `Agent returned ${response.status}: ${body}`,
+        `Agent returned ${response.status}: ${failure.message}`,
         response.status,
         url,
         false,
+        failure.code,
       );
     }
 
@@ -284,6 +289,26 @@ function safeHost(agentUrl: string): string {
   } catch {
     return agentUrl;
   }
+}
+
+/**
+ * The agent answers a failure with `{ error, code }` (agent/src/lib/error-body.ts), plus `detail` where
+ * a route has an upstream stderr. Reading the envelope keeps the code out of the operator's copy.
+ */
+function readAgentFailure(raw: string): { message: string; code?: AgentRouteFailureCode } {
+  try {
+    const parsed = JSON.parse(raw) as { error?: unknown; code?: unknown; detail?: unknown };
+    if (typeof parsed.error === 'string') {
+      const detail = typeof parsed.detail === 'string' && parsed.detail ? parsed.detail : null;
+      return {
+        message: detail ? `${parsed.error}: ${detail}` : parsed.error,
+        code: isAgentRouteFailureCode(parsed.code) ? parsed.code : undefined,
+      };
+    }
+  } catch {
+    // Body was not JSON. Keep the raw text.
+  }
+  return { message: raw };
 }
 
 /** Map the agent's raw `{ status, stdout, stderr }` to internal `{ success, logs }`. */
