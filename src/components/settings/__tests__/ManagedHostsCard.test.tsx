@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, mock, spyOn } from 'bun:test'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import { AgentChannelNotice, ManagedHostsCardView, bucketHostsByAgentChannel } from '@/components/settings/ManagedHostsCard'
@@ -618,6 +618,7 @@ describe('ManagedHostsCard host actions', () => {
       await user.click(screen.getAllByLabelText('edit host')[1])
       expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
       await user.click(screen.getByRole('button', { name: 'Save' }))
+      await dialogGone()
       expect(onUpdate).toHaveBeenCalledTimes(1)
       expect(onUpdate).toHaveBeenCalledWith(2, 'server2', 'http://192.168.1.11:9090')
     })
@@ -808,6 +809,30 @@ describe('ManagedHostsCard host actions', () => {
         await dialogGone()
         await finish(false)
         expect(screen.queryAllByRole('dialog')).toHaveLength(0)
+        onUpdate.mockImplementation(() => Promise.resolve(true))
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(2)
+      })
+
+      it('treats a rejected onUpdate as a failed save: the dialog stays open and a retry calls onUpdate again', async () => {
+        const user = setupUser()
+        const consoleError = spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+          const onUpdate = mock<ManagedHostsCardProps['onUpdate']>(() => Promise.reject(new Error('boom')))
+          render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+          await user.click(screen.getByLabelText('edit host'))
+          await user.click(screen.getByRole('button', { name: 'Save' }))
+          await waitFor(() => expect(consoleError).toHaveBeenCalledWith('Failed to update host', expect.any(Error)))
+          expect(screen.getAllByRole('dialog')).toHaveLength(1)
+          onUpdate.mockImplementation(() => Promise.resolve(true))
+          await user.click(screen.getByRole('button', { name: 'Save' }))
+          await dialogGone()
+          expect(onUpdate).toHaveBeenCalledTimes(2)
+        } finally {
+          consoleError.mockRestore()
+        }
       })
 
       it('keeps the edits and still closes on success when the host list refreshes while the dialog is open', async () => {
