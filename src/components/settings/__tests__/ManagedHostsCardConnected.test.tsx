@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import { setupUser, type TestUser } from '@/lib/test/user-event'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
 // Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
 // screen.* queries and clicks leak into whichever wizard was mounted first.
@@ -64,7 +64,8 @@ let createPendingHostCalls: Array<{ name: string }> = []
 // the response status, like the real server, so the card's live-status checks see it.
 let hostsRows: HostListItem[] = [makeHost()]
 let listHostsGate: Promise<HostListItem[]> | null = null
-const listHosts = (): Promise<HostListItem[]> => listHostsGate ?? Promise.resolve(hostsRows)
+const listHostsQueue: Array<Promise<HostListItem[]>> = []
+const listHosts = (): Promise<HostListItem[]> => listHostsQueue.shift() ?? listHostsGate ?? Promise.resolve(hostsRows)
 
 const createPendingHost = (data: { data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } } }): Promise<CreatePendingHostResult> => {
   createPendingHostCalls.push({ name: data.data.name })
@@ -155,6 +156,7 @@ beforeEach(() => {
   updateHostError = null
   updateHostGate = null
   listHostsGate = null
+  listHostsQueue.length = 0
   keypairError = null
   keypairCalls.length = 0
   healthCheckCalls.length = 0
@@ -476,6 +478,31 @@ describe('ManagedHostsCardConnected row actions', () => {
       await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
       await user.click(screen.getByLabelText('edit host'))
       expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://10.0.0.9:9090')
+    })
+
+    it('reopens with the saved URL after a list fetch that started before the save resolves with the old rows', async () => {
+      notifyManager.setScheduler(queueMicrotask)
+      try {
+        const user = setupUser()
+        renderCard()
+        await screen.findByText('server1')
+        let releaseStaleRows: () => void = () => undefined
+        const staleRows = hostsRows
+        listHostsQueue.push(new Promise<HostListItem[]>((res) => { releaseStaleRows = () => res(staleRows) }))
+        listHostsGate = new Promise<HostListItem[]>(() => undefined)
+        void lastQueryClient!.invalidateQueries({ queryKey: ['managed-hosts'] })
+        await waitFor(() => expect(listHostsQueue).toHaveLength(0))
+        await user.click(screen.getByLabelText('edit host'))
+        await user.clear(screen.getByLabelText('Edit Agent URL'))
+        await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+        await act(() => Promise.resolve(releaseStaleRows()))
+        await user.click(screen.getByLabelText('edit host'))
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://10.0.0.9:9090')
+      } finally {
+        notifyManager.setScheduler((cb) => setTimeout(cb, 0))
+      }
     })
 
     it('ignores Escape while the update is pending and still shows the failure toast when it fails', async () => {
