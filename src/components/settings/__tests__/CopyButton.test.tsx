@@ -1,18 +1,12 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { render, screen, act, configure } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { render, screen, act } from '@testing-library/react'
 import '@/lib/test/testing-library'
 import CopyButton from '@/components/settings/CopyButton'
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers'
 import { COPY_FEEDBACK_MS } from '@/lib/constants/ui-timing'
+import { setupUser, installPassthroughAsyncWrapper, activateWithKey, type TestUser } from '@/lib/test/user-event'
 
-// RTL's asyncWrapper drains microtasks via setTimeout and then calls jest.advanceTimersByTime, which bun's timer spy makes look like fake timers: the drain hangs under mockSetTimeout and the advance call throws.
-configure({ asyncWrapper: (cb: () => unknown) => Promise.resolve(cb()) })
-
-// delay: null skips user-event's internal wait timer, which mockSetTimeout would capture and never fire, and skipHover keeps tooltip hover timers out of setSpy call counts.
-function setupUser() {
-  return userEvent.setup({ delay: null, skipHover: true })
-}
+installPassthroughAsyncWrapper()
 
 describe('CopyButton', () => {
   let writeTextMock: ReturnType<typeof mock>
@@ -21,7 +15,7 @@ describe('CopyButton', () => {
   const tooltipText = () => document.querySelector('[data-slot="tooltip-content"]')?.textContent
 
   // The tooltip opens on keyboard focus and closes on press, so tab away and back to read it after a click.
-  async function reopenTooltip(user: ReturnType<typeof setupUser>) {
+  async function reopenTooltip(user: TestUser) {
     await act(async () => {
       await user.tab()
       await user.tab()
@@ -38,7 +32,7 @@ describe('CopyButton', () => {
 
   // user-event installs its own clipboard stub in setup(), so the clipboard under test goes in after it.
   function setupUserWithClipboard(clipboard: unknown) {
-    const user = setupUser()
+    const user = setupUser({ timersCaptured: true })
     Object.defineProperty(navigator, 'clipboard', { value: clipboard, writable: true, configurable: true })
     return user
   }
@@ -60,7 +54,7 @@ describe('CopyButton', () => {
   })
 
   it('shows the Copy label tooltip before anything is copied', async () => {
-    const user = setupUser()
+    const user = setupUser({ timersCaptured: true })
     render(<CopyButton text="hello" label="token" />)
     await act(async () => {
       await user.tab()
@@ -78,8 +72,18 @@ describe('CopyButton', () => {
     expect(writeTextMock).toHaveBeenCalledWith('my-secret-token')
   })
 
+  it.each(['{Enter}', ' '] as const)('copies when activated from the keyboard with %j', async (key) => {
+    const user = setupUserWithClipboard({ writeText: writeTextMock })
+    render(<CopyButton text="my-secret-token" label="token" />)
+    await act(async () => {
+      await activateWithKey(user, screen.getByLabelText('Copy token'), key)
+    })
+    expect(writeTextMock).toHaveBeenCalledTimes(1)
+    expect(writeTextMock).toHaveBeenCalledWith('my-secret-token')
+  })
+
   it('switches to the check icon and a Copied! tooltip after clicking', async () => {
-    const user = setupUser()
+    const user = setupUser({ timersCaptured: true })
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
     await act(async () => {
@@ -92,7 +96,7 @@ describe('CopyButton', () => {
   })
 
   it('schedules the revert after the copy feedback delay', async () => {
-    const user = setupUser()
+    const user = setupUser({ timersCaptured: true })
     render(<CopyButton text="hello" label="greeting" />)
     await act(async () => {
       await user.click(screen.getByLabelText('Copy greeting'))
@@ -101,7 +105,7 @@ describe('CopyButton', () => {
   })
 
   it('reverts to the copy icon and the Copy label tooltip when the timeout fires', async () => {
-    const user = setupUser()
+    const user = setupUser({ timersCaptured: true })
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
     await act(async () => {

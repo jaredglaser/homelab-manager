@@ -1,7 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { render, screen, waitFor, act, configure, within } from '@testing-library/react'
-import { getConfig } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
+import { render, screen, waitFor, act, within } from '@testing-library/react'
+import { setupUser, installPassthroughAsyncWrapper, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Mock server functions before importing the component
@@ -262,7 +261,7 @@ describe('AuthManagementCard', () => {
     }
 
     it('revokes one session by its id', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
       renderCard()
       const buttons = await screen.findAllByLabelText('Revoke session')
@@ -272,7 +271,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('revokes every session of the chosen user by user id', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
       renderCard()
       await user.click(await screen.findByLabelText('Revoke all sessions for Dave'))
@@ -281,7 +280,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('reloads the sessions after a revocation', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
       renderCard()
       await user.click((await screen.findAllByLabelText('Revoke session'))[0])
@@ -289,7 +288,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('disables every revoke button while a revocation is running', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
       authFns().revokeSession.mockImplementation(() => new Promise(() => {}))
       renderCard()
@@ -301,7 +300,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('disables every Revoke All button while a bulk revocation is running', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       authFns().listSessions.mockImplementation(() => Promise.resolve(sessionsForTwoUsers))
       authFns().revokeAllUserSessions.mockImplementation(() => new Promise(() => {}))
       renderCard()
@@ -323,14 +322,14 @@ describe('AuthManagementCard', () => {
     }
     const generateButton = () => screen.getByRole('button', { name: 'Generate' }) as HTMLButtonElement
 
-    async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+    async function openDialog(user: TestUser) {
       renderCard()
       await user.click(screen.getByText('Generate Token'))
       expect(screen.getByText('Generate Git Token')).toBeDefined()
     }
 
     it('sends the label trimmed', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), '  My token  ')
       await user.click(generateButton())
@@ -339,7 +338,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('keeps Generate disabled and sends nothing for an empty or whitespace-only label', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       await openDialog(user)
       expect(generateButton().disabled).toBe(true)
       await user.click(generateButton())
@@ -352,7 +351,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('locks the dialog while the token is being generated', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       gitFns().createGitToken.mockImplementation(() => new Promise(() => {}))
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'My token')
@@ -368,7 +367,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('copies the new token from the dialog', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'My token')
       await user.click(generateButton())
@@ -377,7 +376,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('closes with Done, forgets the token and reopens on an empty form', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'My token')
       await user.click(generateButton())
@@ -394,7 +393,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('closes with Escape and forgets the token', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'My token')
       await user.click(generateButton())
@@ -408,7 +407,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('closes with Cancel and starts the next dialog with an empty label', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'draft label')
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -418,7 +417,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('reloads the token list after generating', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'My token')
       await user.click(generateButton())
@@ -427,7 +426,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('revokes the chosen token by id and reloads the list', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       gitFns().listGitTokens.mockImplementation(() =>
         Promise.resolve([mockTokens[0], { ...mockTokens[0], id: 9, label: 'Backup key' }]),
       )
@@ -441,7 +440,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('disables the revoke button of every token while a revocation is running', async () => {
-      const user = userEvent.setup({ delay: null })
+      const user = setupUser()
       gitFns().listGitTokens.mockImplementation(() => Promise.resolve(mockTokens))
       gitFns().revokeGitToken.mockImplementation(() => new Promise(() => {}))
       renderCard()
@@ -514,7 +513,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('revokes a token only after confirmation', async () => {
-      const user = userEvent.setup()
+      const user = setupUser()
       const gitFns = require('@/data/git-tokens.functions') as {
         listGitTokens: ReturnType<typeof mock>
         revokeGitToken: ReturnType<typeof mock>
@@ -538,21 +537,28 @@ describe('AuthManagementCard', () => {
     })
 
     it('opens generate token dialog when Generate Token is clicked', async () => {
-      const user = userEvent.setup()
+      const user = setupUser()
       renderCard()
       await user.click(screen.getByText('Generate Token'))
       expect(screen.getByText('Generate Git Token')).toBeDefined()
     })
 
+    it('opens generate token dialog when Generate Token is activated from the keyboard', async () => {
+      const user = setupUser()
+      renderCard()
+      await activateWithKey(user, screen.getByRole('button', { name: 'Generate Token' }), '{Enter}')
+      expect(screen.getByText('Generate Git Token')).toBeDefined()
+    })
+
     it('generate token dialog has label input', async () => {
-      const user = userEvent.setup()
+      const user = setupUser()
       renderCard()
       await user.click(screen.getByText('Generate Token'))
       expect(screen.getByLabelText('Token label')).toBeDefined()
     })
 
     it('shows generated token after generation with warning', async () => {
-      const user = userEvent.setup()
+      const user = setupUser()
       renderCard()
       await user.click(screen.getByText('Generate Token'))
       const labelInput = screen.getByLabelText('Token label')
@@ -569,7 +575,7 @@ describe('AuthManagementCard', () => {
     describe('dialog close (handleClose / handleDialogClose)', () => {
       const origSetTimeout = globalThis.setTimeout
       const origClearTimeout = globalThis.clearTimeout
-      const rtlConfig = { ...getConfig() }
+      let restoreAsyncWrapper: () => void
       let pendingCallbacks: Array<{ fn: () => void; id: number }> = []
       let nextTimerId = 9000
 
@@ -584,14 +590,13 @@ describe('AuthManagementCard', () => {
         ;(globalThis as any).clearTimeout = (id?: number) => {
           pendingCallbacks = pendingCallbacks.filter((cb) => cb.id !== id)
         }
-        // RTL's asyncWrapper drains microtasks via setTimeout, which the timer replacement above captures and never fires, so user-event calls would hang without a passthrough wrapper.
-        configure({ asyncWrapper: (cb: () => unknown) => Promise.resolve(cb()) })
+        restoreAsyncWrapper = installPassthroughAsyncWrapper()
       })
 
       afterEach(() => {
         globalThis.setTimeout = origSetTimeout
         globalThis.clearTimeout = origClearTimeout
-        configure(rtlConfig)
+        restoreAsyncWrapper()
       })
 
       function flushTimers() {
@@ -600,13 +605,8 @@ describe('AuthManagementCard', () => {
         for (const cb of cbs) cb.fn()
       }
 
-      // delay: null keeps user-event's internal wait timer out of the captured callback list.
-      function setupUser() {
-        return userEvent.setup({ delay: null, skipHover: true })
-      }
-
       it('Cancel resets label and calls handleDialogClose', async () => {
-        const user = setupUser()
+        const user = setupUser({ timersCaptured: true })
         renderCard()
         act(() => { flushTimers() })
 
