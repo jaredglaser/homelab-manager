@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { HostRepository, MAX_FAILURE_DETAIL_LENGTH } from '../host-repository';
+import { HostRepository } from '../host-repository';
+import { MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
 import type { CreateHostInput, HostHealthVerdict } from '../host-repository';
 
 function createMockPool() {
@@ -191,8 +192,19 @@ describe('HostRepository', () => {
       );
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
       expect(mock.queries[0].sql).toContain('updated_at');
-      expect(mock.queries[0].sql).toContain('AND agent_url = $5');
+      expect(mock.queries[0].sql).toContain('agent_url = $5');
       expect(mock.queries[0].params).toEqual(['unhealthy', 'unreachable', 'Agent returned status 502', 1, 'http://192.168.1.10:9090']);
+    });
+
+    it('guards a pending verdict so it only lands on a row that is still pending', async () => {
+      mock.pushResult([]);
+      await repo.updateHealth(
+        1,
+        { status: 'pending', failure: { code: 'offline', detail: null } },
+        'http://192.168.1.10:9090',
+      );
+      expect(mock.queries[0].sql).toContain("($1::text <> 'pending' OR status = 'pending')");
+      expect(mock.queries[0].params[0]).toBe('pending');
     });
 
     it('cuts a failure detail that exceeds the stored limit', async () => {

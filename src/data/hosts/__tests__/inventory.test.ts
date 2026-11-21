@@ -149,6 +149,20 @@ describe('handleSweepAgentInventory', () => {
     expect(entry.status).toBe('awaiting-enrollment');
   });
 
+  it('neither probes nor writes a host the wizard created that has no URL yet', async () => {
+    const updateHealth = mock<(id: number, verdict: HostHealthVerdict, probedUrl: string) => Promise<void>>(() => Promise.resolve());
+    const updateLastSweptAt = mock(() => Promise.resolve());
+    const d = deps([mockRow({ status: 'pending', agentUrl: '' })], [offline()], { updateHealth, updateLastSweptAt });
+
+    const [entry] = await handleSweepAgentInventory(d, NOW);
+
+    expect(d.checkHealth).not.toHaveBeenCalled();
+    expect(updateHealth).not.toHaveBeenCalled();
+    expect(updateLastSweptAt).not.toHaveBeenCalled();
+    expect(entry.status).toBe('unknown');
+    expect(entry.failure).toBeNull();
+  });
+
   it('clears the cause and verifies a pending host whose probe succeeds', async () => {
     const updateHealth = mock<(id: number, verdict: HostHealthVerdict, probedUrl: string) => Promise<void>>(() => Promise.resolve());
     const d = deps(

@@ -151,7 +151,7 @@ describe('handleCheckHostHealth', () => {
   });
 
   it('updates status to unhealthy on failure', async () => {
-    const repo = mockRepo();
+    const repo = mockRepo({ findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) });
     const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'refused' })) };
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
@@ -162,15 +162,31 @@ describe('handleCheckHostHealth', () => {
 
   it('records the fallback code when the probe failed without naming a reason', async () => {
     const updateHealth = mock(() => Promise.resolve());
-    const deps = { ...baseDeps({ updateHealth }), checkHealth: mock(() => Promise.resolve({ healthy: false as const, error: 'boom' })) };
+    const deps = { ...baseDeps({ updateHealth, findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) }), checkHealth: mock(() => Promise.resolve({ healthy: false as const, error: 'boom' })) };
     const result = await handleCheckHostHealth(deps, { hostId: 1 });
     if (!result.healthy) expect(result.code).toBe('health_check_failed');
     expect(updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'health_check_failed', detail: 'boom' } }, 'http://192.168.1.10:9090');
   });
 
+  it('keeps a failing pending host pending while recording the cause, so a wizard host stays eligible for enrollment', async () => {
+    const updateHealth = mock(() => Promise.resolve());
+    const deps = {
+      ...baseDeps({ updateHealth }),
+      checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'refused' })),
+    };
+
+    await handleCheckHostHealth(deps, { hostId: 1 });
+
+    expect(updateHealth).toHaveBeenCalledWith(
+      1,
+      { status: 'pending', failure: { code: 'offline', detail: 'refused' } },
+      'http://192.168.1.10:9090',
+    );
+  });
+
   it('records an awaiting-enrollment probe as that cause', async () => {
     const updateHealth = mock(() => Promise.resolve());
-    const deps = { ...baseDeps({ updateHealth }), checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'awaiting-enrollment' as const, error: 'plain HTTP' })) };
+    const deps = { ...baseDeps({ updateHealth, findById: mock(() => Promise.resolve(mockRow({ status: 'healthy' }))) }), checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'awaiting-enrollment' as const, error: 'plain HTTP' })) };
     await handleCheckHostHealth(deps, { hostId: 1 });
     expect(updateHealth).toHaveBeenCalledWith(1, { status: 'unhealthy', failure: { code: 'awaiting-enrollment', detail: 'plain HTTP' } }, 'http://192.168.1.10:9090');
   });

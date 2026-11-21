@@ -1,5 +1,5 @@
 import type { HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
-import { probeFailureCode, type HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
+import { MAX_FAILURE_DETAIL_LENGTH, probeFailureCode, type HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
 /** The wire schema reads its members from this list: a status it rejects drops the client's whole snapshot. */
@@ -117,7 +117,7 @@ export function buildAgentInventoryEntry(
     agentImageTag: host.agentImageTag,
     agentImageDigest: host.agentImageDigest,
     agentOutOfDate: host.agentOutOfDate,
-    failure: { code, message: outcome.error },
+    failure: { code, message: outcome.error.slice(0, MAX_FAILURE_DETAIL_LENGTH) },
     checkedAt: checkedAt.toISOString(),
   };
 }

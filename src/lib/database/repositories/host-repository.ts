@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
+import { MAX_FAILURE_DETAIL_LENGTH, type HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
 
 /** Valid statuses for managed_hosts, matching the DB CHECK constraint in migration 010. */
 export type HostStatus = 'pending' | 'healthy' | 'unhealthy' | 'error';
@@ -19,9 +19,6 @@ export type HostHealthVerdict =
   | { status: 'healthy'; failure: null }
   | { status: 'pending'; failure: HostFailureRecord | null }
   | { status: 'unhealthy'; failure: HostFailureRecord };
-
-/** The probe's detail is raw error text, so it is cut before it is stored and broadcast to every viewer. */
-export const MAX_FAILURE_DETAIL_LENGTH = 512;
 
 export interface ManagedHost {
   id: number;
@@ -181,10 +178,15 @@ export class HostRepository {
     return result.rows.length > 0 ? toManagedHost(result.rows[0] as Record<string, unknown>) : null;
   }
 
-  /** Written only while the row still has the URL the verdict was probed at, so an edited host never gets its old URL's verdict back. */
+  /**
+   * Written only while the row still has the URL the verdict was probed at, so an edited host never gets its old URL's verdict back.
+   * A pending verdict only lands on a row that is still pending: pending grants plaintext enrollment, so a probe that read the row
+   * before a concurrent check verified it must not hand that back.
+   */
   async updateHealth(id: number, verdict: HostHealthVerdict, probedUrl: string): Promise<void> {
     await this.pool.query(
-      'UPDATE managed_hosts SET status = $1, failure_code = $2, failure_detail = $3, updated_at = NOW() WHERE id = $4 AND agent_url = $5',
+      `UPDATE managed_hosts SET status = $1::text, failure_code = $2, failure_detail = $3, updated_at = NOW()
+       WHERE id = $4 AND agent_url = $5 AND ($1::text <> 'pending' OR status = 'pending')`,
       [
         verdict.status,
         verdict.failure?.code ?? null,

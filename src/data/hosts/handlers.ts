@@ -82,13 +82,11 @@ export async function handleCheckHostHealth(
 
   const healthResult = await deps.checkHealth(host.agentUrl, host.name);
 
-  if (!healthResult.healthy) {
-    const code = probeFailureCode(healthResult);
-    await deps.repo.updateHealth(host.id, { status: 'unhealthy', failure: { code, detail: healthResult.error } }, host.agentUrl);
-    return { hostId: host.id, healthy: false, code, message: healthResult.error };
-  }
+  await deps.repo.updateHealth(host.id, probeVerdict(host, healthResult), host.agentUrl);
 
-  await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
+  if (!healthResult.healthy) {
+    return { hostId: host.id, healthy: false, code: probeFailureCode(healthResult), message: healthResult.error };
+  }
 
   if (healthResult.version || healthResult.infoSupported) {
     // Only an agent that answered /info may clear its image; a 404 leaves the stored value.
@@ -544,7 +542,9 @@ export async function handleSweepAgentInventory(
       ? deps.resolveAgentImageDigest(getAgentImage()).catch(() => null)
       : Promise.resolve(null),
     Promise.all(
-      hosts.map(async (host): Promise<HealthCheckOutcome> => {
+      hosts.map(async (host): Promise<HealthCheckOutcome | undefined> => {
+        // A wizard host has no URL until its Verify step, and probing '' would record a bogus cause.
+        if (host.agentUrl === '') return undefined;
         try {
           return await deps.checkHealth(host.agentUrl, host.name);
         } catch (err) {
@@ -590,7 +590,12 @@ export async function handleSweepAgentInventory(
     }),
   );
 
-  return hosts.map((host, i) => buildAgentInventoryEntry(host, outcomes[i], now, agentOutOfDateFor(outcomes[i], expectedAgentDigest)));
+  return hosts.map((host, i) => {
+    const outcome = outcomes[i];
+    return outcome
+      ? buildAgentInventoryEntry(host, outcome, now, agentOutOfDateFor(outcome, expectedAgentDigest))
+      : buildStoredAgentInventoryEntry(host);
+  });
 }
 
 /**

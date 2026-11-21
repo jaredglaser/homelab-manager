@@ -28,6 +28,9 @@ export const HOST_PROBE_FAILURE_CODES = [
   'health_check_failed',
 ] as const satisfies readonly (AgentHealthFailureReason | 'health_check_failed')[];
 
+/** The probe's detail is raw error text, so it is cut before it is stored and broadcast to every viewer. */
+export const MAX_FAILURE_DETAIL_LENGTH = 512;
+
 export type HostProbeFailureCode = (typeof HOST_PROBE_FAILURE_CODES)[number];
 
 export function probeFailureCode(outcome: { reason?: HostProbeFailureCode }): HostProbeFailureCode {
@@ -69,8 +72,8 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
     includeDetail: false,
   },
   'certificate-rejected': {
-    headline: "The agent's TLS certificate does not match the one this manager has pinned for the host.",
-    fix: 'Follow the agent TLS recovery steps in the self-hosting guide, then check again.',
+    headline: "The manager rejected the agent's TLS certificate: it does not match the pinned one, has expired, or does not cover the host name in the URL.",
+    fix: 'If the URL uses an address the certificate does not cover, change it to a host name the certificate does cover. Otherwise follow the agent TLS recovery steps in the self-hosting guide to enroll a fresh certificate, then check again.',
     includeDetail: true,
   },
   health_check_failed: {

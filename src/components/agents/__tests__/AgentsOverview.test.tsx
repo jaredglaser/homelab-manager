@@ -145,7 +145,7 @@ describe('AgentsOverviewView', () => {
     {
       code: 'certificate-rejected',
       status: 'unreachable',
-      copy: "The agent's TLS certificate does not match the one this manager has pinned for the host. Follow the agent TLS recovery steps in the self-hosting guide, then check again.",
+      copy: "The manager rejected the agent's TLS certificate: it does not match the pinned one, has expired, or does not cover the host name in the URL. If the URL uses an address the certificate does not cover, change it to a host name the certificate does cover. Otherwise follow the agent TLS recovery steps in the self-hosting guide to enroll a fresh certificate, then check again.",
       showsDetail: true,
     },
     {

@@ -105,6 +105,15 @@ describe('agent-health-service', () => {
       expect(second).toMatchObject({ healthy: false, reason: 'unreachable' });
     });
 
+    it('treats a 503 body far larger than the agent sends as unreachable without reading it all', async () => {
+      const big = JSON.stringify({ status: 'unhealthy', pad: 'x'.repeat(64 * 1024) });
+      const fetchFn = mock(() => Promise.resolve(new Response(big, { status: 503 }))) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+
+      expect(result).toMatchObject({ healthy: false, reason: 'unreachable' });
+    });
+
     it('reports a pinned certificate that fails verification as certificate-rejected', async () => {
       const fetchFn = mock(() =>
         Promise.reject(Object.assign(new TypeError('self signed certificate'), { code: 'DEPTH_ZERO_SELF_SIGNED_CERT' }))
