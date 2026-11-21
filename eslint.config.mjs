@@ -178,7 +178,7 @@ const agentErrorCodeRule = {
     schema: [],
     messages: {
       missingCode:
-        'This error body sends prose only. Wrap it in routeErrorBody(code, message) from agent/src/lib/error-body.ts, with a code from AGENT_ROUTE_FAILURE_CODES in agent/src/types.ts, so the manager branches on the reason instead of matching the message.',
+        'This error body sends prose only. Wrap it in routeErrorBody(code, message) from agent/src/lib/error-body.ts, with a code from AGENT_ROUTE_FAILURE_CODES in agent/src/types.ts, so a caller branches on the reason instead of matching the message.',
     },
   },
   create(context) {
