@@ -74,11 +74,12 @@ bun run test:e2e              # Build demo + app targets, then run Playwright
 bun run test:e2e:run          # Run Playwright against already-built targets (e2e-build/)
 bun run e2e:build             # Build + stage both static targets under e2e-build/
 bun run test:e2e:ui           # Playwright UI mode
+bun run test:e2e:auth         # Real-server session cookie lane (needs Pocket ID + Postgres, see docs/development.md)
 ```
 
 E2e runs against static production builds served over MSW (not a dev server), so
 loaders/auth/the WebSocket are intercepted before first render. Specs live in `e2e/`;
-`*.demo.e2e.ts` run on the demo build, `*.mobile.e2e.ts` run on the dedicated mobile build, all other `*.e2e.ts` on the app build
+`*.demo.e2e.ts` run on the demo build, `*.mobile.e2e.ts` run on the dedicated mobile build, `*.authhttp.e2e.ts`/`*.authhttps.e2e.ts` only in the real-server lane (`playwright.auth.config.ts`), all other `*.e2e.ts` on the app build
 (the suffix keeps `bun test` from collecting Playwright specs). A flow earns a
 Playwright test only when it needs something Happy-DOM cannot do (real layout, the
 service worker, streaming end to end, canvas, the virtualizer, cross-tab, scroll);

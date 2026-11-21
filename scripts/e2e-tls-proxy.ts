@@ -1,12 +1,4 @@
-/**
- * Minimal TLS terminator for the auth e2e lane's https target. Fronts a plain
- * http Nitro instance so the app is reachable over https://localhost:<port>,
- * which is what makes the browser accept the __Host-/Secure session cookie.
- * Streams requests and responses through unchanged (method, headers, body).
- *
- * Usage: bun scripts/e2e-tls-proxy.ts <listenPort> <targetHttpPort>
- * Reads the cert from e2e-build/auth/certs (see e2e-gen-cert.ts).
- */
+/** TLS terminator in front of a plain http Nitro, so the browser treats the app as a secure context. Usage: bun scripts/e2e-tls-proxy.ts <listenPort> <targetHttpPort> */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -28,9 +20,8 @@ Bun.serve({
   async fetch(req) {
     const url = new URL(req.url);
     const target = `http://localhost:${targetPort}${url.pathname}${url.search}`;
-    // Redirect must not auto-follow: the app's 302s (login/callback) are the
-    // behavior under test, so the browser has to see them, not the proxy.
-    return fetch(target, {
+    // The browser must see the app's 302s, so the proxy cannot follow them.
+    return await fetch(target, {
       method: req.method,
       headers: req.headers,
       body: req.body,

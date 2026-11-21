@@ -1,67 +1,66 @@
 import { test, expect } from '@playwright/test';
-import { login, setCookieValues } from './auth/login';
+import {
+  expectAuthenticated,
+  expectClearedSessionCookie,
+  expectIssuedSessionCookie,
+  expectRedirectedToLogin,
+  expectRowExpiryMatchesTtl,
+  expectStoredSessionCookie,
+  findSetCookie,
+  login,
+  sessionRowExpiry,
+} from './auth/login';
 
-/**
- * https deployment: the app issues `__Host-session` + Secure. https://localhost
- * is a secure context in Chromium, so the browser accepts the prefixed/Secure
- * cookie (a malformed __Host- cookie would be silently dropped, so its presence
- * in the jar is the acceptance proof). Also asserts the single-name read: on
- * https a planted plain `session` cookie must not authenticate. baseURL is
- * https://localhost:3202 (auth-https project).
- */
 const BASE = 'https://localhost:3202';
 
-test('login issues a __Host-session cookie with Secure and Max-Age', async ({ page, context }) => {
+test('login issues __Host-session, accepted by the browser, backed by a row with the same TTL', async ({
+  page,
+  context,
+}) => {
   const callback = await login(page, BASE);
 
-  const cookie = (await setCookieValues(callback)).find((c) => c.startsWith('__Host-session='));
-  expect(cookie, 'callback should set a __Host-session cookie').toBeTruthy();
-  expect(cookie).toContain('Secure');
-  expect(cookie).toContain('HttpOnly');
-  expect(cookie).toContain('SameSite=Lax');
-  expect(cookie).toContain('Path=/');
-  expect(cookie).toMatch(/Max-Age=\d+/);
+  const issued = await findSetCookie(callback, '__Host-session');
+  expectIssuedSessionCookie(issued, true);
 
-  const stored = (await context.cookies()).find((c) => c.name === '__Host-session');
-  expect(stored, '__Host- cookie must be accepted and stored by the browser').toBeTruthy();
-  expect(stored?.secure).toBe(true);
-  expect(stored?.httpOnly).toBe(true);
-  // The plain name must not be present on https.
-  expect((await context.cookies()).find((c) => c.name === 'session')).toBeUndefined();
+  // Chromium silently drops a malformed __Host- cookie, so its presence in the jar is the acceptance proof.
+  const cookies = await context.cookies();
+  expectStoredSessionCookie(
+    cookies.find((c) => c.name === '__Host-session'),
+    true,
+  );
+  expect(cookies.find((c) => c.name === 'session')).toBeUndefined();
+
+  expectRowExpiryMatchesTtl(await sessionRowExpiry(issued?.value ?? ''));
 });
 
-test('a planted plain session cookie does not authenticate on https', async ({ page, context }) => {
-  // Positive control first: a real login proves auth works on this server
-  // instance, so the forged-cookie check below can't pass because auth is
-  // broken for an unrelated reason.
+test('a valid token planted under the plain session name does not authenticate', async ({
+  page,
+  context,
+}) => {
   await login(page, BASE);
-  await page.goto(`${BASE}/`);
-  await expect(page).not.toHaveURL(/\/login/);
+  const token = (await context.cookies()).find((c) => c.name === '__Host-session')?.value ?? '';
+  await expectAuthenticated(page, BASE);
 
-  // Now drop the real __Host-session cookie and plant a plain `session` cookie
-  // (the kind a subdomain could plant). Note for this test's contract: the app
-  // reads only the single name `__Host-session` on https, so the plain name is
-  // never consulted and this request must be unauthenticated.
+  // The token is real, so only the single-name read keeps this request unauthenticated.
   await context.clearCookies();
-  await context.addCookies([
-    { name: 'session', value: 'forged-token', domain: 'localhost', path: '/' },
-  ]);
+  await context.addCookies([{ name: 'session', value: token, domain: 'localhost', path: '/' }]);
 
-  await page.goto(`${BASE}/`);
-  // The app reads only __Host-session on https, so this request is unauthenticated.
-  await expect(page).toHaveURL(/\/login/);
+  await expectRedirectedToLogin(page, BASE);
 });
 
-test('logout clears the __Host-session cookie', async ({ page, context }) => {
+test('logout clears __Host-session and deletes the server-side session row', async ({
+  page,
+  context,
+}) => {
   await login(page, BASE);
+  const token = (await context.cookies()).find((c) => c.name === '__Host-session')?.value ?? '';
+  expect(await sessionRowExpiry(token), 'the row exists before logout').not.toBeNull();
 
-  // Capture the logout response explicitly — page.goto resolves to the final
-  // redirect (the IdP end_session endpoint), not the response that clears the cookie.
+  // page.goto resolves to the last response of the IdP redirect chain, so the clearing Set-Cookie must be captured off the logout response.
   const logoutPromise = page.waitForResponse((r) => r.url().includes('/api/auth/logout'));
   await page.goto(`${BASE}/api/auth/logout`);
-  const logout = await logoutPromise;
-  const cleared = (await setCookieValues(logout)).find((c) => c.startsWith('__Host-session='));
-  expect(cleared).toContain('Max-Age=0');
+  expectClearedSessionCookie(await findSetCookie(await logoutPromise, '__Host-session'), true);
 
   expect((await context.cookies()).find((c) => c.name === '__Host-session')).toBeUndefined();
+  expect(await sessionRowExpiry(token), 'the row is gone after logout').toBeNull();
 });

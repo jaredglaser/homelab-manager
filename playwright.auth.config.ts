@@ -1,28 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
-/**
- * Auth lane: a SEPARATE config from playwright.config.ts because this lane runs
- * the real Nitro server against a real Pocket ID + Postgres, not the static MSW
- * builds. Keeping it separate means the MSW lane never tries to start these
- * servers (and vice versa).
- *
- * The seed + build run BEFORE `playwright test` (see the `test:e2e:auth` script),
- * so e2e-build/auth/oidc.env exists when these webServers start. Pocket ID and
- * Postgres must already be reachable (CI service containers, or local Docker).
- *
- * - `auth-http`  (3201): OIDC_REDIRECT_URI=http  -> asserts the plain `session` cookie.
- * - `auth-https` (3202): OIDC_REDIRECT_URI=https -> asserts `__Host-session` + Secure
- *   and the single-name read. https://localhost is a secure context in Chromium,
- *   so the prefixed/Secure cookie is accepted; `ignoreHTTPSErrors` allows the
- *   self-signed cert.
- */
 const isCI = !!process.env.CI;
+// The callback URLs in scripts/e2e-auth-seed.ts and the BASE constants in the specs hardcode these ports.
 const HTTP_PORT = 3201;
 const HTTPS_PORT = 3202;
 
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: false, // one Pocket ID user / one-time token; keep the flow serial
+  fullyParallel: false,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
   workers: 1,

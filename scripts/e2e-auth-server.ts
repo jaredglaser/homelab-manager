@@ -1,17 +1,7 @@
-/**
- * Boots the real (non-MSW) Nitro build for the auth e2e lane, in one of two
- * modes. Auth is required (AUTH_DISABLED unset); OIDC points at the seeded Pocket
- * ID client (e2e-build/auth/oidc.env). The cookie name is derived from
- * OIDC_REDIRECT_URI, so the two modes exercise the http vs https cookie contract:
- *
- * - http:  PORT 3201, OIDC_REDIRECT_URI=http://localhost:3201/...  -> plain `session`.
- * - https: Nitro on an internal http port + a TLS proxy on 3202,
- *          OIDC_REDIRECT_URI=https://localhost:3202/...            -> `__Host-session` + Secure.
- *
- * Usage: bun scripts/e2e-auth-server.ts <http|https>
- */
+/** Boots the real Nitro build for the auth e2e lane. Usage: bun scripts/e2e-auth-server.ts <http|https> */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import type { Subprocess } from 'bun';
 
 const mode = process.argv[2];
 if (mode !== 'http' && mode !== 'https') {
@@ -21,12 +11,10 @@ if (mode !== 'http' && mode !== 'https') {
 
 const serverEntry = path.resolve('e2e-build/realapp/server/index.mjs');
 
-// Bun cannot run a node-server artifact (crossws's node adapter throws at
-// startup when it detects bun); a vite-config preset change flips the kind
-// silently (nitro.json records the actual preset).
-const buildInfo: { preset: string } = JSON.parse(
+// A node-server artifact crashes under bun (crossws's node adapter throws at startup), and only nitro.json records the preset that was built.
+const buildInfo = JSON.parse(
   readFileSync(path.resolve('e2e-build/realapp/nitro.json'), 'utf8'),
-);
+) as { preset: string };
 const buildPreset = buildInfo.preset;
 if (buildPreset !== 'bun') {
   console.error(
@@ -36,7 +24,6 @@ if (buildPreset !== 'bun') {
   process.exit(1);
 }
 
-// Client id/secret produced by e2e-auth-seed.ts.
 const oidcEnv = Object.fromEntries(
   readFileSync(path.resolve('e2e-build/auth/oidc.env'), 'utf8')
     .split('\n')
@@ -58,9 +45,9 @@ const commonEnv: Record<string, string> = {
   OIDC_ROLE_VIEWER: 'homelab-viewers',
   SESSION_TTL_HOURS: process.env.SESSION_TTL_HOURS ?? '8',
 };
-delete commonEnv.AUTH_DISABLED; // auth required
+delete commonEnv.AUTH_DISABLED;
 
-const children: import('bun').Subprocess[] = [];
+const children: Subprocess[] = [];
 function startNitro(port: number, redirectUri: string) {
   children.push(
     Bun.spawn(['bun', serverEntry], {
@@ -92,4 +79,6 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 await Promise.race(children.map((c) => c.exited));
-shutdown();
+console.error('[e2e-auth-server] a child process exited early');
+for (const c of children) c.kill();
+process.exit(1);

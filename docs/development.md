@@ -307,19 +307,22 @@ Playwright's browser must be available; in a fresh checkout run
 ### End-to-End Auth (real server + Pocket ID)
 
 The MSW lane cannot emit a real HttpOnly Set-Cookie, so the session cookie
-contract (cookie name, Secure, Max-Age, the single-name read on https) is
-verified by a separate lane that builds the real Nitro app and runs it against
-a real Pocket ID and Postgres. Specs live in `e2e/auth.*.e2e.ts` and run only
-via `playwright.auth.config.ts`:
+contract (name, attributes, Max-Age against `SESSION_TTL_HOURS`, the single-name
+read on https, logout deleting the server-side session row) is verified by a
+separate lane that builds the real Nitro app and runs it against a real Pocket ID
+and Postgres. Specs are named `*.authhttp.e2e.ts` and `*.authhttps.e2e.ts`, run
+only via `playwright.auth.config.ts`, and are excluded from the MSW `app` project:
 
 ```bash
 bun run test:e2e:auth        # Build realapp, seed Pocket ID, run the lane
 bun run test:e2e:auth:run    # Specs only, against an already-built + seeded setup
 ```
 
-Pocket ID and Postgres must already be reachable; the `e2e-auth` job in
+Pocket ID and Postgres must already be reachable. The `e2e-auth` job in
 `.github/workflows/ci.yml` shows the service containers and the env a local
-run needs (`POCKET_ID_URL`, `POCKET_ID_API_KEY`, `POSTGRES_*`, `MASTER_KEY`).
+run needs (`POCKET_ID_URL`, `POCKET_ID_API_KEY`, `POSTGRES_*`, `MASTER_KEY`). The
+specs also read the `sessions` table directly, so they need the same `POSTGRES_*`
+values as the seed step.
 
 ## Type Checking
 
