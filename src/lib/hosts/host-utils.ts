@@ -1,5 +1,5 @@
 import type { HostStatus, HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { AgentHealthFailureReason } from '@/lib/services/agent-health-service';
+import type { AgentHealthResult } from '@/lib/services/agent-health-service';
 
 /** Serialized ManagedHost for API responses (Date -> ISO string). */
 export interface HostListItem {
@@ -15,17 +15,7 @@ export interface HostListItem {
   updatedAt: string;
 }
 
-export type HealthCheckOutcome =
-  | {
-      healthy: true;
-      version?: string;
-      dockerVersion?: string;
-      agentImage?: string | null;
-      agentImageTag?: string | null;
-      agentImageDigest?: string | null;
-      infoSupported?: boolean;
-    }
-  | { healthy: false; reason?: AgentHealthFailureReason; error: string };
+export type HealthCheckOutcome = AgentHealthResult;
 
 /**
  * Convert a ManagedHost to an API-facing HostListItem (stringifies Date fields).
