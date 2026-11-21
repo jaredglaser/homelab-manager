@@ -263,3 +263,16 @@ if (Math.abs(nullMetricDilutedAverage() - nullMetricRawAverage()) < MIN_ROLLUP_D
       `diluted ${nullMetricDilutedAverage()} vs raw ${nullMetricRawAverage()}`
   );
 }
+
+export const NULL_INVARIANT_ROWS = {
+  host: 'ci-null-status-host',
+  metadataEntity: `${DOCKER_HOST}/ci-null-value`,
+  countLabel: 'managed_hosts/null-status',
+};
+
+export const LEGACY_RESTART_DEPLOY = {
+  stack: 'ci-legacy-restart',
+  commitSha: 'a'.repeat(40),
+  status: 'succeeded',
+  countLabel: 'deploy_history/legacy-restart',
+};
