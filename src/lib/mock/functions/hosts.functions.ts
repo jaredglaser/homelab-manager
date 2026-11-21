@@ -78,7 +78,15 @@ export async function updateHost(data: {
   agentUrl: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
 }): Promise<HostListItem> {
-  return buildHost(data, data.hostId);
+  const existing = mockHosts.find((h) => h.id === data.hostId);
+  if (!existing) return buildHost(data, data.hostId);
+  return {
+    ...existing,
+    name: data.name,
+    agentUrl: data.agentUrl,
+    capabilities: data.capabilities ?? existing.capabilities,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 /** Intentionally stateless: never mutates mockHosts, but mirrors the server's expectStatus guard so demo mode behaves like production. */
