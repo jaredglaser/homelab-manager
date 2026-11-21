@@ -1044,7 +1044,9 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitFor(() => expect(screen.queryByTestId('cancel-provisioning')).toBeNull())
 
     rejectRotate(new Error('late throw after cancel'))
-    await act(async () => {})
+    await waitFor(() => {
+      expect(lastQueryClient!.getMutationCache().getAll().some((m) => m.state.status === 'error')).toBe(true)
+    })
     expect(screen.queryByText('late throw after cancel')).toBeNull()
     expect(screen.queryAllByRole('alert').length).toBe(0)
   })
