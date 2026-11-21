@@ -460,8 +460,7 @@ export function AuthManagementCard() {
   )
 }
 
-// eslint-disable-next-line local/no-overwide-union -- callers hold a Date from the API or an ISO string from a form
-function formatDate(date: Date | string | null | undefined): string {
+function formatDate(date: Date | null | undefined): string {
   if (!date) return EMPTY_CELL
   const parsed = new Date(date)
   if (Number.isNaN(parsed.getTime())) return EMPTY_CELL

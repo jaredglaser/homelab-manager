@@ -72,7 +72,7 @@ export default memo(function HistoricalTimeline({
       }
       const instance = chartRef.current?.getEchartsInstance();
       if (!instance) return;
-// eslint-disable-next-line local/no-overwide-union -- dataZoom carries a category value or an index, and ECharts types both as string or number
+      // eslint-disable-next-line local/no-overwide-union -- dataZoom carries a category value or an index, and ECharts types both as string or number
       const opt = instance.getOption() as { dataZoom: { startValue: string | number; endValue: string | number }[] };
       const zoom = opt.dataZoom?.[0];
       if (!zoom || zoom.startValue == null || zoom.endValue == null) return;

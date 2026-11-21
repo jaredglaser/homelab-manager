@@ -88,14 +88,17 @@ export const WS_MUX_SEAM_RESTRICTIONS = [
 const ENFORCING_SEAM_NAMES = ['authMiddleware', 'requireRole', 'authenticateWsUpgrade', 'authenticateRequest'];
 const ARGUMENT_SEAM_NAMES = [...ENFORCING_SEAM_NAMES, 'resolveUserFromCookie'];
 
-const isStringNumberUnion = (node) => {
-  const kinds = node.types.map((member) => member.type);
+const flattenUnion = (node) =>
+  node.types.flatMap((member) => (member.type === 'TSUnionType' ? flattenUnion(member) : [member]));
+
+const isStringNumberUnion = (members) => {
+  const kinds = members.map((member) => member.type);
   return kinds.includes('TSStringKeyword') && kinds.includes('TSNumberKeyword');
 };
 
-const isDateStringUnion = (node) =>
-  node.types.some((member) => member.type === 'TSTypeReference' && member.typeName?.name === 'Date') &&
-  node.types.some((member) => member.type === 'TSStringKeyword');
+const isDateStringUnion = (members) =>
+  members.some((member) => member.type === 'TSTypeReference' && member.typeName?.name === 'Date') &&
+  members.some((member) => member.type === 'TSStringKeyword');
 
 const noOverwideUnionRule = {
   meta: {
@@ -113,7 +116,9 @@ const noOverwideUnionRule = {
   create(context) {
     return {
       TSUnionType(node) {
-        if (isStringNumberUnion(node) || isDateStringUnion(node)) {
+        if (node.parent.type === 'TSUnionType') return;
+        const members = flattenUnion(node);
+        if (isStringNumberUnion(members) || isDateStringUnion(members)) {
           context.report({ node, messageId: 'overwide' });
         }
       },
