@@ -3,10 +3,6 @@ import { z } from 'zod';
 export const DEPLOY_ACTION_VALUES = ['deploy', 'teardown', 'update'] as const;
 export type DeployAction = (typeof DEPLOY_ACTION_VALUES)[number];
 
-export function isDeployAction(value: unknown): value is DeployAction {
-  return typeof value === 'string' && (DEPLOY_ACTION_VALUES as readonly string[]).includes(value);
-}
-
 export const DEPLOY_STATUS_VALUES = [
   'pending',
   'in_progress',
@@ -17,16 +13,8 @@ export const DEPLOY_STATUS_VALUES = [
 ] as const;
 export type DeployStatus = (typeof DEPLOY_STATUS_VALUES)[number];
 
-export function isDeployStatus(value: unknown): value is DeployStatus {
-  return typeof value === 'string' && (DEPLOY_STATUS_VALUES as readonly string[]).includes(value);
-}
-
 export const DEPLOY_TRIGGER_VALUES = ['git_push', 'ui', 'manual_rollback'] as const;
 export type DeployTrigger = (typeof DEPLOY_TRIGGER_VALUES)[number];
-
-export function isDeployTrigger(value: unknown): value is DeployTrigger {
-  return typeof value === 'string' && (DEPLOY_TRIGGER_VALUES as readonly string[]).includes(value);
-}
 
 /**
  * Wire shape for a deploy lifecycle outcome, broadcast over the `deploy_change`
@@ -52,10 +40,6 @@ export type DeployChangeOutcome = z.infer<typeof zDeployChangeOutcome>;
  */
 export const DEPLOY_POST_SUCCESS_VALUES = ['removeFromManifest'] as const;
 export type DeployPostSuccess = (typeof DEPLOY_POST_SUCCESS_VALUES)[number];
-
-export function isDeployPostSuccess(value: unknown): value is DeployPostSuccess {
-  return typeof value === 'string' && (DEPLOY_POST_SUCCESS_VALUES as readonly string[]).includes(value);
-}
 
 interface BaseDeployRequest {
   stack: string;

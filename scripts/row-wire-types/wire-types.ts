@@ -1,6 +1,5 @@
 import pg from 'pg';
 
-/** The JS type node-postgres hands back, keyed by the pg type name. */
 export const WIRE_TYPE_BY_PG_TYPE: Readonly<Record<string, string | undefined>> = {
   bool: 'boolean',
   int2: 'number',
@@ -81,7 +80,6 @@ export const SAMPLE_BY_PG_TYPE: Readonly<Record<string, string | undefined>> = {
   _jsonb: '{"{\\"a\\":1}"}',
 };
 
-/** The runtime shape each wire type must parse to. Catches a table entry the driver stopped matching. */
 export const RUNTIME_SHAPE_BY_WIRE_TYPE: Readonly<Record<string, string[] | undefined>> = {
   boolean: ['boolean'],
   number: ['number'],
@@ -108,7 +106,6 @@ export function runtimeTypeOf(value: unknown): string {
   return typeof value;
 }
 
-/** Fails when the driver stops parsing a type the way the table above claims. */
 export function assertWireTypeTable(oidByPgTypeName: Map<string, number>): string[] {
   const problems: string[] = [];
   for (const pgType of Object.keys(WIRE_TYPE_BY_PG_TYPE)) {

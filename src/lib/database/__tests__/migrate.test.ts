@@ -59,7 +59,7 @@ describe('runMigrations', () => {
 
   test('takes the advisory lock first and releases it last on the same connection', async () => {
     const client = createFakeClient((text) => {
-      if (text.startsWith('SELECT 1 FROM migrations')) return { rows: [{ applied: 1 }] };
+      if (text.startsWith('SELECT name FROM migrations')) return { rows: [{ applied: 1 }] };
       return undefined;
     });
 
@@ -78,7 +78,7 @@ describe('runMigrations', () => {
 
   test('skips already-applied migrations without opening transactions', async () => {
     const client = createFakeClient((text) => {
-      if (text.startsWith('SELECT 1 FROM migrations')) return { rows: [{ applied: 1 }] };
+      if (text.startsWith('SELECT name FROM migrations')) return { rows: [{ applied: 1 }] };
       return undefined;
     });
 
@@ -86,7 +86,7 @@ describe('runMigrations', () => {
 
     const texts = client.calls.map((c) => c.text);
     expect(texts).not.toContain('BEGIN');
-    expect(texts.filter((t) => t.startsWith('SELECT 1 FROM migrations'))).toHaveLength(
+    expect(texts.filter((t) => t.startsWith('SELECT name FROM migrations'))).toHaveLength(
       migrationFiles.length,
     );
   });
@@ -94,7 +94,7 @@ describe('runMigrations', () => {
   test('applies a pending migration inside a transaction and records it', async () => {
     let pendingChecks = 0;
     const client = createFakeClient((text) => {
-      if (text.startsWith('SELECT 1 FROM migrations')) {
+      if (text.startsWith('SELECT name FROM migrations')) {
         pendingChecks += 1;
         // First file is pending, the rest already applied.
         return pendingChecks === 1 ? { rows: [] } : { rows: [{ applied: 1 }] };
@@ -116,7 +116,7 @@ describe('runMigrations', () => {
 
   test('rolls back on failure and still unlocks and releases the connection', async () => {
     const client = createFakeClient((text) => {
-      if (text.startsWith('SELECT 1 FROM migrations')) return { rows: [] };
+      if (text.startsWith('SELECT name FROM migrations')) return { rows: [] };
       if (text.startsWith('INSERT INTO migrations')) throw new Error('insert failed');
       return undefined;
     });

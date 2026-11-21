@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import type { Role } from '@/lib/auth/types';
-import { isRole } from '@/lib/auth/types';
+import { ROLE_VALUES } from '@/lib/auth/types';
 import { parseRowEnum } from '@/lib/database/repositories/row-enum';
 
 export interface UserRow {
@@ -41,7 +41,7 @@ function rowToUser(row: UserQueryRow): UserRow {
     oidcSubject: row.oidc_subject,
     email: row.email,
     name: row.name,
-    role: parseRowEnum('users.role', row.role, isRole),
+    role: parseRowEnum('users.role', row.role, ROLE_VALUES),
     oidcGroups: row.oidc_groups,
     lastLogin: row.last_login,
     createdAt: row.created_at,

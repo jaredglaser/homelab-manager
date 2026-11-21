@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { DockerContainerEventRepository } from '../docker-container-event-repository';
 import type { NewContainerEvent } from '../docker-container-event-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
@@ -29,7 +29,7 @@ const dbRow = {
   state: 'running',
   name: 'plex',
   image: 'plexinc/pms-docker:latest',
-  imageDigest: 'sha256:' + 'd'.repeat(64),
+  image_digest: 'sha256:' + 'd'.repeat(64),
   labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
   ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
   mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
@@ -238,9 +238,9 @@ describe('DockerContainerEventRepository', () => {
       const rows = await repo.getCurrentSnapshot();
       const row = rows[0];
       if (row.eventType !== 'upsert') throw new Error('expected upsert row');
-      expect(row.labels).toBe(parsedLabels);
-      expect(row.ports).toBe(parsedPorts);
-      expect(row.mounts).toBe(parsedMounts);
+      expect(row.labels).toEqual(parsedLabels);
+      expect(row.ports).toEqual(parsedPorts);
+      expect(row.mounts).toEqual(parsedMounts);
 
       mock.pushResult([{
         ...dbRow,
@@ -269,6 +269,35 @@ describe('DockerContainerEventRepository', () => {
       if (row.eventType !== 'upsert') throw new Error('expected upsert row');
       expect(row.ports).toEqual(dbRow.ports);
       expect(row.mounts).toEqual(dbRow.mounts);
+    });
+  });
+
+  describe('persisted values outside the unions', () => {
+    it('reads an unknown state as unknown and logs it, so one bad row cannot fail the snapshot', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{ ...dbRow, state: 'migrating' }, dbRow]);
+
+      const rows = await repo.getCurrentSnapshot();
+
+      expect(rows).toHaveLength(2);
+      expect(rows.map((row) => (row.eventType === 'upsert' ? row.state : null))).toEqual(['unknown', 'running']);
+      expect(String(errorSpy.mock.calls[0][0])).toContain('docker_container_events.state');
+      errorSpy.mockRestore();
+    });
+
+    it('still refuses an unknown event_type, which a CHECK constraint guards', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{ ...dbRow, event_type: 'rename' }]);
+
+      await expect(repo.getCurrentSnapshot()).rejects.toThrow('Unrecognized docker_container_events.event_type value');
+      errorSpy.mockRestore();
+    });
+
+    it('maps image_digest from the row', async () => {
+      mock.pushResult([dbRow]);
+      const [row] = await repo.getCurrentSnapshot();
+      if (row.eventType !== 'upsert') throw new Error('expected upsert row');
+      expect(row.imageDigest).toBe(dbRow.image_digest);
     });
   });
 });

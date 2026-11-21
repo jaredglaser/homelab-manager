@@ -50,7 +50,6 @@ interface GitTokenHashQueryRow {
   user_id: number;
 }
 
-/** Rows predating migration 027, where token_hash is still NULL. */
 interface GitTokenEncryptedQueryRow {
   id: number;
   user_id: number;
@@ -62,7 +61,7 @@ function rowToGitToken(row: GitTokenQueryRow): GitTokenRow {
     id: row.id,
     userId: row.user_id,
     label: row.label,
-    lastUsedAt: row.last_used_at ?? null,
+    lastUsedAt: row.last_used_at,
     createdAt: row.created_at,
   };
 }
@@ -101,7 +100,7 @@ export class GitTokenRepository {
     );
     return result.rows.map(row => ({
       ...rowToGitToken(row),
-      userName: row.user_name ?? null,
+      userName: row.user_name,
       userEmail: row.user_email,
     }));
   }

@@ -5,10 +5,6 @@ import { parseRowEnum } from '@/lib/database/repositories/row-enum';
 export const HOST_STATUS_VALUES = ['pending', 'healthy', 'unhealthy', 'error'] as const;
 export type HostStatus = (typeof HOST_STATUS_VALUES)[number];
 
-export function isHostStatus(value: unknown): value is HostStatus {
-  return typeof value === 'string' && (HOST_STATUS_VALUES as readonly string[]).includes(value);
-}
-
 export interface HostCapabilities {
   docker?: boolean;
   zfs?: boolean;
@@ -87,15 +83,15 @@ function toManagedHost(row: ManagedHostRow): ManagedHost {
     name: row.name,
     agentUrl: row.agent_url,
     capabilities: row.capabilities,
-    agentVersion: row.agent_version ?? null,
-    agentImage: row.agent_image ?? null,
-    agentImageTag: row.agent_image_tag ?? null,
-    agentImageDigest: row.agent_image_digest ?? null,
+    agentVersion: row.agent_version,
+    agentImage: row.agent_image,
+    agentImageTag: row.agent_image_tag,
+    agentImageDigest: row.agent_image_digest,
     agentOutOfDate: row.agent_out_of_date,
-    status: parseRowEnum('managed_hosts.status', row.status, isHostStatus),
+    status: parseRowEnum('managed_hosts.status', row.status, HOST_STATUS_VALUES),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    lastSweptAt: row.last_swept_at ?? null,
+    lastSweptAt: row.last_swept_at,
   };
 }
 

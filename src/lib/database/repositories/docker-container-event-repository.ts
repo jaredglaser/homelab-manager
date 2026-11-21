@@ -1,15 +1,9 @@
 import type { Pool } from 'pg';
 import type { ContainerState, ContainerPort, ContainerMount } from '@/types/docker-inventory';
-import { isContainerState } from '@/types/docker-inventory';
-import { parseRowEnum } from '@/lib/database/repositories/row-enum';
+import { CONTAINER_STATE_VALUES } from '@/types/docker-inventory';
+import { parseRowEnum, parseRowEnumOr } from '@/lib/database/repositories/row-enum';
 
-/** Values the docker_container_events.event_type CHECK constraint allows. */
 const CONTAINER_EVENT_TYPE_VALUES = ['upsert', 'destroy'] as const;
-type ContainerEventType = (typeof CONTAINER_EVENT_TYPE_VALUES)[number];
-
-function isContainerEventType(value: unknown): value is ContainerEventType {
-  return typeof value === 'string' && (CONTAINER_EVENT_TYPE_VALUES as readonly string[]).includes(value);
-}
 
 export type NewContainerEvent =
   | {
@@ -86,7 +80,7 @@ interface ContainerEventQueryRow {
 }
 
 function rowToEventRow(row: ContainerEventQueryRow): DockerContainerEventRow {
-  const eventType = parseRowEnum('docker_container_events.event_type', row.event_type, isContainerEventType);
+  const eventType = parseRowEnum('docker_container_events.event_type', row.event_type, CONTAINER_EVENT_TYPE_VALUES);
   const base = {
     at: row.at,
     host: row.host,
@@ -100,18 +94,18 @@ function rowToEventRow(row: ContainerEventQueryRow): DockerContainerEventRow {
   return {
     ...base,
     eventType,
-    state: parseRowEnum('docker_container_events.state', row.state, isContainerState),
+    state: parseRowEnumOr('docker_container_events.state', row.state, CONTAINER_STATE_VALUES, 'unknown'),
     name: row.name,
     image: row.image,
-    imageDigest: row.image_digest ?? null,
+    imageDigest: row.image_digest,
     labels: row.labels,
     ports: row.ports,
     mounts: row.mounts,
-    composeProject: row.compose_project ?? null,
-    serviceKey: row.service_key ?? null,
-    startedAt: row.started_at ?? null,
-    finishedAt: row.finished_at ?? null,
-    exitCode: row.exit_code ?? null,
+    composeProject: row.compose_project,
+    serviceKey: row.service_key,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    exitCode: row.exit_code,
   };
 }
 

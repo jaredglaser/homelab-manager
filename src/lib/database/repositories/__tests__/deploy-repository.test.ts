@@ -79,7 +79,6 @@ describe('DeployRepository', () => {
       const result = await repo.getById(42);
       expect(result).not.toBeNull();
       expect(result!.id).toBe(42);
-      expect(typeof result!.id).toBe('number');
       expect(result!.stack).toBe('plex');
       expect(result!.status).toBe('pending');
     });
@@ -185,7 +184,6 @@ describe('DeployRepository', () => {
       const result = await repo.getLatestSuccessful('plex', 'homeserver');
       expect(result).not.toBeNull();
       expect(result!.id).toBe(10);
-      expect(typeof result!.id).toBe('number');
       expect(result!.stack).toBe('plex');
       expect(result!.composeHash).toBe('hash1');
     });
@@ -659,6 +657,64 @@ describe('DeployRepository', () => {
       expect(rows).toEqual([
         { id: 42, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
       ]);
+    });
+  });
+
+  describe('persisted values outside the unions', () => {
+    const deployRow = {
+      id: 42,
+      stack: 'plex',
+      host: 'homeserver',
+      commit_sha: 'abc123',
+      compose_hash: 'hash1',
+      env_hash: 'hash2',
+      status: 'succeeded',
+      trigger: 'git_push',
+      action: 'deploy',
+      force_recreate: false,
+      logs: null,
+      created_at: new Date('2026-01-01'),
+      post_success: null,
+    };
+
+    it.each([
+      ['action', 'restart'],
+      ['trigger', 'cron'],
+      ['post_success', 'notify'],
+    ])('refuses a %s of %s on a full read', async (column, value) => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{ ...deployRow, [column]: value }]);
+
+      await expect(repo.getById(42)).rejects.toThrow(`Unrecognized deploy_history.${column} value`);
+      errorSpy.mockRestore();
+    });
+
+    it('keeps the other rows of a stuck sweep when one row cannot be read, since the UPDATE has committed', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([
+        { id: 7, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
+        { id: 8, stack: 'old', host: 'homeserver', action: 'restart', trigger: 'ui' },
+        { id: 9, stack: 'traefik', host: 'other', action: 'teardown', trigger: 'ui' },
+      ]);
+
+      const rows = await repo.recoverStuckDeploys('crashed');
+
+      expect(rows.map((row) => row.id)).toEqual([7, 9]);
+      expect(String(errorSpy.mock.calls[0][0])).toContain('deploy_history.action');
+      errorSpy.mockRestore();
+    });
+
+    it('applies the same per-row tolerance to the timeout sweep', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([
+        { id: 8, stack: 'old', host: 'homeserver', action: 'deploy', trigger: 'cron' },
+        { id: 9, stack: 'traefik', host: 'other', action: 'update', trigger: 'ui' },
+      ]);
+
+      const rows = await repo.timeoutStuckDeploys(30, 'slow');
+
+      expect(rows.map((row) => row.id)).toEqual([9]);
+      errorSpy.mockRestore();
     });
   });
 });

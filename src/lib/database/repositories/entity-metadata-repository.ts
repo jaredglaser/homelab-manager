@@ -235,7 +235,7 @@ export class EntityMetadataRepository {
     for (const row of result.rows) {
       meta.set(row.container_entity, {
         serviceKeyEntity: row.service_key_entity,
-        iconSlug: row.icon_slug ?? null,
+        iconSlug: row.icon_slug,
       });
     }
     return meta;
