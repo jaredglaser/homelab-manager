@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { HostRepository } from '../host-repository';
 import type { CreateHostInput } from '../host-repository';
 
@@ -58,7 +58,6 @@ describe('HostRepository', () => {
       const result = await repo.create(input);
 
       expect(result.id).toBe(1);
-      expect(typeof result.id).toBe('number');
       expect(result.name).toBe('homeserver');
       expect(result.agentUrl).toBe('http://192.168.1.10:9090');
       expect(result.status).toBe('healthy');
@@ -110,8 +109,6 @@ describe('HostRepository', () => {
       expect(result[1].name).toBe('beta');
       expect(result[0].id).toBe(1);
       expect(result[1].id).toBe(2);
-      expect(typeof result[0].id).toBe('number');
-      expect(typeof result[1].id).toBe('number');
       expect(result[0].agentUrl).toBe('http://192.168.1.10:9090');
       expect(result[0].capabilities).toEqual({ docker: true, zfs: true });
       expect(result[0].agentOutOfDate).toBe(false);
@@ -161,7 +158,6 @@ describe('HostRepository', () => {
       expect(result).not.toBeNull();
       expect(result!.name).toBe('homeserver');
       expect(result!.id).toBe(1);
-      expect(typeof result!.id).toBe('number');
       expect(result!.agentUrl).toBe('http://192.168.1.10:9090');
     });
 
@@ -185,7 +181,6 @@ describe('HostRepository', () => {
       const result = await repo.findById(1);
       expect(result).not.toBeNull();
       expect(result!.id).toBe(1);
-      expect(typeof result!.id).toBe('number');
     });
   });
 
@@ -279,7 +274,6 @@ describe('HostRepository', () => {
 
       expect(result.name).toBe('renamed-host');
       expect(result.agentUrl).toBe('http://192.168.1.20:9090');
-      expect(typeof result.id).toBe('number');
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
       expect(mock.queries[0].sql).toContain('RETURNING');
       expect(mock.queries[0].params).toContain('renamed-host');
@@ -314,7 +308,6 @@ describe('HostRepository', () => {
       const result = await repo.update(1, {});
 
       expect(result.id).toBe(1);
-      expect(typeof result.id).toBe('number');
       expect(mock.queries[0].sql).toContain('SELECT');
     });
 
@@ -396,6 +389,16 @@ describe('HostRepository', () => {
       await repo.updateStatus(1, 'healthy');
       await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(pickNotify(mock)).toHaveLength(0);
+    });
+  });
+
+  describe('status', () => {
+    it('refuses a status outside the CHECK constraint', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{ ...sampleRow, status: 'degraded' }]);
+
+      await expect(repo.findById(1)).rejects.toThrow('Unrecognized managed_hosts.status value');
+      errorSpy.mockRestore();
     });
   });
 });

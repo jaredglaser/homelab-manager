@@ -1,11 +1,5 @@
 import type { Pool } from 'pg';
 
-export interface SettingRow {
-  key: string;
-  value: string;
-  updated_at: Date;
-}
-
 interface SettingValueRow {
   value: string;
 }

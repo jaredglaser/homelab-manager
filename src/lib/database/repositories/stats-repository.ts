@@ -1,8 +1,8 @@
 import type { Pool } from 'pg';
 import type { DockerStatsRow } from '@/types/docker';
-import { isProxmoxEntityType, type ProxmoxStatsRow } from '@/types/proxmox';
+import { PROXMOX_ENTITY_TYPE_VALUES, type ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
-import { parseRowEnum } from '@/lib/database/repositories/row-enum';
+import { parseRowEnumOr } from '@/lib/database/repositories/row-enum';
 
 /** Insert shape for proxmox_stats: same as the read row, but `time` stays a Date for the timestamptz bind. */
 export type NewProxmoxStat = Omit<ProxmoxStatsRow, 'time'> & { time: Date };
@@ -75,7 +75,6 @@ interface ZFSStatsQueryRow {
   utilization_percent: number | null;
 }
 
-/** Every tier's projection casts the BIGINT/numeric columns to float8. */
 interface ProxmoxStatsQueryRow {
   time: Date;
   host: string;
@@ -536,7 +535,7 @@ export class StatsRepository {
        FROM proxmox_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
-    return result.rows.map(toProxmoxStatsRow);
+    return result.rows.flatMap((row) => toProxmoxStatsRow(row) ?? []);
   }
 
   async getProxmoxStatsHistory(seconds: number): Promise<ProxmoxStatsRow[]> {
@@ -556,14 +555,14 @@ export class StatsRepository {
        ORDER BY time ASC`,
       [seconds]
     );
-    return result.rows.map(toProxmoxStatsRow);
+    return result.rows.flatMap((row) => toProxmoxStatsRow(row) ?? []);
   }
 
 }
 
 function toDockerStatsRow(row: DockerStatsQueryRow): DockerStatsRow {
   return {
-    time: new Date(row.time).getTime(),
+    time: row.time.getTime(),
     host: row.host,
     container_id: row.container_id,
     container_name: row.container_name,
@@ -581,7 +580,7 @@ function toDockerStatsRow(row: DockerStatsQueryRow): DockerStatsRow {
 
 function toZFSStatsRow(row: ZFSStatsQueryRow): ZFSStatsRow {
   return {
-    time: new Date(row.time).getTime(),
+    time: row.time.getTime(),
     host: row.host,
     pool: row.pool,
     entity: row.entity,
@@ -597,11 +596,14 @@ function toZFSStatsRow(row: ZFSStatsQueryRow): ZFSStatsRow {
   };
 }
 
-function toProxmoxStatsRow(row: ProxmoxStatsQueryRow): ProxmoxStatsRow {
+/** Null for a row whose entity_type the union does not know: the column has no CHECK, and one bad row must not fail the whole read or stall the poll cursor behind it. */
+function toProxmoxStatsRow(row: ProxmoxStatsQueryRow): ProxmoxStatsRow | null {
+  const entityType = parseRowEnumOr('proxmox_stats.entity_type', row.entity_type, PROXMOX_ENTITY_TYPE_VALUES, null);
+  if (entityType === null) return null;
   return {
-    time: new Date(row.time).getTime(),
+    time: row.time.getTime(),
     host: row.host,
-    entity_type: parseRowEnum('proxmox_stats.entity_type', row.entity_type, isProxmoxEntityType),
+    entity_type: entityType,
     node: row.node,
     entity_id: row.entity_id,
     entity_name: row.entity_name,

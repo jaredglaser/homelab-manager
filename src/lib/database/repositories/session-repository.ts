@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import type { AuthUser } from '@/lib/auth/types';
-import { isRole } from '@/lib/auth/types';
+import { ROLE_VALUES } from '@/lib/auth/types';
 import { parseRowEnum } from '@/lib/database/repositories/row-enum';
 
 export interface CreateSessionInput {
@@ -84,7 +84,7 @@ export class SessionRepository {
         id: row.u_id,
         email: row.email,
         name: row.name,
-        role: parseRowEnum('users.role', row.role, isRole),
+        role: parseRowEnum('users.role', row.role, ROLE_VALUES),
       },
     };
   }
@@ -116,7 +116,7 @@ export class SessionRepository {
     );
     return result.rows.map(row => ({
       ...rowToSession(row),
-      userName: row.user_name ?? null,
+      userName: row.user_name,
       userEmail: row.user_email,
     }));
   }

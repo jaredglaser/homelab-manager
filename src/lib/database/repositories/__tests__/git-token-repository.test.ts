@@ -88,8 +88,6 @@ describe('GitTokenRepository', () => {
       expect(result.userId).toBe(dbRow.user_id);
       expect(result.id).toBe(42);
       expect(result.userId).toBe(99);
-      expect(typeof result.id).toBe('number');
-      expect(typeof result.userId).toBe('number');
     });
   });
 
@@ -157,8 +155,6 @@ describe('GitTokenRepository', () => {
       mock.pushResult([{ id: 1, user_id: 10 }]);
       const result = await repo.findByTokenHash('c'.repeat(64));
       expect(result).toEqual({ id: 1, userId: 10 });
-      expect(typeof result!.id).toBe('number');
-      expect(typeof result!.userId).toBe('number');
       expect(mock.calls[0].params).toEqual(['c'.repeat(64)]);
     });
 

@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { DeployAction, DeployChangeOutcome, DeployPostSuccess, DeployRecord, DeployRequest, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
-import { isDeployAction, isDeployPostSuccess, isDeployStatus, isDeployTrigger } from '@/lib/deploy/types';
-import { parseNullableRowEnum, parseRowEnum } from '@/lib/database/repositories/row-enum';
+import { DEPLOY_ACTION_VALUES, DEPLOY_POST_SUCCESS_VALUES, DEPLOY_STATUS_VALUES, DEPLOY_TRIGGER_VALUES } from '@/lib/deploy/types';
+import { parseNullableRowEnum, parseRowEnum, parseRowEnumOr } from '@/lib/database/repositories/row-enum';
 import { truncateDeployMessage } from '@/lib/stacks/deploy-outcome-toast';
 
 export interface QueuedDeploy {
@@ -58,7 +58,6 @@ interface DeployIdRow {
   id: number;
 }
 
-/** COUNT(*) comes back as a string. */
 interface DeployCountRow {
   count: string;
 }
@@ -380,7 +379,7 @@ export class DeployRepository {
        RETURNING id, stack, host, action, trigger`,
       [logMessage],
     );
-    return result.rows.map(toStuckDeployRow);
+    return result.rows.flatMap(toStuckDeployRow);
   }
 
   /**
@@ -401,18 +400,16 @@ export class DeployRepository {
        RETURNING id, stack, host, action, trigger`,
       [thresholdMinutes, logMessage],
     );
-    return result.rows.map(toStuckDeployRow);
+    return result.rows.flatMap(toStuckDeployRow);
   }
 }
 
-function toStuckDeployRow(row: StuckDeployQueryRow): StuckDeployRow {
-  return {
-    id: row.id,
-    stack: row.stack,
-    host: row.host,
-    action: parseRowEnum('deploy_history.action', row.action, isDeployAction),
-    trigger: parseRowEnum('deploy_history.trigger', row.trigger, isDeployTrigger),
-  };
+/** Runs after the UPDATE has committed, so a row it cannot read is logged and left out rather than losing the other rows' notifications. */
+function toStuckDeployRow(row: StuckDeployQueryRow): StuckDeployRow[] {
+  const action = parseRowEnumOr('deploy_history.action', row.action, DEPLOY_ACTION_VALUES, null);
+  const trigger = parseRowEnumOr('deploy_history.trigger', row.trigger, DEPLOY_TRIGGER_VALUES, null);
+  if (action === null || trigger === null) return [];
+  return [{ id: row.id, stack: row.stack, host: row.host, action, trigger }];
 }
 
 /** Check for the specific active-deploy unique constraint violation. */
@@ -430,13 +427,13 @@ function toDeployRecord(row: DeployRow): DeployRecord {
     commitSha: row.commit_sha,
     composeHash: row.compose_hash,
     envHash: row.env_hash,
-    status: parseRowEnum('deploy_history.status', row.status, isDeployStatus),
-    trigger: parseRowEnum('deploy_history.trigger', row.trigger, isDeployTrigger),
-    action: parseRowEnum('deploy_history.action', row.action, isDeployAction),
+    status: parseRowEnum('deploy_history.status', row.status, DEPLOY_STATUS_VALUES),
+    trigger: parseRowEnum('deploy_history.trigger', row.trigger, DEPLOY_TRIGGER_VALUES),
+    action: parseRowEnum('deploy_history.action', row.action, DEPLOY_ACTION_VALUES),
     forceRecreate: row.force_recreate,
     logs: row.logs,
     createdAt: row.created_at,
     startedAt: row.started_at ?? null,
-    postSuccess: parseNullableRowEnum('deploy_history.post_success', row.post_success, isDeployPostSuccess),
+    postSuccess: parseNullableRowEnum('deploy_history.post_success', row.post_success, DEPLOY_POST_SUCCESS_VALUES),
   };
 }

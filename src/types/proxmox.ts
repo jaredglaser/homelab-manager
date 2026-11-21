@@ -163,9 +163,7 @@ export const zProxmoxEntityType = z.enum(['cluster', 'node', 'qemu', 'lxc', 'sto
 
 export type ProxmoxEntityType = z.infer<typeof zProxmoxEntityType>;
 
-export function isProxmoxEntityType(value: unknown): value is ProxmoxEntityType {
-  return zProxmoxEntityType.safeParse(value).success;
-}
+export const PROXMOX_ENTITY_TYPE_VALUES = zProxmoxEntityType.options;
 
 /** Wide row from proxmox_stats hypertable */
 export interface ProxmoxStatsRow {

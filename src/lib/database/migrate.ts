@@ -55,8 +55,8 @@ async function applyPendingMigrations(client: PoolClient): Promise<void> {
 
   for (const migrationFile of migrationFiles) {
     // Check if migration has already been run
-    const result = await client.query(
-      'SELECT 1 FROM migrations WHERE name = $1',
+    const result = await client.query<{ name: string }>(
+      'SELECT name FROM migrations WHERE name = $1',
       [migrationFile]
     );
 
