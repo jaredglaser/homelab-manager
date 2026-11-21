@@ -92,16 +92,33 @@ const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Prom
   return Promise.resolve(makeHost())
 }
 
+const healthCheckCalls: number[] = []
 let healthCheckResult: Promise<HealthCheckResult> = Promise.resolve({ hostId: 1, healthy: true })
+
+const keypairCalls: Array<{ op: 'view' | 'rotate'; hostId: number }> = []
+let keypairError: unknown = null
+const getHostPublicJwk = (data: { data: { hostId: number } }): Promise<{ publicJwk: Record<string, string>; fingerprint: string }> => {
+  keypairCalls.push({ op: 'view', hostId: data.data.hostId })
+  if (keypairError != null) return Promise.reject(keypairError)
+  return Promise.resolve({ publicJwk: { kty: 'OKP', x: 'viewed-key' }, fingerprint: 'AB:CD:EF' })
+}
+const rotateHostKeypair = (data: { data: { hostId: number } }): Promise<{ hostId: number; publicJwk: Record<string, string> }> => {
+  keypairCalls.push({ op: 'rotate', hostId: data.data.hostId })
+  if (keypairError != null) return Promise.reject(keypairError)
+  return Promise.resolve({ hostId: data.data.hostId, publicJwk: { kty: 'OKP', x: 'rotated-key' } })
+}
 
 mock.module('@/data/hosts/functions', () => ({
   listHosts,
   createPendingHost,
   removeHost,
-  checkHostHealth: () => healthCheckResult,
+  checkHostHealth: (data: { data: { hostId: number } }) => {
+    healthCheckCalls.push(data.data.hostId)
+    return healthCheckResult
+  },
   updateHost,
-  getHostPublicJwk: () => Promise.resolve({ publicJwk: {} }),
-  rotateHostKeypair: () => Promise.resolve({ hostId: 1, publicJwk: {} }),
+  getHostPublicJwk: (data: { data: { hostId: number } }) => getHostPublicJwk(data),
+  rotateHostKeypair: (data: { data: { hostId: number } }) => rotateHostKeypair(data),
   rotateHostTls: (data: { data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean } }) =>
     rotateHostTls(data),
 }))
@@ -128,6 +145,9 @@ beforeEach(() => {
   removeHostData.length = 0
   removeHostError = null
   updateHostError = null
+  keypairError = null
+  keypairCalls.length = 0
+  healthCheckCalls.length = 0
   updateHostCalls.length = 0
   createPendingHostCalls.length = 0
   toasts.length = 0
@@ -199,7 +219,7 @@ describe('ManagedHostsCardConnected health check toasts', () => {
 })
 
 describe('ManagedHostsCardConnected row actions', () => {
-  const rotateButton = () => screen.getByLabelText('rotate TLS') as HTMLButtonElement
+  const rotateButton = () => screen.getByLabelText<HTMLButtonElement>('rotate TLS')
 
   it('lists only the filtered host when filterHostName is set', async () => {
     hostsRows = [makeHost({ id: 1, name: 'server1' }), makeHost({ id: 2, name: 'server2' })]
@@ -247,7 +267,7 @@ describe('ManagedHostsCardConnected row actions', () => {
       await waitFor(() => {
         expect(toasts).toEqual([{ message: 'socket hang up', severity: 'error' }])
       })
-      expect((screen.getByLabelText('check health') as HTMLButtonElement).disabled).toBe(false)
+      expect(screen.getByLabelText<HTMLButtonElement>('check health').disabled).toBe(false)
     })
 
     it('falls back to a plain message when the check fails without an Error', async () => {
@@ -396,6 +416,158 @@ describe('ManagedHostsCardConnected row actions', () => {
       await waitFor(() => {
         expect(toasts).toEqual([{ message: 'Failed to update host', severity: 'error' }])
       })
+    })
+  })
+
+  it('acts on the clicked host when several are listed', async () => {
+    const user = setupUser()
+    hostsRows = [makeHost({ id: 1, name: 'server1' }), makeHost({ id: 2, name: 'server2' })]
+    renderCard()
+    await screen.findByText('server2')
+
+    await user.click(screen.getAllByLabelText('check health')[1])
+    await waitFor(() => expect(healthCheckCalls).toEqual([2]))
+
+    await user.click(screen.getAllByLabelText('rotate TLS')[1])
+    await waitFor(() => expect(rotateTlsCalls).toEqual([{ data: { hostId: 2 } }]))
+
+    await user.click(screen.getAllByLabelText('agent keypair')[1])
+    await user.click(await screen.findByRole('button', { name: 'Rotate keypair' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm rotation' }))
+    await waitFor(() => expect(keypairCalls).toEqual([{ op: 'view', hostId: 2 }, { op: 'rotate', hostId: 2 }]))
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
+
+    await user.click(screen.getAllByLabelText('edit host')[1])
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(updateHostCalls).toEqual([{ hostId: 2, agentUrl: 'http://192.168.1.10:9090' }]))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
+
+    await user.click(screen.getAllByLabelText('remove host')[1])
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(removeHostData).toEqual([{ hostId: 2 }]))
+  })
+
+  describe('keypair dialog', () => {
+    async function openKeypairDialog(user: TestUser) {
+      renderCard()
+      await screen.findByText('server1')
+      await user.click(screen.getByLabelText('agent keypair'))
+    }
+
+    it('loads the key and shows it with the pinned fingerprint', async () => {
+      const user = setupUser()
+      await openKeypairDialog(user)
+      await waitFor(() => {
+        expect(screen.getByTestId('host-pubkey-display').textContent).toBe('{"kty":"OKP","x":"viewed-key"}')
+      })
+      expect(screen.getByTestId('host-fingerprint-display').textContent).toBe('AB:CD:EF')
+      expect(keypairCalls).toEqual([{ op: 'view', hostId: 1 }])
+    })
+
+    it('shows the server message and no key when loading fails', async () => {
+      const user = setupUser()
+      keypairError = new Error('Keypair store unavailable')
+      await openKeypairDialog(user)
+      await waitFor(() => {
+        expect(toasts).toEqual([{ message: 'Keypair store unavailable', severity: 'error' }])
+      })
+      expect(screen.getByText('No keypair is stored for this host yet.')).toBeDefined()
+    })
+
+    it('falls back to a plain message when loading fails without an Error', async () => {
+      const user = setupUser()
+      keypairError = 'boom'
+      await openKeypairDialog(user)
+      await waitFor(() => {
+        expect(toasts).toEqual([{ message: 'Failed to load keypair', severity: 'error' }])
+      })
+    })
+
+    it('rotates the key after confirmation and warns that the agent must be updated', async () => {
+      const user = setupUser()
+      await openKeypairDialog(user)
+      await user.click(await screen.findByRole('button', { name: 'Rotate keypair' }))
+      await user.click(screen.getByRole('button', { name: 'Confirm rotation' }))
+      await waitFor(() => {
+        expect(toasts).toEqual([
+          { message: 'Keypair rotated. Update AGENT_TRUSTED_PUBKEY on the agent and restart it.', severity: 'warning' },
+        ])
+      })
+      expect(keypairCalls).toEqual([{ op: 'view', hostId: 1 }, { op: 'rotate', hostId: 1 }])
+      await waitFor(() => {
+        expect(screen.getByTestId('host-pubkey-display').textContent).toBe('{"kty":"OKP","x":"rotated-key"}')
+      })
+    })
+
+    it('shows the server message when the rotation fails', async () => {
+      const user = setupUser()
+      await openKeypairDialog(user)
+      await user.click(await screen.findByRole('button', { name: 'Rotate keypair' }))
+      keypairError = new Error('Rotation refused')
+      await user.click(screen.getByRole('button', { name: 'Confirm rotation' }))
+      await waitFor(() => {
+        expect(toasts).toEqual([{ message: 'Rotation refused', severity: 'error' }])
+      })
+    })
+
+    it('falls back to a plain message when the rotation fails without an Error', async () => {
+      const user = setupUser()
+      await openKeypairDialog(user)
+      await user.click(await screen.findByRole('button', { name: 'Rotate keypair' }))
+      keypairError = 'boom'
+      await user.click(screen.getByRole('button', { name: 'Confirm rotation' }))
+      await waitFor(() => {
+        expect(toasts).toEqual([{ message: 'Failed to rotate keypair', severity: 'error' }])
+      })
+    })
+  })
+
+  describe('host list refresh', () => {
+    const hostsKey = { queryKey: ['managed-hosts'] }
+
+    it('reloads after a health check', async () => {
+      const user = setupUser()
+      renderCard()
+      await screen.findByText('server1')
+      const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
+      await user.click(screen.getByLabelText('check health'))
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith(hostsKey))
+    })
+
+    it('reloads after a successful TLS rotation but not after a failed one', async () => {
+      const user = setupUser()
+      renderCard()
+      await screen.findByText('server1')
+      const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
+      rotateTlsResult = Promise.resolve({ ok: false, code: 'pin_missing', message: 'no pin' })
+      await user.click(screen.getByLabelText('rotate TLS'))
+      await waitFor(() => expect(toasts).toHaveLength(1))
+      expect(invalidate).not.toHaveBeenCalled()
+      rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
+      await user.click(screen.getByLabelText('rotate TLS'))
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith(hostsKey))
+    })
+
+    it('reloads after a removal', async () => {
+      const user = setupUser()
+      renderCard()
+      await screen.findByText('server1')
+      const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
+      await user.click(screen.getByLabelText('remove host'))
+      await user.click(screen.getByRole('button', { name: 'Remove' }))
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith(hostsKey))
+    })
+
+    it('reloads after an update', async () => {
+      const user = setupUser()
+      renderCard()
+      await screen.findByText('server1')
+      const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
+      await user.click(screen.getByLabelText('edit host'))
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith(hostsKey))
     })
   })
 })
@@ -800,6 +972,35 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
     await waitFor(() => expect(rotateTlsCalls).toHaveLength(3))
     expect(rotateTlsCalls[2].data.acceptPlaintextEnrollment).toBe(false)
+  })
+
+  it('reloads the hosts after a successful verification but not after a failed one', async () => {
+    const user = setupUser()
+    await startVerify(user)
+    const invalidate = spyOn(lastQueryClient!, 'invalidateQueries')
+    rotateTlsResult = Promise.resolve({ ok: false, code: 'poll_timeout', message: 'timed out' })
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => expect(screen.getByTestId('rerun-provisioning')).toBeDefined())
+    expect(invalidate).not.toHaveBeenCalled()
+    rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://10.1.1.99:9090' })
+    await user.click(screen.getByTestId('rerun-provisioning'))
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['managed-hosts'] }))
+  })
+
+  it('verifies the host the wizard created, not a fixed id', async () => {
+    const user = setupUser()
+    createPendingHostResult = Promise.resolve({
+      host: makeHost({ id: 5, status: 'pending' }),
+      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
+    })
+    hostsRows = [makeHost({ id: 5, status: 'pending' })]
+    await startVerify(user)
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => {
+      expect(rotateTlsCalls).toEqual([
+        { data: { hostId: 5, agentUrl: 'http://10.1.1.99:9090', acceptPlaintextEnrollment: false } },
+      ])
+    })
   })
 
   it('cancelling while a re-run is in flight clears the previous failure', async () => {

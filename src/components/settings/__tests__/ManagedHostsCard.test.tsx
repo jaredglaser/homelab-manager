@@ -616,7 +616,7 @@ describe('ManagedHostsCard host actions', () => {
       const onUpdate = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ hosts, onUpdate })} />)
       await user.click(screen.getAllByLabelText('edit host')[1])
-      expect((screen.getByLabelText('Edit Host Name') as HTMLInputElement).value).toBe('server2')
+      expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
       await user.click(screen.getByRole('button', { name: 'Save' }))
       expect(onUpdate).toHaveBeenCalledTimes(1)
       expect(onUpdate).toHaveBeenCalledWith(2, 'server2', 'http://192.168.1.11:9090')
@@ -652,8 +652,11 @@ describe('ManagedHostsCard host actions', () => {
       for (const label of labels) expect(screen.getByLabelText(label).hasAttribute('disabled')).toBe(true)
     })
 
-    it('leaves the other host\'s buttons enabled while one host is busy', () => {
-      render(<ManagedHostsCardView {...makeProps({ hosts, checkingHostIds: new Set([2]) })} />)
+    it.each([
+      ['running a health check', { checkingHostIds: new Set([2]) }],
+      ['rotating TLS', { rotatingTlsHostIds: new Set([2]) }],
+    ])('leaves the other host\'s buttons enabled while the second host is %s', (_label, overrides) => {
+      render(<ManagedHostsCardView {...makeProps({ hosts, ...overrides })} />)
       for (const label of labels) {
         const [first, second] = screen.getAllByLabelText(label)
         expect(first.hasAttribute('disabled')).toBe(false)
@@ -727,7 +730,7 @@ describe('ManagedHostsCard host actions', () => {
       await user.click(screen.getByLabelText('edit host'))
       view.rerender(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], isUpdating: true })} />)
       expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true)
-      expect((screen.getByLabelText('Edit Agent URL') as HTMLInputElement).disabled).toBe(true)
+      expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').disabled).toBe(true)
     })
   })
 

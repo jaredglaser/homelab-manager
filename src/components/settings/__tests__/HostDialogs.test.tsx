@@ -188,6 +188,14 @@ describe('EditDialog', () => {
     expect(onConfirm).toHaveBeenCalledWith(1, 'server1', 'http://192.168.1.10:9090')
   })
 
+  it('saves against the id of the host it was given', async () => {
+    const user = setupUser()
+    const onConfirm = mock(() => {})
+    render(<EditDialog {...defaultProps} host={makeHost({ id: 7, name: 'server7' })} onConfirm={onConfirm} />)
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onConfirm).toHaveBeenCalledWith(7, 'server7', 'http://192.168.1.10:9090')
+  })
+
   it('calls onClose when Cancel is clicked', async () => {
     const user = setupUser()
     const onClose = mock(() => {})

@@ -796,6 +796,24 @@ describe('AddHostWizard', () => {
       expect(verifyButton().hasAttribute('disabled')).toBe(disabled)
     })
 
+    it.each(['host name', 'host/path', 'host:9090', '[zzz]', '[2001:db8::1', '2001:db8::1]'])('keeps Verify Connection disabled for the invalid host %p', async (host) => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      await user.type(screen.getByLabelText('Agent host or IP'), host.replaceAll('[', '[['))
+      expect(verifyButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it.each(['localhost', 'nas.home.lan', 'my_host-2', '10.0.0.5', '[::1]'])('enables Verify Connection for the valid host %p', async (host) => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      await user.type(screen.getByLabelText('Agent host or IP'), host.replaceAll('[', '[['))
+      expect(verifyButton().hasAttribute('disabled')).toBe(false)
+    })
+
     it('keeps Verify Connection disabled for a whitespace-only host', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
@@ -817,6 +835,19 @@ describe('AddHostWizard', () => {
       expect(verifyButton().hasAttribute('disabled')).toBe(true)
       await user.click(verifyButton())
       expect(onVerify).not.toHaveBeenCalled()
+    })
+
+    it('verifies the pending host it was given, once the Compose step has created it', async () => {
+      const user = setupUser()
+      const onVerify = mock(() => {})
+      const onCreateHost = mock(() => {})
+      render(<AddHostWizard {...makeProps({ onVerify, onCreateHost, pendingHost: makePendingHost({ id: 42 }) })} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      expect(onCreateHost).toHaveBeenCalledTimes(1)
+      await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+      await user.click(verifyButton())
+      expect(onVerify).toHaveBeenCalledWith(42, 'http://192.168.1.10:9090')
     })
 
     describe('Re-run provisioning', () => {

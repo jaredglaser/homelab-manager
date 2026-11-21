@@ -356,7 +356,7 @@ describe('AuthManagementCard', () => {
       await openDialog(user)
       await user.type(screen.getByLabelText('Token label'), 'My token')
       await user.click(generateButton())
-      await waitFor(() => expect((screen.getByLabelText('Token label') as HTMLInputElement).disabled).toBe(true))
+      await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('Token label').disabled).toBe(true))
       const cancelBtn = screen.getByRole('button', { name: 'Cancel' })
       expect(cancelBtn.hasAttribute('disabled')).toBe(true)
       expect(screen.queryByRole('button', { name: 'Generate' })).toBeNull()
@@ -388,7 +388,7 @@ describe('AuthManagementCard', () => {
 
       await user.click(screen.getByText('Generate Token'))
       expect(screen.getByText('Generate Git Token')).toBeDefined()
-      expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('Token label').value).toBe('')
       expect(screen.queryByText('test-token-abc123')).toBeNull()
     })
 
@@ -413,7 +413,7 @@ describe('AuthManagementCard', () => {
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
       await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
       await user.click(screen.getByText('Generate Token'))
-      expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('Token label').value).toBe('')
     })
 
     it('reloads the token list after generating', async () => {
