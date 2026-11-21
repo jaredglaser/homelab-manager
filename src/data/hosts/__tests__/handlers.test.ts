@@ -906,7 +906,8 @@ describe('handleUpdateAgent', () => {
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.code).toBe('agent_reported_error');
-        expect(result.message).toStartWith('The response was not a JSON error from the agent (HTTP 500)');
+        expect(result.message).toStartWith('The answer was not an error message in the form the manager reads');
+        expect(result.message).not.toMatch(/JSON|HTTP/);
       }
     } finally {
       restore();
@@ -922,8 +923,67 @@ describe('handleUpdateAgent', () => {
         hostId: 1,
         healthy: false,
         code: 'agent_reported_error',
-        message: 'The response was not a JSON error from the agent (HTTP 502)',
+        message: 'The answer was not an error message in the form the manager reads, so it may not have come from the agent.',
       });
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps a recognised code with no message and does not call the reply foreign', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ code: 'update_in_progress' }), { status: 409 })));
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: '' });
+    } finally {
+      restore();
+    }
+  });
+
+  it('accepts a text/plain content type in any case', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response('Bad Gateway', { status: 502, headers: { 'content-type': 'Text/Plain; charset=utf-8' } })));
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.message).toEndWith('It said: Bad Gateway');
+    } finally {
+      restore();
+    }
+  });
+
+  it('flattens control characters so a plain-text body cannot forge a log line', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response('first\r\n[hosts] forged line\u0007', { status: 502, headers: { 'content-type': 'text/plain' } })));
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      if (!result.healthy) expect(result.message).toEndWith('It said: first [hosts] forged line');
+      const logged = String(errorSpy.mock.calls[0]?.[0]);
+      expect(logged).not.toMatch(/\p{Cc}/u);
+      expect(logged).toContain('HTTP 502');
+    } finally {
+      errorSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('stops reading a refusal body once it is past the read bound and cancels the stream', async () => {
+    let cancelled = false;
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1024;
+        controller.enqueue(new TextEncoder().encode('y'.repeat(1024)));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const { restore } = withFetch(() => Promise.resolve(new Response(stream, { status: 502, headers: { 'content-type': 'text/plain' } })));
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(cancelled).toBe(true);
+      expect(sent).toBeLessThan(64 * 1024);
+      if (!result.healthy) expect(result.message.length).toBeLessThan(500);
     } finally {
       restore();
     }
@@ -973,7 +1033,7 @@ describe('handleUpdateAgent', () => {
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('agent_reported_error');
-      if (!result.healthy) expect(result.message).toBe('The response was not a JSON error from the agent (HTTP 503): Update check failed. Verify the agent host can reach the image registry, then retry the update.');
+      if (!result.healthy) expect(result.message).toBe('The answer was not an error message in the form the manager reads, so it may not have come from the agent. It said: Update check failed. Verify the agent host can reach the image registry, then retry the update.');
     } finally {
       restore();
     }

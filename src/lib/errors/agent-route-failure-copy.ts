@@ -12,12 +12,12 @@ import {
 
 const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, HostFailureCopy> = {
   invalid_json: {
-    headline: 'The agent could not understand the request the manager sent.',
-    fix: 'Run the operation again. If it repeats, check for a proxy between the manager and the agent that alters requests, then report it as a manager bug.',
-    includeDetail: true,
+    headline: 'The agent could not read what the manager sent.',
+    fix: 'Run the operation again. If it repeats, check for a proxy between the manager and the agent that changes what is sent, then report it as a manager bug.',
+    includeDetail: false,
   },
   invalid_request_body: {
-    headline: 'The manager sent the agent a request it could not use.',
+    headline: 'The manager sent the agent something it could not use.',
     fix: 'Run the operation again. If it repeats, report it as a manager bug, since nothing on the host needs changing.',
     includeDetail: false,
   },
@@ -55,7 +55,7 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, HostFailureCopy> =
   },
   stack_not_found: {
     headline: 'The agent has no stack with that name.',
-    fix: "Check that the stack's folder and its docker-compose.yml exist in the stacks directory on the agent host, then run the operation again.",
+    fix: 'If the stack was never deployed to this host, deploy it first, and there is nothing to remove. Otherwise check that its folder and docker-compose.yml are in the stacks directory on the agent host.',
     includeDetail: false,
   },
   compose_spawn_failed: {
@@ -69,8 +69,8 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, HostFailureCopy> =
     includeDetail: true,
   },
   missing_deploy_fields: {
-    headline: 'The manager asked the agent to deploy without a stack name or a compose file.',
-    fix: 'Report this as a manager bug. Running the deploy again cannot help.',
+    headline: 'The agent was asked to deploy a stack with no name or an empty compose file.',
+    fix: "If the stack's compose file is empty, add its contents and deploy again. Otherwise report this as a manager bug.",
     includeDetail: false,
   },
   invalid_deploy_fields: {
@@ -114,13 +114,13 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, HostFailureCopy> =
     includeDetail: false,
   },
   update_request_invalid: {
-    headline: 'The agent could not read the update request it was sent.',
-    fix: 'Run the update again. If it repeats, check for a proxy between the manager and the agent that alters requests, then report it as a manager bug.',
+    headline: 'The agent could not read what the manager sent for this update.',
+    fix: 'Run the update again. If it repeats, check for a proxy between the manager and the agent that changes what is sent, then report it as a manager bug.',
     includeDetail: false,
   },
   update_target_not_pinned: {
-    headline: 'The agent did not accept the image reference the manager sent for this update.',
-    fix: 'The manager always sends a pinned image, so the manager and this agent disagree about the format. Report this as a manager bug, and update the agent by hand on its host in the meantime.',
+    headline: 'The agent rejected the image the manager asked it to update to.',
+    fix: 'The manager chooses that image itself, so the manager and this agent disagree, or something between them changed what was sent. Check for a proxy between them, report this as a manager bug, and update the agent by hand on its host in the meantime.',
     includeDetail: false,
   },
   update_target_repo_mismatch: {
@@ -134,8 +134,8 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, HostFailureCopy> =
     includeDetail: false,
   },
   update_start_failed: {
-    headline: "The agent's update helper did not start.",
-    fix: 'Check that the agent can create and start containers through its Docker connection, then run the update again.',
+    headline: 'The agent was unable to begin updating itself.',
+    fix: 'Check that the agent is configured with the name of its own container and that its Docker connection allows it to inspect, create and start containers, then run the update again.',
     includeDetail: true,
   },
   container_not_found: {
@@ -144,13 +144,13 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, HostFailureCopy> =
     includeDetail: false,
   },
   container_state_unchanged: {
-    headline: 'The container was already in the state the operation asked for, so nothing changed.',
-    fix: 'Refresh the container list to see its current state, and run the operation again only if it still differs.',
-    includeDetail: false,
+    headline: 'Docker refused the action, possibly because the container was already in the state the operation asked for.',
+    fix: 'Refresh the container list to see its current state, and act on it again only if it still differs.',
+    includeDetail: true,
   },
   container_control_failed: {
     headline: 'Docker could not carry out the action on the container.',
-    fix: 'Check that the agent is allowed to start, stop and restart containers through its Docker connection, then run the operation again.',
+    fix: 'Fix the cause that Docker reports on the agent host, then run the operation again.',
     includeDetail: true,
   },
   zfs_unavailable: {
