@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import { AgentChannelNotice, ManagedHostsCardView, bucketHostsByAgentChannel } from '@/components/settings/ManagedHostsCard'
 import type { ManagedHostsCardProps } from '@/components/settings/ManagedHostsCard'
@@ -39,7 +39,7 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     onDiscard: mock(() => undefined),
     onRemove: mock(() => undefined),
     isRemoving: false,
-    onUpdate: mock(() => undefined),
+    onUpdate: mock(() => Promise.resolve(true)),
     isUpdating: false,
     onHealthCheck: mock(() => undefined),
     checkingHostIds: new Set<number>(),
@@ -500,7 +500,7 @@ describe('ManagedHostsCard', () => {
 
     it('calls onUpdate with the unchanged name and edited URL when Save is clicked', async () => {
       const user = setupUser()
-      const onUpdate = mock(() => undefined)
+      const onUpdate = mock(() => Promise.resolve(true))
       const host = makeHost()
       render(<ManagedHostsCardView {...makeProps({ hosts: [host], onUpdate })} />)
       await user.click(screen.getByLabelText('edit host'))
@@ -512,7 +512,7 @@ describe('ManagedHostsCard', () => {
 
     it('does not call onUpdate when Cancel is clicked', async () => {
       const user = setupUser()
-      const onUpdate = mock(() => undefined)
+      const onUpdate = mock(() => Promise.resolve(true))
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
       await user.click(screen.getByLabelText('edit host'))
       await user.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -613,7 +613,7 @@ describe('ManagedHostsCard host actions', () => {
 
     it('opens the edit dialog for the second host and saves against its id', async () => {
       const user = setupUser()
-      const onUpdate = mock(() => undefined)
+      const onUpdate = mock(() => Promise.resolve(true))
       render(<ManagedHostsCardView {...makeProps({ hosts, onUpdate })} />)
       await user.click(screen.getAllByLabelText('edit host')[1])
       expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
@@ -731,6 +731,111 @@ describe('ManagedHostsCard host actions', () => {
       view.rerender(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], isUpdating: true })} />)
       expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true)
       expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').disabled).toBe(true)
+    })
+
+    describe('after Save', () => {
+      function pendingUpdate() {
+        let settle: (saved: boolean) => void = () => undefined
+        const result = new Promise<boolean>((resolve) => { settle = resolve })
+        const onUpdate = mock<ManagedHostsCardProps['onUpdate']>(() => result)
+        const finish = (saved: boolean) => act(() => Promise.resolve(settle(saved)))
+        return { onUpdate, finish }
+      }
+
+      it('closes the edit dialog once the update succeeds, after a single onUpdate call', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+        await finish(true)
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+      })
+
+      it('calls onUpdate once when Save is double-clicked before the update settles', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.dblClick(screen.getByRole('button', { name: 'Save' }))
+        await finish(true)
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+      })
+
+      it('keeps the edit dialog open with the edited URL when the update fails, and lets the user retry', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.clear(screen.getByLabelText('Edit Agent URL'))
+        await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await finish(false)
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://10.0.0.9:9090')
+        onUpdate.mockImplementation(() => Promise.resolve(true))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(2)
+        expect(onUpdate).toHaveBeenLastCalledWith(1, 'server1', 'http://10.0.0.9:9090')
+      })
+
+      it('leaves the dialog of another host open when the first host\'s save finishes after the switch', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts, onUpdate })} />)
+        await user.click(screen.getAllByLabelText('edit host')[0])
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await user.keyboard('{Escape}')
+        await dialogGone()
+        await user.click(screen.getAllByLabelText('edit host')[1])
+        await finish(true)
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+      })
+
+      it('does not reopen or break anything when a save fails after the dialog was dismissed', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await user.keyboard('{Escape}')
+        await dialogGone()
+        await finish(false)
+        expect(screen.queryAllByRole('dialog')).toHaveLength(0)
+      })
+
+      it('keeps the edits and still closes on success when the host list refreshes while the dialog is open', async () => {
+        const user = setupUser()
+        const onUpdate = mock(() => Promise.resolve(true))
+        const view = render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.clear(screen.getByLabelText('Edit Agent URL'))
+        await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+        view.rerender(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ updatedAt: '2024-02-01T00:00:00.000Z' })], onUpdate })} />)
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://10.0.0.9:9090')
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.9:9090')
+      })
+
+      it('shows the host\'s current values when the dialog is reopened after a successful save', async () => {
+        const user = setupUser()
+        const onUpdate = mock(() => Promise.resolve(true))
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.clear(screen.getByLabelText('Edit Agent URL'))
+        await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        await user.click(screen.getByLabelText('edit host'))
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://192.168.1.10:9090')
+      })
     })
   })
 

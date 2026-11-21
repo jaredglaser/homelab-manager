@@ -280,7 +280,9 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       onDiscard={discardPendingHost}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
       isRemoving={removeMutation.isPending}
-      onUpdate={(hostId, name, agentUrl) => updateMutation.mutate({ hostId, name, agentUrl })}
+      onUpdate={(hostId, name, agentUrl) =>
+        updateMutation.mutateAsync({ hostId, name, agentUrl }).then(() => true, () => false)
+      }
       isUpdating={updateMutation.isPending}
       onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
       checkingHostIds={checkingHostIds}

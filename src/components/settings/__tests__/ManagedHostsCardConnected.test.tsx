@@ -91,10 +91,11 @@ const removeHost = (data: { data: { hostId: number; expectStatus?: 'pending' } }
 
 let updateHostCalls: Array<{ hostId: number; agentUrl?: string }> = []
 let updateHostError: unknown = null
+let updateHostGate: Promise<HostListItem> | null = null
 const updateHost = (data: { data: { hostId: number; agentUrl?: string } }): Promise<HostListItem> => {
   updateHostCalls.push({ hostId: data.data.hostId, agentUrl: data.data.agentUrl })
   if (updateHostError != null) return rejectWith(updateHostError)
-  return Promise.resolve(makeHost())
+  return updateHostGate ?? Promise.resolve(makeHost())
 }
 
 const healthCheckCalls: number[] = []
@@ -150,6 +151,7 @@ beforeEach(() => {
   removeHostData.length = 0
   removeHostError = null
   updateHostError = null
+  updateHostGate = null
   keypairError = null
   keypairCalls.length = 0
   healthCheckCalls.length = 0
@@ -421,6 +423,73 @@ describe('ManagedHostsCardConnected row actions', () => {
       await waitFor(() => {
         expect(toasts).toEqual([{ message: 'Failed to update host', severity: 'error' }])
       })
+    })
+
+    it('closes the edit dialog after the update succeeds', async () => {
+      const user = setupUser()
+      await saveEdit(user)
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      expect(toasts).toEqual([{ message: 'Host updated', severity: 'success' }])
+      expect(updateHostCalls).toHaveLength(1)
+    })
+
+    it('keeps the edit dialog open with the edited URL when the update fails, and a retry saves again', async () => {
+      const user = setupUser()
+      updateHostError = new Error('Agent URL is not reachable')
+      await saveEdit(user)
+      await waitFor(() => expect(toasts).toHaveLength(1))
+      expect(screen.getAllByRole('dialog')).toHaveLength(1)
+      expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://10.0.0.9:9090')
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(false))
+      updateHostError = null
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      expect(updateHostCalls).toEqual([
+        { hostId: 1, agentUrl: 'http://10.0.0.9:9090' },
+        { hostId: 1, agentUrl: 'http://10.0.0.9:9090' },
+      ])
+    })
+
+    it('sends one update when Save is double-clicked', async () => {
+      const user = setupUser()
+      renderCard()
+      await screen.findByText('server1')
+      await user.click(screen.getByLabelText('edit host'))
+      await user.dblClick(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      expect(updateHostCalls).toHaveLength(1)
+      expect(toasts).toEqual([{ message: 'Host updated', severity: 'success' }])
+    })
+
+    it('still shows the failure toast and opens nothing when the update fails after the dialog was dismissed', async () => {
+      const user = setupUser()
+      let rejectUpdate: (reason: Error) => void = () => undefined
+      updateHostGate = new Promise<HostListItem>((_res, rej) => { rejectUpdate = rej })
+      updateHostGate.catch(() => null)
+      await saveEdit(user)
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      await act(() => Promise.resolve(rejectUpdate(new Error('Agent URL is not reachable'))))
+      await waitFor(() => expect(toasts).toEqual([{ message: 'Agent URL is not reachable', severity: 'error' }]))
+      expect(screen.queryAllByRole('dialog')).toHaveLength(0)
+    })
+
+    it('leaves another host\'s edit dialog open when the first save succeeds after the switch', async () => {
+      const user = setupUser()
+      hostsRows = [makeHost({ id: 1, name: 'server1' }), makeHost({ id: 2, name: 'server2' })]
+      let resolveUpdate: (host: HostListItem) => void = () => undefined
+      updateHostGate = new Promise<HostListItem>((res) => { resolveUpdate = res })
+      renderCard()
+      await screen.findByText('server2')
+      await user.click(screen.getAllByLabelText('edit host')[0])
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      await user.click(screen.getAllByLabelText('edit host')[1])
+      await act(() => Promise.resolve(resolveUpdate(makeHost())))
+      await waitFor(() => expect(toasts).toEqual([{ message: 'Host updated', severity: 'success' }]))
+      expect(screen.getAllByRole('dialog')).toHaveLength(1)
+      expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
     })
   })
 
