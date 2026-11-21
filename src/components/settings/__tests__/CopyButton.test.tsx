@@ -3,13 +3,39 @@ import { render, screen, act } from '@testing-library/react'
 import '@/lib/test/testing-library'
 import CopyButton from '@/components/settings/CopyButton'
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers'
-import { setupUser, installPassthroughAsyncWrapper, activateWithKey } from '@/lib/test/user-event'
+import { COPY_FEEDBACK_MS } from '@/lib/constants/ui-timing'
+import { setupUser, installPassthroughAsyncWrapper, activateWithKey, type TestUser } from '@/lib/test/user-event'
 
 installPassthroughAsyncWrapper()
 
 describe('CopyButton', () => {
   let writeTextMock: ReturnType<typeof mock>
   let timers: TimerMock
+
+  const tooltipText = () => document.querySelector('[data-slot="tooltip-content"]')?.textContent
+
+  // The tooltip opens on keyboard focus and closes on press, so tab away and back to read it after a click.
+  async function reopenTooltip(user: TestUser) {
+    await act(async () => {
+      await user.tab()
+      await user.tab()
+    })
+  }
+
+  function revertCopiedState() {
+    const timer = timers.scheduled.find((t) => t.delayMs === COPY_FEEDBACK_MS && !t.fired)
+    expect(timer).toBeDefined()
+    act(() => {
+      void timers.fire(timer!)
+    })
+  }
+
+  // user-event installs its own clipboard stub in setup(), so the clipboard under test goes in after it.
+  function setupUserWithClipboard(clipboard: unknown) {
+    const user = setupUser({ timersCaptured: true })
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, writable: true, configurable: true })
+    return user
+  }
 
   beforeEach(() => {
     writeTextMock = mock(() => Promise.resolve())
@@ -20,43 +46,34 @@ describe('CopyButton', () => {
     timers.restore()
   })
 
-  it('renders copy icon initially', () => {
+  it('renders the copy icon, not the check icon, before anything is copied', () => {
     render(<CopyButton text="hello" label="greeting" />)
-    expect(screen.getByLabelText('Copy greeting')).toBeDefined()
-    // check icon should not be present
     const button = screen.getByLabelText('Copy greeting')
-    // Copy icon is rendered (not Check icon)
-    expect(button.querySelector('svg')).toBeDefined()
+    expect(button.querySelector('.lucide-copy')).not.toBeNull()
+    expect(button.querySelectorAll('.lucide-check').length).toBe(0)
   })
 
-  it('shows tooltip with copy label initially', () => {
+  it('shows the Copy label tooltip before anything is copied', async () => {
+    const user = setupUser({ timersCaptured: true })
     render(<CopyButton text="hello" label="token" />)
-    expect(screen.getByLabelText('Copy token')).toBeDefined()
+    await act(async () => {
+      await user.tab()
+    })
+    expect(tooltipText()).toBe('Copy token')
   })
 
   it('calls navigator.clipboard.writeText with the text prop when clicked', async () => {
-    const user = setupUser({ timersCaptured: true })
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: writeTextMock },
-      writable: true,
-      configurable: true,
-    })
+    const user = setupUserWithClipboard({ writeText: writeTextMock })
     render(<CopyButton text="my-secret-token" label="token" />)
-    const button = screen.getByLabelText('Copy token')
     await act(async () => {
-      await user.click(button)
+      await user.click(screen.getByLabelText('Copy token'))
     })
     expect(writeTextMock).toHaveBeenCalledTimes(1)
     expect(writeTextMock).toHaveBeenCalledWith('my-secret-token')
   })
 
   it.each(['{Enter}', ' '] as const)('copies when activated from the keyboard with %j', async (key) => {
-    const user = setupUser({ timersCaptured: true })
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: writeTextMock },
-      writable: true,
-      configurable: true,
-    })
+    const user = setupUserWithClipboard({ writeText: writeTextMock })
     render(<CopyButton text="my-secret-token" label="token" />)
     await act(async () => {
       await activateWithKey(user, screen.getByLabelText('Copy token'), key)
@@ -65,73 +82,86 @@ describe('CopyButton', () => {
     expect(writeTextMock).toHaveBeenCalledWith('my-secret-token')
   })
 
-  it('schedules a timeout to revert the copied state after clicking', async () => {
+  it('switches to the check icon and a Copied! tooltip after clicking', async () => {
     const user = setupUser({ timersCaptured: true })
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
     await act(async () => {
       await user.click(button)
     })
-    expect(timers.setSpy).toHaveBeenCalledTimes(1)
+    expect(button.querySelector('.lucide-check')).not.toBeNull()
+    expect(button.querySelectorAll('.lucide-copy').length).toBe(0)
+    await reopenTooltip(user)
+    expect(tooltipText()).toBe('Copied!')
   })
 
-  it('reverts to copy icon after timeout fires', async () => {
+  it('schedules the revert after the copy feedback delay', async () => {
+    const user = setupUser({ timersCaptured: true })
+    render(<CopyButton text="hello" label="greeting" />)
+    await act(async () => {
+      await user.click(screen.getByLabelText('Copy greeting'))
+    })
+    expect(timers.delays).toContain(COPY_FEEDBACK_MS)
+  })
+
+  it('reverts to the copy icon and the Copy label tooltip when the timeout fires', async () => {
     const user = setupUser({ timersCaptured: true })
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
-
     await act(async () => {
       await user.click(button)
     })
+    expect(button.querySelector('.lucide-check')).not.toBeNull()
 
-    act(() => {
-      timers.fireNext()
-    })
+    revertCopiedState()
 
-    // After reset, aria-label should still say 'Copy greeting' (not changed)
-    expect(screen.getByLabelText('Copy greeting')).toBeDefined()
+    expect(button.querySelector('.lucide-copy')).not.toBeNull()
+    expect(button.querySelectorAll('.lucide-check').length).toBe(0)
+    await reopenTooltip(user)
+    expect(tooltipText()).toBe('Copy greeting')
   })
 
-  it('still gives copied feedback on insecure origins where navigator.clipboard is undefined', async () => {
-    const user = setupUser({ timersCaptured: true })
-    Object.defineProperty(navigator, 'clipboard', {
-      value: undefined,
-      writable: true,
-      configurable: true,
-    })
-    const execCommandMock = mock(() => true)
-    Object.defineProperty(document, 'execCommand', {
-      value: execCommandMock,
-      writable: true,
-      configurable: true,
+  describe('on insecure origins where navigator.clipboard is undefined', () => {
+    let copiedValues: string[]
+
+    beforeEach(() => {
+      copiedValues = []
+      Object.defineProperty(document, 'execCommand', {
+        value: mock((command: string) => {
+          copiedValues.push(`${command}:${document.querySelector('textarea')?.value}`)
+          return true
+        }),
+        writable: true,
+        configurable: true,
+      })
     })
 
-    render(<CopyButton text="insecure" label="token" />)
-    const button = screen.getByLabelText('Copy token')
-    await act(async () => {
-      await user.click(button)
+    afterEach(() => {
+      delete (document as { execCommand?: unknown }).execCommand
     })
 
-    expect(execCommandMock).toHaveBeenCalledWith('copy')
-    // Optimistic feedback: the check icon (with its enter animation) renders
-    // immediately without waiting on a clipboard promise.
-    expect(button.querySelector('.lucide-check')).toBeDefined()
-
-    delete (document as { execCommand?: unknown }).execCommand
-  })
-
-  it('does not throw when clipboard.writeText resolves', async () => {
-    writeTextMock = mock(() => Promise.resolve())
-    const user = setupUser({ timersCaptured: true })
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: writeTextMock },
-      writable: true,
-      configurable: true,
+    it('copies the text through a temporary textarea and removes it afterwards', async () => {
+      const user = setupUserWithClipboard(undefined)
+      render(<CopyButton text="insecure-token" label="token" />)
+      await act(async () => {
+        await user.click(screen.getByLabelText('Copy token'))
+      })
+      expect(copiedValues).toEqual(['copy:insecure-token'])
+      expect(document.querySelectorAll('textarea').length).toBe(0)
     })
-    render(<CopyButton text="test" label="test label" />)
-    await act(async () => {
-      await user.click(screen.getByLabelText('Copy test label'))
+
+    it('still gives copied feedback and reverts it', async () => {
+      const user = setupUserWithClipboard(undefined)
+      render(<CopyButton text="insecure" label="token" />)
+      const button = screen.getByLabelText('Copy token')
+      await act(async () => {
+        await user.click(button)
+      })
+      expect(button.querySelector('.lucide-check')).not.toBeNull()
+
+      revertCopiedState()
+
+      expect(button.querySelector('.lucide-copy')).not.toBeNull()
     })
-    expect(writeTextMock).toHaveBeenCalledTimes(1)
   })
 })
