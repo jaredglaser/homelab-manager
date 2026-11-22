@@ -1243,6 +1243,67 @@ describe('DeployPipeline', () => {
       });
     });
 
+    function useAgent(agent: AgentClient): void {
+      agentClientFactory = mock().mockReturnValue(agent);
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
+      });
+    }
+
+    async function loggedLines(): Promise<string[]> {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await pipeline.execute(testUpdateRequest);
+        await drainDetached();
+        return errorSpy.mock.calls.map((call) => String(call[0]));
+      } finally {
+        errorSpy.mockRestore();
+      }
+    }
+
+    it('logs a failed compose run to the server log with its exit code and the end of its output', async () => {
+      const longLog = `${'progress line\n'.repeat(500)}Error response from daemon: pull access denied`;
+      useAgent({
+        ...createMockAgentClient(false),
+        update: mock().mockResolvedValue({ success: false, logs: longLog, exitCode: 137 }),
+      } as unknown as AgentClient);
+
+      const failure = (await loggedLines()).find((line) => line.startsWith('Deploy dispatch failed for stack "plex" on host "homeserver"'));
+
+      expect(deployRepo.updateStatus).toHaveBeenCalledWith(1, 'failed', longLog);
+      expect(failure).toContain('deploy 1, exit code 137');
+      expect(failure).toEndWith('Error response from daemon: pull access denied"');
+      expect(failure?.length).toBeLessThan(2500);
+    });
+
+    it('logs the output tail as one escaped line so container output cannot forge a log line', async () => {
+      useAgent({
+        ...createMockAgentClient(false),
+        update: mock().mockResolvedValue({ success: false, logs: 'first\n[Pipeline] forged line\r\u0007', exitCode: 1 }),
+      } as unknown as AgentClient);
+
+      const failure = (await loggedLines()).find((line) => line.startsWith('Deploy dispatch failed'));
+
+      expect(failure).toEndWith('"first\\n[Pipeline] forged line\\r\\u0007"');
+      expect(['\r', '\n', '\u0007'].some((ch) => failure?.includes(ch))).toBe(false);
+    });
+
+    it('logs unknown when a failed compose run sent no exit code', async () => {
+      useAgent(createMockAgentClient(false));
+
+      expect((await loggedLines()).some((line) => line.includes('exit code unknown): "update failed"'))).toBe(true);
+    });
+
+    it('does not log a failure for a succeeded compose run', async () => {
+      expect((await loggedLines()).some((line) => line.startsWith('Deploy dispatch failed'))).toBe(false);
+    });
+
     it('records failure when the agent update call throws (e.g. 404 old-agent error)', async () => {
       agentClientFactory = mock().mockReturnValue({
         deploy: mock(),

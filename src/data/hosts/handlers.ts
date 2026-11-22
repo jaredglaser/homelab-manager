@@ -7,7 +7,7 @@ import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failur
 import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
-import { agentFetch } from '@/lib/clients/agent-http';
+import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
@@ -43,37 +43,6 @@ export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode
 
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult<UpdateFailureCode>;
-
-// A proxy's error page can stand in for the agent's reply, and the whole body would reach the operator's row.
-const MAX_REFUSAL_DETAIL_CHARS = 300;
-const MAX_REFUSAL_BODY_BYTES = 8192;
-
-async function readBoundedBody(response: Response, maxBytes: number): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return '';
-  const decoder = new TextDecoder();
-  let text = '';
-  let total = 0;
-  try {
-    while (total < maxBytes) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      text += decoder.decode(value, { stream: true });
-    }
-  } catch {
-    return text;
-  } finally {
-    await reader.cancel().catch(() => undefined);
-  }
-  return text;
-}
-
-// Control characters include newlines, so a plain-text body cannot start a forged log line.
-function singleLine(text: string): string {
-  const flat = text.replace(/\p{Cc}+/gu, ' ').trim();
-  return flat.length > MAX_REFUSAL_DETAIL_CHARS ? `${flat.slice(0, MAX_REFUSAL_DETAIL_CHARS)}...` : flat;
-}
 
 const NOT_AN_AGENT_ERROR = 'The answer was not an error message in the form the manager reads, so it may not have come from the agent.';
 
@@ -465,7 +434,7 @@ export async function handleUpdateAgent(
   }
 
   if (triggerResponse.status !== 202) {
-    const body = await readBoundedBody(triggerResponse, MAX_REFUSAL_BODY_BYTES);
+    const body = await readBoundedBody(triggerResponse, MAX_AGENT_FAILURE_BODY_BYTES);
     const { code, message } = readUpdateRefusal(triggerResponse, body);
     console.error(`[hosts] Agent update refused for ${host.name}: HTTP ${triggerResponse.status} ${code}: ${message}`);
     return { hostId: host.id, healthy: false, code, message };
