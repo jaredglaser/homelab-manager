@@ -24,6 +24,8 @@ import {
   UNIFY_ORPHAN,
   UNIFY_PLAIN,
   UNIFY_REPLICA,
+  LEGACY_RESTART_DEPLOY,
+  NULL_INVARIANT_ROWS,
 } from './fixture';
 
 const DOCKER_COLUMNS = `(
@@ -53,6 +55,8 @@ export async function seed(pool: Pool): Promise<void> {
   await seedEntityMetadata(pool);
   await seedServiceKeyUnification(pool);
   await seedImageUpdateChecks(pool);
+  await seedLegacyRestartDeploy(pool);
+  await seedNullInvariantRows(pool);
 }
 
 /**
@@ -492,5 +496,35 @@ async function seedServiceKeyUnification(pool: Pool): Promise<void> {
      SELECT 'docker', t.entity, t.key, t.value, NOW()
      FROM unnest($1::text[], $2::text[], $3::text[]) AS t(entity, key, value)`,
     [metadataRows.map(r => r[0]), metadataRows.map(r => r[1]), metadataRows.map(r => r[2])]
+  );
+}
+
+/** A base that already tightened the action CHECK (044) cannot hold a restart row, so it is only seeded when the schema allows one. */
+async function seedLegacyRestartDeploy(pool: Pool): Promise<void> {
+  const constraint = await pool.query<{ definition: string }>(
+    `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+     WHERE conname = 'deploy_history_action_check' AND conrelid = 'deploy_history'::regclass`
+  );
+  if (!constraint.rows[0]?.definition.includes("'restart'")) return;
+  await pool.query(
+    `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, status, trigger, action)
+     VALUES ($1, $2, $3, 'compose-hash', 'env-hash', $4, 'ui', 'restart')`,
+    [LEGACY_RESTART_DEPLOY.stack, DOCKER_HOST, LEGACY_RESTART_DEPLOY.commitSha, LEGACY_RESTART_DEPLOY.status]
+  );
+}
+
+async function seedNullInvariantRows(pool: Pool): Promise<void> {
+  const nullable = await pool.query<{ is_nullable: string }>(
+    `SELECT is_nullable FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'managed_hosts' AND column_name = 'status'`
+  );
+  if (nullable.rows[0]?.is_nullable !== 'YES') return;
+  await pool.query(
+    `INSERT INTO managed_hosts (name, agent_url, status) VALUES ($1, 'http://localhost:9090', NULL)`,
+    [NULL_INVARIANT_ROWS.host]
+  );
+  await pool.query(
+    `INSERT INTO entity_metadata (source, entity, key, value) VALUES ('docker', $1, 'icon', NULL)`,
+    [NULL_INVARIANT_ROWS.metadataEntity]
   );
 }

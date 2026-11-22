@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { StatsRepository, resolveStatsTier } from '../stats-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
+import { resetDegradedRowEnums } from '../row-enum';
 
 const NOW_MS = Date.now();
 
@@ -21,6 +22,7 @@ describe('StatsRepository', () => {
   let consoleErrorSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
+    resetDegradedRowEnums();
     mockPool = createMockPool();
     repo = new StatsRepository(mockPool.pool);
     consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
@@ -375,7 +377,7 @@ describe('StatsRepository', () => {
 
     it('should return rows set via setDefault', async () => {
       const rawRow = {
-        time: '2024-01-01T00:00:00.000Z',
+        time: new Date('2024-01-01T00:00:00.000Z'),
         host: 'default-host',
         pool: 'data',
         entity: 'data',
@@ -396,20 +398,20 @@ describe('StatsRepository', () => {
       mockPool.setDefault([]);
     });
 
-    it('should map rows through toZFSStatsRow coercing BIGINT strings to numbers', async () => {
+    it('should map a zfs row through toZFSStatsRow', async () => {
       const rawRow = {
-        time: '2024-01-01T00:00:00.000Z',
+        time: new Date('2024-01-01T00:00:00.000Z'),
         host: 'server1',
         pool: 'tank',
         entity: 'tank',
         entity_type: 'pool',
-        indent: '0',
-        capacity_alloc: '1000000000',
-        capacity_free: '2000000000',
-        read_ops_per_sec: '42',
-        write_ops_per_sec: '7',
-        read_bytes_per_sec: '1048576',
-        write_bytes_per_sec: '512',
+        indent: 0,
+        capacity_alloc: 1000000000,
+        capacity_free: 2000000000,
+        read_ops_per_sec: 42,
+        write_ops_per_sec: 7,
+        read_bytes_per_sec: 1048576,
+        write_bytes_per_sec: 512,
         utilization_percent: null,
       };
       mockPool.pushResult([rawRow]);
@@ -755,6 +757,60 @@ describe('StatsRepository', () => {
       const result = await repo.getProxmoxStatsSince(new Date());
       expect(result).toEqual([{ ...mockRows[0], time: rowTime.getTime() }]);
     });
+
+    it('skips and logs a row whose entity_type the schema does not know, keeping the rest of the batch', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      const rowTime = new Date('2024-01-01T00:00:00Z');
+      const valid = {
+        time: rowTime, host: 'h', entity_type: 'node' as const,
+        node: 'pve1', entity_id: 'pve1', entity_name: 'pve1',
+        status: 'online', cpu: 1, max_cpu: 4,
+        mem: null, max_mem: null, disk: null, max_disk: null,
+        uptime: null, vmid: null, netin: null, netout: null,
+        storage_type: null, storage_content: null, storage_avail: null,
+        storage_shared: null, cluster_version: null,
+      };
+      mockPool.pushResult([{ ...valid, entity_type: 'vm' }, valid]);
+
+      const result = await repo.getProxmoxStatsSince(new Date());
+
+      expect(result).toEqual([{ ...valid, time: rowTime.getTime() }]);
+      expect(String(errorSpy.mock.calls[0][0])).toContain('proxmox_stats.entity_type');
+      errorSpy.mockRestore();
+    });
+
+    it('logs an unknown entity_type once across repeated polls, while still skipping every row', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      const bad = {
+        time: new Date(), host: 'h', entity_type: 'vm',
+        node: null, entity_id: 'x', entity_name: null, status: null, cpu: null, max_cpu: null,
+        mem: null, max_mem: null, disk: null, max_disk: null,
+        uptime: null, vmid: null, netin: null, netout: null,
+        storage_type: null, storage_content: null, storage_avail: null,
+        storage_shared: null, cluster_version: null,
+      };
+      for (let poll = 0; poll < 5; poll += 1) {
+        mockPool.pushResult([bad, bad]);
+        expect(await repo.getProxmoxStatsSince(new Date())).toEqual([]);
+      }
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      errorSpy.mockRestore();
+    });
+
+    it('skips an unknown entity_type on the history read too', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mockPool.pushResult([{
+        time: new Date(), host: 'h', entity_type: 'vm',
+        node: null, entity_id: 'x', entity_name: null, status: null, cpu: null, max_cpu: null,
+        mem: null, max_mem: null, disk: null, max_disk: null,
+        uptime: null, vmid: null, netin: null, netout: null,
+        storage_type: null, storage_content: null, storage_avail: null,
+        storage_shared: null, cluster_version: null,
+      }]);
+
+      expect(await repo.getProxmoxStatsHistory(60)).toEqual([]);
+      errorSpy.mockRestore();
+    });
   });
 
   describe('getProxmoxStatsHistory', () => {
@@ -944,92 +1000,50 @@ describe('StatsRepository', () => {
     });
   });
 
-  describe('numeric coercion through the aggregate views', () => {
-    it('converts numeric strings from docker_stats_1h_avg to numbers', async () => {
-      mockPool.pushResult([{
-        time: '2024-01-01T00:00:00.000Z',
-        host: 'server1',
-        container_id: 'abc123',
-        container_name: 'nginx',
-        image: 'nginx:latest',
-        cpu_percent: '12.5',
-        memory_usage: '1073741824',
-        memory_limit: '2147483648',
-        memory_percent: '50',
-        network_rx_bytes_per_sec: '1024',
-        network_tx_bytes_per_sec: '2048',
-        block_io_read_bytes_per_sec: '4096',
-        block_io_write_bytes_per_sec: '8192',
-      }]);
+  describe('numeric columns reach the wire as float8', () => {
+    it('casts the BIGINT and numeric docker columns on the raw read and both history shapes', async () => {
+      await repo.getDockerStatsSince(new Date('2024-01-01T00:00:00Z'));
+      await repo.getDockerStatsHistory(172801);
+      await repo.getDockerStatsForContainer(['abc123'], undefined, new Date('2024-01-01T00:00:00Z'), new Date('2024-01-02T00:00:00Z'));
 
-      const [row] = await repo.getDockerStatsHistory(172801);
-
-      expect(typeof row.memory_usage).toBe('number');
-      expect(typeof row.memory_limit).toBe('number');
-      expect(row.memory_usage).toBe(1073741824);
-      expect(row.cpu_percent).toBe(12.5);
+      const [rawSql, historySql, , containerSql] = mockPool.queries.map((query) => query.sql);
+      expect(rawSql).toContain('memory_usage::float8 AS memory_usage');
+      expect(rawSql).toContain('memory_limit::float8 AS memory_limit');
+      for (const sql of [historySql, containerSql]) {
+        expect(sql).toContain('AVG(memory_usage)::float8');
+        expect(sql).toContain('AVG(memory_limit)::float8');
+      }
     });
 
-    it('converts numeric strings from zfs_stats_1h_avg to numbers', async () => {
-      mockPool.pushResult([{
-        time: '2024-01-01T00:00:00.000Z',
-        host: 'server1',
-        pool: 'tank',
-        entity: 'tank',
-        entity_type: 'pool',
-        indent: '0',
-        capacity_alloc: '1000000000',
-        capacity_free: '2000000000',
-        read_ops_per_sec: '42.5',
-        write_ops_per_sec: '7',
-        read_bytes_per_sec: '1048576',
-        write_bytes_per_sec: '512',
-        utilization_percent: '33.3',
-      }]);
+    it('casts the BIGINT and numeric zfs columns on the raw read and the history read', async () => {
+      await repo.getZFSStatsSince(new Date('2024-01-01T00:00:00Z'));
+      await repo.getZFSStatsHistory(172801);
 
-      const [row] = await repo.getZFSStatsHistory(172801);
-
-      expect(typeof row.capacity_alloc).toBe('number');
-      expect(typeof row.capacity_free).toBe('number');
-      expect(row.capacity_alloc).toBe(1000000000);
-      expect(row.utilization_percent).toBe(33.3);
+      const [rawSql, historySql] = mockPool.queries.map((query) => query.sql);
+      expect(rawSql).toContain('capacity_alloc::float8 AS capacity_alloc');
+      expect(rawSql).toContain('capacity_free::float8  AS capacity_free');
+      expect(historySql).toContain('AVG(capacity_alloc)::float8');
+      expect(historySql).toContain('AVG(capacity_free)::float8');
     });
 
-    it('converts numeric strings from proxmox_stats_1h_avg to numbers', async () => {
-      mockPool.pushResult([{
-        time: '2024-01-01T00:00:00.000Z',
-        host: 'pve',
-        entity_type: 'qemu',
-        node: 'pve1',
-        entity_id: '100',
-        entity_name: 'vm',
-        status: 'running',
-        cpu: '0.25',
-        max_cpu: '4',
-        mem: '4294967296',
-        max_mem: '8589934592',
-        disk: '10737418240',
-        max_disk: '21474836480',
-        uptime: '86400',
-        vmid: '100',
-        netin: '123456789',
-        netout: '987654321',
-        storage_type: null,
-        storage_content: null,
-        storage_avail: '5368709120',
-        storage_shared: null,
-        cluster_version: '3',
-        sample_count: '3600',
-      }]);
+    it('selects an explicit float8-cast projection on the raw and rollup proxmox queries', async () => {
+      await repo.getProxmoxStatsSince(new Date('2024-01-01T00:00:00Z'));
+      await repo.getProxmoxStatsHistory(172801);
 
-      const [row] = await repo.getProxmoxStatsHistory(172801);
-
-      expect(typeof row.mem).toBe('number');
-      expect(typeof row.storage_avail).toBe('number');
-      expect(typeof row.netin).toBe('number');
-      expect(row.mem).toBe(4294967296);
-      expect(row.netin).toBe(123456789);
-      expect(row.uptime).toBe(86400);
+      const rawSql = mockPool.queries[0].sql;
+      const rollupSql = mockPool.queries[1].sql;
+      for (const sql of [rawSql, rollupSql]) {
+        expect(sql).toContain('mem::float8 AS mem');
+        expect(sql).toContain('max_mem::float8 AS max_mem');
+        expect(sql).toContain('disk::float8 AS disk');
+        expect(sql).toContain('max_disk::float8 AS max_disk');
+        expect(sql).toContain('uptime::float8 AS uptime');
+        expect(sql).toContain('netin::float8 AS netin');
+        expect(sql).toContain('netout::float8 AS netout');
+        expect(sql).toContain('storage_avail::float8 AS storage_avail');
+      }
+      expect(rawSql).toContain('FROM proxmox_stats WHERE');
+      expect(rollupSql).toContain('FROM proxmox_stats_1h_avg');
     });
   });
 

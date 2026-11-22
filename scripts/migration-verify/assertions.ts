@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { Checks } from './checks';
+import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import {
   ACTIVE_CONTAINER,
   TLS_HOST,
@@ -25,6 +26,8 @@ import {
   sparseHourNaiveAverage,
   sparseHourRawAverage,
   BACKFILL_SENTINEL,
+  LEGACY_RESTART_DEPLOY,
+  NULL_INVARIANT_ROWS,
   UNIFY_COMPOSE,
   UNIFY_DESTROYED,
   UNIFY_ORPHAN,
@@ -385,6 +388,16 @@ export async function captureRowCounts(pool: Pool): Promise<RowCountSnapshot> {
     'SELECT count(*) FROM proxmox_stats WHERE host = $1',
     [PROXMOX_HOST]
   );
+  snapshot['managed_hosts'] = await count(pool, 'SELECT count(*) FROM managed_hosts');
+  snapshot['entity_metadata'] = await count(pool, 'SELECT count(*) FROM entity_metadata WHERE value IS NOT NULL');
+  const nullStatusHosts = await count(pool, 'SELECT count(*) FROM managed_hosts WHERE name = $1', [
+    NULL_INVARIANT_ROWS.host,
+  ]);
+  if (nullStatusHosts > 0) snapshot[NULL_INVARIANT_ROWS.countLabel] = nullStatusHosts;
+  const legacyRestarts = await count(pool, 'SELECT count(*) FROM deploy_history WHERE stack = $1', [
+    LEGACY_RESTART_DEPLOY.stack,
+  ]);
+  if (legacyRestarts > 0) snapshot[LEGACY_RESTART_DEPLOY.countLabel] = legacyRestarts;
   return snapshot;
 }
 
@@ -1361,6 +1374,105 @@ export async function assertAgentTlsCertificates(pool: Pool, checks: Checks): Pr
   checks.equal(
     'deleting the host deletes its certificate row',
     await count(pool, 'SELECT count(*) FROM agent_tls_certificates'),
+    0
+  );
+}
+
+export async function assertReadInvariantConstraints(pool: Pool, checks: Checks): Promise<void> {
+  for (const [table, column] of [['managed_hosts', 'status'], ['entity_metadata', 'value']]) {
+    const info = await selectRow<{ is_nullable: string }>(
+      pool,
+      `SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+      [table, column]
+    );
+    checks.equal(`${table}.${column} is NOT NULL`, info?.is_nullable, 'NO');
+  }
+
+  const definition = await selectRow<{ definition: string }>(
+    pool,
+    `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+     WHERE conname = 'deploy_history_action_check' AND conrelid = 'deploy_history'::regclass`
+  );
+  checks.equal('deploy_history action CHECK no longer allows restart', definition?.definition.includes("'restart'"), false);
+  checks.equal('deploy_history action CHECK allows update', definition?.definition.includes("'update'"), true);
+
+  const client = await pool.connect();
+  let refusal: string | undefined;
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO managed_hosts (name, agent_url) VALUES ('ci-action-check', 'http://localhost:9090')`
+    );
+    await client.query(
+      `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, trigger, action)
+       VALUES ('ci-action-check', 'ci-action-check', 'sha', 'c', 'e', 'ui', 'restart')`
+    );
+  } catch (err) {
+    refusal = (err as { code?: string }).code;
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+  checks.equal('the database refuses a restart deploy row', refusal, '23514');
+}
+
+/** Drives the real repository reads, since the typed read path throws on an action outside DeployAction. */
+export async function assertLegacyRestartDeploy(pool: Pool, checks: Checks): Promise<void> {
+  const row = await selectRow<{ action: string; status: string }>(
+    pool,
+    'SELECT action, status FROM deploy_history WHERE stack = $1',
+    [LEGACY_RESTART_DEPLOY.stack]
+  );
+  checks.equal('the legacy restart row is relabeled deploy', row?.action, 'deploy');
+  checks.equal('the legacy restart row keeps its status', row?.status, LEGACY_RESTART_DEPLOY.status);
+
+  const repository = new DeployRepository(pool);
+  const settle = async <T>(read: () => Promise<T>): Promise<T | string> => {
+    try {
+      return await read();
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  };
+
+  const latest = await settle(() => repository.getLatestSuccessful(LEGACY_RESTART_DEPLOY.stack, DOCKER_HOST));
+  checks.equal(
+    'getLatestSuccessful reads the relabeled row',
+    typeof latest === 'string' ? latest : latest?.action,
+    'deploy'
+  );
+  const perStack = await settle(() => repository.getLatestDeployPerStack());
+  checks.equal(
+    'getLatestDeployPerStack reads the relabeled row',
+    typeof perStack === 'string' ? perStack : perStack.find(r => r.stack === LEGACY_RESTART_DEPLOY.stack)?.action,
+    'deploy'
+  );
+  const history = await settle(() => repository.getDeployHistory(LEGACY_RESTART_DEPLOY.stack, DOCKER_HOST, 10));
+  checks.equal(
+    'getDeployHistory reads the relabeled row',
+    typeof history === 'string' ? history : history.map(r => r.action).join(','),
+    'deploy'
+  );
+}
+
+export async function assertNullInvariantRepair(pool: Pool, checks: Checks): Promise<void> {
+  const host = await selectRow<{ status: string }>(pool, 'SELECT status FROM managed_hosts WHERE name = $1', [
+    NULL_INVARIANT_ROWS.host,
+  ]);
+  checks.equal('a managed host with a NULL status becomes unhealthy', host?.status, 'unhealthy');
+  checks.equal(
+    'no repaired host is left pending, which would allow plaintext enrollment',
+    await count(pool, `SELECT count(*) FROM managed_hosts WHERE name = $1 AND status = 'pending'`, [
+      NULL_INVARIANT_ROWS.host,
+    ]),
+    0
+  );
+  checks.equal(
+    'an entity_metadata row with a NULL value is deleted',
+    await count(pool, 'SELECT count(*) FROM entity_metadata WHERE entity = $1', [
+      NULL_INVARIANT_ROWS.metadataEntity,
+    ]),
     0
   );
 }

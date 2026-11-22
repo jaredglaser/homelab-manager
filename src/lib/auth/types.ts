@@ -1,4 +1,5 @@
-export type Role = 'admin' | 'operator' | 'viewer';
+export const ROLE_VALUES = ['admin', 'operator', 'viewer'] as const;
+export type Role = (typeof ROLE_VALUES)[number];
 
 export interface AuthUser {
   id: number;

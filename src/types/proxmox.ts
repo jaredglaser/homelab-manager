@@ -4,6 +4,7 @@
  * These types model the JSON responses from the Proxmox REST API.
  * All API responses are wrapped in { data: T }.
  */
+import { z } from 'zod';
 
 /** Generic Proxmox API response wrapper */
 export interface ProxmoxResponse<T> {
@@ -158,12 +159,18 @@ export type GuestRow = {
   netout: number
 }
 
+export const zProxmoxEntityType = z.enum(['cluster', 'node', 'qemu', 'lxc', 'storage']);
+
+export type ProxmoxEntityType = z.infer<typeof zProxmoxEntityType>;
+
+export const PROXMOX_ENTITY_TYPE_VALUES = zProxmoxEntityType.options;
+
 /** Wide row from proxmox_stats hypertable */
 export interface ProxmoxStatsRow {
   /** Epoch ms, converted at the repository read path */
   time: number;
   host: string;
-  entity_type: 'cluster' | 'node' | 'qemu' | 'lxc' | 'storage';
+  entity_type: ProxmoxEntityType;
   node: string | null;
   entity_id: string;
   entity_name: string | null;

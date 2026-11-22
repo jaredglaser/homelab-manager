@@ -445,6 +445,10 @@ jobs:
       - name: Re-run idempotency
         run: bun scripts/migration-verify/run.ts idempotent
 
+      # Needs this job's database service: it migrates a scratch database and asserts every query<Row> interface against it.
+      - name: Check row wire types
+        run: bun run check:row-types
+
   sonarcloud:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest

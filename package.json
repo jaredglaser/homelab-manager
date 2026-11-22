@@ -14,6 +14,7 @@
     "lint": "eslint . --max-warnings 5808",
     "lint:fix": "eslint . --fix",
     "lint:sse": "eslint src/routes/api agent/src/routes",
+    "check:row-types": "bun scripts/row-wire-types/run.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:agent": "cd agent && bun run typecheck",
     "typecheck:all": "bun run typecheck && bun run typecheck:agent",

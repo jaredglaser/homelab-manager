@@ -1,13 +1,14 @@
 import { z } from 'zod';
 import { statsTopic } from '@/lib/mux/protocol';
 import type { MuxChannel } from '@/lib/mux/use-mux-channel';
+import { zProxmoxEntityType } from '@/types/proxmox';
 
 // time is epoch ms end to end: repository read path converts pg's timestamptz Date, so
 // this schema matches ProxmoxStatsRow exactly and no revive step is needed.
 const zProxmoxStatsWireRow = z.object({
   time: z.number(),
   host: z.string(),
-  entity_type: z.enum(['cluster', 'node', 'qemu', 'lxc', 'storage']),
+  entity_type: zProxmoxEntityType,
   node: z.string().nullable(),
   entity_id: z.string(),
   entity_name: z.string().nullable(),
