@@ -542,7 +542,7 @@ export class DeployPipeline {
     }
 
     if (!result.success) {
-      const exitCode = result.exitCode === undefined ? 'unknown' : String(result.exitCode);
+      const exitCode = result.exitCode == null ? 'unknown' : String(result.exitCode);
       console.error(
         `Deploy dispatch failed for stack "${request.stack}" on host "${host.name}" (deploy ${deployId}, exit code ${exitCode}): ${JSON.stringify(result.logs.slice(-FAILURE_LOG_TAIL_CHARS))}`,
       );

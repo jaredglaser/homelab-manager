@@ -12,7 +12,8 @@ export const zAgentStackResponse = z.object({
   status: z.enum(['success', 'failed']),
   stdout: z.string(),
   stderr: z.string(),
-  exitCode: z.number().optional(),
+  /** Null when the process was killed and never reported an exit. */
+  exitCode: z.number().nullable().optional(),
 });
 export type AgentStackResponse = z.infer<typeof zAgentStackResponse>;
 
