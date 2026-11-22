@@ -3,9 +3,7 @@ import { render, screen, act } from '@testing-library/react'
 import '@/lib/test/testing-library'
 import CopyButton from '@/components/settings/CopyButton'
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers'
-import { setupUser, installPassthroughAsyncWrapper, activateWithKey } from '@/lib/test/user-event'
-
-installPassthroughAsyncWrapper()
+import { setupUser, activateWithKey } from '@/lib/test/user-event'
 
 describe('CopyButton', () => {
   let writeTextMock: ReturnType<typeof mock>
@@ -43,9 +41,7 @@ describe('CopyButton', () => {
     })
     render(<CopyButton text="my-secret-token" label="token" />)
     const button = screen.getByLabelText('Copy token')
-    await act(async () => {
-      await user.click(button)
-    })
+    await user.click(button)
     expect(writeTextMock).toHaveBeenCalledTimes(1)
     expect(writeTextMock).toHaveBeenCalledWith('my-secret-token')
   })
@@ -58,9 +54,7 @@ describe('CopyButton', () => {
       configurable: true,
     })
     render(<CopyButton text="my-secret-token" label="token" />)
-    await act(async () => {
-      await activateWithKey(user, screen.getByLabelText('Copy token'), key)
-    })
+    await activateWithKey(user, screen.getByLabelText('Copy token'), key)
     expect(writeTextMock).toHaveBeenCalledTimes(1)
     expect(writeTextMock).toHaveBeenCalledWith('my-secret-token')
   })
@@ -69,9 +63,7 @@ describe('CopyButton', () => {
     const user = setupUser({ timersCaptured: true })
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
-    await act(async () => {
-      await user.click(button)
-    })
+    await user.click(button)
     expect(timers.setSpy).toHaveBeenCalledTimes(1)
   })
 
@@ -80,9 +72,7 @@ describe('CopyButton', () => {
     render(<CopyButton text="hello" label="greeting" />)
     const button = screen.getByLabelText('Copy greeting')
 
-    await act(async () => {
-      await user.click(button)
-    })
+    await user.click(button)
 
     act(() => {
       timers.fireNext()
@@ -108,9 +98,7 @@ describe('CopyButton', () => {
 
     render(<CopyButton text="insecure" label="token" />)
     const button = screen.getByLabelText('Copy token')
-    await act(async () => {
-      await user.click(button)
-    })
+    await user.click(button)
 
     expect(execCommandMock).toHaveBeenCalledWith('copy')
     // Optimistic feedback: the check icon (with its enter animation) renders
@@ -129,9 +117,7 @@ describe('CopyButton', () => {
       configurable: true,
     })
     render(<CopyButton text="test" label="test label" />)
-    await act(async () => {
-      await user.click(screen.getByLabelText('Copy test label'))
-    })
+    await user.click(screen.getByLabelText('Copy test label'))
     expect(writeTextMock).toHaveBeenCalledTimes(1)
   })
 })

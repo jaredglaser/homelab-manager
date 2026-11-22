@@ -415,6 +415,18 @@ describe('AddHostWizard', () => {
       expect(onCancelVerify).toHaveBeenCalledTimes(1)
     })
 
+    it('cancel button calls onCancelVerify when activated from the keyboard', async () => {
+      const user = setupUser()
+      const onCancelVerify = mock()
+      render(<AddHostWizard {...makeProps({ onCancelVerify, isProvisioning: true })} />)
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await activateWithKey(user, screen.getByTestId('cancel-provisioning'), ' ')
+      expect(onCancelVerify).toHaveBeenCalledTimes(1)
+    })
+
     it('does not show a pubkey display on the verify step: the key lives in the compose', async () => {
       const user = setupUser()
       await navigateToVerify(user)
@@ -560,6 +572,16 @@ describe('AddHostWizard', () => {
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Reset' }))
+      expect(onDiscard).toHaveBeenCalledTimes(1)
+    })
+
+    it('discards the pending host when Reset is activated from the keyboard', async () => {
+      const user = setupUser()
+      const onDiscard = mock()
+      render(<AddHostWizard {...makeProps({ onDiscard })} />)
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await activateWithKey(user, screen.getByRole('button', { name: 'Reset' }), '{Enter}')
       expect(onDiscard).toHaveBeenCalledTimes(1)
     })
 

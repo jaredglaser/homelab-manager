@@ -159,8 +159,6 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
     renderCard()
     await screen.findByText('server1')
     rotateTlsResult = Promise.reject('boom')
-    // The rejection stays unconsumed until the click dispatches the mutation, and bun fails the test on the unhandled rejection, so attach a no-op consumer up front.
-    rotateTlsResult.catch(() => null)
 
     await user.click(screen.getByLabelText('rotate TLS'))
 

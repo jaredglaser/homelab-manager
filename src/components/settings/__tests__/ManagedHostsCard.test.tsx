@@ -133,14 +133,13 @@ describe('ManagedHostsCard', () => {
     it('renders capability chips for docker', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { docker: true } })] })} />)
       expect(screen.getAllByText('Docker').length).toBeGreaterThanOrEqual(1)
-      // Chip is rendered inside the host row
       const chips = document.querySelectorAll('[data-slot="badge"]')
       expect(chips.length).toBeGreaterThanOrEqual(1)
     })
 
     it('renders capability chips for zfs', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { zfs: true } })] })} />)
-      // ZFS chip in host row (wizard also has ZFS checkbox label)
+      // The wizard also renders a ZFS checkbox label, so match the badge, not the text.
       const chips = document.querySelectorAll('[data-slot="badge"]')
       const zfsChip = Array.from(chips).find((c) => c.textContent === 'ZFS')
       expect(zfsChip).toBeDefined()
@@ -244,7 +243,6 @@ describe('ManagedHostsCard', () => {
       const onRemove = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onRemove })} />)
       await user.click(screen.getByLabelText('remove host'))
-      // Click the confirm Remove button (color="error" button inside the dialog)
       const removeBtn = screen.getByRole('button', { name: 'Remove' })
       await user.click(removeBtn)
       expect(onRemove).toHaveBeenCalledWith(1)
@@ -391,8 +389,6 @@ describe('ManagedHostsCard', () => {
       const user = setupUser()
       const { rerender } = render(<ManagedHostsCardView {...makeProps()} />)
       await enterHostName(user)
-      // Navigate to verify step: capabilities -> compose -> configuration -> verify
-      // The Next button is not disabled by isProvisioning, only Back and Verify are
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -521,7 +517,7 @@ describe('ManagedHostsCard', () => {
       const user = setupUser()
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], isUpdating: true })} />)
       await user.click(screen.getByLabelText('edit host'))
-      // When isUpdating, the button shows CircularProgress instead of 'Save' text
+      // While isUpdating the Save label is replaced by a Spinner, so find the button by elimination.
       const dialog = screen.getByRole('dialog')
       const buttons = Array.from(dialog.querySelectorAll('button'))
       const saveBtn = buttons.find((b) => b !== screen.getByRole('button', { name: 'Cancel' }))

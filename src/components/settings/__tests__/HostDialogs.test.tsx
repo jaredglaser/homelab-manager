@@ -64,11 +64,19 @@ describe('RemoveDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('calls onClose when Cancel is activated from the keyboard', async () => {
+    const user = setupUser()
+    const onClose = mock()
+    render(<RemoveDialog {...defaultProps} onClose={onClose} />)
+    await activateWithKey(user, screen.getByRole('button', { name: 'Cancel' }), ' ')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it('disables Remove and Cancel buttons while isRemoving', () => {
     render(<RemoveDialog {...defaultProps} isRemoving={true} />)
     const cancelBtn = screen.getByRole('button', { name: 'Cancel' })
     expect(cancelBtn.hasAttribute('disabled')).toBe(true)
-    // Remove button shows CircularProgress; the button itself is disabled
+    // The Spinner replaces the Remove label, so find the button by elimination.
     const buttons = screen.getAllByRole('button')
     const removeBtn = buttons.find((b) => b !== cancelBtn)
     expect(removeBtn?.hasAttribute('disabled')).toBe(true)
@@ -176,6 +184,14 @@ describe('EditDialog', () => {
     const onClose = mock(() => {})
     render(<EditDialog {...defaultProps} onClose={onClose} />)
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls onClose when Cancel is activated from the keyboard', async () => {
+    const user = setupUser()
+    const onClose = mock()
+    render(<EditDialog {...defaultProps} onClose={onClose} />)
+    await activateWithKey(user, screen.getByRole('button', { name: 'Cancel' }), '{Enter}')
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
