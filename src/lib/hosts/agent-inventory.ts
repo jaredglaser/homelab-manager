@@ -1,6 +1,5 @@
 import type { HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
-import { MAX_FAILURE_DETAIL_LENGTH, probeFailureCode, type HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
-import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import type { HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
 
 /** The wire schema reads its members from this list: a status it rejects drops the client's whole snapshot. */
 export const AGENT_INVENTORY_STATUSES = [
@@ -71,55 +70,6 @@ function inventoryStatus(host: ManagedHost, failure: HostProbeFailureCode | null
   if (failure !== null) return FAILURE_STATUS[failure];
   if (host.status === 'pending') return 'unknown';
   return host.status === 'healthy' ? 'online' : host.status === 'error' ? 'unreachable' : 'offline';
-}
-
-/**
- * Derive one inventory entry from a stored host row and its live health probe.
- * Version falls back to the stored value when the probe cannot report one, so a
- * briefly offline agent still shows its last known version.
- */
-export function buildAgentInventoryEntry(
-  host: ManagedHost,
-  outcome: HealthCheckOutcome,
-  checkedAt: Date = new Date(),
-  agentOutOfDate = false,
-): AgentInventoryEntry {
-  if (outcome.healthy) {
-    return {
-      id: host.id,
-      name: host.name,
-      agentUrl: host.agentUrl,
-      capabilities: host.capabilities ?? {},
-      status: 'online',
-      version: outcome.version ?? host.agentVersion ?? null,
-      versionSource: outcome.version ? 'live' : host.agentVersion ? 'stored' : 'unknown',
-      agentImage: host.agentImage,
-      agentImageTag: host.agentImageTag,
-      // Same-sweep consistency: the verdict is computed from the fresh outcome, so the digest it is
-      // paired with must come from the same probe, not from the previous sweep's stored row.
-      agentImageDigest: outcome.agentImageDigest ?? null,
-      agentOutOfDate,
-      failure: null,
-      checkedAt: checkedAt.toISOString(),
-    };
-  }
-
-  const code = probeFailureCode(outcome);
-  return {
-    id: host.id,
-    name: host.name,
-    agentUrl: host.agentUrl,
-    capabilities: host.capabilities ?? {},
-    status: inventoryStatus(host, code),
-    version: host.agentVersion ?? null,
-    versionSource: host.agentVersion ? 'stored' : 'unknown',
-    agentImage: host.agentImage,
-    agentImageTag: host.agentImageTag,
-    agentImageDigest: host.agentImageDigest,
-    agentOutOfDate: host.agentOutOfDate,
-    failure: { code, message: outcome.error.slice(0, MAX_FAILURE_DETAIL_LENGTH) },
-    checkedAt: checkedAt.toISOString(),
-  };
 }
 
 /**
