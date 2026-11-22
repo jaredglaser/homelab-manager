@@ -1,5 +1,5 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { render, screen, waitFor } from '@testing-library/react'
 import { setupUser, activateWithKey } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -107,6 +107,7 @@ describe('AuthManagementCard', () => {
     gitFns.listGitTokens.mockImplementation(() => Promise.resolve([]))
     gitFns.createGitToken.mockImplementation(() => Promise.resolve({ token: 'test-token-abc123' }))
     gitFns.revokeGitToken.mockImplementation(() => Promise.resolve())
+    for (const fn of [authFns.listUsers, authFns.listSessions, authFns.getRoleMapping, gitFns.listGitTokens, gitFns.createGitToken, gitFns.revokeGitToken]) fn.mockClear()
   })
 
   describe('card structure', () => {
@@ -135,7 +136,7 @@ describe('AuthManagementCard', () => {
       expect(screen.getByLabelText('Role mapping info')).toBeDefined()
     })
 
-    it('? icon button has correct tooltip text about OIDC provider', async () => {
+    it('renders the role-mapping info button', async () => {
       renderCard()
       const btn = screen.getByLabelText('Role mapping info')
       expect(btn).toBeDefined()
@@ -333,7 +334,6 @@ describe('AuthManagementCard', () => {
         revokeGitToken: ReturnType<typeof mock>
       }
       gitFns.listGitTokens.mockImplementation(() => Promise.resolve([mockTokens[0]]))
-      gitFns.revokeGitToken.mockClear()
       gitFns.revokeGitToken.mockImplementation(() => Promise.resolve())
 
       renderCard()
@@ -403,55 +403,17 @@ describe('AuthManagementCard', () => {
       await waitFor(() => expect(screen.queryByText('Generate Git Token')).toBeNull())
     })
 
-    describe('dialog close (handleClose / handleDialogClose)', () => {
-      const origSetTimeout = globalThis.setTimeout
-      const origClearTimeout = globalThis.clearTimeout
-      let pendingCallbacks: Array<{ fn: () => void; id: number }> = []
-      let nextTimerId = 9000
+    it('Cancel resets the label before the dialog reopens', async () => {
+      const user = setupUser()
+      renderCard()
+      await user.click(screen.getByText('Generate Token'))
+      await user.type(screen.getByLabelText('Token label'), 'my label')
 
-      beforeEach(() => {
-        pendingCallbacks = []
-        nextTimerId = 9000
-        ;(globalThis as any).setTimeout = (fn: () => void) => {
-          const id = nextTimerId++
-          pendingCallbacks.push({ fn, id })
-          return id
-        }
-        ;(globalThis as any).clearTimeout = (id?: number) => {
-          pendingCallbacks = pendingCallbacks.filter((cb) => cb.id !== id)
-        }
-      })
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await waitFor(() => expect(screen.queryByText('Generate Git Token')).toBeNull())
 
-      afterEach(() => {
-        globalThis.setTimeout = origSetTimeout
-        globalThis.clearTimeout = origClearTimeout
-      })
-
-      function flushTimers() {
-        const cbs = [...pendingCallbacks]
-        pendingCallbacks = []
-        for (const cb of cbs) cb.fn()
-      }
-
-      it('Cancel resets label and calls handleDialogClose', async () => {
-        const user = setupUser({ timersCaptured: true })
-        renderCard()
-        act(() => { flushTimers() })
-
-        await user.click(screen.getByText('Generate Token'))
-        act(() => { flushTimers() })
-
-        const labelInput = screen.getByLabelText('Token label')
-        await user.type(labelInput, 'my label')
-
-        await user.click(screen.getByRole('button', { name: 'Cancel' }))
-        act(() => { flushTimers() })
-        act(() => { flushTimers() })
-
-        await user.click(screen.getByText('Generate Token'))
-        act(() => { flushTimers() })
-        expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
-      })
+      await user.click(screen.getByText('Generate Token'))
+      expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
     })
   })
 })

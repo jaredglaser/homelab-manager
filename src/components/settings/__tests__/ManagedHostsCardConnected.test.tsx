@@ -159,6 +159,8 @@ describe('ManagedHostsCardConnected rotate TLS toasts', () => {
     renderCard()
     await screen.findByText('server1')
     rotateTlsResult = Promise.reject('boom')
+    // The mock hands this promise out only on click, and bun fails the test if it stays unhandled across user-event's waits.
+    rotateTlsResult.catch(() => null)
 
     await user.click(screen.getByLabelText('rotate TLS'))
 
@@ -224,6 +226,8 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     await waitForPendingHost()
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(screen.getByTestId('step-verify')).toBeDefined())
+    expect(createPendingHostCalls).toEqual([{ name: 'newhost' }])
   }
 
   it('references the created host key in the compose when entering the Compose step', async () => {
