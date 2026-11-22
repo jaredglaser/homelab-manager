@@ -8,6 +8,7 @@ import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
+import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agent-identity';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
@@ -44,8 +45,6 @@ export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult<UpdateFailureCode>;
 
-const NOT_AN_AGENT_ERROR = 'The answer was not an error message in the form the manager reads, so it may not have come from the agent.';
-
 function readUpdateRefusal(response: Response, body: string): { code: UpdateFailureCode; message: string } {
   let parsed: unknown;
   try {
@@ -59,9 +58,11 @@ function readUpdateRefusal(response: Response, body: string): { code: UpdateFail
   if (code !== 'agent_reported_error') return { code, message: '' };
   const isText = response.headers.get('content-type')?.toLowerCase().startsWith('text/plain') ?? false;
   const text = isText ? singleLine(body) : '';
-  return { code, message: text ? `${NOT_AN_AGENT_ERROR} It said: ${text}` : NOT_AN_AGENT_ERROR };
+  return { code, message: text ? `It said: ${text}` : '' };
 }
 
+/** A peer that never finishes answering the trigger must not hang the update. */
+const UPDATE_TRIGGER_TIMEOUT_MS = 30_000;
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
 function digestPinnedImageRef(imageRef: string, digest: string): string {
@@ -409,6 +410,7 @@ export async function handleUpdateAgent(
       headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetImage }),
       redirect: 'manual',
+      signal: AbortSignal.timeout(UPDATE_TRIGGER_TIMEOUT_MS),
     }, { caCertPem: deps.getCaCert ? await deps.getCaCert(host.name) : null });
   } catch (err) {
     return {
@@ -434,6 +436,11 @@ export async function handleUpdateAgent(
   }
 
   if (triggerResponse.status !== 202) {
+    const notAnswering = await readNotAnsweringFailure(triggerResponse);
+    if (notAnswering) {
+      console.error(`[hosts] ${notAnsweringLogLine(notAnswering, `the update request for ${host.name}`)}`);
+      return { hostId: host.id, healthy: false, code: notAnswering.code, message: notAnswering.detail };
+    }
     const body = await readBoundedBody(triggerResponse, MAX_AGENT_FAILURE_BODY_BYTES);
     const { code, message } = readUpdateRefusal(triggerResponse, body);
     console.error(`[hosts] Agent update refused for ${host.name}: HTTP ${triggerResponse.status} ${code}: ${message}`);

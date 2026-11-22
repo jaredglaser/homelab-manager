@@ -1,5 +1,7 @@
 import { describe, it, expect, mock, spyOn } from 'bun:test';
+import { agentResponse } from '@/lib/test/agent-response';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
+import { NOT_ANSWERING_BODY_TIMEOUT_MS } from '@/lib/clients/agent-identity';
 import { getAgentImage } from '@/lib/hosts/host-utils';
 import type { JWK } from 'jose';
 import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
@@ -16,6 +18,8 @@ import {
 } from '../handlers';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
 import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
+import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy';
+import { hostFailureMessage, type HostFailureCode } from '@/lib/errors/host-failure-copy';
 
 const MOCK_JWK: JWK = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' };
 
@@ -1019,7 +1023,7 @@ describe('handleUpdateAgent', () => {
   });
 
   it('surfaces a non-202 trigger response as a failure', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'Agent updates require Docker capability, which this agent does not have.' }), { status: 503 })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ error: 'Agent updates require Docker capability, which this agent does not have.' }), { status: 503 })));
     try {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
@@ -1032,7 +1036,7 @@ describe('handleUpdateAgent', () => {
   });
 
   it('promotes the code of a coded refusal and keeps the agent message beside it', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'An update is already in progress', code: 'update_in_progress' }), { status: 409 })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ error: 'An update is already in progress', code: 'update_in_progress' }), { status: 409 })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: 'An update is already in progress' });
@@ -1042,7 +1046,7 @@ describe('handleUpdateAgent', () => {
   });
 
   it('logs the code and the agent message of a refusal, which the copy may hide', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'agent sentence', code: 'update_target_not_pinned' }), { status: 400 })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ error: 'agent sentence', code: 'update_target_not_pinned' }), { status: 400 })));
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
     try {
       await handleUpdateAgent(updateDeps(), { hostId: 1 });
@@ -1061,7 +1065,7 @@ describe('handleUpdateAgent', () => {
     ['a route code /agent/update never sends', { error: 'newer refusal', code: 'stack_not_found' }],
     ['a body with no code, as an agent before codes sends', { error: 'newer refusal' }],
   ])('keeps the generic refusal code for %s', async (_label, payload) => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify(payload), { status: 409 })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify(payload), { status: 409 })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: 'newer refusal' });
@@ -1070,39 +1074,43 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it.each([['null'], ['"update_in_progress"'], ['[]'], ['42']])('says a non-error JSON body %s did not come from the agent as an error', async (body) => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(body, { status: 500 })));
+  it.each([['null'], ['"update_in_progress"'], ['[]'], ['42']])('keeps the generic code and shows no message for the non-error JSON body %s', async (body) => {
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(body, { status: 500, headers: { 'content-type': 'application/json' } })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.code).toBe('agent_reported_error');
-        expect(result.message).toStartWith('The answer was not an error message in the form the manager reads');
-        expect(result.message).not.toMatch(/JSON|HTTP/);
+        expect(result.message).toBe('');
       }
     } finally {
       restore();
     }
   });
 
-  it('drops an HTML error page from a proxy instead of showing it', async () => {
+  it('drops an HTML body the agent sends instead of showing it', async () => {
     const page = '<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>';
-    const { restore } = withFetch(() => Promise.resolve(new Response(page, { status: 502, headers: { 'content-type': 'text/html' } })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(page, { status: 502, headers: { 'content-type': 'text/html' } })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
-      expect(result).toEqual({
-        hostId: 1,
-        healthy: false,
-        code: 'agent_reported_error',
-        message: 'The answer was not an error message in the form the manager reads, so it may not have come from the agent.',
-      });
+      expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: '' });
+    } finally {
+      restore();
+    }
+  });
+
+  it('bounds a long text body to the detail limit after the prefix, on one line', async () => {
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(`${'w'.repeat(1000)}\nsecond`, { status: 502, headers: { 'content-type': 'text/plain' } })));
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: `It said: ${'w'.repeat(300)}...` });
     } finally {
       restore();
     }
   });
 
   it('keeps a recognised code with no message and does not call the reply foreign', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ code: 'update_in_progress' }), { status: 409 })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ code: 'update_in_progress' }), { status: 409 })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: '' });
@@ -1112,22 +1120,22 @@ describe('handleUpdateAgent', () => {
   });
 
   it('accepts a text/plain content type in any case', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response('Bad Gateway', { status: 502, headers: { 'content-type': 'Text/Plain; charset=utf-8' } })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse('Bad Gateway', { status: 502, headers: { 'content-type': 'Text/Plain; charset=utf-8' } })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.message).toEndWith('It said: Bad Gateway');
+      if (!result.healthy) expect(result.message).toBe('It said: Bad Gateway');
     } finally {
       restore();
     }
   });
 
   it('flattens control characters so a plain-text body cannot forge a log line', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response('first\r\n[hosts] forged line\u0007', { status: 502, headers: { 'content-type': 'text/plain' } })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse('first\r\n[hosts] forged line\u0007', { status: 502, headers: { 'content-type': 'text/plain' } })));
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
-      if (!result.healthy) expect(result.message).toEndWith('It said: first [hosts] forged line');
+      if (!result.healthy) expect(result.message).toBe('It said: first [hosts] forged line');
       const logged = String(errorSpy.mock.calls[0]?.[0]);
       expect(logged).not.toMatch(/\p{Cc}/u);
       expect(logged).toContain('HTTP 502');
@@ -1149,7 +1157,7 @@ describe('handleUpdateAgent', () => {
         cancelled = true;
       },
     });
-    const { restore } = withFetch(() => Promise.resolve(new Response(stream, { status: 502, headers: { 'content-type': 'text/plain' } })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(stream, { status: 502, headers: { 'content-type': 'text/plain' } })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(cancelled).toBe(true);
@@ -1165,7 +1173,7 @@ describe('handleUpdateAgent', () => {
     const encoded = new TextEncoder().encode(JSON.stringify({ error: 'e'.repeat(7500), code: 'update_in_progress' }));
     const pieces: Uint8Array[] = [];
     for (let at = 0; at < encoded.byteLength; at += 1024) pieces.push(encoded.slice(at, at + 1024));
-    const { restore } = withFetch(() => Promise.resolve(new Response(chunkedStream(pieces), { status: 409 })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(chunkedStream(pieces), { status: 409 })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: `${'e'.repeat(300)}...` });
@@ -1180,16 +1188,11 @@ describe('handleUpdateAgent', () => {
     const encoded = new TextEncoder().encode(`${prefix}${'e'.repeat(8200 - prefix.length - suffix.length)}${suffix}`);
     expect(encoded.byteLength).toBe(8200);
     const { restore } = withFetch(() =>
-      Promise.resolve(new Response(chunkedStream([encoded.slice(0, 8192), encoded.slice(8192)]), { status: 409 })),
+      Promise.resolve(agentResponse(chunkedStream([encoded.slice(0, 8192), encoded.slice(8192)]), { status: 409 })),
     );
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
-      expect(result).toEqual({
-        hostId: 1,
-        healthy: false,
-        code: 'agent_reported_error',
-        message: 'The answer was not an error message in the form the manager reads, so it may not have come from the agent.',
-      });
+      expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: '' });
     } finally {
       restore();
     }
@@ -1198,18 +1201,18 @@ describe('handleUpdateAgent', () => {
   it('keeps a multi-byte character that is split across two chunks of a plain-text refusal', async () => {
     const encoded = new TextEncoder().encode('caf\u00e9 is down');
     const { restore } = withFetch(() =>
-      Promise.resolve(new Response(chunkedStream([encoded.slice(0, 4), encoded.slice(4)]), { status: 502, headers: { 'content-type': 'text/plain' } })),
+      Promise.resolve(agentResponse(chunkedStream([encoded.slice(0, 4), encoded.slice(4)]), { status: 502, headers: { 'content-type': 'text/plain' } })),
     );
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
-      expect('message' in result ? result.message : '').toEndWith('It said: caf\u00e9 is down');
+      expect('message' in result ? result.message : '').toBe('It said: caf\u00e9 is down');
     } finally {
       restore();
     }
   });
 
   it('caps an agent message that runs long', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ error: 'x'.repeat(5000) }), { status: 500 })));
+    const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ error: 'x'.repeat(5000) }), { status: 500 })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(result.healthy).toBe(false);
@@ -1226,8 +1229,8 @@ describe('handleUpdateAgent', () => {
       calls += 1;
       return Promise.resolve(
         calls === 1
-          ? new Response(JSON.stringify({ started: true }), { status: 202 })
-          : new Response(JSON.stringify({ error: 'An update is already in progress', code: 'update_in_progress' }), { status: 409 }),
+          ? agentResponse(JSON.stringify({ started: true }), { status: 202 })
+          : agentResponse(JSON.stringify({ error: 'An update is already in progress', code: 'update_in_progress' }), { status: 409 }),
       );
     });
     try {
@@ -1245,17 +1248,184 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('surfaces a plain-text check-failure body from the trigger endpoint, marked as not a JSON error', async () => {
-    const { restore } = withFetch(() => Promise.resolve(new Response('Update check failed. Verify the agent host can reach the image registry, then retry the update.', { status: 503 })));
+  it('surfaces a plain-text check-failure body from the agent as the message of the generic refusal', async () => {
+    const { restore } = withFetch(() => Promise.resolve(agentResponse('Update check failed. Verify the agent host can reach the image registry, then retry the update.', { status: 503 })));
     try {
       const deps = updateDeps();
       const result = await handleUpdateAgent(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('agent_reported_error');
-      if (!result.healthy) expect(result.message).toBe('The answer was not an error message in the form the manager reads, so it may not have come from the agent. It said: Update check failed. Verify the agent host can reach the image registry, then retry the update.');
+      if (!result.healthy) expect(result.message).toBe('It said: Update check failed. Verify the agent host can reach the image registry, then retry the update.');
+      if (!result.healthy) expect(hostFailureMessage(result.code as HostFailureCode, result.message)).toBe('The agent refused the update. Correct the cause on the agent host, then retry the update. It said: Update check failed. Verify the agent host can reach the image registry, then retry the update.');
     } finally {
       restore();
     }
+  });
+
+  describe('an answer that does not carry the agent identity header', () => {
+    const NOT_ANSWERING_MESSAGE = (status: number) =>
+      `Something other than the agent answered (HTTP ${status}). Check that the agent URL points at the agent and that any proxy in front of it is running, then try again.`;
+
+    it('reports a proxy 502 page as something other than the agent, with the status and the pinned copy', async () => {
+      const page = '<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>';
+      const { restore } = withFetch(() => Promise.resolve(new Response(page, { status: 502, headers: { 'content-type': 'text/html' } })));
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_not_answering', message: 'HTTP 502' });
+        if (!result.healthy) expect(updateFailureMessage(result.code, result.message)).toBe(NOT_ANSWERING_MESSAGE(502));
+      } finally {
+        restore();
+      }
+    });
+
+    it.each([
+      ['a JSON error envelope with an update code', JSON.stringify({ error: 'An update is already in progress', code: 'update_in_progress' }), 409],
+      ['a JSON error envelope the agent would send', JSON.stringify({ error: 'Internal server error', code: 'internal_error' }), 500],
+      ['a plain-text body', 'Update check failed.', 503],
+      ['an empty body', '', 504],
+    ])('does not read %s as the agent, whatever its body', async (_label, body, status) => {
+      const { restore } = withFetch(() => Promise.resolve(new Response(body, { status })));
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_not_answering', message: `HTTP ${status}` });
+      } finally {
+        restore();
+      }
+    });
+
+    it('logs a flattened, bounded excerpt of what answered and never puts it in the message', async () => {
+      const body = `first\r\n[hosts] forged line\u0007${'z'.repeat(1000)}`;
+      const { restore } = withFetch(() => Promise.resolve(new Response(body, { status: 502 })));
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        if (!result.healthy) expect(result.message).toBe('HTTP 502');
+        const logged = String(errorSpy.mock.calls[0]?.[0]);
+        expect(logged).not.toMatch(/\p{Cc}/u);
+        expect(logged).toContain('HTTP 502: first [hosts] forged line');
+        expect(logged.length).toBeLessThan(500);
+      } finally {
+        errorSpy.mockRestore();
+        restore();
+      }
+    });
+
+    it('does not retry the request or poll health after it', async () => {
+      const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('Bad Gateway', { status: 502 })));
+      const checkHealth = mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' }));
+      try {
+        await handleUpdateAgent(updateDeps(undefined, checkHealth), { hostId: 1 });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(checkHealth).toHaveBeenCalledTimes(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it('stops waiting on a body the proxy holds open after the 502 and still reports it as not the agent', async () => {
+      const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
+      const timeoutSpy = spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+        if (ms !== NOT_ANSWERING_BODY_TIMEOUT_MS) return originalTimeout(ms);
+        const bound = new AbortController();
+        queueMicrotask(() => bound.abort());
+        return bound.signal;
+      });
+      const held = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('<html>'));
+        },
+      });
+      const { restore } = withFetch(() => Promise.resolve(new Response(held, { status: 502 })));
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+
+        expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_not_answering', message: 'HTTP 502' });
+        expect(errorSpy.mock.calls.map((call) => String(call[0])).some((line) => line.includes('HTTP 502 (body read timed out): <html>'))).toBe(true);
+      } finally {
+        errorSpy.mockRestore();
+        timeoutSpy.mockRestore();
+        restore();
+      }
+    });
+
+    it('gives the trigger request a deadline and reports an agent that never answers as unreachable', async () => {
+      const deadlines: number[] = [];
+      const timeoutSpy = spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+        deadlines.push(ms);
+        return AbortSignal.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+      });
+      const original = globalThis.fetch;
+      globalThis.fetch = ((_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const fail = () => reject(new Error('The operation timed out.'));
+          if (init.signal?.aborted) fail();
+          else init.signal?.addEventListener('abort', fail);
+        })) as unknown as typeof fetch;
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+
+        expect(deadlines).toEqual([30_000]);
+        expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_unreachable', message: 'The operation timed out.' });
+      } finally {
+        globalThis.fetch = original;
+        timeoutSpy.mockRestore();
+      }
+    });
+
+    it.each(['X-Homelab-Agent', 'x-homelab-agent', 'X-HOMELAB-AGENT'])('trusts the header written as %s', async (name) => {
+      const { restore } = withFetch(() => Promise.resolve(new Response('Bad Gateway', { status: 502, headers: { [name]: '0.4.0' } })));
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        expect(result).toMatchObject({ healthy: false, code: 'agent_reported_error' });
+      } finally {
+        restore();
+      }
+    });
+
+    it('checks only that the header is there, so an oversized or hostile value is never read or logged', async () => {
+      const hostile = `${'v'.repeat(4000)} <script>`;
+      const { restore } = withFetch(() => Promise.resolve(new Response('Bad Gateway', { status: 502, headers: { 'X-Homelab-Agent': hostile } })));
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        expect(result).toMatchObject({ healthy: false, code: 'agent_reported_error' });
+        expect(errorSpy.mock.calls.flat().join(' ')).not.toContain('<script>');
+      } finally {
+        errorSpy.mockRestore();
+        restore();
+      }
+    });
+
+    it('trusts the header even when the body is an HTML page, which is an agent bug and not a proxy', async () => {
+      const { restore } = withFetch(() => Promise.resolve(agentResponse('<html>oops</html>', { status: 500, headers: { 'content-type': 'text/html' } })));
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: '' });
+      } finally {
+        restore();
+      }
+    });
+
+    it('leaves a redirect to the redirect failure', async () => {
+      const { restore } = withFetch(() => Promise.resolve(new Response(null, { status: 302, headers: { location: 'http://elsewhere/' } })));
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        expect(result).toMatchObject({ healthy: false, code: 'unexpected_redirect' });
+      } finally {
+        restore();
+      }
+    });
+
+    it('leaves a network failure as unreachable, since nothing answered', async () => {
+      const { restore } = withFetch(() => Promise.reject(new TypeError('connect ECONNREFUSED')));
+      try {
+        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        expect(result).toMatchObject({ healthy: false, code: 'agent_unreachable', message: 'connect ECONNREFUSED' });
+      } finally {
+        restore();
+      }
+    });
   });
 
 });

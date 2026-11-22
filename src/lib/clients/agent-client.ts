@@ -12,6 +12,7 @@ import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from
 import { z } from 'zod';
 import { retry } from '@/lib/utils/backoff';
 import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
+import { notAnsweringLogLine, readNotAnsweringFailure, type AgentNotAnsweringCode } from '@/lib/clients/agent-identity';
 
 /** Agent's 15-min pull+up budget on /stacks/update, plus 1 min network slack. */
 const UPDATE_TIMEOUT_MS = 960_000;
@@ -32,6 +33,9 @@ const WHOLE_BODY = Number.POSITIVE_INFINITY;
 /** Reads a non-2xx body a route answers with its own typed result. Null sends the body to the error path. */
 type FailureResultParser<T> = (raw: string) => T | null;
 
+/** The codes the agent sends, plus the one this manager raises when something else answered. */
+export type AgentClientFailureCode = AgentRouteFailureCode | AgentNotAnsweringCode;
+
 export class AgentClientError extends Error {
   constructor(
     message: string,
@@ -41,7 +45,7 @@ export class AgentClientError extends Error {
      *  re-running a long-running operation (e.g. `docker compose up`) that may still
      *  be in flight on the agent. */
     public readonly wasTimeout: boolean = false,
-    public readonly code?: AgentRouteFailureCode,
+    public readonly code?: AgentClientFailureCode,
   ) {
     super(message);
     this.name = 'AgentClientError';
@@ -231,11 +235,11 @@ export class AgentClient {
       maxExponent: 2,
       isRetryable: AgentClient.isRetryable,
       onRetry: (err, attempt, delayMs) => {
-        const code = err instanceof AgentClientError
-          ? (err.statusCode ?? 'network error')
+        const cause = err instanceof AgentClientError
+          ? [err.statusCode ?? 'network error', err.code].filter((part) => part !== undefined).join(' ')
           : 'unknown';
         console.info(
-          `[AgentClient] Retry ${attempt}/${MAX_RETRIES} for ${path} after ${code}, waiting ${delayMs}ms`,
+          `[AgentClient] Retry ${attempt}/${MAX_RETRIES} for ${path} after ${cause}, waiting ${delayMs}ms`,
         );
       },
     });
@@ -269,6 +273,11 @@ export class AgentClient {
     }
 
     if (!response.ok) {
+      const notAnswering = await readNotAnsweringFailure(response);
+      if (notAnswering) {
+        console.error(`[AgentClient] ${notAnsweringLogLine(notAnswering, url)}`);
+        throw new AgentClientError(notAnswering.message, response.status, url, notAnswering.bodyReadFailure === 'timeout', notAnswering.code);
+      }
       const isComposeFailure = parseFailure !== undefined && response.status >= 500;
       const raw = await readBoundedBody(response, isComposeFailure ? WHOLE_BODY : MAX_AGENT_FAILURE_BODY_BYTES);
       if (isComposeFailure) {

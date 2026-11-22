@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, spyOn } from 'bun:test';
 import { join } from 'node:path';
-import { agentFetch, isCertificateRejectionError, isMissingPinError, openAgentWebSocket, toPlainHttpUrl, type AgentTlsContext, AgentTlsPinMissingError } from '../agent-http';
+import { agentFetch, isCertificateRejectionError, isMissingPinError, openAgentWebSocket, readBoundedBodyResult, toPlainHttpUrl, type AgentTlsContext, AgentTlsPinMissingError } from '../agent-http';
 
 const PROBE_PATH = join(import.meta.dir, '../../test/agent-http-loopback-probe.ts');
 
@@ -139,5 +139,67 @@ describe('isCertificateRejectionError', () => {
     expect(isCertificateRejectionError(new Error('self signed certificate'))).toBe(false);
     expect(isCertificateRejectionError(null)).toBe(false);
     expect(isCertificateRejectionError('CERT_HAS_EXPIRED')).toBe(false);
+  });
+});
+
+describe('readBoundedBodyResult', () => {
+  const encode = (text: string) => new TextEncoder().encode(text);
+
+  function silenceErrors() {
+    return spyOn(console, 'error').mockImplementation(() => undefined);
+  }
+
+  it('reads a body that ends and reports no failure', async () => {
+    expect(await readBoundedBodyResult(new Response('hello'), 100, 1000)).toEqual({ text: 'hello' });
+  });
+
+  it('stops at the byte cap without calling it a failure', async () => {
+    expect((await readBoundedBodyResult(new Response('a'.repeat(50)), 10)).failure).toBeUndefined();
+  });
+
+  it('ends a body that is held open at the time bound, keeps what arrived, cancels the stream and logs it', async () => {
+    let cancelled = false;
+    const held = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encode('partial'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const errorSpy = silenceErrors();
+    try {
+      const result = await readBoundedBodyResult(new Response(held, { status: 502 }), 100, 20);
+
+      expect(result).toEqual({ text: 'partial', failure: 'timeout' });
+      expect(cancelled).toBe(true);
+      expect(errorSpy.mock.calls.map((call) => String(call[0]))).toEqual([
+        '[agent-http] Reading the body of HTTP 502 from an agent URL timed out after 20 ms with 7 bytes read',
+      ]);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('keeps what arrived when the stream errors, reports the error and logs it instead of swallowing it', async () => {
+    let sent = false;
+    const broken = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent) controller.error(new Error('connection reset'));
+        else controller.enqueue(encode('partial'));
+        sent = true;
+      },
+    });
+    const errorSpy = silenceErrors();
+    try {
+      const result = await readBoundedBodyResult(new Response(broken, { status: 500 }), 100);
+
+      expect(result).toEqual({ text: 'partial', failure: 'error' });
+      expect(errorSpy.mock.calls.map((call) => String(call[0]))).toEqual([
+        '[agent-http] Reading the body of HTTP 500 from an agent URL failed after 7 bytes: connection reset',
+      ]);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
