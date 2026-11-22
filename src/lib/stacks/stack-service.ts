@@ -25,6 +25,7 @@ import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
 import { MANIFEST, composePath, driftRecoveryPath, serializeManifest } from '@/lib/stacks/stack-repo-layout';
+import { boundComposeLogs, ERROR_LOG_LIMITS } from '@/lib/deploy/bounded-log-buffer';
 import { createStackRepoWriter } from '@/lib/deploy/stack-repo-writer';
 import {
   manifestEntryToSummary,
@@ -508,7 +509,7 @@ export async function controlStackForHost(
     throw err;
   }
   if (!result.success) {
-    const msg = `docker compose ${action} failed: ${result.logs}`;
+    const msg = `docker compose ${action} failed: ${boundComposeLogs(result.logs, ERROR_LOG_LIMITS)}`;
     console.error(`[StackService] ${msg} (host: ${host})`);
     throw new Error(msg);
   }
@@ -743,7 +744,7 @@ async function teardownOnAgent(
   const result = await agent.teardown(stack);
   if (!result.success) {
     throw new Error(
-      `docker compose down failed for "${host}/${stack}"; the host may be partly torn down, and re-running this resolution is safe. The host copy is archived in ${recoveryCommitSha.slice(0, 7)}. ${result.logs}`,
+      `docker compose down failed for "${host}/${stack}"; the host may be partly torn down, and re-running this resolution is safe. The host copy is archived in ${recoveryCommitSha.slice(0, 7)}. ${boundComposeLogs(result.logs, ERROR_LOG_LIMITS)}`,
     );
   }
 }
