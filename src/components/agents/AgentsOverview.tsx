@@ -71,7 +71,7 @@ function VersionCell({ agent }: { agent: AgentInventoryEntry }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="text-xs font-mono">v{agent.version}</span>
-      {agent.versionSource === 'stored' && (
+      {agent.status !== 'online' && (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -80,7 +80,7 @@ function VersionCell({ agent }: { agent: AgentInventoryEntry }) {
               </Badge>
             }
           />
-          <TooltipContent>Last version the agent reported. It is offline right now.</TooltipContent>
+          <TooltipContent>Last version the agent reported. It is not online right now, so this may be out of date.</TooltipContent>
         </Tooltip>
       )}
     </span>

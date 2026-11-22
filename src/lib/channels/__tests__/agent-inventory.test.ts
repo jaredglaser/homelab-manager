@@ -13,7 +13,6 @@ function snapshot(overrides: Record<string, unknown> = {}) {
         capabilities: { docker: true },
         status: 'online',
         version: '0.2.0',
-        versionSource: 'live',
         agentImage: null,
         agentImageTag: null,
         agentImageDigest: null,

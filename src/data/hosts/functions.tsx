@@ -12,7 +12,7 @@ import {
 } from '@/data/hosts/handlers';
 
 export type { HostListItem, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
-export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
+export type { AgentInventoryEntry, AgentInventoryStatus } from '@/lib/hosts/agent-inventory';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
