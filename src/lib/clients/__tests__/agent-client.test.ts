@@ -469,7 +469,6 @@ describe('AgentClient', () => {
         ['no output fields', { status: 'failed', exitCode: 1 }],
         ['a success status', { status: 'success', stdout: '', stderr: '' }],
         ['an error message beside the output', { status: 'failed', error: 'Stack is busy', code: 'stack_not_found', stdout: '', stderr: 'boom' }],
-        ['a null exit code', { status: 'failed', exitCode: null, stdout: 'out', stderr: 'boom' }],
         ['a string exit code', { status: 'failed', exitCode: '1', stdout: 'out', stderr: 'boom' }],
         ['a missing stdout', { status: 'failed', exitCode: 2, stderr: 'boom' }],
         ['a missing stderr', { status: 'failed', exitCode: 2, stdout: 'out' }],
@@ -500,6 +499,22 @@ describe('AgentClient', () => {
         fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ status: 'failed', exitCode: 137, stdout: '', stderr: '' }), { status: 500 }));
 
         expect(await client.deploy(deployPayload)).toEqual({ success: false, logs: 'docker compose exited with code 137', exitCode: 137 });
+      });
+
+      it('returns a failed run whose process never reported an exit code', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ status: 'failed', exitCode: null, stdout: 'out', stderr: 'boom' }), { status: 500 }));
+
+        expect(await client.deploy(deployPayload)).toEqual({ success: false, logs: 'out\nboom', exitCode: null });
+      });
+
+      it('says the process was killed when a failed run printed nothing and its exit code is null', async () => {
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ status: 'failed', exitCode: null, stdout: '', stderr: '' }), { status: 500 }));
+
+        expect(await client.deploy(deployPayload)).toEqual({
+          success: false,
+          logs: 'docker compose was killed and never reported an exit code',
+          exitCode: null,
+        });
       });
 
       it('says so when a failed run printed nothing and sent no exit code', async () => {

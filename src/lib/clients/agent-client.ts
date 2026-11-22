@@ -340,6 +340,8 @@ function adaptDeployResponse(raw: AgentStackResponse): AgentDeployResponse {
   return { success, logs, ...(raw.exitCode !== undefined ? { exitCode: raw.exitCode } : {}) };
 }
 
-function silentFailureLogs(exitCode: number | undefined): string {
-  return exitCode === undefined ? 'docker compose failed with no output' : `docker compose exited with code ${exitCode}`;
+function silentFailureLogs(exitCode: number | null | undefined): string {
+  if (exitCode === undefined) return 'docker compose failed with no output';
+  if (exitCode === null) return 'docker compose was killed and never reported an exit code';
+  return `docker compose exited with code ${exitCode}`;
 }
