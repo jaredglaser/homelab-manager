@@ -8,7 +8,7 @@ import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
-import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import { buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { JWK } from 'jose';
 
@@ -512,9 +512,9 @@ export interface AgentsInventoryDeps extends HostHandlerDeps {
   resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
 }
 
-function agentOutOfDateFor(outcome: HealthCheckOutcome | undefined, expected: string | null): boolean {
+function agentOutOfDateFor(outcome: HealthCheckOutcome, expected: string | null): boolean {
   return !!(
-    outcome?.healthy &&
+    outcome.healthy &&
     outcome.agentImageDigest &&
     expected &&
     outcome.agentImageDigest !== expected
@@ -527,13 +527,13 @@ function agentOutOfDateFor(outcome: HealthCheckOutcome | undefined, expected: st
  * handleCheckHostHealth, except a pending host stays pending on failure
  * (pending means enrollment was never confirmed, which is not the same as an
  * agent that went down) while still recording why. Persistence is best-effort per host: one failing
- * write is logged and never crashes the sweep or drops the host from the
- * result. Runs in the worker on an interval, never on the request path.
+ * write is logged and never crashes the sweep or skips the other hosts.
+ * Runs in the worker on an interval, never on the request path.
  */
 export async function handleSweepAgentInventory(
   deps: AgentsInventoryDeps,
   now: Date = new Date(),
-): Promise<AgentInventoryEntry[]> {
+): Promise<void> {
   const hosts = await deps.repo.findAll();
   // Absent resolver means no comparison this sweep: every host stays unflagged instead of guessing.
   // Resolved concurrently with the probes so a slow registry call cannot delay host health updates.
@@ -557,11 +557,9 @@ export async function handleSweepAgentInventory(
       }),
     ),
   ]);
-  const outcomes = probeOutcomes;
-
   await Promise.all(
     hosts.map(async (host, i) => {
-      const outcome = outcomes[i];
+      const outcome = probeOutcomes[i];
       if (!outcome) return;
       try {
         // checkedAt answers "when did the sweep last look at this agent", not "when did its status last change".
@@ -589,13 +587,6 @@ export async function handleSweepAgentInventory(
       }
     }),
   );
-
-  return hosts.map((host, i) => {
-    const outcome = outcomes[i];
-    return outcome
-      ? buildAgentInventoryEntry(host, outcome, now, agentOutOfDateFor(outcome, expectedAgentDigest))
-      : buildStoredAgentInventoryEntry(host);
-  });
 }
 
 /**

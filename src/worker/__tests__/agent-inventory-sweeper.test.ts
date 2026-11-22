@@ -1,28 +1,9 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { AgentInventorySweeper } from '../agent-inventory-sweeper';
-import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-
-function entry(id: number): AgentInventoryEntry {
-  return {
-    id,
-    name: `host-${id}`,
-    agentUrl: `http://host-${id}:9090`,
-    capabilities: {},
-    status: 'online',
-    version: '0.1.0',
-    versionSource: 'stored',
-    agentImage: null,
-    agentImageTag: null,
-    agentImageDigest: null,
-    agentOutOfDate: false,
-    failure: null,
-    checkedAt: new Date().toISOString(),
-  };
-}
 
 describe('AgentInventorySweeper', () => {
   it('sweepOnce sweeps once and notifies once', async () => {
-    const sweep = mock(() => Promise.resolve([entry(1)]));
+    const sweep = mock(() => Promise.resolve());
     const notifySweep = mock(() => Promise.resolve());
     const sweeper = new AgentInventorySweeper({ sweep, notifySweep });
 
@@ -39,7 +20,7 @@ describe('AgentInventorySweeper', () => {
         calls += 1;
         if (calls >= 2) sweeper.stop();
         if (calls === 1) return Promise.reject(new Error('sweep boom'));
-        return Promise.resolve([entry(1)]);
+        return Promise.resolve();
       },
       notifySweep: () => Promise.resolve(),
       intervalMs: 1,
@@ -53,7 +34,7 @@ describe('AgentInventorySweeper', () => {
   it('a failing notifySweep does not crash the loop', async () => {
     let notifies = 0;
     const sweeper = new AgentInventorySweeper({
-      sweep: () => Promise.resolve([entry(1)]),
+      sweep: () => Promise.resolve(),
       notifySweep: () => {
         notifies += 1;
         if (notifies >= 2) sweeper.stop();
@@ -71,7 +52,7 @@ describe('AgentInventorySweeper', () => {
 
   it('stop is a no-op once aborted and asyncDispose stops the loop', async () => {
     const sweeper = new AgentInventorySweeper({
-      sweep: () => Promise.resolve([]),
+      sweep: () => Promise.resolve(),
       notifySweep: () => Promise.resolve(),
     });
     sweeper.stop();
