@@ -17,127 +17,166 @@ export interface QuerySite {
   dynamic: string[];
 }
 
-interface LocalType {
-  members: readonly ts.TypeElement[];
-  heritage: string[];
+const PG_DECLARATION_FILE = /[\\/]node_modules[\\/](@types[\\/])?pg[\\/]/;
+
+function declaredInPg(symbol: ts.Symbol | undefined): boolean {
+  return Boolean(symbol?.declarations?.some((declaration) => PG_DECLARATION_FILE.test(declaration.getSourceFile().fileName)));
 }
 
-export function scrapeFile(file: string, baseDir: string): QuerySite[] {
-  const text = fs.readFileSync(file, 'utf8');
-  const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const declared = new Map<string, LocalType>();
-  const ambiguous = new Set<string>();
+/**
+ * A call is a pg query when it resolves to pg's own `query`, or when it returns a pg `QueryResult` through any other
+ * declaration: a local interface, a function-typed property, a subclass override, `.call`/`.apply` on `pool.query`.
+ */
+function returnsQueryResult(signature: ts.Signature, checker: ts.TypeChecker): boolean | 'any' {
+  const returned = checker.getAwaitedType(checker.getReturnTypeOfSignature(signature));
+  if (!returned) return false;
+  if (returned.flags & ts.TypeFlags.Any) return 'any';
+  const results = returned.isUnion() ? returned.types : [returned];
+  return results.some((type) => {
+    const symbol = type.aliasSymbol ?? type.getSymbol();
+    return declaredInPg(symbol) && /^Query(Array)?Result$/.test(symbol?.name ?? '');
+  });
+}
 
-  const declare = (name: string, local: LocalType): void => {
-    if (declared.has(name)) ambiguous.add(name);
-    declared.set(name, local);
-  };
+function pgQueryCall(call: ts.CallExpression, program: ts.Program): 'pg' | 'other' | 'unknown' {
+  const checker = program.getTypeChecker();
+  const callee = call.expression;
+  // `.call`/`.apply` infer their return from the last of pg's overloads (the callback form), so judge the function they wrap.
+  if (ts.isPropertyAccessExpression(callee) && /^(call|apply)$/.test(callee.name.text) && isQueryAccess(callee.expression)) {
+    const wrapped = checker.getTypeAtLocation(callee.expression);
+    if (wrapped.flags & ts.TypeFlags.Any) return 'unknown';
+    if (wrapped.getCallSignatures().some((candidate) => returnsQueryResult(candidate, checker) === true)) return 'pg';
+  }
+  const signature = checker.getResolvedSignature(call);
+  const declaration = signature?.declaration;
+  if (!signature || !declaration || ts.isJSDocSignature(declaration)) return 'unknown';
+  const name = ts.getNameOfDeclaration(declaration);
+  if (name && ts.isIdentifier(name) && name.text === 'query' && PG_DECLARATION_FILE.test(declaration.getSourceFile().fileName)) return 'pg';
+  // A lib method (Promise then/catch/finally) passes along a query that is already counted at its own call.
+  if (program.isSourceFileDefaultLibrary(declaration.getSourceFile())) return 'other';
+  const result = returnsQueryResult(signature, checker);
+  return result === 'any' ? 'unknown' : result ? 'pg' : 'other';
+}
 
-  const collectDeclarations = (node: ts.Node): void => {
-    if (ts.isInterfaceDeclaration(node)) {
-      declare(node.name.getText(sourceFile), {
-        members: node.members,
-        heritage: (node.heritageClauses ?? []).flatMap((clause) => clause.types.map((t) => t.expression.getText(sourceFile))),
-      });
-    }
-    if (ts.isTypeAliasDeclaration(node) && ts.isTypeLiteralNode(node.type)) {
-      declare(node.name.getText(sourceFile), { members: node.type.members, heritage: [] });
-    }
-    ts.forEachChild(node, collectDeclarations);
-  };
-  collectDeclarations(sourceFile);
+function isQueryAccess(expression: ts.Expression): boolean {
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text === 'query';
+  if (ts.isElementAccessExpression(expression)) return ts.isStringLiteralLike(expression.argumentExpression) && expression.argumentExpression.text === 'query';
+  return ts.isIdentifier(expression) && expression.text === 'query';
+}
 
-  const constants = new Map<string, ts.Expression>();
-  for (const statement of sourceFile.statements) {
-    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && declaration.initializer) constants.set(declaration.name.text, declaration.initializer);
+/** `x.query(...)`, `x['query'](...)`, a destructured `query(...)`, or `x.query.call/apply(...)`. */
+function isQueryNamedCall(call: ts.CallExpression): boolean {
+  const callee = call.expression;
+  if (isQueryAccess(callee)) return true;
+  return ts.isPropertyAccessExpression(callee) && /^(call|apply)$/.test(callee.name.text) && isQueryAccess(callee.expression);
+}
+
+function aliased(symbol: ts.Symbol | undefined, checker: ts.TypeChecker): ts.Symbol | undefined {
+  return symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+}
+
+function lineOf(node: ts.Node): number {
+  const sourceFile = node.getSourceFile();
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+function membersToFields(members: readonly ts.TypeElement[]): RowField[] | null {
+  const fields: RowField[] = [];
+  for (const member of members) {
+    // An index signature means this is not a closed row: report nothing rather than every column.
+    if (ts.isIndexSignatureDeclaration(member)) return null;
+    if (!ts.isPropertySignature(member)) continue;
+    fields.push({
+      name: member.name.getText().replace(/['"]/g, ''),
+      type: member.type ? member.type.getText().replace(/\s+/g, ' ') : 'any',
+      optional: Boolean(member.questionToken),
+    });
+  }
+  return fields;
+}
+
+function rowFieldsOf(typeNode: ts.TypeNode, checker: ts.TypeChecker, seen = new Set<ts.Symbol>()): RowField[] | null {
+  if (ts.isTypeLiteralNode(typeNode)) return membersToFields(typeNode.members);
+  if (!ts.isTypeReferenceNode(typeNode) || typeNode.typeArguments?.length) return null;
+  return fieldsOfSymbol(aliased(checker.getSymbolAtLocation(typeNode.typeName), checker), checker, seen);
+}
+
+function fieldsOfSymbol(symbol: ts.Symbol | undefined, checker: ts.TypeChecker, seen: Set<ts.Symbol>): RowField[] | null {
+  // A merged declaration has no single member list to read, so it is refused rather than guessed.
+  if (!symbol || seen.has(symbol) || symbol.declarations?.length !== 1) return null;
+  seen.add(symbol);
+  const [declaration] = symbol.declarations;
+  if (ts.isTypeAliasDeclaration(declaration)) {
+    return declaration.typeParameters ? null : rowFieldsOf(declaration.type, checker, seen);
+  }
+  if (!ts.isInterfaceDeclaration(declaration) || declaration.typeParameters) return null;
+  const fields = membersToFields(declaration.members);
+  if (!fields) return null;
+  for (const base of (declaration.heritageClauses ?? []).flatMap((clause) => clause.types)) {
+    if (base.typeArguments?.length) return null;
+    const baseFields = fieldsOfSymbol(aliased(checker.getSymbolAtLocation(base.expression), checker), checker, seen);
+    if (!baseFields) return null;
+    for (const field of baseFields) {
+      if (!fields.some((existing) => existing.name === field.name)) fields.push(field);
     }
   }
+  return fields;
+}
 
-  const resolveSql = (expression: ts.Expression, dynamic: string[], seen = new Set<string>()): string | null => {
-    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
-    if (ts.isParenthesizedExpression(expression)) return resolveSql(expression.expression, dynamic, seen);
-    if (ts.isTemplateExpression(expression)) {
-      let built = expression.head.text;
-      for (const span of expression.templateSpans) {
-        const interpolated = span.expression.getText(sourceFile);
-        dynamic.push(interpolated);
-        built += `<DYN:${interpolated}>${span.literal.text}`;
-      }
-      return built;
+function resolveSql(expression: ts.Expression, checker: ts.TypeChecker, dynamic: string[], seen = new Set<ts.Symbol>()): string | null {
+  if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+  if (ts.isParenthesizedExpression(expression)) return resolveSql(expression.expression, checker, dynamic, seen);
+  if (ts.isTemplateExpression(expression)) {
+    let built = expression.head.text;
+    for (const span of expression.templateSpans) {
+      const interpolated = span.expression.getText();
+      dynamic.push(interpolated);
+      built += `<DYN:${interpolated}>${span.literal.text}`;
     }
-    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
-      const left = resolveSql(expression.left, dynamic, seen);
-      const right = resolveSql(expression.right, dynamic, seen);
-      return left === null || right === null ? null : left + right;
-    }
-    if (ts.isIdentifier(expression) && !seen.has(expression.text)) {
-      const initializer = constants.get(expression.text);
-      return initializer ? resolveSql(initializer, dynamic, new Set(seen).add(expression.text)) : null;
-    }
-    return null;
-  };
+    return built;
+  }
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = resolveSql(expression.left, checker, dynamic, seen);
+    const right = resolveSql(expression.right, checker, dynamic, seen);
+    return left === null || right === null ? null : left + right;
+  }
+  if (ts.isIdentifier(expression)) {
+    const symbol = aliased(checker.getSymbolAtLocation(expression), checker);
+    const declaration = symbol?.valueDeclaration;
+    if (!symbol || seen.has(symbol) || !declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer) return null;
+    if (!(ts.getCombinedNodeFlags(declaration) & ts.NodeFlags.Const)) return null;
+    return resolveSql(declaration.initializer, checker, dynamic, new Set(seen).add(symbol));
+  }
+  return null;
+}
 
-  const membersToFields = (members: readonly ts.TypeElement[]): RowField[] | null => {
-    const fields: RowField[] = [];
-    for (const member of members) {
-      // An index signature means this is not a closed row: report nothing rather than every column.
-      if (ts.isIndexSignatureDeclaration(member)) return null;
-      if (!ts.isPropertySignature(member)) continue;
-      fields.push({
-        name: member.name.getText(sourceFile).replace(/['"]/g, ''),
-        type: member.type ? member.type.getText(sourceFile).replace(/\s+/g, ' ') : 'any',
-        optional: Boolean(member.questionToken),
-      });
-    }
-    return fields;
-  };
-
-  const fieldsByName = (name: string, seen = new Set<string>()): RowField[] | null => {
-    if (seen.has(name) || ambiguous.has(name)) return null;
-    seen.add(name);
-    const local = declared.get(name);
-    if (!local) return null;
-    const fields = membersToFields(local.members);
-    if (!fields) return null;
-    for (const base of local.heritage) {
-      const baseFields = fieldsByName(base, seen);
-      if (!baseFields) return null;
-      for (const field of baseFields) {
-        if (!fields.some((existing) => existing.name === field.name)) fields.push(field);
-      }
-    }
-    return fields;
-  };
-
-  const sites: QuerySite[] = [];
+function scrapeSourceFile(sourceFile: ts.SourceFile, program: ts.Program, baseDir: string, scan: SourceScan): void {
+  const checker = program.getTypeChecker();
+  const file = path.relative(baseDir, sourceFile.fileName);
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && node.typeArguments?.length === 1) {
-      const callee = node.expression.getText(sourceFile);
-      if (/\.query$|\.queryOne$/.test(callee)) {
-        const typeArgument = node.typeArguments[0];
+    if (ts.isCallExpression(node)) {
+      const kind = pgQueryCall(node, program);
+      if (kind === 'unknown' && isQueryNamedCall(node)) {
+        scan.unresolved.push({ file, line: lineOf(node) });
+      } else if (kind === 'pg' && node.typeArguments?.length) {
+        const [typeArgument] = node.typeArguments;
         const argument = node.arguments.at(0);
         const dynamic: string[] = [];
-        const sql = argument === undefined ? null : resolveSql(argument, dynamic);
-        sites.push({
-          file: path.relative(baseDir, file),
-          line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
-          rowType: typeArgument.getText(sourceFile).replace(/\s+/g, ' '),
-          rowFields: ts.isTypeReferenceNode(typeArgument)
-            ? fieldsByName(typeArgument.typeName.getText(sourceFile))
-            : ts.isTypeLiteralNode(typeArgument)
-              ? membersToFields(typeArgument.members)
-              : null,
-          sql,
+        scan.sites.push({
+          file,
+          line: lineOf(node),
+          rowType: typeArgument.getText().replace(/\s+/g, ' '),
+          rowFields: rowFieldsOf(typeArgument, checker),
+          sql: argument === undefined ? null : resolveSql(argument, checker, dynamic),
           dynamic: [...new Set(dynamic)],
         });
+      } else if (kind === 'pg' && readsRows(node)) {
+        scan.untypedReads.push({ file, line: lineOf(node) });
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return sites;
 }
 
 export interface UntypedRead {
@@ -236,39 +275,67 @@ function readsRows(call: ts.CallExpression): boolean {
   return true;
 }
 
-export function scrapeUntypedReads(file: string, baseDir: string): UntypedRead[] {
-  const sourceFile = ts.createSourceFile(file, fs.readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const reads: UntypedRead[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && !node.typeArguments?.length && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'query' && readsRows(node)) {
-      reads.push({ file: path.relative(baseDir, file), line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1 });
-    }
-    ts.forEachChild(node, visit);
+export interface SourceScan {
+  sites: QuerySite[];
+  untypedReads: UntypedRead[];
+  /** `.query(...)` calls the checker cannot resolve to a declaration (an `any` or unknown receiver), so it cannot tell whether they reach Postgres. */
+  unresolved: UntypedRead[];
+}
+
+function isScannedFile(file: string, dirs: string[]): boolean {
+  if (!/\.tsx?$/.test(file) || /\.d\.ts$/.test(file)) return false;
+  return dirs.some((dir) => {
+    const relative = path.relative(dir, file);
+    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return false;
+    const segments = relative.split(/[\\/]/);
+    return !segments.includes('__tests__') && !segments.includes('node_modules');
+  });
+}
+
+function listFiles(dir: string): string[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { recursive: true, encoding: 'utf8' }).map((entry) => path.join(dir, entry));
+}
+
+const librarySourceFiles = new Map<string, ts.SourceFile | undefined>();
+
+/** Library and dependency declarations parse once per process: the fixtures in the tests each build a program over the same pg and lib files. */
+function cachingHost(options: ts.CompilerOptions): ts.CompilerHost {
+  const host = ts.createCompilerHost(options, true);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreate) => {
+    if (!/[\\/]node_modules[\\/]/.test(fileName)) return getSourceFile(fileName, languageVersion, onError, shouldCreate);
+    if (!librarySourceFiles.has(fileName)) librarySourceFiles.set(fileName, getSourceFile(fileName, languageVersion, onError, shouldCreate));
+    return librarySourceFiles.get(fileName);
   };
-  visit(sourceFile);
-  return reads;
+  return host;
 }
 
-function walkSources<T>(dirs: string[], visitFile: (file: string) => T[]): T[] {
-  const found: T[] = [];
-  const walk = (current: string): void => {
-    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== '__tests__' && entry.name !== 'node_modules') walk(full);
-      } else if (/\.tsx?$/.test(entry.name)) {
-        found.push(...visitFile(full));
-      }
-    }
-  };
-  for (const dir of dirs) if (fs.existsSync(dir)) walk(dir);
-  return found;
+export function loadCompilerOptions(tsconfigPath: string): ts.CompilerOptions {
+  const parsed = ts.getParsedCommandLineOfConfigFile(tsconfigPath, {}, {
+    ...ts.sys,
+    onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
+      throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+    },
+  });
+  if (!parsed) throw new Error(`could not read ${tsconfigPath}`);
+  return parsed.options;
 }
 
-export function collectSites(dirs: string | string[], baseDir: string): QuerySite[] {
-  return walkSources([dirs].flat(), (file) => scrapeFile(file, baseDir));
-}
-
-export function collectUntypedReads(dirs: string | string[], baseDir: string): UntypedRead[] {
-  return walkSources([dirs].flat(), (file) => scrapeUntypedReads(file, baseDir));
+/** `extraRoots` are compiled for their declarations but never reported on. */
+export function scanSources(dirs: string | string[], baseDir: string, options: { tsconfig: string; extraRoots?: string[] }): SourceScan {
+  const scanDirs = [dirs].flat().map((dir) => path.resolve(dir));
+  const files = scanDirs.flatMap(listFiles).filter((file) => isScannedFile(file, scanDirs));
+  const compilerOptions = loadCompilerOptions(options.tsconfig);
+  const program = ts.createProgram({ rootNames: [...files, ...(options.extraRoots ?? [])], options: compilerOptions, host: cachingHost(compilerOptions) });
+  const scan: SourceScan = { sites: [], untypedReads: [], unresolved: [] };
+  const scanned = new Set(files.map((file) => path.resolve(file)));
+  for (const sourceFile of program.getSourceFiles()) {
+    if (scanned.has(path.resolve(sourceFile.fileName))) scrapeSourceFile(sourceFile, program, baseDir, scan);
+  }
+  const byPosition = (a: UntypedRead, b: UntypedRead): number => a.file.localeCompare(b.file) || a.line - b.line;
+  scan.sites.sort(byPosition);
+  scan.untypedReads.sort(byPosition);
+  scan.unresolved.sort(byPosition);
+  return scan;
 }

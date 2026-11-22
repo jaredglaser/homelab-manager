@@ -8,10 +8,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createPool, recreateDatabase, waitForDatabase } from '../migration-verify/db';
-import { collectSites, collectUntypedReads } from './scrape';
+import { scanSources } from './scrape';
 import { ALLOWED_NARROWINGS } from './compare';
 import { checkSites, evaluate } from './check';
-import { MIN_QUERY_SITES } from './floor';
 import type { AttributeCatalog } from './nullability';
 import { assertWireTypeTable } from './wire-types';
 
@@ -65,14 +64,10 @@ async function main(): Promise<number> {
       columnNotNull: (table, column) => attributes.rows.find((row) => row.relname === table && row.attname === column)?.attnotnull,
     };
 
-    const sites = collectSites(SCAN_DIRS, REPO_ROOT);
+    const scan = scanSources(SCAN_DIRS, REPO_ROOT, { tsconfig: path.join(REPO_ROOT, 'tsconfig.json') });
+    const { sites } = scan;
     const result = await checkSites(sites, { pool, pgTypeByOid, catalog });
-    const evaluation = evaluate(
-      result,
-      { sites: sites.length, untypedReads: collectUntypedReads(SCAN_DIRS, REPO_ROOT), minSites: MIN_QUERY_SITES },
-      ALLOWED_NARROWINGS,
-      ONLY_TYPE,
-    );
+    const evaluation = evaluate(result, scan, ALLOWED_NARROWINGS, ONLY_TYPE);
     const { allowed, real, stale, problems } = evaluation;
 
     console.log(`row interfaces checked: ${result.observations.size} (${sites.length} query<Row> sites, ${result.probed} projections probed)`);

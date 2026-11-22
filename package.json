@@ -53,7 +53,10 @@
     "test:e2e": "bun run e2e:build && playwright test",
     "test:e2e:run": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "e2e:build:realapp": "bun run e2e:clean && cross-env VITE_ENABLE_MSW=false VITE_DEMO_MODE=false bunx --bun vite build && rm -rf e2e-build/realapp && mkdir -p e2e-build && cp -r .output e2e-build/realapp",
+    "test:e2e:auth": "bun run e2e:build:realapp && bun --no-env-file scripts/e2e-gen-cert.ts && bun --no-env-file scripts/e2e-auth-seed.ts && playwright test --config=playwright.auth.config.ts",
+    "test:e2e:auth:run": "playwright test --config=playwright.auth.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
@@ -118,7 +121,7 @@
     "eslint": "10.12.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.13.0",
-    "msw": "2.15.0",
+    "msw": "3.0.2",
     "seroval": "1.6.11",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.71.2",

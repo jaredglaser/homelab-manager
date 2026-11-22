@@ -1,4 +1,4 @@
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse } from 'msw/http';
 import { fromJSON, toCrossJSONAsync } from 'seroval';
 // Both directions need the plugin list the TanStack client uses; without its
 // ShallowErrorPlugin an Error with a non-serializable own property (a ZodError)

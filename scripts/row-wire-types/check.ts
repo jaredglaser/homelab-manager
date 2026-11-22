@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { QuerySite, UntypedRead } from './scrape';
+import type { QuerySite, SourceScan } from './scrape';
 import {
   isReturningDmlStatement,
   isSelectStatement,
@@ -53,7 +53,7 @@ export async function checkSites(sites: QuerySite[], env: CheckEnv): Promise<Che
       continue;
     }
     if (site.rowFields === null) {
-      problems.push(`${label} the row type could not be resolved from the type argument (an index signature, an imported or duplicated declaration, or a type this script cannot follow)`);
+      problems.push(`${label} the row type could not be resolved from the type argument (an index signature, a merged or generic declaration, or a type this script cannot follow)`);
       continue;
     }
     const resolved = resolveDynamicSql(site.sql);
@@ -135,18 +135,18 @@ export interface Evaluation {
 
 export function evaluate(
   result: CheckResult,
-  scan: { sites: number; untypedReads: UntypedRead[]; minSites: number },
+  scan: Pick<SourceScan, 'untypedReads' | 'unresolved'>,
   allowlist: Record<string, AllowedNarrowing>,
   onlyType?: string,
 ): Evaluation {
   const compared = compareObservations(result.observations, onlyType);
   const { allowed, real, stale } = applyAllowlist(compared.findings, allowlist, onlyType);
   const problems = [...result.problems, ...compared.problems];
-  if (scan.sites < scan.minSites) {
-    problems.push(`only ${scan.sites} typed query sites were found, fewer than the ${scan.minSites} recorded in floor.ts: statements may be hidden from the scan`);
-  }
   for (const read of scan.untypedReads) {
     problems.push(`${read.file}:${read.line} reads the rows of a .query(...) with no row type, so they are not checked. Add a query<Row> type argument.`);
+  }
+  for (const call of scan.unresolved) {
+    problems.push(`${call.file}:${call.line} calls .query(...) on a receiver whose type is unknown, so the scan cannot tell whether it reaches Postgres. Type the receiver.`);
   }
   return { failed: real.length > 0 || problems.length > 0 || stale.length > 0, allowed, real, stale, problems };
 }
