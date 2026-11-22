@@ -2,8 +2,9 @@ import type { ManagedHost, HostHealthVerdict } from '@/lib/database/repositories
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
-import type { TlsFailureCode } from '@homelab-manager/agent/types';
+import { isAgentUpdateFailureCode, type TlsFailureCode } from '@homelab-manager/agent/types';
 import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failure-copy';
+import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
@@ -29,7 +30,7 @@ export interface AddHostResult {
   provisioningError?: string;
 }
 
-export type HostOperationResult =
+export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode> =
   | {
       hostId: number;
       healthy: true;
@@ -38,10 +39,59 @@ export type HostOperationResult =
       agentImage?: string | null;
       agentImageTag?: string | null;
     }
-  | { hostId: number; healthy: false; code: HostFailureCode; message: string };
+  | { hostId: number; healthy: false; code: Code; message: string };
 
 export type HealthCheckResult = HostOperationResult;
-export type UpdateAgentResult = HostOperationResult;
+export type UpdateAgentResult = HostOperationResult<UpdateFailureCode>;
+
+// A proxy's error page can stand in for the agent's reply, and the whole body would reach the operator's row.
+const MAX_REFUSAL_DETAIL_CHARS = 300;
+const MAX_REFUSAL_BODY_BYTES = 8192;
+
+async function readBoundedBody(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let text = '';
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      text += decoder.decode(value, { stream: true });
+    }
+  } catch {
+    return text;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return text;
+}
+
+// Control characters include newlines, so a plain-text body cannot start a forged log line.
+function singleLine(text: string): string {
+  const flat = text.replace(/\p{Cc}+/gu, ' ').trim();
+  return flat.length > MAX_REFUSAL_DETAIL_CHARS ? `${flat.slice(0, MAX_REFUSAL_DETAIL_CHARS)}...` : flat;
+}
+
+const NOT_AN_AGENT_ERROR = 'The answer was not an error message in the form the manager reads, so it may not have come from the agent.';
+
+function readUpdateRefusal(response: Response, body: string): { code: UpdateFailureCode; message: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = undefined;
+  }
+  const fields = typeof parsed === 'object' && parsed !== null ? (parsed as { error?: unknown; code?: unknown }) : {};
+  const code = isAgentUpdateFailureCode(fields.code) ? fields.code : 'agent_reported_error';
+  if (typeof fields.error === 'string') return { code, message: singleLine(fields.error) };
+  if (code !== 'agent_reported_error') return { code, message: '' };
+  const isText = response.headers.get('content-type')?.toLowerCase().startsWith('text/plain') ?? false;
+  const text = isText ? singleLine(body) : '';
+  return { code, message: text ? `${NOT_AN_AGENT_ERROR} It said: ${text}` : NOT_AN_AGENT_ERROR };
+}
 
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
@@ -327,7 +377,7 @@ export async function handleUpdateAgent(
     getCaCert?: (hostname: string) => Promise<string | null>;
   },
   data: { hostId: number },
-): Promise<HostOperationResult> {
+): Promise<UpdateAgentResult> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -415,22 +465,10 @@ export async function handleUpdateAgent(
   }
 
   if (triggerResponse.status !== 202) {
-    const body = await triggerResponse.text().catch(() => '');
-    // The agent answers with JSON like {"error":"..."}; surface the message,
-    // not the raw body.
-    let message = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
-    try {
-      const parsed = JSON.parse(body) as { error?: unknown };
-      if (typeof parsed?.error === 'string') message = parsed.error;
-    } catch {
-      // Body was not JSON; keep the raw text.
-    }
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'agent_reported_error',
-      message,
-    };
+    const body = await readBoundedBody(triggerResponse, MAX_REFUSAL_BODY_BYTES);
+    const { code, message } = readUpdateRefusal(triggerResponse, body);
+    console.error(`[hosts] Agent update refused for ${host.name}: HTTP ${triggerResponse.status} ${code}: ${message}`);
+    return { hostId: host.id, healthy: false, code, message };
   }
 
   let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };

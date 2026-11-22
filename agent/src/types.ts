@@ -114,6 +114,25 @@ export const AGENT_ROUTE_FAILURE_CODES = [
 ] as const;
 export type AgentRouteFailureCode = (typeof AGENT_ROUTE_FAILURE_CODES)[number];
 
+export function isAgentRouteFailureCode(value: unknown): value is AgentRouteFailureCode {
+  return typeof value === 'string' && (AGENT_ROUTE_FAILURE_CODES as readonly string[]).includes(value);
+}
+
+/** The codes POST /agent/update refuses with. The Agents page branches on this set, so a code from another route stays generic there. */
+export const AGENT_UPDATE_FAILURE_CODES = [
+  'update_docker_unavailable',
+  'update_request_invalid',
+  'update_target_not_pinned',
+  'update_target_repo_mismatch',
+  'update_in_progress',
+  'update_start_failed',
+] as const satisfies readonly AgentRouteFailureCode[];
+export type AgentUpdateFailureCode = (typeof AGENT_UPDATE_FAILURE_CODES)[number];
+
+export function isAgentUpdateFailureCode(value: unknown): value is AgentUpdateFailureCode {
+  return typeof value === 'string' && (AGENT_UPDATE_FAILURE_CODES as readonly string[]).includes(value);
+}
+
 /** The agent's JSON error shape wherever it reports a TLS failure: a human message plus the reason. */
 export interface AgentErrorBody {
   error: string;
