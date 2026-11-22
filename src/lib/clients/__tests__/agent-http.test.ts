@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
-import { agentFetch, isMissingPinError, openAgentWebSocket, toPlainHttpUrl, type AgentTlsContext, AgentTlsPinMissingError } from '../agent-http';
+import { agentFetch, isCertificateRejectionError, isMissingPinError, openAgentWebSocket, toPlainHttpUrl, type AgentTlsContext, AgentTlsPinMissingError } from '../agent-http';
 
 const PROBE_PATH = join(import.meta.dir, '../../test/agent-http-loopback-probe.ts');
 
@@ -123,5 +123,21 @@ describe('isMissingPinError', () => {
     expect(isMissingPinError(new Error('No pinned TLS certificate for this HTTPS agent URL'))).toBe(false);
     expect(isMissingPinError(new Error('ECONNREFUSED'))).toBe(false);
     expect(isMissingPinError('No pinned TLS certificate')).toBe(false);
+  });
+});
+
+describe('isCertificateRejectionError', () => {
+  it('reads a TLS verification refusal off the error code', () => {
+    for (const code of ['DEPTH_ZERO_SELF_SIGNED_CERT', 'CERT_HAS_EXPIRED', 'ERR_TLS_CERT_ALTNAME_INVALID', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE']) {
+      expect(isCertificateRejectionError(Object.assign(new TypeError('x'), { code }))).toBe(true);
+    }
+  });
+
+  it('ignores a connection failure, a handshake failure, and a message that only mentions a certificate', () => {
+    expect(isCertificateRejectionError(Object.assign(new TypeError('x'), { code: 'ECONNREFUSED' }))).toBe(false);
+    expect(isCertificateRejectionError(Object.assign(new TypeError('x'), { code: 'EPROTO' }))).toBe(false);
+    expect(isCertificateRejectionError(new Error('self signed certificate'))).toBe(false);
+    expect(isCertificateRejectionError(null)).toBe(false);
+    expect(isCertificateRejectionError('CERT_HAS_EXPIRED')).toBe(false);
   });
 });

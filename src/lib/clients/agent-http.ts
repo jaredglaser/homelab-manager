@@ -99,6 +99,25 @@ export function isMissingPinError(err: unknown): boolean {
   return err instanceof AgentTlsPinMissingError;
 }
 
+const CERTIFICATE_REJECTION_CODES: ReadonlySet<string> = new Set([
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'CERT_HAS_EXPIRED',
+  'CERT_NOT_YET_VALID',
+  'CERT_REVOKED',
+  'CERT_UNTRUSTED',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+
+/** True when TLS verification refused the certificate the agent presented, read off the error's code and never its message. */
+export function isCertificateRejectionError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && CERTIFICATE_REJECTION_CODES.has(code);
+}
+
 /** The plain-HTTP sibling of a TLS agent URL, which is the address an agent without a certificate serves. */
 export function toPlainHttpUrl(parsed: URL): string {
   const http = new URL(parsed.toString());

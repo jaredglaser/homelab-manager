@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import { AGENT_INVENTORY_STATUSES } from '@/lib/hosts/agent-inventory';
+import { HOST_PROBE_FAILURE_CODES } from '@/lib/errors/host-failure-copy';
 import { AGENT_INVENTORY_TOPIC } from '@/lib/mux/protocol';
 import type { MuxChannel } from '@/lib/mux/use-mux-channel';
 
@@ -8,19 +10,24 @@ const zHostCapabilitiesWire = z.object({
   zfs: z.boolean().optional(),
 });
 
+const zAgentInventoryFailureWire = z.object({
+  code: z.enum(HOST_PROBE_FAILURE_CODES),
+  message: z.string(),
+});
+
 const zAgentInventoryEntryWire = z.object({
   id: z.number(),
   name: z.string(),
   agentUrl: z.string(),
   capabilities: zHostCapabilitiesWire,
-  status: z.enum(['online', 'offline', 'unreachable', 'unknown']),
+  status: z.enum(AGENT_INVENTORY_STATUSES),
   version: z.string().nullable(),
   versionSource: z.enum(['live', 'stored', 'unknown']),
   agentImage: z.string().nullable(),
   agentImageTag: z.string().nullable(),
   agentImageDigest: z.string().nullable(),
   agentOutOfDate: z.boolean(),
-  lastError: z.string().nullable(),
+  failure: zAgentInventoryFailureWire.nullable(),
   checkedAt: z.string(),
 });
 

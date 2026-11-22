@@ -210,7 +210,7 @@ export const updateHost = createServerFn()
   .handler(async ({ data, context }): Promise<HostListItem> => {
     requireRole('admin')(context.user);
     const deps = await loadDeps();
-    return handleUpdateHost(deps, data);
+    return handleUpdateHost({ ...deps, checkHealth: await buildProbeCheckHealth() }, data);
   });
 
 export const getHostPublicJwk = createServerFn()
@@ -247,6 +247,7 @@ export const rotateHostTls = createServerFn()
     const tlsCerts = await loadTlsCertsRepo();
     return handleRotateHostTls({
       ...baseDeps,
+      checkHealth: await buildProbeCheckHealth(),
       provisionTls: makeProvisionTls(keypairs, tlsCerts),
     }, data);
   });

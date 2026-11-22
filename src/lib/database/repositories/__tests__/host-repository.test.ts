@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { HostRepository } from '../host-repository';
-import type { CreateHostInput } from '../host-repository';
+import { MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
+import type { CreateHostInput, HostHealthVerdict } from '../host-repository';
 
 function createMockPool() {
   const queries: { sql: string; params: unknown[] }[] = [];
@@ -115,6 +116,18 @@ describe('HostRepository', () => {
       expect(result[0].agentImageDigest).toBe('sha256:' + 'a'.repeat(64));
     });
 
+    it('maps the recorded failure columns, and a row that has none to null', async () => {
+      mock.pushResult([
+        { ...sampleRow, name: 'down', failure_code: 'awaiting-enrollment', failure_detail: 'plain HTTP' },
+        { ...sampleRow, id: 2, name: 'fresh' },
+      ]);
+
+      const [down, fresh] = await repo.findAll();
+
+      expect(down.failure).toEqual({ code: 'awaiting-enrollment', detail: 'plain HTTP' });
+      expect(fresh.failure).toBeNull();
+    });
+
     it('getAll returns the camelCase host shape', async () => {
       mock.pushResult([sampleRow]);
 
@@ -184,14 +197,55 @@ describe('HostRepository', () => {
     });
   });
 
-  describe('updateStatus', () => {
-    it('updates the status field and updated_at', async () => {
+  describe('updateHealth', () => {
+    it('writes the status, the failure cause and updated_at in one statement, scoped to the probed URL', async () => {
       mock.pushResult([]); // UPDATE returns no rows
-      await repo.updateStatus(1, 'error');
+      await repo.updateHealth(
+        1,
+        { status: 'unhealthy', failure: { code: 'unreachable', detail: 'Agent returned status 502' } },
+        'http://192.168.1.10:9090',
+      );
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
       expect(mock.queries[0].sql).toContain('updated_at');
-      expect(mock.queries[0].params).toContain('error');
-      expect(mock.queries[0].params).toContain(1);
+      expect(mock.queries[0].sql).toContain('agent_url = $5');
+      expect(mock.queries[0].params).toEqual(['unhealthy', 'unreachable', 'Agent returned status 502', 1, 'http://192.168.1.10:9090']);
+    });
+
+    it('guards a pending verdict so it only lands on a row that is still pending', async () => {
+      mock.pushResult([]);
+      await repo.updateHealth(
+        1,
+        { status: 'pending', failure: { code: 'offline', detail: null } },
+        'http://192.168.1.10:9090',
+      );
+      expect(mock.queries[0].sql).toContain("($1::text <> 'pending' OR status = 'pending')");
+      expect(mock.queries[0].params[0]).toBe('pending');
+    });
+
+    it('cuts a failure detail that exceeds the stored limit', async () => {
+      mock.pushResult([]);
+      await repo.updateHealth(
+        1,
+        { status: 'unhealthy', failure: { code: 'offline', detail: 'x'.repeat(MAX_FAILURE_DETAIL_LENGTH + 100) } },
+        'http://192.168.1.10:9090',
+      );
+      expect(mock.queries[0].params[2]).toBe('x'.repeat(MAX_FAILURE_DETAIL_LENGTH));
+    });
+
+    it('admits a pending verdict with a cause, and forbids a healthy or causeless unhealthy one', () => {
+      const pending: HostHealthVerdict = { status: 'pending', failure: { code: 'offline', detail: null } };
+      // @ts-expect-error a healthy status cannot carry a failure
+      const healthyWithCause: HostHealthVerdict = { status: 'healthy', failure: { code: 'offline', detail: null } };
+      // @ts-expect-error an unhealthy status must name its cause
+      const unhealthyWithoutCause: HostHealthVerdict = { status: 'unhealthy', failure: null };
+
+      expect([pending, healthyWithCause, unhealthyWithoutCause]).toHaveLength(3);
+    });
+
+    it('clears the failure cause on a healthy verdict', async () => {
+      mock.pushResult([]);
+      await repo.updateHealth(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
+      expect(mock.queries[0].params).toEqual(['healthy', null, null, 1, 'http://192.168.1.10:9090']);
     });
   });
 
@@ -386,7 +440,7 @@ describe('HostRepository', () => {
     it('does not notify on metadata-only updates (status/version)', async () => {
       mock.pushResult([]);
       mock.pushResult([]);
-      await repo.updateStatus(1, 'healthy');
+      await repo.updateHealth(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(pickNotify(mock)).toHaveLength(0);
     });

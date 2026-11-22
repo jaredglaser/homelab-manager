@@ -1,9 +1,9 @@
-import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost, HostHealthVerdict } from '@/lib/database/repositories/host-repository';
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
 import type { TlsFailureCode } from '@homelab-manager/agent/types';
-import type { HostFailureCode } from '@/lib/errors/host-failure-copy';
+import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
 import { agentFetch } from '@/lib/clients/agent-http';
@@ -55,7 +55,7 @@ export interface HostRepo {
   create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
   findByName(name: string): Promise<ManagedHost | null>;
   delete(id: number): Promise<void>;
-  updateStatus(id: number, status: HostStatus): Promise<void>;
+  updateHealth(id: number, verdict: HostHealthVerdict, probedUrl: string): Promise<void>;
   updateLastSweptAt(id: number, at: Date): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null; imageDigest?: string | null; outOfDate?: boolean }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
@@ -81,10 +81,14 @@ export async function handleCheckHostHealth(
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   const healthResult = await deps.checkHealth(host.agentUrl, host.name);
-  const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
-  await deps.repo.updateStatus(host.id, newStatus);
 
-  if (healthResult.healthy && (healthResult.version || healthResult.infoSupported)) {
+  await deps.repo.updateHealth(host.id, probeVerdict(host, healthResult), host.agentUrl);
+
+  if (!healthResult.healthy) {
+    return { hostId: host.id, healthy: false, code: probeFailureCode(healthResult), message: healthResult.error };
+  }
+
+  if (healthResult.version || healthResult.infoSupported) {
     // Only an agent that answered /info may clear its image; a 404 leaves the stored value.
     await deps.repo.updateAgentInfo(host.id, {
       version: healthResult.version,
@@ -94,21 +98,14 @@ export async function handleCheckHostHealth(
     });
   }
 
-  return healthResult.healthy
-    ? {
-        hostId: host.id,
-        healthy: true,
-        version: healthResult.version,
-        dockerVersion: healthResult.dockerVersion,
-        agentImage: healthResult.agentImage,
-        agentImageTag: healthResult.agentImageTag,
-      }
-    : {
-        hostId: host.id,
-        healthy: false,
-        code: healthResult.reason ?? 'health_check_failed',
-        message: healthResult.error,
-      };
+  return {
+    hostId: host.id,
+    healthy: true,
+    version: healthResult.version,
+    dockerVersion: healthResult.dockerVersion,
+    agentImage: healthResult.agentImage,
+    agentImageTag: healthResult.agentImageTag,
+  };
 }
 
 export async function handleRemoveHost(
@@ -134,8 +131,32 @@ export async function handleRemoveHost(
   return { success: true };
 }
 
+type CheckHealthDep = (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+
+/** A failed probe leaves a pending host pending: never verified is not the same as an agent that went down. */
+function probeVerdict(host: ManagedHost, outcome: HealthCheckOutcome): HostHealthVerdict {
+  if (outcome.healthy) return { status: 'healthy', failure: null };
+  const failure = { code: probeFailureCode(outcome), detail: outcome.error };
+  return host.status === 'pending' ? { status: 'pending', failure } : { status: 'unhealthy', failure };
+}
+
+/** A repair changes what the stored cause describes, so the host is probed again at once rather than showing the old explanation until the next sweep. */
+async function reprobeAfterRepair(
+  deps: HostHandlerDeps & { checkHealth: CheckHealthDep },
+  hostId: number,
+): Promise<void> {
+  try {
+    const host = await deps.repo.findById(hostId);
+    if (!host) return;
+    const outcome = await deps.checkHealth(host.agentUrl, host.name);
+    await deps.repo.updateHealth(host.id, probeVerdict(host, outcome), host.agentUrl);
+  } catch (err) {
+    console.error(`[hosts] Health re-check after repairing host ${hostId} failed:`, err instanceof Error ? err.message : err);
+  }
+}
+
 export async function handleUpdateHost(
-  deps: HostHandlerDeps,
+  deps: HostHandlerDeps & { checkHealth: CheckHealthDep },
   data: { hostId: number; name?: string; agentUrl?: string },
 ): Promise<HostListItem> {
   const host = await deps.repo.findById(data.hostId);
@@ -154,6 +175,7 @@ export async function handleUpdateHost(
   if (data.agentUrl !== undefined) fields.agentUrl = data.agentUrl;
 
   const updated = await deps.repo.update(data.hostId, fields);
+  if (fields.agentUrl !== undefined && fields.agentUrl !== host.agentUrl) await reprobeAfterRepair(deps, host.id);
   return toHostListItem(updated);
 }
 
@@ -261,6 +283,7 @@ export type RotateHostTlsResult =
 
 export async function handleRotateHostTls(
   deps: HostHandlerDeps & {
+    checkHealth: CheckHealthDep;
     provisionTls: (
       hostName: string,
       agentUrl: string,
@@ -284,6 +307,7 @@ export async function handleRotateHostTls(
     throw err;
   }
   await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+  await reprobeAfterRepair(deps, host.id);
   return {
     ok: true,
     hostId: host.id,
@@ -312,7 +336,7 @@ export async function handleUpdateAgent(
     return {
       hostId: host.id,
       healthy: false,
-      code: preCheck.reason ?? 'health_check_failed',
+      code: probeFailureCode(preCheck),
       message: preCheck.error,
     };
   }
@@ -448,7 +472,7 @@ export async function handleUpdateAgent(
             message: 'The agent is still running its previous image, so the update was interrupted before it completed',
           };
         }
-        await deps.repo.updateStatus(host.id, 'healthy');
+        await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
         await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
         return { hostId: host.id, healthy: true };
       }
@@ -478,7 +502,7 @@ export async function handleUpdateAgent(
     };
   }
 
-  await deps.repo.updateStatus(host.id, 'healthy');
+  await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
   await deps.repo.updateAgentInfo(host.id, { version: newVersion, imageDigest: digest, outOfDate: false });
   return { hostId: host.id, healthy: true, version: newVersion };
 }
@@ -502,7 +526,7 @@ function agentOutOfDateFor(outcome: HealthCheckOutcome | undefined, expected: st
  * healthy/unhealthy plus reported agent info exactly like
  * handleCheckHostHealth, except a pending host stays pending on failure
  * (pending means enrollment was never confirmed, which is not the same as an
- * agent that went down). Persistence is best-effort per host: one failing
+ * agent that went down) while still recording why. Persistence is best-effort per host: one failing
  * write is logged and never crashes the sweep or drops the host from the
  * result. Runs in the worker on an interval, never on the request path.
  */
@@ -518,7 +542,9 @@ export async function handleSweepAgentInventory(
       ? deps.resolveAgentImageDigest(getAgentImage()).catch(() => null)
       : Promise.resolve(null),
     Promise.all(
-      hosts.map(async (host): Promise<HealthCheckOutcome> => {
+      hosts.map(async (host): Promise<HealthCheckOutcome | undefined> => {
+        // A wizard host has no URL until its Verify step, and probing '' would record a bogus cause.
+        if (host.agentUrl === '') return undefined;
         try {
           return await deps.checkHealth(host.agentUrl, host.name);
         } catch (err) {
@@ -538,12 +564,9 @@ export async function handleSweepAgentInventory(
       const outcome = outcomes[i];
       if (!outcome) return;
       try {
-        // Stamp the probe time for every host we probed, including a pending one
-        // whose status is left alone below: checkedAt answers "when did the sweep
-        // last look at this agent", not "when did its status last change".
+        // checkedAt answers "when did the sweep last look at this agent", not "when did its status last change".
         await deps.repo.updateLastSweptAt(host.id, now);
-        if (host.status === 'pending' && !outcome.healthy) return;
-        await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
+        await deps.repo.updateHealth(host.id, probeVerdict(host, outcome), host.agentUrl);
         const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentDigest);
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
           await deps.repo.updateAgentInfo(host.id, {
@@ -567,7 +590,12 @@ export async function handleSweepAgentInventory(
     }),
   );
 
-  return hosts.map((host, i) => buildAgentInventoryEntry(host, outcomes[i], now, agentOutOfDateFor(outcomes[i], expectedAgentDigest)));
+  return hosts.map((host, i) => {
+    const outcome = outcomes[i];
+    return outcome
+      ? buildAgentInventoryEntry(host, outcome, now, agentOutOfDateFor(outcome, expectedAgentDigest))
+      : buildStoredAgentInventoryEntry(host);
+  });
 }
 
 /**
