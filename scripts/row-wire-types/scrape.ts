@@ -19,17 +19,56 @@ export interface QuerySite {
 
 const PG_DECLARATION_FILE = /[\\/]node_modules[\\/](@types[\\/])?pg[\\/]/;
 
-/** Whether a call resolves to node-postgres's `query`, judged by the declaration the checker picks rather than the callee's name. */
-function pgQueryCall(call: ts.CallExpression, checker: ts.TypeChecker): 'pg' | 'other' | 'unknown' {
-  const declaration = checker.getResolvedSignature(call)?.declaration;
-  if (!declaration || ts.isJSDocSignature(declaration)) return 'unknown';
-  const name = ts.getNameOfDeclaration(declaration);
-  if (name && ts.isIdentifier(name) && name.text === 'query' && PG_DECLARATION_FILE.test(declaration.getSourceFile().fileName)) return 'pg';
-  return 'other';
+function declaredInPg(symbol: ts.Symbol | undefined): boolean {
+  return Boolean(symbol?.declarations?.some((declaration) => PG_DECLARATION_FILE.test(declaration.getSourceFile().fileName)));
 }
 
+/**
+ * A call is a pg query when it resolves to pg's own `query`, or when it returns a pg `QueryResult` through any other
+ * declaration: a local interface, a function-typed property, a subclass override, `.call`/`.apply` on `pool.query`.
+ */
+function returnsQueryResult(signature: ts.Signature, checker: ts.TypeChecker): boolean | 'any' {
+  const returned = checker.getAwaitedType(checker.getReturnTypeOfSignature(signature));
+  if (!returned) return false;
+  if (returned.flags & ts.TypeFlags.Any) return 'any';
+  const results = returned.isUnion() ? returned.types : [returned];
+  return results.some((type) => {
+    const symbol = type.aliasSymbol ?? type.getSymbol();
+    return declaredInPg(symbol) && /^Query(Array)?Result$/.test(symbol?.name ?? '');
+  });
+}
+
+function pgQueryCall(call: ts.CallExpression, program: ts.Program): 'pg' | 'other' | 'unknown' {
+  const checker = program.getTypeChecker();
+  const callee = call.expression;
+  // `.call`/`.apply` infer their return from the last of pg's overloads (the callback form), so judge the function they wrap.
+  if (ts.isPropertyAccessExpression(callee) && /^(call|apply)$/.test(callee.name.text) && isQueryAccess(callee.expression)) {
+    const wrapped = checker.getTypeAtLocation(callee.expression);
+    if (wrapped.flags & ts.TypeFlags.Any) return 'unknown';
+    if (wrapped.getCallSignatures().some((candidate) => returnsQueryResult(candidate, checker) === true)) return 'pg';
+  }
+  const signature = checker.getResolvedSignature(call);
+  const declaration = signature?.declaration;
+  if (!signature || !declaration || ts.isJSDocSignature(declaration)) return 'unknown';
+  const name = ts.getNameOfDeclaration(declaration);
+  if (name && ts.isIdentifier(name) && name.text === 'query' && PG_DECLARATION_FILE.test(declaration.getSourceFile().fileName)) return 'pg';
+  // A lib method (Promise then/catch/finally) passes along a query that is already counted at its own call.
+  if (program.isSourceFileDefaultLibrary(declaration.getSourceFile())) return 'other';
+  const result = returnsQueryResult(signature, checker);
+  return result === 'any' ? 'unknown' : result ? 'pg' : 'other';
+}
+
+function isQueryAccess(expression: ts.Expression): boolean {
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text === 'query';
+  if (ts.isElementAccessExpression(expression)) return ts.isStringLiteralLike(expression.argumentExpression) && expression.argumentExpression.text === 'query';
+  return ts.isIdentifier(expression) && expression.text === 'query';
+}
+
+/** `x.query(...)`, `x['query'](...)`, a destructured `query(...)`, or `x.query.call/apply(...)`. */
 function isQueryNamedCall(call: ts.CallExpression): boolean {
-  return ts.isPropertyAccessExpression(call.expression) && call.expression.name.text === 'query';
+  const callee = call.expression;
+  if (isQueryAccess(callee)) return true;
+  return ts.isPropertyAccessExpression(callee) && /^(call|apply)$/.test(callee.name.text) && isQueryAccess(callee.expression);
 }
 
 function aliased(symbol: ts.Symbol | undefined, checker: ts.TypeChecker): ts.Symbol | undefined {
@@ -63,7 +102,7 @@ function rowFieldsOf(typeNode: ts.TypeNode, checker: ts.TypeChecker, seen = new 
 }
 
 function fieldsOfSymbol(symbol: ts.Symbol | undefined, checker: ts.TypeChecker, seen: Set<ts.Symbol>): RowField[] | null {
-  // A merged or ambient declaration has no single member list to read, so it is refused rather than guessed.
+  // A merged declaration has no single member list to read, so it is refused rather than guessed.
   if (!symbol || seen.has(symbol) || symbol.declarations?.length !== 1) return null;
   seen.add(symbol);
   const [declaration] = symbol.declarations;
@@ -111,11 +150,12 @@ function resolveSql(expression: ts.Expression, checker: ts.TypeChecker, dynamic:
   return null;
 }
 
-function scrapeSourceFile(sourceFile: ts.SourceFile, checker: ts.TypeChecker, baseDir: string, scan: SourceScan): void {
+function scrapeSourceFile(sourceFile: ts.SourceFile, program: ts.Program, baseDir: string, scan: SourceScan): void {
+  const checker = program.getTypeChecker();
   const file = path.relative(baseDir, sourceFile.fileName);
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
-      const kind = pgQueryCall(node, checker);
+      const kind = pgQueryCall(node, program);
       if (kind === 'unknown' && isQueryNamedCall(node)) {
         scan.unresolved.push({ file, line: lineOf(node) });
       } else if (kind === 'pg' && node.typeArguments?.length) {
@@ -288,11 +328,10 @@ export function scanSources(dirs: string | string[], baseDir: string, options: {
   const files = scanDirs.flatMap(listFiles).filter((file) => isScannedFile(file, scanDirs));
   const compilerOptions = loadCompilerOptions(options.tsconfig);
   const program = ts.createProgram({ rootNames: [...files, ...(options.extraRoots ?? [])], options: compilerOptions, host: cachingHost(compilerOptions) });
-  const checker = program.getTypeChecker();
   const scan: SourceScan = { sites: [], untypedReads: [], unresolved: [] };
   const scanned = new Set(files.map((file) => path.resolve(file)));
   for (const sourceFile of program.getSourceFiles()) {
-    if (scanned.has(path.resolve(sourceFile.fileName))) scrapeSourceFile(sourceFile, checker, baseDir, scan);
+    if (scanned.has(path.resolve(sourceFile.fileName))) scrapeSourceFile(sourceFile, program, baseDir, scan);
   }
   const byPosition = (a: UntypedRead, b: UntypedRead): number => a.file.localeCompare(b.file) || a.line - b.line;
   scan.sites.sort(byPosition);

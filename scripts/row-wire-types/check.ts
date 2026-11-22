@@ -53,7 +53,7 @@ export async function checkSites(sites: QuerySite[], env: CheckEnv): Promise<Che
       continue;
     }
     if (site.rowFields === null) {
-      problems.push(`${label} the row type could not be resolved from the type argument (an index signature, an imported or duplicated declaration, or a type this script cannot follow)`);
+      problems.push(`${label} the row type could not be resolved from the type argument (an index signature, a merged or generic declaration, or a type this script cannot follow)`);
       continue;
     }
     const resolved = resolveDynamicSql(site.sql);

@@ -222,6 +222,49 @@ describe('scrapeFile', () => {
     expect(scrapeFile(file).map((site) => [site.line, site.rowType])).toEqual([[4, 'IdRow'], [5, 'IdRow']]);
   });
 
+  test('finds a query declared outside pg by the pg QueryResult it returns', () => {
+    const file = fixture('local-declarations.ts', [
+      "import { Pool as PgPool, type QueryResult, type QueryResultRow } from 'pg';",
+      'interface IdRow { id: number }',
+      'interface Db { query<R extends QueryResultRow>(sql: string): Promise<QueryResult<R>> }',
+      'type Q = <R extends QueryResultRow>(sql: string) => Promise<QueryResult<R>>;',
+      'class MyPool extends PgPool {',
+      '  override query<R extends QueryResultRow>(sql: string): Promise<QueryResult<R>>;',
+      '  override query(...args: any[]): any { return (super.query as any)(...args); }',
+      '}',
+      'export async function f(db: Db, fn: { query: Q }, mine: MyPool) {',
+      '  await db.query<IdRow>(`SELECT 1 AS id`);',
+      '  await fn.query<IdRow>(`SELECT 2 AS id`);',
+      '  await mine.query<IdRow>(`SELECT 3 AS id`);',
+      '}',
+    ].join('\n'));
+    expect(scrapeFile(file).map((site) => [site.line, site.sql])).toEqual([[10, 'SELECT 1 AS id'], [11, 'SELECT 2 AS id'], [12, 'SELECT 3 AS id']]);
+  });
+
+  test('flags rows read from pool.query.call and pool.query.apply', () => {
+    const file = fixture('call-apply.ts', [
+      'export async function f() {',
+      '  const a = await pool.query.call(pool, `SELECT 1`);',
+      '  const b = await pool.query.apply(pool, [`SELECT 1`]);',
+      '  return [a.rows, b.rows];',
+      '}',
+    ].join('\n'));
+    expect(scanFixtureDir(path.dirname(file)).untypedReads.map((read) => read.line)).toEqual([2, 3]);
+  });
+
+  test('reports every spelling of .query on a receiver of unknown type', () => {
+    const file = fixture('unknown-forms.ts', [
+      'export async function f(db: any) {',
+      '  await db.query(`SELECT 1`);',
+      "  await db['query'](`SELECT 1`);",
+      '  await db.query.call(db, `SELECT 1`);',
+      '  const { query } = db;',
+      '  await query(`SELECT 1`);',
+      '}',
+    ].join('\n'));
+    expect(scanFixtureDir(path.dirname(file)).unresolved.map((call) => call.line)).toEqual([2, 3, 4, 6]);
+  });
+
   test('reports a .query(...) on a receiver of unknown type instead of skipping it', () => {
     const file = fixture('unknown.ts', 'interface IdRow { id: number }\nexport async function f(db: any) {\n  return db.query<IdRow>(`SELECT 1 AS id`);\n}');
     const scan = scanFixtureDir(path.dirname(file));
