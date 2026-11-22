@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import { RETRY_DELAYS_MS, fetchWithRetry } from '../fetch-retry';
 
 describe('fetchWithRetry', () => {
@@ -6,6 +6,10 @@ describe('fetchWithRetry', () => {
   const okRes = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
   const errRes = (status: number, retryAfter?: string) =>
     new Response(null, { status, headers: retryAfter ? { 'retry-after': retryAfter } : {} });
+
+  afterEach(() => {
+    mock.restore();
+  });
 
   function makeSleep() {
     const delays: number[] = [];
@@ -22,6 +26,12 @@ describe('fetchWithRetry', () => {
   });
 
   test('uses the default setTimeout sleep when none is injected', async () => {
+    const delays: number[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void, ms: number) => {
+      delays.push(ms);
+      return realSetTimeout(cb, 0);
+    }) as unknown as typeof setTimeout);
     let calls = 0;
     const res = await fetchWithRetry(
       () => (++calls < 2 ? Promise.resolve(errRes(500)) : Promise.resolve(okRes())),
@@ -30,7 +40,8 @@ describe('fetchWithRetry', () => {
     );
     expect(res.ok).toBe(true);
     expect(calls).toBe(2);
-  }, 10_000);
+    expect(delays).toEqual([RETRY_DELAYS_MS[0]]);
+  });
 
   test('returns an ok response without sleeping', async () => {
     const { sleep, delays } = makeSleep();
