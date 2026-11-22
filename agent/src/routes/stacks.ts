@@ -2,6 +2,21 @@ import { Dirent, mkdirSync, existsSync, readdirSync, readFileSync, unlinkSync, w
 import { createHash } from 'node:crypto';
 import { join, resolve, relative } from 'node:path';
 import { routeErrorBody } from '../lib/error-body';
+import {
+  composeRunRegistry,
+  createBufferedIO,
+  describeError,
+  runBuffered,
+  type ComposeFlow,
+  type ComposeFlowIO,
+  type ComposeFlowOutcome,
+  type ComposeRunRegistry,
+  type ProcessSpec,
+  type SpawnFn,
+  type SpawnResult,
+} from '../lib/compose-run';
+import { createSseStream } from '../lib/sse-stream';
+import type { ComposeAction, ComposePhase } from '../types/protocol';
 import type {
   AgentStackResponse,
   AgentStackComposeResponse,
@@ -107,45 +122,101 @@ async function parseStackControlBody(request: Request): Promise<StackControlBody
   return Response.json(routeErrorBody('invalid_scope'), { status: 400 });
 }
 
-type SpawnFn = typeof Bun.spawn;
+const PREPARE_TIMEOUT_MS = 15_000;
+const PREPARE_RM_TIMEOUT_MS = 10_000;
 
-interface SpawnResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
+/** True when the Accept header lists text/event-stream itself. `*` and `text/*` keep the JSON answer. */
+export function wantsEventStream(request: Request): boolean {
+  return (request.headers.get('accept') ?? '').split(',').some((range) => {
+    const [type, ...params] = range.split(';').map((part) => part.trim().toLowerCase());
+    if (type !== 'text/event-stream') return false;
+    const q = params.find((param) => param.startsWith('q='));
+    return !q || Number(q.slice(2)) > 0;
+  });
 }
 
-/**
- * Spawn a subprocess with a timeout. Kills the process if it exceeds the deadline.
- */
-async function spawnWithTimeout(
-  spawn: SpawnFn,
-  options: { cmd: string[]; cwd?: string; stdout?: 'pipe'; stderr?: 'pipe'; env?: Record<string, string | undefined> },
-  timeoutMs: number = COMPOSE_TIMEOUT_MS,
-): Promise<SpawnResult> {
-  const proc = spawn(options);
-  let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; proc.kill?.(); }, timeoutMs);
+interface RunMeta {
+  action: ComposeAction;
+  stack: string;
+}
 
-  try {
-    const [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    return { exitCode, stdout, stderr, timedOut };
-  } finally {
-    clearTimeout(timer);
+function outcomeToResponse(outcome: ComposeFlowOutcome): Response {
+  if (outcome.kind === 'spawn_failed') {
+    return Response.json(
+      routeErrorBody('compose_spawn_failed', { detail: describeError(outcome.error) }),
+      { status: 500 },
+    );
   }
+  return composeResultToResponse(outcome.result, outcome.timeoutMs);
+}
+
+function streamRun(
+  request: Request,
+  registry: ComposeRunRegistry,
+  spawn: SpawnFn,
+  meta: RunMeta,
+  flow: ComposeFlow,
+): Response {
+  const run = registry.create(meta.action, meta.stack);
+  const response = createSseStream(request, {
+    onStart: (emit) => {
+      emit.event('start', { v: 1, runId: run.runId, action: meta.action, stack: meta.stack });
+      return run.subscribe((frame) => {
+        emit.event(frame.event, frame.data);
+        if (frame.event === 'result') emit.close();
+      });
+    },
+  });
+  run.start(flow, spawn);
+  return response;
+}
+
+async function respondToRun(
+  request: Request,
+  registry: ComposeRunRegistry,
+  spawn: SpawnFn,
+  meta: RunMeta,
+  flow: ComposeFlow,
+): Promise<Response> {
+  if (wantsEventStream(request)) return streamRun(request, registry, spawn, meta, flow);
+  return outcomeToResponse(await flow(createBufferedIO(spawn, `${meta.action} ${meta.stack}`)));
+}
+
+async function execPhase(
+  io: ComposeFlowIO,
+  stack: string,
+  phase: ComposePhase,
+  label: string,
+  spec: ProcessSpec,
+  timeoutMs: number,
+): Promise<ComposeFlowOutcome> {
+  io.phase(phase, timeoutMs);
+  try {
+    return { kind: 'finished', phase, result: await io.run(spec, timeoutMs), timeoutMs };
+  } catch (error) {
+    console.error(`Failed to execute ${label} for ${stack}${io.runId ? ` (run ${io.runId})` : ''}:`, error);
+    return { kind: 'spawn_failed', phase, error };
+  }
+}
+
+function singlePhaseFlow(
+  stack: string,
+  phase: ComposePhase,
+  label: string,
+  spec: ProcessSpec,
+  timeoutMs: number,
+): ComposeFlow {
+  return (io) => execPhase(io, stack, phase, label, spec, timeoutMs);
 }
 
 async function runComposeControl(
   subcommand: 'start' | 'stop' | 'restart',
+  request: Request,
   parsed: StackControlBody,
   stacksDir: string,
   spawn: SpawnFn,
-  timeoutMs: number = COMPOSE_TIMEOUT_MS,
+  timeoutMs: number,
+  registry: ComposeRunRegistry,
 ): Promise<Response> {
   const stackDir = join(stacksDir, parsed.stack);
   if (!isContainedInDir(stacksDir, stackDir)) {
@@ -160,22 +231,14 @@ async function runComposeControl(
   const cmd = ['docker', 'compose', '-f', composePath, ...cmdArgs];
   if (parsed.scope === 'service') cmd.push(parsed.service);
 
-  let result: SpawnResult;
-  try {
-    result = await spawnWithTimeout(spawn, {
-      cmd,
-      cwd: stackDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack },
-    }, timeoutMs);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to execute docker compose ${subcommand} for ${parsed.stack}:`, error);
-    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
-  }
-
-  return composeResultToResponse(result, timeoutMs);
+  const spec: ProcessSpec = { cmd, cwd: stackDir, env: { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack } };
+  return await respondToRun(
+    request,
+    registry,
+    spawn,
+    { action: subcommand, stack: parsed.stack },
+    singlePhaseFlow(parsed.stack, subcommand, `docker compose ${subcommand}`, spec, timeoutMs),
+  );
 }
 
 /**
@@ -280,6 +343,72 @@ function composeResultToResponse(result: SpawnResult, timeoutMs: number = COMPOS
   return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr } satisfies AgentStackResponse);
 }
 
+function logPrepareFailure(
+  io: ComposeFlowIO,
+  stack: string,
+  what: string,
+  result: SpawnResult,
+  timeoutMs: number,
+  log: (message: string) => void,
+): void {
+  if (result.timedOut) {
+    console.error(`[forceRecreate] ${what} for ${stack}${io.runId ? ` (run ${io.runId})` : ''} timed out after ${timeoutMs}ms`);
+  } else if (result.exitCode !== 0) {
+    log(`[forceRecreate] ${what} for ${stack}${io.runId ? ` (run ${io.runId})` : ''} exited with ${String(result.exitCode)}`);
+  }
+}
+
+async function prepareForceRecreate(
+  io: ComposeFlowIO,
+  composeContent: string,
+  stack: string,
+  stackDir: string,
+  composeEnv: Record<string, string | undefined>,
+): Promise<void> {
+  io.phase('prepare');
+  // When force recreate is enabled, remove any containers with explicit
+  // container_name values that might conflict: they could belong to a
+  // different compose project so `docker compose down` won't touch them.
+  // Resolve env-var interpolations in the compose file (e.g. ${APP_NAME}-web)
+  // so that `docker rm -f` targets the actual running container name rather
+  // than the literal placeholder string.
+  let resolvedContent = composeContent;
+  const tmpDir = process.env.TMPDIR ?? '/tmp';
+  const tmpFile = `${tmpDir}/compose-${Date.now()}.yml`;
+  try {
+    await Bun.write(tmpFile, composeContent);
+    const configResult = await io.runQuiet({
+      cmd: ['docker', 'compose', '--file', tmpFile, 'config'],
+      cwd: stackDir,
+      env: composeEnv,
+    }, PREPARE_TIMEOUT_MS);
+    if (configResult.exitCode === 0 && configResult.stdout.trim()) {
+      resolvedContent = configResult.stdout;
+    } else {
+      logPrepareFailure(io, stack, 'docker compose config', configResult, PREPARE_TIMEOUT_MS, console.error);
+    }
+  } catch (err) {
+    console.error(`[forceRecreate] Failed to resolve compose variables for ${stack}, falling back to raw content:`, err instanceof Error ? err.message : String(err));
+  } finally {
+    try { unlinkSync(tmpFile); } catch (unlinkErr) {
+      console.info(`[forceRecreate] Failed to remove tmp file ${tmpFile}:`, unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr));
+    }
+  }
+  const namedContainers = parseContainerNames(resolvedContent);
+  for (const name of namedContainers) {
+    try {
+      const rmResult = await io.runQuiet({
+        cmd: ['docker', 'rm', '-f', name],
+        cwd: stackDir,
+        env: composeEnv,
+      }, PREPARE_RM_TIMEOUT_MS);
+      logPrepareFailure(io, stack, `docker rm -f ${name}`, rmResult, PREPARE_RM_TIMEOUT_MS, console.info);
+    } catch (err) {
+      console.error(`[forceRecreate] Failed to run docker rm for '${name}':`, err instanceof Error ? err.message : String(err));
+    }
+  }
+}
+
 /**
  * Deploys a Docker Compose stack described in the request JSON and returns the deployment result.
  *
@@ -298,6 +427,7 @@ export async function handleStackDeploy(
   stacksDir: string,
   spawn: SpawnFn = Bun.spawn,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
+  registry: ComposeRunRegistry = composeRunRegistry,
 ): Promise<Response> {
   const parsed = await parseDeployBody(request);
   if (parsed instanceof Response) return parsed;
@@ -318,72 +448,13 @@ export async function handleStackDeploy(
   const composePath = join(stackDir, 'docker-compose.yml');
   const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack };
 
-  // When force recreate is enabled, remove any containers with explicit
-  // container_name values that might conflict: they could belong to a
-  // different compose project so `docker compose down` won't touch them.
-  if (parsed.forceRecreate) {
-    // Resolve env-var interpolations in the compose file (e.g. ${APP_NAME}-web)
-    // so that `docker rm -f` targets the actual running container name rather
-    // than the literal placeholder string.
-    let resolvedContent = parsed.composeContent;
-    const tmpDir = process.env.TMPDIR ?? '/tmp';
-    const tmpFile = `${tmpDir}/compose-${Date.now()}.yml`;
-    try {
-      await Bun.write(tmpFile, parsed.composeContent);
-      const configResult = await spawnWithTimeout(spawn, {
-        cmd: ['docker', 'compose', '--file', tmpFile, 'config'],
-        cwd: stackDir,
-        stdout: 'pipe',
-        stderr: 'pipe',
-        env: composeEnv,
-      }, 15_000);
-      if (configResult.exitCode === 0 && configResult.stdout.trim()) {
-        resolvedContent = configResult.stdout;
-      }
-    } catch (err) {
-      console.error(`[forceRecreate] Failed to resolve compose variables for ${parsed.stack}, falling back to raw content:`, err instanceof Error ? err.message : String(err));
-    } finally {
-      try { unlinkSync(tmpFile); } catch (unlinkErr) {
-        console.info(`[forceRecreate] Failed to remove tmp file ${tmpFile}:`, unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr));
-      }
-    }
-    const namedContainers = parseContainerNames(resolvedContent);
-    for (const name of namedContainers) {
-      try {
-        await spawnWithTimeout(spawn, {
-          cmd: ['docker', 'rm', '-f', name],
-          cwd: stackDir,
-          stdout: 'pipe',
-          stderr: 'pipe',
-          env: composeEnv,
-        }, 10_000);
-      } catch (err) {
-        // spawnWithTimeout only throws on spawn failure (binary missing, fork error),
-        // not on non-zero docker exit codes — those are in SpawnResult.exitCode.
-        console.error(`[forceRecreate] Failed to spawn docker rm for '${name}':`, err instanceof Error ? err.message : String(err));
-      }
-    }
-  }
-
-  const cmd = ['docker', 'compose', '-f', composePath, 'up', '-d', '--remove-orphans'];
-  if (parsed.forceRecreate) cmd.push('--force-recreate');
-
-  let result: SpawnResult;
-  try {
-    result = await spawnWithTimeout(spawn, {
-      cmd,
-      cwd: stackDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: composeEnv,
-    }, timeoutMs);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to execute docker compose for ${parsed.stack}:`, error);
-    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
-  }
-
-  return composeResultToResponse(result, timeoutMs);
+  const flow: ComposeFlow = async (io) => {
+    if (parsed.forceRecreate) await prepareForceRecreate(io, parsed.composeContent, parsed.stack, stackDir, composeEnv);
+    const cmd = ['docker', 'compose', '-f', composePath, 'up', '-d', '--remove-orphans'];
+    if (parsed.forceRecreate) cmd.push('--force-recreate');
+    return await execPhase(io, parsed.stack, 'up', 'docker compose', { cmd, cwd: stackDir, env: composeEnv }, timeoutMs);
+  };
+  return await respondToRun(request, registry, spawn, { action: 'deploy', stack: parsed.stack }, flow);
 }
 
 /**
@@ -402,6 +473,7 @@ export async function handleStackUpdate(
   spawn: SpawnFn = Bun.spawn,
   pullTimeoutMs: number = PULL_TIMEOUT_MS,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
+  registry: ComposeRunRegistry = composeRunRegistry,
 ): Promise<Response> {
   const parsed = await parseDeployBody(request);
   if (parsed instanceof Response) return parsed;
@@ -422,48 +494,37 @@ export async function handleStackUpdate(
   const composePath = join(stackDir, 'docker-compose.yml');
   const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack };
 
-  let pullResult: SpawnResult;
-  try {
+  const flow: ComposeFlow = async (io) => {
     // --ignore-buildable keeps stacks with build: sections or locally-built images working
-    pullResult = await spawnWithTimeout(spawn, {
+    const pull = await execPhase(io, parsed.stack, 'pull', 'docker compose pull', {
       cmd: ['docker', 'compose', '-f', composePath, 'pull', '--ignore-buildable'],
       cwd: stackDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
       env: composeEnv,
     }, pullTimeoutMs);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to execute docker compose pull for ${parsed.stack}:`, error);
-    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
-  }
+    if (pull.kind === 'spawn_failed' || pull.result.timedOut || pull.result.exitCode !== 0 || pull.result.readError) return pull;
 
-  if (pullResult.timedOut || pullResult.exitCode !== 0) {
-    return composeResultToResponse(pullResult, pullTimeoutMs);
-  }
-
-  let upResult: SpawnResult;
-  try {
-    upResult = await spawnWithTimeout(spawn, {
+    const up = await execPhase(io, parsed.stack, 'up', 'docker compose', {
       cmd: ['docker', 'compose', '-f', composePath, 'up', '-d', '--remove-orphans'],
       cwd: stackDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
       env: composeEnv,
     }, timeoutMs);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to execute docker compose for ${parsed.stack}:`, error);
-    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
-  }
+    if (up.kind === 'spawn_failed') return up;
 
-  const combined: SpawnResult = {
-    exitCode: upResult.exitCode,
-    timedOut: upResult.timedOut,
-    stdout: pullResult.stdout + upResult.stdout,
-    stderr: pullResult.stderr + upResult.stderr,
+    return {
+      kind: 'finished',
+      phase: 'up',
+      timeoutMs,
+      result: {
+        exitCode: up.result.exitCode,
+        timedOut: up.result.timedOut,
+        readError: up.result.readError,
+        ...(pull.result.outputIncomplete || up.result.outputIncomplete ? { outputIncomplete: true as const } : {}),
+        stdout: pull.result.stdout + up.result.stdout,
+        stderr: pull.result.stderr + up.result.stderr,
+      },
+    };
   };
-  return composeResultToResponse(combined, timeoutMs);
+  return await respondToRun(request, registry, spawn, { action: 'update', stack: parsed.stack }, flow);
 }
 
 /**
@@ -480,6 +541,7 @@ export async function handleStackTeardown(
   stacksDir: string,
   spawn: SpawnFn = Bun.spawn,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
+  registry: ComposeRunRegistry = composeRunRegistry,
 ): Promise<Response> {
   let body: { stack?: string };
   try {
@@ -512,22 +574,18 @@ export async function handleStackTeardown(
     );
   }
 
-  let result: SpawnResult;
-  try {
-    result = await spawnWithTimeout(spawn, {
-      cmd: ['docker', 'compose', '-f', composePath, 'down'],
-      cwd: stackDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
-    }, timeoutMs);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to execute docker compose for ${body.stack}:`, error);
-    return Response.json(routeErrorBody('compose_spawn_failed', { detail: msg }), { status: 500 });
-  }
-
-  return composeResultToResponse(result, timeoutMs);
+  const spec: ProcessSpec = {
+    cmd: ['docker', 'compose', '-f', composePath, 'down'],
+    cwd: stackDir,
+    env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
+  };
+  return await respondToRun(
+    request,
+    registry,
+    spawn,
+    { action: 'teardown', stack: body.stack },
+    singlePhaseFlow(body.stack, 'down', 'docker compose', spec, timeoutMs),
+  );
 }
 
 export async function handleStackRestart(
@@ -535,10 +593,11 @@ export async function handleStackRestart(
   stacksDir: string,
   spawn: SpawnFn = Bun.spawn,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
+  registry: ComposeRunRegistry = composeRunRegistry,
 ): Promise<Response> {
   const parsed = await parseStackControlBody(request);
   if (parsed instanceof Response) return parsed;
-  return runComposeControl('restart', parsed, stacksDir, spawn, timeoutMs);
+  return runComposeControl('restart', request, parsed, stacksDir, spawn, timeoutMs, registry);
 }
 
 export async function handleStackStart(
@@ -546,10 +605,11 @@ export async function handleStackStart(
   stacksDir: string,
   spawn: SpawnFn = Bun.spawn,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
+  registry: ComposeRunRegistry = composeRunRegistry,
 ): Promise<Response> {
   const parsed = await parseStackControlBody(request);
   if (parsed instanceof Response) return parsed;
-  return runComposeControl('start', parsed, stacksDir, spawn, timeoutMs);
+  return runComposeControl('start', request, parsed, stacksDir, spawn, timeoutMs, registry);
 }
 
 export async function handleStackStop(
@@ -557,10 +617,11 @@ export async function handleStackStop(
   stacksDir: string,
   spawn: SpawnFn = Bun.spawn,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
+  registry: ComposeRunRegistry = composeRunRegistry,
 ): Promise<Response> {
   const parsed = await parseStackControlBody(request);
   if (parsed instanceof Response) return parsed;
-  return runComposeControl('stop', parsed, stacksDir, spawn, timeoutMs);
+  return runComposeControl('stop', request, parsed, stacksDir, spawn, timeoutMs, registry);
 }
 
 /**
@@ -600,11 +661,9 @@ async function collectStackStatus(
   const composePath = join(stacksDir, stackName, 'docker-compose.yml');
 
   const effectiveMs = timeoutMs ?? COMPOSE_TIMEOUT_MS;
-  const result = await spawnWithTimeout(spawn, {
+  const result = await runBuffered(spawn, {
     cmd: ['docker', 'compose', '-f', composePath, 'ps', '--format', 'json'],
     cwd: join(stacksDir, stackName),
-    stdout: 'pipe',
-    stderr: 'pipe',
     env: { ...process.env, COMPOSE_PROJECT_NAME: stackName },
   }, effectiveMs);
 
