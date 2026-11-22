@@ -688,6 +688,16 @@ describe('handleUpdateAgent', () => {
   const TEST_DIGEST = 'sha256:' + 'b'.repeat(64);
   const TEST_TARGET = `ghcr.io/jaredglaser/homelab-manager-agent@${TEST_DIGEST}`;
 
+  function chunkedStream(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+    let index = 0;
+    return new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (index >= chunks.length) controller.close();
+        else controller.enqueue(chunks[index++]);
+      },
+    });
+  }
+
   function updateDeps(
     repo?: Partial<HostRepo>,
     checkHealth?: (url: string, hostName: string) => Promise<import('@/lib/hosts/host-utils').HealthCheckOutcome>,
@@ -1143,8 +1153,56 @@ describe('handleUpdateAgent', () => {
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
       expect(cancelled).toBe(true);
-      expect(sent).toBeLessThan(64 * 1024);
-      if (!result.healthy) expect(result.message.length).toBeLessThan(500);
+      expect(sent).toBe(1024 * (8192 / 1024 + 1));
+      expect(result.healthy).toBe(false);
+      expect('message' in result ? result.message.length : Infinity).toBeLessThan(500);
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps the code of a refusal just under the read bound, delivered in small chunks', async () => {
+    const encoded = new TextEncoder().encode(JSON.stringify({ error: 'e'.repeat(7500), code: 'update_in_progress' }));
+    const pieces: Uint8Array[] = [];
+    for (let at = 0; at < encoded.byteLength; at += 1024) pieces.push(encoded.slice(at, at + 1024));
+    const { restore } = withFetch(() => Promise.resolve(new Response(chunkedStream(pieces), { status: 409 })));
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: `${'e'.repeat(300)}...` });
+    } finally {
+      restore();
+    }
+  });
+
+  it('loses the code of an 8200 byte refusal delivered as 8192 and 8 bytes', async () => {
+    const prefix = '{"error":"';
+    const suffix = '","code":"update_in_progress"}';
+    const encoded = new TextEncoder().encode(`${prefix}${'e'.repeat(8200 - prefix.length - suffix.length)}${suffix}`);
+    expect(encoded.byteLength).toBe(8200);
+    const { restore } = withFetch(() =>
+      Promise.resolve(new Response(chunkedStream([encoded.slice(0, 8192), encoded.slice(8192)]), { status: 409 })),
+    );
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect(result).toEqual({
+        hostId: 1,
+        healthy: false,
+        code: 'agent_reported_error',
+        message: 'The answer was not an error message in the form the manager reads, so it may not have come from the agent.',
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps a multi-byte character that is split across two chunks of a plain-text refusal', async () => {
+    const encoded = new TextEncoder().encode('caf\u00e9 is down');
+    const { restore } = withFetch(() =>
+      Promise.resolve(new Response(chunkedStream([encoded.slice(0, 4), encoded.slice(4)]), { status: 502, headers: { 'content-type': 'text/plain' } })),
+    );
+    try {
+      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      expect('message' in result ? result.message : '').toEndWith('It said: caf\u00e9 is down');
     } finally {
       restore();
     }

@@ -358,7 +358,7 @@ export class DeployRepository {
           status: outcome.status,
           action: outcome.action,
           trigger: outcome.trigger,
-          ...(outcome.message ? { message: truncateDeployMessage(outcome.message) } : {}),
+          ...(outcome.message ? { message: truncateDeployMessage(outcome.message, outcome.status) } : {}),
         },
       } : {}),
     });

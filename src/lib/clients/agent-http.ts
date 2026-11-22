@@ -124,3 +124,34 @@ export function toPlainHttpUrl(parsed: URL): string {
   http.protocol = 'http:';
   return http.toString().replace(/\/$/, '');
 }
+
+// A proxy's error page can stand in for the agent's reply, and the whole body would reach the operator's row.
+const MAX_AGENT_FAILURE_DETAIL_CHARS = 300;
+export const MAX_AGENT_FAILURE_BODY_BYTES = 8192;
+
+export async function readBoundedBody(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let text = '';
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      text += decoder.decode(value, { stream: true });
+    }
+  } catch {
+    return text;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  return text;
+}
+
+// Control characters include newlines, so a plain-text body cannot start a forged log line.
+export function singleLine(text: string): string {
+  const flat = text.replace(/\p{Cc}+/gu, ' ').trim();
+  return flat.length > MAX_AGENT_FAILURE_DETAIL_CHARS ? `${flat.slice(0, MAX_AGENT_FAILURE_DETAIL_CHARS)}...` : flat;
+}
