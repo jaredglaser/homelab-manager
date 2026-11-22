@@ -1,6 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import type { Pool } from 'pg';
 import {
@@ -11,9 +10,8 @@ import {
   parserFor,
   runtimeTypeOf,
 } from '../row-wire-types/wire-types';
-import { collectSites, collectUntypedReads, scrapeFile, scrapeUntypedReads, type QuerySite } from '../row-wire-types/scrape';
+import { scanSources, type QuerySite, type SourceScan } from '../row-wire-types/scrape';
 import { observe } from '../row-wire-types/observe';
-import { MIN_QUERY_SITES } from '../row-wire-types/floor';
 import { outerJoinedTables, returningNullability, selectNullability, type AttributeCatalog } from '../row-wire-types/nullability';
 import { checkSites, evaluate } from '../row-wire-types/check';
 import {
@@ -37,13 +35,37 @@ import {
   type ObservedRowType,
 } from '../row-wire-types/compare';
 
-const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'row-wire-types-'));
+const repoRoot = path.join(import.meta.dir, '..', '..');
+const tsconfig = path.join(repoRoot, 'tsconfig.json');
+// Under node_modules so the fixtures resolve the real pg declarations the scan matches calls against.
+const fixtureRoot = path.join(repoRoot, 'node_modules', '.cache');
+fs.mkdirSync(fixtureRoot, { recursive: true });
+const fixtureDir = fs.mkdtempSync(path.join(fixtureRoot, 'row-wire-types-'));
 afterAll(() => fs.rmSync(fixtureDir, { recursive: true, force: true }));
 
-function fixture(name: string, source: string): string {
-  const file = path.join(fixtureDir, name);
+const fixtureGlobals = path.join(fixtureDir, 'globals.d.ts');
+fs.writeFileSync(fixtureGlobals, [
+  "type Pool = import('pg').Pool;",
+  "type PoolClient = import('pg').PoolClient;",
+  'declare const pool: Pool;',
+  'declare const client: PoolClient;',
+].join('\n'));
+
+/** One directory per fixture: fixtures are scripts, and two compiled into one program would collide on their top-level names. */
+function fixture(name: string, source: string, siblings: Record<string, string> = {}): string {
+  const dir = fs.mkdtempSync(path.join(fixtureDir, 'case-'));
+  for (const [sibling, text] of Object.entries(siblings)) fs.writeFileSync(path.join(dir, sibling), text);
+  const file = path.join(dir, name);
   fs.writeFileSync(file, source);
   return file;
+}
+
+function scanFixtureDir(dir: string, baseDir = dir): SourceScan {
+  return scanSources(dir, baseDir, { tsconfig, extraRoots: [fixtureGlobals] });
+}
+
+function scrapeFile(file: string): QuerySite[] {
+  return scanFixtureDir(path.dirname(file)).sites.filter((site) => site.file === path.basename(file));
 }
 
 function observed(wire: string[], nullable: ObservedField['nullable'] = '?'): ObservedField {
@@ -99,12 +121,13 @@ describe('scrapeFile', () => {
       '  id: number;',
       '}',
       'class Repo {',
+      '  constructor(private pool: Pool, private host: string) {}',
       '  async read() {',
       '    return this.pool.query<IdRow>(`SELECT id FROM deploy_history WHERE host = $1`, [this.host]);',
       '  }',
       '}',
     ].join('\n'));
-    const sites = scrapeFile(file, fixtureDir);
+    const sites = scrapeFile(file);
     expect(sites).toHaveLength(1);
     expect(sites[0].file).toBe('site.ts');
     expect(sites[0].rowType).toBe('IdRow');
@@ -124,7 +147,7 @@ describe('scrapeFile', () => {
       '}',
       'const q = pool.query<ChildRow>(`SELECT id, user_id, label, last_used_at FROM git_tokens`);',
     ].join('\n'));
-    const [site] = scrapeFile(file, fixtureDir);
+    const [site] = scrapeFile(file);
     expect(site.rowFields?.map((field) => field.name)).toEqual(['label', 'last_used_at', 'id', 'user_id']);
   });
 
@@ -135,7 +158,7 @@ describe('scrapeFile', () => {
       '}',
       'const q = pool.query<OpenRow>(`SELECT * FROM whatever`);',
     ].join('\n'));
-    const [site] = scrapeFile(file, fixtureDir);
+    const [site] = scrapeFile(file);
     expect(site.rowType).toBe('OpenRow');
     expect(site.rowFields).toBeNull();
   });
@@ -145,7 +168,7 @@ describe('scrapeFile', () => {
       'interface IdRow { id: number }',
       'const q = pool.query<IdRow>(`SELECT id FROM ${tier.relation} WHERE time > $1`, [seconds]);',
     ].join('\n'));
-    const [site] = scrapeFile(file, fixtureDir);
+    const [site] = scrapeFile(file);
     expect(site.sql).toContain('<DYN:tier.relation>');
     expect(site.dynamic).toEqual(['tier.relation']);
   });
@@ -155,7 +178,7 @@ describe('scrapeFile', () => {
       'interface IdRow { id: number }',
       "const a = pool.query<IdRow>('SELECT id FROM users WHERE id = $1', [id]);",
     ].join('\n'));
-    expect(scrapeFile(file, fixtureDir)[0].sql).toBe('SELECT id FROM users WHERE id = $1');
+    expect(scrapeFile(file)[0].sql).toBe('SELECT id FROM users WHERE id = $1');
   });
 
   test('joins a concatenation, following a top-level const', () => {
@@ -164,7 +187,7 @@ describe('scrapeFile', () => {
       "const COLUMNS = 'id, name';",
       "const a = pool.query<IdRow>('SELECT ' + COLUMNS + ' FROM users');",
     ].join('\n'));
-    expect(scrapeFile(file, fixtureDir)[0].sql).toBe('SELECT id, name FROM users');
+    expect(scrapeFile(file)[0].sql).toBe('SELECT id, name FROM users');
   });
 
   test('keeps a site whose statement it cannot read, with a null statement, so the run can fail on it', () => {
@@ -174,25 +197,44 @@ describe('scrapeFile', () => {
       "const b = pool.query<IdRow>({ text: 'SELECT 1' });",
       "const c = pool.query<IdRow>('SELECT ' + unknownName);",
     ].join('\n'));
-    expect(scrapeFile(file, fixtureDir).map((site) => site.sql)).toEqual([null, null, null]);
+    expect(scrapeFile(file).map((site) => site.sql)).toEqual([null, null, null]);
   });
 
-  test('ignores calls that are not a typed query', () => {
+  test('ignores an untyped query and a typed call that does not reach pg, whatever its method is named', () => {
     const file = fixture('other.ts', [
       'interface IdRow { id: number }',
+      'const cache = { query<T>(key: string): T | undefined { return undefined; } };',
       'const a = pool.query(`SELECT 1`);',
-      'const b = pool.query<IdRow, Extra>(`SELECT 2`);',
-      'const c = other.read<IdRow>(`SELECT 3`);',
+      'const b = cache.query<IdRow>(`SELECT 2`);',
     ].join('\n'));
-    expect(scrapeFile(file, fixtureDir)).toEqual([]);
+    expect(scrapeFile(file)).toEqual([]);
   });
 
-  test('collectSites skips test directories', () => {
+  test('finds a pg query by its type, whatever the receiver is called or however it is reached', () => {
+    const file = fixture('receivers.ts', [
+      'interface IdRow { id: number }',
+      'declare function getPool(): Pool;',
+      'async function f(db: PoolClient) {',
+      '  await db.query<IdRow>(`SELECT 1 AS id`);',
+      '  await getPool().query<IdRow, [number]>(`SELECT $1::int AS id`, [1]);',
+      '}',
+    ].join('\n'));
+    expect(scrapeFile(file).map((site) => [site.line, site.rowType])).toEqual([[4, 'IdRow'], [5, 'IdRow']]);
+  });
+
+  test('reports a .query(...) on a receiver of unknown type instead of skipping it', () => {
+    const file = fixture('unknown.ts', 'interface IdRow { id: number }\nexport async function f(db: any) {\n  return db.query<IdRow>(`SELECT 1 AS id`);\n}');
+    const scan = scanFixtureDir(path.dirname(file));
+    expect(scan.sites).toEqual([]);
+    expect(scan.unresolved).toEqual([{ file: 'unknown.ts', line: 3 }]);
+  });
+
+  test('skips test directories', () => {
     const dir = fs.mkdtempSync(path.join(fixtureDir, 'tree-'));
     fs.mkdirSync(path.join(dir, '__tests__'));
     fs.writeFileSync(path.join(dir, 'a.ts'), 'interface IdRow { id: number }\nconst q = pool.query<IdRow>(`SELECT 1`);');
     fs.writeFileSync(path.join(dir, '__tests__', 'a.test.ts'), 'interface IdRow { id: number }\nconst q = pool.query<IdRow>(`SELECT 1`);');
-    expect(collectSites(dir, dir).map((site) => site.file)).toEqual(['a.ts']);
+    expect(scanFixtureDir(dir).sites.map((site) => site.file)).toEqual(['a.ts']);
   });
 });
 
@@ -471,13 +513,13 @@ describe('assertWireTypeTable against real pg type oids', () => {
 describe('scrapeFile row shapes', () => {
   test('reads a row type declared as a type alias', () => {
     const file = fixture('alias.ts', 'type ValueRow = { value: string };\nconst q = pool.query<ValueRow>(`SELECT value FROM entity_metadata`);');
-    const [site] = scrapeFile(file, fixtureDir);
+    const [site] = scrapeFile(file);
     expect(site.rowFields).toEqual([{ name: 'value', type: 'string', optional: false }]);
   });
 
   test('reads an inline type argument', () => {
     const file = fixture('inline.ts', 'const q = pool.query<{ ready: boolean }>(`SELECT to_regclass($1) IS NOT NULL AS ready`);');
-    const [site] = scrapeFile(file, fixtureDir);
+    const [site] = scrapeFile(file);
     expect(site.rowFields).toEqual([{ name: 'ready', type: 'boolean', optional: false }]);
   });
 });
@@ -628,17 +670,20 @@ describe('nullability from result metadata', () => {
 });
 
 describe('untyped reads', () => {
-  const reads = (source: string): number[] => scrapeUntypedReads(fixture(`untyped-${Math.random()}.ts`, source), fixtureDir).map((read) => read.line);
+  const reads = (source: string): number[] => {
+    const file = fixture('untyped.ts', source);
+    return scanFixtureDir(path.dirname(file)).untypedReads.map((read) => read.line);
+  };
 
   test('flags an untyped query whose rows are read', () => {
-    expect(reads('async function f(pool) {\n  const result = await pool.query(`SELECT 1`);\n  return result.rows[0];\n}')).toEqual([2]);
-    expect(reads('async function f(pool) {\n  const { rows } = await pool.query(`SELECT 1`);\n  return rows;\n}')).toEqual([2]);
-    expect(reads('async function f(pool) {\n  return (await pool.query(`SELECT 1`)).rows;\n}')).toEqual([2]);
-    expect(reads('function f(pool) {\n  return pool.query(`SELECT 1`);\n}')).toEqual([2]);
+    expect(reads('async function f(pool: Pool) {\n  const result = await pool.query(`SELECT 1`);\n  return result.rows[0];\n}')).toEqual([2]);
+    expect(reads('async function f(pool: Pool) {\n  const { rows } = await pool.query(`SELECT 1`);\n  return rows;\n}')).toEqual([2]);
+    expect(reads('async function f(pool: Pool) {\n  return (await pool.query(`SELECT 1`)).rows;\n}')).toEqual([2]);
+    expect(reads('function f(pool: Pool) {\n  return pool.query(`SELECT 1`);\n}')).toEqual([2]);
   });
 
   test('flags every shape that lets the rows leave the call', () => {
-    const flagged = (body: string): number[] => reads(`async function f(pool, client) {\n${body}\n}`);
+    const flagged = (body: string): number[] => reads(`async function f(pool: Pool, client: PoolClient) {\n${body}\n}`);
     expect(flagged('  return await pool.query(`SELECT 1`);')).toEqual([2]);
     expect(flagged('  const res = await pool.query(`SELECT 1`);\n  return res;')).toEqual([2]);
     expect(flagged('  const res = await pool.query(`SELECT 1`);\n  const { rows } = res;\n  return rows;')).toEqual([2]);
@@ -653,12 +698,12 @@ describe('untyped reads', () => {
   });
 
   test('flags an arrow function that returns the result implicitly', () => {
-    expect(reads('const run = (pool) => pool.query(`SELECT 1`);')).toEqual([1]);
-    expect(reads('const run = async (pool) => (await pool.query(`SELECT 1`)).rows;')).toEqual([1]);
+    expect(reads('const run = (pool: Pool) => pool.query(`SELECT 1`);')).toEqual([1]);
+    expect(reads('const run = async (pool: Pool) => (await pool.query(`SELECT 1`)).rows;')).toEqual([1]);
   });
 
   test('leaves every discarded or rowless use of the result alone', () => {
-    const flagged = (body: string): number[] => reads(`async function f(pool, client) {\n${body}\n}`);
+    const flagged = (body: string): number[] => reads(`async function f(pool: Pool, client: PoolClient) {\n${body}\n}`);
     expect(flagged('  await client.query(`BEGIN`);')).toEqual([]);
     expect(flagged('  await pool.query(`SELECT 1`).catch(() => undefined);')).toEqual([]);
     expect(flagged('  void pool.query(`NOTIFY x`);')).toEqual([]);
@@ -669,7 +714,7 @@ describe('untyped reads', () => {
   });
 
   test('a reused variable name elsewhere in the function is not a read of the untyped result', () => {
-    const flagged = (body: string): number[] => reads(`async function f(pool, items) {\n${body}\n}`);
+    const flagged = (body: string): number[] => reads(`async function f(pool: Pool, items: any) {\n${body}\n}`);
     expect(flagged('  if (items) {\n    const res = await pool.query(`DELETE FROM t`);\n    log(res.rowCount);\n  }\n  const res = items.map((x) => x);\n  return res;')).toEqual([]);
     expect(flagged('  const res = await pool.query(`DELETE FROM t`);\n  items.forEach((res) => log(res));\n  return res.rowCount;')).toEqual([]);
     expect(flagged('  {\n    const res = await pool.query(`DELETE FROM t`);\n    log(res.rowCount);\n  }\n  {\n    const res = await other();\n    return res.rows;\n  }')).toEqual([]);
@@ -677,37 +722,57 @@ describe('untyped reads', () => {
   });
 
   test('leaves a discarded result, a row count and a typed query alone', () => {
-    expect(reads('async function f(pool) {\n  await pool.query(`LISTEN x`);\n}')).toEqual([]);
-    expect(reads('async function f(pool) {\n  const result = await pool.query(`DELETE FROM t`);\n  return result.rowCount;\n}')).toEqual([]);
-    expect(reads('async function f(pool) {\n  const result = await pool.query<{ id: number }>(`SELECT 1`);\n  return result.rows;\n}')).toEqual([]);
+    expect(reads('async function f(pool: Pool) {\n  await pool.query(`LISTEN x`);\n}')).toEqual([]);
+    expect(reads('async function f(pool: Pool) {\n  const result = await pool.query(`DELETE FROM t`);\n  return result.rowCount;\n}')).toEqual([]);
+    expect(reads('async function f(pool: Pool) {\n  const result = await pool.query<{ id: number }>(`SELECT 1`);\n  return result.rows;\n}')).toEqual([]);
   });
 
-  test('collectUntypedReads walks several directories and skips tests', () => {
+  test('walks several directories and skips tests', () => {
     const dir = fs.mkdtempSync(path.join(fixtureDir, 'untyped-tree-'));
     fs.mkdirSync(path.join(dir, '__tests__'));
-    fs.writeFileSync(path.join(dir, 'a.ts'), 'const r = (await pool.query(`SELECT 1`)).rows;');
-    fs.writeFileSync(path.join(dir, '__tests__', 'b.ts'), 'const r = (await pool.query(`SELECT 1`)).rows;');
-    expect(collectUntypedReads([dir, path.join(dir, 'missing')], fixtureDir)).toHaveLength(1);
+    fs.writeFileSync(path.join(dir, 'a.ts'), 'export const r = (await pool.query(`SELECT 1`)).rows;');
+    fs.writeFileSync(path.join(dir, '__tests__', 'b.ts'), 'export const r = (await pool.query(`SELECT 1`)).rows;');
+    expect(scanSources([dir, path.join(dir, 'missing')], fixtureDir, { tsconfig, extraRoots: [fixtureGlobals] }).untypedReads).toHaveLength(1);
   });
 });
 
 describe('scrapeFile declarations', () => {
-  test('refuses a row type declared twice in one file instead of merging them', () => {
+  test('resolves two same-named row types in different scopes to their own declarations', () => {
     const file = fixture('twice.ts', [
       'function a() { interface Row { id: number } return pool.query<Row>(`SELECT id FROM t`); }',
       'function b() { interface Row { name: string } return pool.query<Row>(`SELECT name FROM t`); }',
     ].join('\n'));
-    expect(scrapeFile(file, fixtureDir).map((site) => site.rowFields)).toEqual([null, null]);
+    expect(scrapeFile(file).map((site) => site.rowFields?.map((field) => field.name))).toEqual([['id'], ['name']]);
   });
 
-  test('refuses a row type that extends a base it cannot see', () => {
-    const file = fixture('imported-base.ts', 'import type { Base } from "./base";\ninterface Row extends Base { id: number }\nconst q = pool.query<Row>(`SELECT id FROM t`);');
-    expect(scrapeFile(file, fixtureDir)[0].rowFields).toBeNull();
+  test('refuses an interface merged from two declarations instead of guessing at its members', () => {
+    const file = fixture('merged.ts', 'interface Row { id: number }\ninterface Row { name: string }\nconst q = pool.query<Row>(`SELECT id, name FROM t`);');
+    expect(scrapeFile(file)[0].rowFields).toBeNull();
+  });
+
+  test('refuses a row type that extends a base it cannot resolve', () => {
+    const file = fixture('imported-base.ts', 'import type { Base } from "./missing";\ninterface Row extends Base { id: number }\nconst q = pool.query<Row>(`SELECT id FROM t`);');
+    expect(scrapeFile(file)[0].rowFields).toBeNull();
+  });
+
+  test('follows a row type, a base and a statement constant imported from another file', () => {
+    const file = fixture(
+      'imported.ts',
+      'import type { Row } from "./rows";\nimport { SQL } from "./sql";\nexport const q = pool.query<Row>(SQL);',
+      {
+        'rows.ts': 'import type { Base } from "./base";\nexport interface Row extends Base { name: string }',
+        'base.ts': 'export interface Base { id: number }',
+        'sql.ts': "export const SQL = 'SELECT id, name FROM t';",
+      },
+    );
+    const [site] = scrapeFile(file);
+    expect(site.rowFields?.map((field) => field.name)).toEqual(['name', 'id']);
+    expect(site.sql).toBe('SELECT id, name FROM t');
   });
 
   test('follows a base declared in the same file', () => {
     const file = fixture('local-base.ts', 'interface Base { id: number }\ninterface Row extends Base { name: string }\nconst q = pool.query<Row>(`SELECT id, name FROM t`);');
-    expect(scrapeFile(file, fixtureDir)[0].rowFields?.map((field) => field.name)).toEqual(['name', 'id']);
+    expect(scrapeFile(file)[0].rowFields?.map((field) => field.name)).toEqual(['name', 'id']);
   });
 });
 
@@ -732,7 +797,7 @@ describe('checkSites and evaluate', () => {
   const selectPool = poolStub(() => ({
     fields: [{ name: 'id', dataTypeID: 23, tableID: 1, columnID: 1 }, { name: 'name', dataTypeID: 25, tableID: 1, columnID: 2 }],
   })).pool;
-  const scan = { sites: 1, untypedReads: [], minSites: 1 };
+  const scan = { untypedReads: [], unresolved: [] };
 
   test('a matching row type passes with exit code zero', async () => {
     const result = await checkSites([site()], { pool: selectPool, pgTypeByOid, catalog });
@@ -779,11 +844,11 @@ describe('checkSites and evaluate', () => {
     expect(evaluation.real.map((finding) => `${finding.field}:${finding.verdict}`)).toEqual(['name:unsound']);
   });
 
-  test('a scan below the recorded floor fails', async () => {
+  test('a .query(...) on a receiver of unknown type fails', async () => {
     const result = await checkSites([site()], { pool: selectPool, pgTypeByOid, catalog });
-    const evaluation = evaluate(result, { ...scan, minSites: 5 }, {});
+    const evaluation = evaluate(result, { ...scan, unresolved: [{ file: 'repo.ts', line: 7 }] }, {});
     expect(evaluation.failed).toBe(true);
-    expect(evaluation.problems[0]).toContain('fewer than the 5 recorded');
+    expect(evaluation.problems[0]).toContain('repo.ts:7');
   });
 
   test('an untyped read fails', async () => {
@@ -823,17 +888,11 @@ describe('checkSites and evaluate', () => {
   });
 });
 
-describe('site count floor', () => {
-  const repoRoot = path.join(import.meta.dir, '..', '..');
-
-  test('MIN_QUERY_SITES equals the typed query sites in src and server, so changing it is a visible edit', () => {
-    const found = collectSites([path.join(repoRoot, 'src'), path.join(repoRoot, 'server')], repoRoot).length;
-    if (found !== MIN_QUERY_SITES) {
-      throw new Error(`scripts/row-wire-types/floor.ts records MIN_QUERY_SITES = ${MIN_QUERY_SITES}, but src and server now hold ${found} typed query sites. Update MIN_QUERY_SITES to ${found} in the same change. Lowering it hides statements from the scan, so lower it only when statements were deleted.`);
-    }
-  });
-
-  test('no untyped query in src or server lets its rows leave the call', () => {
-    expect(collectUntypedReads([path.join(repoRoot, 'src'), path.join(repoRoot, 'server')], repoRoot)).toEqual([]);
-  });
+describe('src and server', () => {
+  test('every pg query is typed or keeps its rows, and every .query(...) receiver has a known type', () => {
+    const scan = scanSources([path.join(repoRoot, 'src'), path.join(repoRoot, 'server')], repoRoot, { tsconfig });
+    expect(scan.untypedReads).toEqual([]);
+    expect(scan.unresolved).toEqual([]);
+    expect(scan.sites.filter((site) => site.sql === null || site.rowFields === null)).toEqual([]);
+  }, 120_000);
 });
