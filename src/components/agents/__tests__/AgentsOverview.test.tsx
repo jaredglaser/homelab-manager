@@ -1,7 +1,8 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AgentInventoryEntry, AgentInventoryFailure } from '@/lib/hosts/agent-inventory'
+import { AGENT_INVENTORY_STATUSES } from '@/lib/hosts/agent-inventory'
 
 const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntry => ({
   id: 1,
@@ -10,7 +11,6 @@ const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntr
   capabilities: { docker: true },
   status: 'online',
   version: '0.2.0',
-  versionSource: 'live',
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentImageTag: 'latest',
   agentImageDigest: 'sha256:' + 'a'.repeat(64),
@@ -101,7 +101,7 @@ describe('AgentsOverviewView', () => {
         {...makeProps({
           agents: [
             makeAgent(),
-            makeAgent({ id: 2, name: 'media-server', status: 'offline', version: '0.1.0', versionSource: 'stored', failure: { code: 'offline', message: 'timed out' }, agentUrl: 'http://192.168.1.20:9090' }),
+            makeAgent({ id: 2, name: 'media-server', status: 'offline', version: '0.1.0', failure: { code: 'offline', message: 'timed out' }, agentUrl: 'http://192.168.1.20:9090' }),
           ],
         })}
       />,
@@ -187,6 +187,21 @@ describe('AgentsOverviewView', () => {
     const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     render(<AgentsOverviewView {...makeProps({ agents: [makeAgent()] })} />)
     expect(screen.queryByText(/then check again/)).toBeNull()
+  })
+
+  it('marks the version as stored for every agent that is not online, and never for one that is', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    render(
+      <AgentsOverviewView
+        {...makeProps({
+          agents: AGENT_INVENTORY_STATUSES.map((status, i) => makeAgent({ id: i + 1, name: `host-${status}`, status })),
+        })}
+      />,
+    )
+    for (const status of AGENT_INVENTORY_STATUSES) {
+      const badge = within(screen.getByTestId(`agent-row-host-${status}`)).queryByLabelText('stored version')
+      expect(badge === null, status).toBe(status === 'online')
+    }
   })
 
   it('lets an admin trigger the update for one row without touching the other', async () => {
