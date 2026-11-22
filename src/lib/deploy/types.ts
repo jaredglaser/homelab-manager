@@ -124,4 +124,5 @@ export interface AgentUpdatePayload {
 export interface AgentDeployResponse {
   success: boolean;
   logs: string;
+  exitCode?: number;
 }

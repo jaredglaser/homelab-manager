@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { join, resolve, relative } from 'node:path';
 import { routeErrorBody } from '../lib/error-body';
 import type {
+  AgentStackResponse,
   AgentStackComposeResponse,
   AgentStackInventoryEntry,
   AgentStackInventoryError,
@@ -264,19 +265,19 @@ function writeStackFiles(
 function composeResultToResponse(result: SpawnResult, timeoutMs: number = COMPOSE_TIMEOUT_MS): Response {
   if (result.timedOut) {
     return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${timeoutMs / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
+      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${timeoutMs / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout } satisfies AgentStackResponse,
       { status: 500 }
     );
   }
 
   if (result.exitCode !== 0) {
     return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
+      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout } satisfies AgentStackResponse,
       { status: 500 }
     );
   }
 
-  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr });
+  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr } satisfies AgentStackResponse);
 }
 
 /**
