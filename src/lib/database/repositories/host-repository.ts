@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
-import { parseRowEnum } from '@/lib/database/repositories/row-enum';
+import { parseNullableRowEnum, parseRowEnum } from '@/lib/database/repositories/row-enum';
+import { HOST_PROBE_FAILURE_CODES, MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
+import type { HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
 
 /** Valid statuses for managed_hosts, matching the DB CHECK constraint in migration 010. */
 export const HOST_STATUS_VALUES = ['pending', 'healthy', 'unhealthy', 'error'] as const;
@@ -9,6 +11,17 @@ export interface HostCapabilities {
   docker?: boolean;
   zfs?: boolean;
 }
+
+export interface HostFailureRecord {
+  code: HostProbeFailureCode;
+  detail: string | null;
+}
+
+/** An unhealthy host always names its cause, and a healthy one never carries one (managed_hosts_failure_check). */
+export type HostHealthVerdict =
+  | { status: 'healthy'; failure: null }
+  | { status: 'pending'; failure: HostFailureRecord | null }
+  | { status: 'unhealthy'; failure: HostFailureRecord };
 
 export interface ManagedHost {
   id: number;
@@ -23,6 +36,8 @@ export interface ManagedHost {
   /** True when the last sweep found this digest different from the manager's own agent image. */
   agentOutOfDate: boolean;
   status: HostStatus;
+  /** Null when the last probe succeeded or the host has never been probed. */
+  failure: HostFailureRecord | null;
   createdAt: Date;
   updatedAt: Date;
   /**
@@ -64,6 +79,8 @@ interface ManagedHostRow {
   agent_image_digest: string | null;
   agent_out_of_date: boolean;
   status: string;
+  failure_code: string | null;
+  failure_detail: string | null;
   created_at: Date;
   updated_at: Date;
   last_swept_at: Date | null;
@@ -75,6 +92,11 @@ interface HostIdRow {
 
 interface HostNameRow {
   name: string;
+}
+
+function toFailureRecord(row: ManagedHostRow): HostFailureRecord | null {
+  const code: HostProbeFailureCode | null = parseNullableRowEnum('managed_hosts.failure_code', row.failure_code, HOST_PROBE_FAILURE_CODES);
+  return code === null ? null : { code, detail: row.failure_detail };
 }
 
 function toManagedHost(row: ManagedHostRow): ManagedHost {
@@ -89,6 +111,7 @@ function toManagedHost(row: ManagedHostRow): ManagedHost {
     agentImageDigest: row.agent_image_digest,
     agentOutOfDate: row.agent_out_of_date,
     status: parseRowEnum('managed_hosts.status', row.status, HOST_STATUS_VALUES),
+    failure: toFailureRecord(row),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastSweptAt: row.last_swept_at,
@@ -183,10 +206,22 @@ export class HostRepository {
     return result.rows.length > 0 ? toManagedHost(result.rows[0]) : null;
   }
 
-  async updateStatus(id: number, status: HostStatus): Promise<void> {
+  /**
+   * Written only while the row still has the URL the verdict was probed at, so an edited host never gets its old URL's verdict back.
+   * A pending verdict only lands on a row that is still pending: pending grants plaintext enrollment, so a probe that read the row
+   * before a concurrent check verified it must not hand that back.
+   */
+  async updateHealth(id: number, verdict: HostHealthVerdict, probedUrl: string): Promise<void> {
     await this.pool.query(
-      'UPDATE managed_hosts SET status = $1, updated_at = NOW() WHERE id = $2',
-      [status, id],
+      `UPDATE managed_hosts SET status = $1::text, failure_code = $2, failure_detail = $3, updated_at = NOW()
+       WHERE id = $4 AND agent_url = $5 AND ($1::text <> 'pending' OR status = 'pending')`,
+      [
+        verdict.status,
+        verdict.failure?.code ?? null,
+        verdict.failure?.detail?.slice(0, MAX_FAILURE_DETAIL_LENGTH) ?? null,
+        id,
+        probedUrl,
+      ],
     );
   }
 

@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 import type { Checks } from './checks';
+import { HOST_PROBE_FAILURE_CODES, MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
+import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import {
   ACTIVE_CONTAINER,
@@ -34,6 +36,89 @@ import {
   UNIFY_PLAIN,
   UNIFY_REPLICA,
 } from './fixture';
+
+const FAILURE_CHECK_VIOLATION = '23514';
+
+async function assertManagedHostFailureCheck(pool: Pool, checks: Checks): Promise<void> {
+  const client = await pool.connect();
+  const accepts = async (status: string, code: string | null, detail: string | null): Promise<boolean> => {
+    await client.query('SAVEPOINT failure_attempt');
+    try {
+      await client.query(
+        `UPDATE managed_hosts SET status = $2, failure_code = $3, failure_detail = $4 WHERE name = $1`,
+        ['failure-check-host', status, code, detail]
+      );
+      return true;
+    } catch (err) {
+      if ((err as { code?: string }).code !== FAILURE_CHECK_VIOLATION) throw err;
+      return false;
+    } finally {
+      await client.query('ROLLBACK TO SAVEPOINT failure_attempt');
+    }
+  };
+
+  try {
+    await client.query('BEGIN');
+    await client.query(`INSERT INTO managed_hosts (name, agent_url) VALUES ('failure-check-host', 'http://localhost:9090')`);
+    for (const code of HOST_PROBE_FAILURE_CODES) {
+      checks.equal(`managed_hosts accepts the ${code} failure code on an unhealthy row`, await accepts('unhealthy', code, 'detail'), true);
+    }
+    checks.equal('managed_hosts accepts a pending row carrying a cause', await accepts('pending', 'awaiting-enrollment', 'detail'), true);
+    checks.equal('managed_hosts accepts a healthy row with no cause', await accepts('healthy', null, null), true);
+    checks.equal('managed_hosts rejects a failure code outside the probe set', await accepts('unhealthy', 'bogus', null), false);
+    checks.equal('managed_hosts rejects a failure detail with no code', await accepts('unhealthy', null, 'detail'), false);
+    checks.equal('managed_hosts rejects a healthy row carrying a cause', await accepts('healthy', 'offline', null), false);
+
+    const repo = new HostRepository({ query: (sql: string, params?: unknown[]) => client.query(sql, params) } as unknown as Pool);
+    const URL = 'http://localhost:9090';
+    const idRow = await client.query(`SELECT id FROM managed_hosts WHERE name = 'failure-check-host'`);
+    const id = Number((idRow.rows[0] as { id: number }).id);
+    const stateAfter = async (setup: string, write: () => Promise<void>): Promise<string> => {
+      await client.query('SAVEPOINT write_attempt');
+      try {
+        await client.query(setup);
+        await write();
+        const row = (await client.query(
+          `SELECT status, failure_code, char_length(failure_detail) AS detail_length FROM managed_hosts WHERE id = ${id}`
+        )).rows[0] as { status: string; failure_code: string | null; detail_length: number | null };
+        return `${row.status}/${row.failure_code ?? '-'}/${row.detail_length ?? '-'}`;
+      } finally {
+        await client.query('ROLLBACK TO SAVEPOINT write_attempt');
+      }
+    };
+    const pendingFailure = { status: 'pending', failure: { code: 'offline', detail: null } } as const;
+    checks.equal(
+      'a pending verdict does not land on a row a concurrent check already verified',
+      await stateAfter(`UPDATE managed_hosts SET status = 'healthy' WHERE id = ${id}`, () => repo.updateHealth(id, pendingFailure, URL)),
+      'healthy/-/-'
+    );
+    checks.equal(
+      'a pending verdict lands on a row that is still pending',
+      await stateAfter(`UPDATE managed_hosts SET status = 'pending' WHERE id = ${id}`, () => repo.updateHealth(id, pendingFailure, URL)),
+      'pending/offline/-'
+    );
+    checks.equal(
+      'a healthy verdict verifies a pending row',
+      await stateAfter(`UPDATE managed_hosts SET status = 'pending' WHERE id = ${id}`, () => repo.updateHealth(id, { status: 'healthy', failure: null }, URL)),
+      'healthy/-/-'
+    );
+    checks.equal(
+      'a verdict probed at an old URL does not land after the URL changed',
+      await stateAfter(`UPDATE managed_hosts SET status = 'healthy' WHERE id = ${id}`, () =>
+        repo.updateHealth(id, { status: 'unhealthy', failure: { code: 'offline', detail: null } }, 'http://old:9090')),
+      'healthy/-/-'
+    );
+    checks.equal(
+      'a failure detail is stored cut to the limit',
+      await stateAfter(`UPDATE managed_hosts SET status = 'healthy' WHERE id = ${id}`, () =>
+        repo.updateHealth(id, { status: 'unhealthy', failure: { code: 'offline', detail: 'x'.repeat(MAX_FAILURE_DETAIL_LENGTH + 80) } }, URL)),
+      `unhealthy/offline/${MAX_FAILURE_DETAIL_LENGTH}`
+    );
+  } finally {
+    await client.query('ROLLBACK').catch(() => undefined);
+    client.release();
+  }
+}
 
 const RELATIVE_EPSILON = 1e-9;
 /** uptime is the slowest counter in the fixture; its bucket AVG trails its LAST by ~29.5. */
@@ -281,6 +366,22 @@ export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
     imageUpdateCheckPk?.definition.includes('(host, stack, image)'),
     true
   );
+
+  const managedHostFailureColumns = new Set(
+    await selectColumn<string>(
+      pool,
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'managed_hosts'
+         AND column_name IN ('failure_code', 'failure_detail')`
+    )
+  );
+  checks.sameSet(
+    'managed_hosts carries the probe failure columns',
+    [...managedHostFailureColumns],
+    ['failure_code', 'failure_detail']
+  );
+
+  await assertManagedHostFailureCheck(pool, checks);
 
   const zfsHost = await selectRow<{ is_nullable: string }>(
     pool,

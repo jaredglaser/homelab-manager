@@ -82,6 +82,48 @@ describe('agent-health-service', () => {
       }
     });
 
+    it('reports an agent that answers 503 unhealthy as agent-unhealthy, not as a wrong URL', async () => {
+      const fetchFn = mock(() =>
+        Promise.resolve(new Response(JSON.stringify({ status: 'unhealthy' }), { status: 503 }))
+      ) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+
+      expect(result).toEqual({ healthy: false, reason: 'agent-unhealthy', error: 'Agent reported itself unhealthy' });
+    });
+
+    it('keeps a 503 without the agent body, and a non-503 error with it, as unreachable', async () => {
+      const proxy503 = mock(() => Promise.resolve(new Response('Service Unavailable', { status: 503 }))) as unknown as typeof fetch;
+      const unhealthy500 = mock(() =>
+        Promise.resolve(new Response(JSON.stringify({ status: 'unhealthy' }), { status: 500 }))
+      ) as unknown as typeof fetch;
+
+      const first = await checkAgentHealth('http://agent:9090', undefined, proxy503);
+      const second = await checkAgentHealth('http://agent:9090', undefined, unhealthy500);
+
+      expect(first).toMatchObject({ healthy: false, reason: 'unreachable' });
+      expect(second).toMatchObject({ healthy: false, reason: 'unreachable' });
+    });
+
+    it('treats a 503 body far larger than the agent sends as unreachable without reading it all', async () => {
+      const big = JSON.stringify({ status: 'unhealthy', pad: 'x'.repeat(64 * 1024) });
+      const fetchFn = mock(() => Promise.resolve(new Response(big, { status: 503 }))) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+
+      expect(result).toMatchObject({ healthy: false, reason: 'unreachable' });
+    });
+
+    it('reports a pinned certificate that fails verification as certificate-rejected', async () => {
+      const fetchFn = mock(() =>
+        Promise.reject(Object.assign(new TypeError('self signed certificate'), { code: 'DEPTH_ZERO_SELF_SIGNED_CERT' }))
+      ) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('https://agent:9090', undefined, fetchFn, undefined, 'PINNED-PEM');
+
+      expect(result).toEqual({ healthy: false, reason: 'certificate-rejected', error: 'self signed certificate' });
+    });
+
     it('returns unhealthy result when fetch throws (network error)', async () => {
       const fetchFn = mock(async () => {
         throw new Error('ECONNREFUSED');

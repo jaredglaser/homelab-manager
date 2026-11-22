@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
-import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
+import { hostFailureDetail, hostFailureMessage } from '@/lib/errors/host-failure-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
 import { useAuth } from '@/hooks/useAuth'
@@ -86,6 +86,18 @@ function VersionCell({ agent }: { agent: AgentInventoryEntry }) {
   )
 }
 
+function AgentFailure({ failure }: { failure: NonNullable<AgentInventoryEntry['failure']> }) {
+  const detail = hostFailureDetail(failure.code, failure.message)
+  return (
+    <>
+      <p className="text-xs text-muted-foreground break-words">{hostFailureMessage(failure.code)}</p>
+      {detail && (
+        <p className="text-xs font-mono text-muted-foreground line-clamp-2 break-words" title={detail}>{detail}</p>
+      )}
+    </>
+  )
+}
+
 function AgentRow({
   agent,
   isAdmin,
@@ -111,9 +123,7 @@ function AgentRow({
             {agent.agentOutOfDate && <UpdateAvailableBadge />}
           </div>
           <span className="text-xs font-mono text-muted-foreground block truncate">{agent.agentUrl}</span>
-          {agent.status !== 'online' && agent.lastError && (
-            <p className="text-xs text-muted-foreground truncate" title={agent.lastError}>{agent.lastError}</p>
-          )}
+          {agent.status !== 'online' && agent.failure && <AgentFailure failure={agent.failure} />}
         </div>
         <div className="flex items-center gap-4 shrink-0">
           <Tooltip>
