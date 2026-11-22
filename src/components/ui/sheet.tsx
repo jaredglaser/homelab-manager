@@ -2,17 +2,26 @@ import type { ComponentProps } from 'react';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
+import { ModalBusyScope, ModalRootProvider, useModalBusy, useModalPopup, useModalRoot, type ModalBusyProps } from '@/components/ui/modal-busy';
 
-function Sheet(props: Readonly<ComponentProps<typeof DialogPrimitive.Root>>) {
-  return <DialogPrimitive.Root data-slot="sheet" {...props} />;
+type SheetProps = ComponentProps<typeof DialogPrimitive.Root> & ModalBusyProps;
+
+function Sheet({ busy = false, onOpenChange, ...props }: Readonly<SheetProps>) {
+  const root = useModalRoot({ kind: 'Sheet', busy, open: props.open, defaultOpen: props.defaultOpen, onOpenChange });
+  return (
+    <ModalRootProvider value={root.value}>
+      <DialogPrimitive.Root data-slot="sheet" onOpenChange={root.onOpenChange} {...props} />
+    </ModalRootProvider>
+  );
 }
 
 function SheetTrigger(props: Readonly<ComponentProps<typeof DialogPrimitive.Trigger>>) {
   return <DialogPrimitive.Trigger data-slot="sheet-trigger" {...props} />;
 }
 
-function SheetClose(props: Readonly<ComponentProps<typeof DialogPrimitive.Close>>) {
-  return <DialogPrimitive.Close data-slot="sheet-close" {...props} />;
+function SheetClose({ disabled, ...props }: Readonly<ComponentProps<typeof DialogPrimitive.Close>>) {
+  const busy = useModalBusy();
+  return <DialogPrimitive.Close data-slot="sheet-close" disabled={disabled || busy} {...props} />;
 }
 
 const sheetVariants = cva(
@@ -40,7 +49,8 @@ type SheetContentProps = ComponentProps<typeof DialogPrimitive.Popup> &
  * not sit under a mobile browser's retracting URL bar, and the safe-area pad
  * keeps the last row clear of the iOS home indicator.
  */
-function SheetContent({ className, children, side, ...props }: SheetContentProps) {
+function SheetContent({ className, children, side, ref, ...props }: SheetContentProps) {
+  const popupRef = useModalPopup(ref);
   return (
     <DialogPrimitive.Portal>
       {/* min-h-dvh is needed for Safari on iOS since it mispaints a fixed backdrop as the URL bar retracts */}
@@ -49,12 +59,13 @@ function SheetContent({ className, children, side, ...props }: SheetContentProps
         className="fixed inset-0 z-50 min-h-dvh bg-black/50 transition-opacity duration-200 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 supports-[-webkit-touch-callout:none]:absolute"
       />
       <DialogPrimitive.Popup
+        ref={popupRef}
         data-slot="sheet-content"
         data-side={side ?? 'left'}
         className={cn(sheetVariants({ side }), className)}
         {...props}
       >
-        {children}
+        <ModalBusyScope>{children}</ModalBusyScope>
       </DialogPrimitive.Popup>
     </DialogPrimitive.Portal>
   );

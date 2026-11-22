@@ -44,12 +44,13 @@ export default function DeleteStackDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+    <Dialog open={open} busy={isLoading} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
       <DialogContent>
         <DialogTitle>Delete {stackName}?</DialogTitle>
         <DialogBody>
           <RadioGroup
             value={mode ?? ''}
+            disabled={isLoading}
             onValueChange={(value) => setMode(value as DeleteMode)}
           >
             <Label className="flex items-start gap-3 cursor-pointer py-1" htmlFor="delete-unmanage">
@@ -75,13 +76,13 @@ export default function DeleteStackDialog({
           </RadioGroup>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" className="text-foreground" onClick={handleClose} disabled={isLoading}>
+          <Button variant="ghost" className="text-foreground" onClick={handleClose}>
             Cancel
           </Button>
           <Button
             variant="destructive"
             onClick={handleConfirm}
-            disabled={mode === null || isLoading}
+            disabled={mode === null}
           >
             Delete Stack
           </Button>
