@@ -419,6 +419,16 @@ describe('AuthManagementCard', () => {
       expect(screen.getByLabelText('Token label')).toBeDefined()
     })
 
+    it('closes with Escape and starts the next dialog with an empty label', async () => {
+      const user = setupUser()
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'draft label')
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
+      await user.click(screen.getByText('Generate Token'))
+      expect(screen.getByLabelText<HTMLInputElement>('Token label').value).toBe('')
+    })
+
     it('closes with Cancel and starts the next dialog with an empty label', async () => {
       const user = setupUser()
       await openDialog(user)

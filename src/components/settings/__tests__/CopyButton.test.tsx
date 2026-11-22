@@ -78,6 +78,21 @@ describe('CopyButton', () => {
     expect(tooltipText()).toBe('Copied!')
   })
 
+  it('reverts exactly COPY_FEEDBACK_MS after the click', async () => {
+    const user = setupUser()
+    render(<CopyButton text="hello" label="greeting" />)
+    const button = screen.getByLabelText('Copy greeting')
+    let clickedAt = 0
+    // user-event moves the fake clock after the click, so measure the delay from the click itself.
+    button.addEventListener('click', () => { clickedAt = Date.now() }, { capture: true })
+    await user.click(button)
+
+    advance(clickedAt + COPY_FEEDBACK_MS - 1 - Date.now())
+    expect(button.querySelector('.lucide-check')).not.toBeNull()
+    advance(1)
+    expect(button.querySelector('.lucide-check')).toBeNull()
+  })
+
   it('shows the check icon until the feedback delay has passed, then reverts to the copy icon and the Copy label tooltip', async () => {
     const user = setupUser()
     render(<CopyButton text="hello" label="greeting" />)
@@ -102,7 +117,8 @@ describe('CopyButton', () => {
       copiedValues = []
       Object.defineProperty(document, 'execCommand', {
         value: mock((command: string) => {
-          copiedValues.push(`${command}:${document.querySelector('textarea')?.value}`)
+          const ta = document.querySelector('textarea')
+          copiedValues.push(`${command}:${ta?.value}:${ta?.value.slice(ta.selectionStart, ta.selectionEnd)}`)
           return true
         }),
         writable: true,
@@ -118,7 +134,7 @@ describe('CopyButton', () => {
       const user = setupUserWithClipboard(undefined)
       render(<CopyButton text="insecure-token" label="token" />)
       await user.click(screen.getByLabelText('Copy token'))
-      expect(copiedValues).toEqual(['copy:insecure-token'])
+      expect(copiedValues).toEqual(['copy:insecure-token:insecure-token'])
       expect(document.querySelectorAll('textarea').length).toBe(0)
     })
 
