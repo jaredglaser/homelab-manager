@@ -2,7 +2,7 @@ import type { ManagedHost, HostHealthVerdict } from '@/lib/database/repositories
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
-import { isAgentUpdateFailureCode, type TlsFailureCode } from '@homelab-manager/agent/types';
+import { isAgentUpdateFailureCode, zAgentRouteErrorBodyFromAnyAgent, type TlsFailureCode } from '@homelab-manager/agent/types';
 import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failure-copy';
 import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
@@ -53,13 +53,14 @@ function readUpdateRefusal(response: Response, body: string): { code: UpdateFail
   } catch {
     parsed = undefined;
   }
-  const fields = typeof parsed === 'object' && parsed !== null ? (parsed as { error?: unknown; code?: unknown }) : {};
-  const code = isAgentUpdateFailureCode(fields.code) ? fields.code : 'agent_reported_error';
-  if (typeof fields.error === 'string') return { code, message: singleLine(fields.error) };
-  if (code !== 'agent_reported_error') return { code, message: '' };
+  const refusal = zAgentRouteErrorBodyFromAnyAgent.safeParse(parsed);
+  if (refusal.success) {
+    const { code, error } = refusal.data;
+    return { code: isAgentUpdateFailureCode(code) ? code : 'agent_reported_error', message: singleLine(error) };
+  }
   const isText = response.headers.get('content-type')?.toLowerCase().startsWith('text/plain') ?? false;
   const text = isText ? singleLine(body) : '';
-  return { code, message: text ? `${NOT_AN_AGENT_ERROR} It said: ${text}` : NOT_AN_AGENT_ERROR };
+  return { code: 'agent_reported_error', message: text ? `${NOT_AN_AGENT_ERROR} It said: ${text}` : NOT_AN_AGENT_ERROR };
 }
 
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
