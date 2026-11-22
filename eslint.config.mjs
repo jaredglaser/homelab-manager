@@ -88,6 +88,44 @@ export const WS_MUX_SEAM_RESTRICTIONS = [
 const ENFORCING_SEAM_NAMES = ['authMiddleware', 'requireRole', 'authenticateWsUpgrade', 'authenticateRequest'];
 const ARGUMENT_SEAM_NAMES = [...ENFORCING_SEAM_NAMES, 'resolveUserFromCookie'];
 
+const flattenUnion = (node) =>
+  node.types.flatMap((member) => (member.type === 'TSUnionType' ? flattenUnion(member) : [member]));
+
+const isStringNumberUnion = (members) => {
+  const kinds = members.map((member) => member.type);
+  return kinds.includes('TSStringKeyword') && kinds.includes('TSNumberKeyword');
+};
+
+const isDateStringUnion = (members) =>
+  members.some((member) => member.type === 'TSTypeReference' && member.typeName?.name === 'Date') &&
+  members.some((member) => member.type === 'TSStringKeyword');
+
+const noOverwideUnionRule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description:
+        'Resolve a wire type to the one it actually carries. A string-or-number union hides which one, and the coercion it invites masks a wrong value as NaN.',
+    },
+    schema: [],
+    messages: {
+      overwide:
+        'This unions a string with a number, or a Date with a string, so nothing downstream knows which one arrives. Pick the type the value actually carries, or disable this rule on the line with the reason it can genuinely be either.',
+    },
+  },
+  create(context) {
+    return {
+      TSUnionType(node) {
+        if (node.parent.type === 'TSUnionType') return;
+        const members = flattenUnion(node);
+        if (isStringNumberUnion(members) || isDateStringUnion(members)) {
+          context.report({ node, messageId: 'overwide' });
+        }
+      },
+    };
+  },
+};
+
 const endpointAuthRule = {
   meta: {
     type: 'problem',
@@ -471,6 +509,7 @@ export default tseslint.config(
           'endpoint-auth': endpointAuthRule,
           'no-error-message-matching': noErrorMessageMatchingRule,
           'agent-error-code': agentErrorCodeRule,
+          'no-overwide-union': noOverwideUnionRule,
         },
       },
     },
@@ -481,6 +520,12 @@ export default tseslint.config(
     files: ['src/**/*.{ts,tsx}', 'server/**/*.ts'],
     ignores: ['**/__tests__/**'],
     rules: { 'local/endpoint-auth': 'error' },
+  },
+
+  {
+    files: ['src/**/*.{ts,tsx}', 'server/**/*.ts', 'agent/src/**/*.ts'],
+    ignores: ['**/__tests__/**'],
+    rules: { 'local/no-overwide-union': 'error' },
   },
 
   // Scope: components/**, scripts/** and vite.config.ts stay out until their matches have a code to branch on.
