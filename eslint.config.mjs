@@ -232,6 +232,54 @@ const agentErrorCodeRule = {
   },
 };
 
+// Manager files that read agent response bodies. The agent's wire schemas live in
+// agent/src/types.ts (HTTP) and agent/src/types/protocol.ts (SSE), so a reader here parses with
+// those instead of describing the body again (AGENTS.md rule 18).
+const AGENT_WIRE_READERS = [
+  'src/lib/clients/**/*.ts',
+  'src/lib/services/agent-*.ts',
+  'src/data/hosts/handlers.ts',
+  'src/worker/collectors/**/*.ts',
+];
+
+const noLocalAgentSchemaRule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Agent body schemas are declared once in the agent contract, not in the manager code that reads them.' },
+    schema: [],
+    messages: {
+      localSchema:
+        'This declares an object schema in a file that reads agent bodies. Declare the body in agent/src/types.ts (HTTP) or agent/src/types/protocol.ts (SSE), infer its type there, and parse with that schema (AGENTS.md rule 18).',
+    },
+  },
+  create(context) {
+    return {
+      "CallExpression[callee.object.name='z'][callee.property.name=/^(?:object|strictObject|looseObject)$/]"(node) {
+        context.report({ node, messageId: 'localSchema' });
+      },
+    };
+  },
+};
+
+const noAgentBodyCastRule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'A parsed agent body is checked against the shared schema, not cast to a type.' },
+    schema: [],
+    messages: {
+      cast:
+        'This casts parsed JSON instead of checking it. Parse it with the agent contract schema from agent/src/types.ts or agent/src/types/protocol.ts (AGENTS.md rule 18).',
+    },
+  },
+  create(context) {
+    return {
+      "TSAsExpression > CallExpression[callee.object.name='JSON'][callee.property.name='parse']"(node) {
+        context.report({ node: node.parent, messageId: 'cast' });
+      },
+    };
+  },
+};
+
 const MESSAGE_MATCH_METHODS = ['includes', 'startsWith', 'endsWith', 'match', 'search', 'indexOf', 'test'];
 
 const isMessageMember = (node) =>
@@ -510,6 +558,8 @@ export default tseslint.config(
           'no-error-message-matching': noErrorMessageMatchingRule,
           'agent-error-code': agentErrorCodeRule,
           'no-overwide-union': noOverwideUnionRule,
+          'no-local-agent-schema': noLocalAgentSchemaRule,
+          'no-agent-body-cast': noAgentBodyCastRule,
         },
       },
     },
@@ -533,6 +583,15 @@ export default tseslint.config(
     files: ['src/lib/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     ignores: ['**/__tests__/**'],
     rules: { 'local/no-error-message-matching': 'error' },
+  },
+
+  // no-local-agent-schema: 0 findings, so error per the calibration rule. no-agent-body-cast: 3
+  // findings (agent-client.ts success path, agent-provisioning-service.ts, agent-health-service.ts),
+  // so warn until they parse with the contract schemas.
+  {
+    files: AGENT_WIRE_READERS,
+    ignores: ['**/__tests__/**'],
+    rules: { 'local/no-local-agent-schema': 'error', 'local/no-agent-body-cast': 'warn' },
   },
 
   // A stale eslint-disable is enforcement that reads as done, so it fails the build instead of warning.

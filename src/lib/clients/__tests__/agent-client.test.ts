@@ -246,14 +246,23 @@ describe('AgentClient', () => {
         expect(pulls).toBe(8192 / 4096 + 1);
       });
 
-      it.each([['a number', 42], ['null', null]])('gives just the error when the detail is %s', async (_name, detail) => {
-        const thrown = await failureOf(
-          agentResponse(JSON.stringify({ error: 'Failed to run compose', code: 'compose_spawn_failed', detail }), { status: 500 }),
-        );
+      it.each([['a number', 42], ['null', null]])('shows the text that arrived when the detail is %s, which the contract forbids', async (_name, detail) => {
+        const body = JSON.stringify({ error: 'Failed to run compose', code: 'compose_spawn_failed', detail });
+        const thrown = await failureOf(agentResponse(body, { status: 500 }));
 
-        expect(thrown.message).toBe('Agent returned 500: Failed to run compose');
-        expect(thrown.code).toBe('compose_spawn_failed');
+        expect(thrown.message).toBe(`Agent returned 500: ${body}`);
+        expect(thrown.code).toBeUndefined();
       });
+
+      it.each([['no code', undefined], ['a code this manager does not know', 'not_a_route_code']])(
+        'keeps the message of an error body with %s and leaves the code unset',
+        async (_name, code) => {
+          const thrown = await failureOf(agentResponse(JSON.stringify({ error: 'Failed to run compose', code }), { status: 500 }));
+
+          expect(thrown.message).toBe('Agent returned 500: Failed to run compose');
+          expect(thrown.code).toBeUndefined();
+        },
+      );
 
       it('keeps the code of a coded body just under the read cap, delivered in small chunks', async () => {
         const encoded = new TextEncoder().encode(JSON.stringify({ error: 'e'.repeat(7500), code: 'stack_not_found' }));
@@ -483,6 +492,10 @@ describe('AgentClient', () => {
         ['no output fields', { status: 'failed', exitCode: 1 }],
         ['a success status', { status: 'success', stdout: '', stderr: '' }],
         ['an error message beside the output', { status: 'failed', error: 'Stack is busy', code: 'stack_not_found', stdout: '', stderr: 'boom' }],
+        ['a string exit code', { status: 'failed', exitCode: '1', stdout: 'out', stderr: 'boom' }],
+        ['a missing stdout', { status: 'failed', exitCode: 2, stderr: 'boom' }],
+        ['a missing stderr', { status: 'failed', exitCode: 2, stdout: 'out' }],
+        ['a numeric stdout beside a string stderr', { status: 'failed', exitCode: 2, stdout: 9, stderr: 'boom' }],
       ])('throws through the error path for a body with %s', async (_name, body) => {
         const thrown = await failureOf(agentResponse(JSON.stringify(body), { status: 500 }));
 
@@ -499,22 +512,32 @@ describe('AgentClient', () => {
         expect(thrown.code).toBe('stack_not_found');
       });
 
-      it.each([
-        ['a null exit code', { status: 'failed', exitCode: null, stdout: 'out', stderr: 'boom' }, { success: false, logs: 'out\nboom' }],
-        ['a string exit code', { status: 'failed', exitCode: '1', stdout: 'out', stderr: 'boom' }, { success: false, logs: 'out\nboom' }],
-        ['a missing stdout', { status: 'failed', exitCode: 2, stderr: 'boom' }, { success: false, logs: 'boom', exitCode: 2 }],
-        ['a missing stderr', { status: 'failed', exitCode: 2, stdout: 'out' }, { success: false, logs: 'out', exitCode: 2 }],
-        ['a numeric stdout beside a string stderr', { status: 'failed', exitCode: 2, stdout: 9, stderr: 'boom' }, { success: false, logs: 'boom', exitCode: 2 }],
-      ])('still returns the output for a failed body with %s', async (_name, body, expected) => {
-        fetchMock.mockResolvedValueOnce(agentResponse(JSON.stringify(body), { status: 500 }));
+      it('returns the output of a failed run that matches the contract', async () => {
+        fetchMock.mockResolvedValueOnce(agentResponse(JSON.stringify({ status: 'failed', exitCode: 2, stdout: 'out', stderr: 'boom' }), { status: 500 }));
 
-        expect(await client.deploy(deployPayload)).toEqual(expected);
+        expect(await client.deploy(deployPayload)).toEqual({ success: false, logs: 'out\nboom', exitCode: 2 });
       });
 
       it('names the exit code when a failed run printed nothing', async () => {
         fetchMock.mockResolvedValueOnce(agentResponse(JSON.stringify({ status: 'failed', exitCode: 137, stdout: '', stderr: '' }), { status: 500 }));
 
         expect(await client.deploy(deployPayload)).toEqual({ success: false, logs: 'docker compose exited with code 137', exitCode: 137 });
+      });
+
+      it('returns a failed run whose process never reported an exit code', async () => {
+        fetchMock.mockResolvedValueOnce(agentResponse(JSON.stringify({ status: 'failed', exitCode: null, stdout: 'out', stderr: 'boom' }), { status: 500 }));
+
+        expect(await client.deploy(deployPayload)).toEqual({ success: false, logs: 'out\nboom', exitCode: null });
+      });
+
+      it('says the process was killed when a failed run printed nothing and its exit code is null', async () => {
+        fetchMock.mockResolvedValueOnce(agentResponse(JSON.stringify({ status: 'failed', exitCode: null, stdout: '', stderr: '' }), { status: 500 }));
+
+        expect(await client.deploy(deployPayload)).toEqual({
+          success: false,
+          logs: 'docker compose was killed and never reported an exit code',
+          exitCode: null,
+        });
       });
 
       it('says so when a failed run printed nothing and sent no exit code', async () => {
