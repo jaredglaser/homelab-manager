@@ -2,6 +2,7 @@ import type { AgentClient } from '@/lib/clients/agent-client';
 import type { DeployRepository, InsertDeployParams, QueuedDeploy } from '@/lib/database/repositories/deploy-repository';
 import type { HostRepository, ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { DeployRecord, DeployRequest, DeployStatus, SecretResolver } from '@/lib/deploy/types';
+import { boundComposeLogs } from '@/lib/deploy/bounded-log-buffer';
 import { computeHash, detectChanges } from '@/lib/deploy/change-detection';
 import { extractVariableReferences } from '@/lib/deploy/secret-resolver';
 
@@ -532,8 +533,9 @@ export class DeployPipeline {
 
     // Record result outside try: a DB failure here must not be misattributed to the agent
     const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
+    const logs = boundComposeLogs(result.logs);
     try {
-      await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
+      await this.deployRepo.updateStatus(deployId, finalStatus, logs);
     } catch (err) {
       console.error(
         `Failed to record deploy ${deployId} result (actual status: ${finalStatus}) for stack "${request.stack}":`,
@@ -614,7 +616,7 @@ export class DeployPipeline {
 
     await this.drainQueue(request.stack, host.name);
 
-    return { status: finalStatus, logs: result.logs, deployId };
+    return { status: finalStatus, logs, deployId };
   }
 }
 

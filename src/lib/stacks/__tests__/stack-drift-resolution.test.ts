@@ -318,6 +318,31 @@ describe('resolveStackDriftItem', () => {
       expect(await recoveryFiles()).toHaveLength(1);
     });
 
+    test('a failed teardown error carries the agent output bounded to 16 KiB with the omitted marker', async () => {
+      const raw = `${Array.from({ length: 1000 }, (_, i) => `${String(i).padStart(5, '0')} ${'x'.repeat(94)}`).join('\n')}\nnetwork in use`;
+      teardownResponse = () => Promise.resolve({ success: false, logs: raw });
+      const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+
+      const failure = await resolveStackDriftItem({ host: 'alpha', stack: 'grafana', kind: 'untracked', resolution: 'remove' }).catch((err: Error) => err);
+
+      expect(failure).toBeInstanceOf(Error);
+      const message = (failure as Error).message;
+      const logs = message.slice(message.indexOf('00000 '));
+      expect(logs).toMatch(/\[\.\.\. \d+ lines? \(\d+\.\d KiB\) omitted \.\.\.\]/);
+      expect(Buffer.byteLength(logs)).toBeLessThanOrEqual(16 * 1024);
+      expect(message).toEndWith('network in use');
+    });
+
+    test('a failed teardown with output of 16 KiB or less keeps it unchanged', async () => {
+      const raw = `${'y'.repeat(99)}\n`.repeat(100);
+      teardownResponse = () => Promise.resolve({ success: false, logs: raw });
+      const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+
+      const failure = await resolveStackDriftItem({ host: 'alpha', stack: 'grafana', kind: 'untracked', resolution: 'remove' }).catch((err: Error) => err);
+
+      expect((failure as Error).message).toEndWith(` ${raw}`);
+    });
+
     test('a failed teardown names the recovery commit and says the host may be partly torn down', async () => {
       teardownResponse = () => Promise.resolve({ success: false, logs: 'network in use' });
       const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
