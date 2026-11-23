@@ -13,7 +13,10 @@ count.txt
 .output
 .vinxi
 todos.json
-.claude
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+!.claude/agents/
 nul
 .bash_profile
 .bashrc
