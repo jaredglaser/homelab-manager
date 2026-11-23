@@ -271,4 +271,5 @@ Env vars documented in `.env.example`. `.env` sets `POSTGRES_HOST=localhost` for
 
 ## Agent-Specific Notes
 
+- **Claude Code** reads `CLAUDE.md`, which imports this file. Shared config lives under `.claude/`: the `orchestrate` skill, the `pr-owner` agent, and a SessionStart hook that only acts in cloud sessions. Everything else in `.claude/` is gitignored. Cloud environment setup is in [docs/cloud-environment.md](docs/cloud-environment.md).
 - **Zed** reads this file natively as project instructions. Project settings and tasks live under `.zed/`. MCP servers are the one exception Zed configures at the user level, not per project; the snippet in [docs/development.md](docs/development.md) matches your local `.mcp.json` (gitignored, not committed).

@@ -55,7 +55,7 @@ agent/                      # Agent sidecar (separate Bun package with its own l
 
 
 migrations/                 # SQL migrations (hypertables, settings, stacks, deploys, auth)
-scripts/                    # check-coverage, icon/schema downloads, migrate-master-key, dev/ seeders
+scripts/                    # check-coverage, icon/schema downloads, migrate-master-key, dev/ seeders, cloud/ (Claude Code cloud environment)
 public/icons/               # SVG icons from homarr-labs/dashboard-icons
 self-hosting/               # Operator compose file and guide
 ```
