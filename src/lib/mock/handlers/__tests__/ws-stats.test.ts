@@ -84,7 +84,7 @@ describe('mock mux stats topics', () => {
   it('acks stats subscriptions and sends no frame on subscribe (deltas only)', () => {
     const conn = connect();
     conn.command('sub', ['stats:docker']);
-    // History belongs to the REST preload (gotcha 17): nothing is replayed on
+    // History belongs to the REST preload (AGENTS.md#ws-rows-after-cursor): nothing is replayed on
     // subscribe, so the ack is the only frame until the first poll tick.
     expect(conn.frames).toEqual([{ type: 'ack', ref: 7, ok: true }]);
   });
@@ -98,7 +98,7 @@ describe('mock mux stats topics', () => {
       expect(frame.topic).toBe(topic);
       const rows = frame.payload as Array<{ time: number }>;
       expect(rows.length).toBeGreaterThan(0);
-      // time is epoch-ms end to end with no revive (gotcha 18).
+      // time is epoch-ms end to end with no revive (AGENTS.md#stats-time-epoch-ms).
       for (const row of rows) expect(row.time).toBe(time.getTime());
       expect(channel.schema.safeParse(frame.payload).success).toBe(true);
     }
