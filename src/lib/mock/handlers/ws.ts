@@ -115,7 +115,7 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
     }
     if (parseStatsTopic(topic) !== null) {
       // Deltas only, no snapshot on subscribe: the REST preload owns history
-      // (gotcha 17), so the first rows arrive on the first poll tick.
+      // (AGENTS.md#ws-rows-after-cursor), so the first rows arrive on the first poll tick.
       let tick = 0;
       const feedTimer = setInterval(() => {
         const frame = statsTickFrame(topic, tick++, new Date());
