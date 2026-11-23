@@ -29,7 +29,7 @@ export const endpointAuthRule = {
     type: 'problem',
     docs: {
       description:
-        'Route modules must enforce auth, and createServerFn chains must declare authMiddleware then roleMiddleware(...), or carry an inline eslint-disable with the reason they are unauthenticated by design.',
+        'Route modules must enforce auth, and createServerFn chains must declare authMiddleware directly followed by one roleMiddleware(...), or carry an inline eslint-disable with the reason they are unauthenticated by design.',
     },
     schema: [],
     messages: {
@@ -38,9 +38,11 @@ export const endpointAuthRule = {
       fnMissingAuth:
         'createServerFn chain attaches no authMiddleware. Add it to .middleware([...]) or disable this rule on this line with the reason the function is unauthenticated by design.',
       fnMissingRole:
-        "createServerFn chain declares no roles. Add roleMiddleware(...) after authMiddleware in .middleware([...]), naming every role that may call it (a read open to every signed-in user is roleMiddleware('admin', 'operator', 'viewer')).",
-      fnRoleBeforeAuth:
-        'roleMiddleware(...) runs before authMiddleware, so it checks a user that has not been resolved yet. Put authMiddleware first.',
+        "createServerFn chain declares no roles. Add roleMiddleware(...) directly after authMiddleware in .middleware([...]), naming every role that may call it (a read open to every signed-in user is roleMiddleware('admin', 'operator', 'viewer')).",
+      fnRoleNotAfterAuth:
+        'roleMiddleware(...) must come directly after authMiddleware. Before it, the user is not resolved yet. After another middleware, that middleware (a database pool, decrypted stack secrets) runs for a caller the role check then refuses.',
+      fnDuplicateRole:
+        'A second roleMiddleware(...) in one chain. Both must pass, so the function allows only the roles the calls share, which no reader of either call sees. Name every allowed role in one call.',
     },
   },
   create(context) {
@@ -65,13 +67,16 @@ export const endpointAuthRule = {
       'CallExpression[callee.name="createServerFn"]'(node) {
         const elements = chainMiddleware(node);
         const authIndex = elements.findIndex(isAuthMiddleware);
-        const roleIndex = elements.findIndex(isRoleMiddleware);
+        const roleCalls = elements.filter(isRoleMiddleware);
         if (authIndex === -1) {
           context.report({ node, messageId: 'fnMissingAuth' });
-        } else if (roleIndex === -1) {
+        } else if (roleCalls.length === 0) {
           context.report({ node, messageId: 'fnMissingRole' });
-        } else if (roleIndex < authIndex) {
-          context.report({ node: elements[roleIndex], messageId: 'fnRoleBeforeAuth' });
+        } else if (elements[authIndex + 1] !== roleCalls[0]) {
+          context.report({ node: roleCalls[0], messageId: 'fnRoleNotAfterAuth' });
+        }
+        for (const duplicate of roleCalls.slice(1)) {
+          context.report({ node: duplicate, messageId: 'fnDuplicateRole' });
         }
       },
     };

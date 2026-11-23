@@ -35,12 +35,12 @@ ruleTester.run('endpoint-auth', endpointAuthRule, {
       `,
     },
     {
-      name: 'roleMiddleware in a later .middleware call',
+      name: 'roleMiddleware opening the next .middleware call',
       filename: serverFnFile,
       code: `
         export const fn = createServerFn()
           .middleware([authMiddleware])
-          .middleware([roleMiddleware('admin')])
+          .middleware([roleMiddleware('admin'), databaseMiddleware])
           .handler(async () => null);
       `,
     },
@@ -79,7 +79,38 @@ ruleTester.run('endpoint-auth', endpointAuthRule, {
           .middleware([roleMiddleware('admin', 'operator'), authMiddleware])
           .handler(async () => scan());
       `,
-      errors: [{ messageId: 'fnRoleBeforeAuth' }],
+      errors: [{ messageId: 'fnRoleNotAfterAuth' }],
+    },
+    {
+      name: 'another middleware between authMiddleware and roleMiddleware',
+      filename: serverFnFile,
+      code: `
+        export const setVariableValue = createServerFn()
+          .middleware([authMiddleware, databaseMiddleware, stackSecretsMiddleware, roleMiddleware('admin')])
+          .handler(async () => save());
+      `,
+      errors: [{ messageId: 'fnRoleNotAfterAuth' }],
+    },
+    {
+      name: 'a second roleMiddleware in the same chain',
+      filename: serverFnFile,
+      code: `
+        export const scanDrift = createServerFn()
+          .middleware([authMiddleware, roleMiddleware('admin', 'operator'), roleMiddleware('viewer')])
+          .handler(async () => scan());
+      `,
+      errors: [{ messageId: 'fnDuplicateRole' }],
+    },
+    {
+      name: 'a second roleMiddleware in a later .middleware call',
+      filename: serverFnFile,
+      code: `
+        export const scanDrift = createServerFn()
+          .middleware([authMiddleware, roleMiddleware('admin', 'operator')])
+          .middleware([roleMiddleware('admin')])
+          .handler(async () => scan());
+      `,
+      errors: [{ messageId: 'fnDuplicateRole' }],
     },
     {
       name: 'roleMiddleware without authMiddleware',
