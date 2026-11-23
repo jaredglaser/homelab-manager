@@ -1,5 +1,6 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { render, screen, waitFor } from '@testing-library/react'
+import { setupUser, activateWithKey } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Mock server functions before importing the component
@@ -106,6 +107,7 @@ describe('AuthManagementCard', () => {
     gitFns.listGitTokens.mockImplementation(() => Promise.resolve([]))
     gitFns.createGitToken.mockImplementation(() => Promise.resolve({ token: 'test-token-abc123' }))
     gitFns.revokeGitToken.mockImplementation(() => Promise.resolve())
+    for (const fn of [authFns.listUsers, authFns.listSessions, authFns.getRoleMapping, gitFns.listGitTokens, gitFns.createGitToken, gitFns.revokeGitToken]) fn.mockClear()
   })
 
   describe('card structure', () => {
@@ -134,10 +136,9 @@ describe('AuthManagementCard', () => {
       expect(screen.getByLabelText('Role mapping info')).toBeDefined()
     })
 
-    it('? icon button has correct tooltip text about OIDC provider', async () => {
+    it('renders the role-mapping info button', async () => {
       renderCard()
       const btn = screen.getByLabelText('Role mapping info')
-      // MUI Tooltip renders content on hover via aria — verify button exists with accessible name
       expect(btn).toBeDefined()
     })
 
@@ -303,6 +304,7 @@ describe('AuthManagementCard', () => {
     })
 
     it('revokes a token only after confirmation', async () => {
+      const user = setupUser()
       const gitFns = require('@/data/git-tokens.functions') as {
         listGitTokens: ReturnType<typeof mock>
         revokeGitToken: ReturnType<typeof mock>
@@ -313,36 +315,69 @@ describe('AuthManagementCard', () => {
       renderCard()
       await waitFor(() => expect(screen.getByLabelText('Revoke token')).toBeDefined())
 
-      fireEvent.click(screen.getByLabelText('Revoke token'))
+      await user.click(screen.getByLabelText('Revoke token'))
       expect(screen.getByText('Revoke "CI deploy key"? Applications using it will lose access. This cannot be undone.')).toBeDefined()
       expect(gitFns.revokeGitToken).not.toHaveBeenCalled()
 
-      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
       expect(gitFns.revokeGitToken).not.toHaveBeenCalled()
 
-      fireEvent.click(screen.getByLabelText('Revoke token'))
-      fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+      await user.click(screen.getByLabelText('Revoke token'))
+      await user.click(screen.getByRole('button', { name: 'Revoke' }))
       await waitFor(() => expect(gitFns.revokeGitToken).toHaveBeenCalledWith({ data: { tokenId: 1 } }))
     })
 
-    it('opens generate token dialog when Generate Token is clicked', () => {
+    it('revokes a token only after confirmation from the keyboard', async () => {
+      const user = setupUser()
+      const gitFns = require('@/data/git-tokens.functions') as {
+        listGitTokens: ReturnType<typeof mock>
+        revokeGitToken: ReturnType<typeof mock>
+      }
+      gitFns.listGitTokens.mockImplementation(() => Promise.resolve([mockTokens[0]]))
+      gitFns.revokeGitToken.mockImplementation(() => Promise.resolve())
+
       renderCard()
-      fireEvent.click(screen.getByText('Generate Token'))
+      await waitFor(() => expect(screen.getByLabelText('Revoke token')).toBeDefined())
+
+      await activateWithKey(user, screen.getByLabelText('Revoke token'), '{Enter}')
+      expect(screen.getByText('Revoke "CI deploy key"? Applications using it will lose access. This cannot be undone.')).toBeDefined()
+
+      await activateWithKey(user, screen.getByRole('button', { name: 'Cancel' }), ' ')
+      expect(gitFns.revokeGitToken).not.toHaveBeenCalled()
+
+      await activateWithKey(user, screen.getByLabelText('Revoke token'), ' ')
+      await activateWithKey(user, screen.getByRole('button', { name: 'Revoke' }), '{Enter}')
+      await waitFor(() => expect(gitFns.revokeGitToken).toHaveBeenCalledWith({ data: { tokenId: 1 } }))
+    })
+
+    it('opens generate token dialog when Generate Token is clicked', async () => {
+      const user = setupUser()
+      renderCard()
+      await user.click(screen.getByText('Generate Token'))
       expect(screen.getByText('Generate Git Token')).toBeDefined()
     })
 
-    it('generate token dialog has label input', () => {
+    it('opens generate token dialog when Generate Token is activated from the keyboard', async () => {
+      const user = setupUser()
       renderCard()
-      fireEvent.click(screen.getByText('Generate Token'))
+      await activateWithKey(user, screen.getByRole('button', { name: 'Generate Token' }), '{Enter}')
+      expect(screen.getByText('Generate Git Token')).toBeDefined()
+    })
+
+    it('generate token dialog has label input', async () => {
+      const user = setupUser()
+      renderCard()
+      await user.click(screen.getByText('Generate Token'))
       expect(screen.getByLabelText('Token label')).toBeDefined()
     })
 
     it('shows generated token after generation with warning', async () => {
+      const user = setupUser()
       renderCard()
-      fireEvent.click(screen.getByText('Generate Token'))
+      await user.click(screen.getByText('Generate Token'))
       const labelInput = screen.getByLabelText('Token label')
-      fireEvent.change(labelInput, { target: { value: 'My token' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
+      await user.type(labelInput, 'My token')
+      await user.click(screen.getByRole('button', { name: 'Generate' }))
 
       await waitFor(() => {
         expect(screen.getByText('Copy this token now. It will not be shown again.')).toBeDefined()
@@ -351,61 +386,34 @@ describe('AuthManagementCard', () => {
       })
     })
 
-    describe('dialog close (handleClose / handleDialogClose)', () => {
-      const origSetTimeout = globalThis.setTimeout
-      const origClearTimeout = globalThis.clearTimeout
-      let pendingCallbacks: Array<{ fn: () => void; id: number }> = []
-      let nextTimerId = 9000
+    it('generates a token when Generate is activated from the keyboard', async () => {
+      const user = setupUser()
+      renderCard()
+      await user.click(screen.getByText('Generate Token'))
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await activateWithKey(user, screen.getByRole('button', { name: 'Generate' }), ' ')
+      await waitFor(() => expect(screen.getByText('test-token-abc123')).toBeDefined())
+    })
 
-      beforeEach(() => {
-        pendingCallbacks = []
-        nextTimerId = 9000
-        ;(globalThis as any).setTimeout = (fn: () => void) => {
-          const id = nextTimerId++
-          pendingCallbacks.push({ fn, id })
-          return id
-        }
-        ;(globalThis as any).clearTimeout = (id?: number) => {
-          pendingCallbacks = pendingCallbacks.filter((cb) => cb.id !== id)
-        }
-      })
+    it('closes the generate dialog when Cancel is activated from the keyboard', async () => {
+      const user = setupUser()
+      renderCard()
+      await user.click(screen.getByText('Generate Token'))
+      await activateWithKey(user, screen.getByRole('button', { name: 'Cancel' }), '{Enter}')
+      await waitFor(() => expect(screen.queryByText('Generate Git Token')).toBeNull())
+    })
 
-      afterEach(() => {
-        globalThis.setTimeout = origSetTimeout
-        globalThis.clearTimeout = origClearTimeout
-      })
+    it('Cancel resets the label before the dialog reopens', async () => {
+      const user = setupUser()
+      renderCard()
+      await user.click(screen.getByText('Generate Token'))
+      await user.type(screen.getByLabelText('Token label'), 'my label')
 
-      function flushTimers() {
-        const cbs = [...pendingCallbacks]
-        pendingCallbacks = []
-        for (const cb of cbs) cb.fn()
-      }
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await waitFor(() => expect(screen.queryByText('Generate Git Token')).toBeNull())
 
-      it('Cancel resets label and calls handleDialogClose', () => {
-        renderCard()
-        act(() => { flushTimers() })
-
-        fireEvent.click(screen.getByText('Generate Token'))
-        act(() => { flushTimers() })
-
-        const labelInput = screen.getByLabelText('Token label')
-        fireEvent.change(labelInput, { target: { value: 'my label' } })
-
-        act(() => {
-          fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-        })
-        act(() => { flushTimers() })
-        act(() => { flushTimers() })
-
-        // After close: handleClose cleared the label; handleDialogClose closed the dialog.
-        // The dialog content stays mounted during MUI exit transition in Happy-DOM,
-        // but the label state was reset to '' (line 261) and setGenerateDialogOpen(false)
-        // and setNewToken(null) were called (lines 337-338).
-        // Reopen to confirm label was reset:
-        fireEvent.click(screen.getByText('Generate Token'))
-        act(() => { flushTimers() })
-        expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
-      })
+      await user.click(screen.getByText('Generate Token'))
+      expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
     })
   })
 })
