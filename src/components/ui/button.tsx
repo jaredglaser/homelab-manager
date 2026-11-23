@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
@@ -46,7 +46,7 @@ type RoleGatedButtonProps = ButtonProps & {
 };
 
 function Button(props: ButtonProps | RoleGatedButtonProps) {
-  if ('requires' in props && props.requires) return <RoleGatedButton {...props} />;
+  if ('requires' in props) return <RoleGatedButton {...props} />;
   const { className, variant, size, ...rest } = props;
   return (
     <ButtonPrimitive
@@ -57,26 +57,80 @@ function Button(props: ButtonProps | RoleGatedButtonProps) {
   );
 }
 
-function RoleGatedButton({ requires, tooltip, className, variant, size, disabled, ...props }: RoleGatedButtonProps) {
+function RoleGatedButton({
+  requires,
+  tooltip,
+  className,
+  variant,
+  size,
+  disabled,
+  ref,
+  onPointerUp,
+  onBlur,
+  ...props
+}: RoleGatedButtonProps) {
   const access = useRoleAccess(requires);
   const roleBlocked = access.kind !== 'allowed';
-  const content = access.kind === 'denied' ? access.reason : tooltip;
+  const reason = access.kind === 'denied' ? access.reason : null;
+  const content = reason ?? tooltip;
+  const reasonId = useId();
+  const [hoverOrFocusOpen, setHoverOrFocusOpen] = useState(false);
+  const [tapOpen, setTapOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  const setRefs = useCallback((node: HTMLButtonElement | null) => {
+    buttonRef.current = node;
+    if (typeof ref === 'function') ref(node);
+    else if (ref) ref.current = node;
+  }, [ref]);
+
+  useEffect(() => {
+    if (!tapOpen) return;
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!buttonRef.current?.contains(event.target as Node)) setTapOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePress, true);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePress, true);
+  }, [tapOpen]);
+
   // aria-disabled instead of the native attribute, so hover and focus still reach the trigger and open the reason.
   const button = (
     <ButtonPrimitive
+      ref={setRefs}
       data-slot="button"
       className={cn(buttonVariants({ variant, size }), className)}
       disabled={disabled || roleBlocked}
       focusableWhenDisabled={roleBlocked}
+      aria-describedby={reason ? reasonId : undefined}
+      onPointerUp={(event) => {
+        // Base UI opens a tooltip only for a mouse hover or a keyboard focus, so a touch tap would never show why.
+        // Pointer up, because a disabled Base UI button swallows pointer down.
+        if (reason && event.pointerType !== 'mouse') setTapOpen(true);
+        onPointerUp?.(event);
+      }}
+      onBlur={(event) => {
+        setTapOpen(false);
+        onBlur?.(event);
+      }}
       {...props}
     />
   );
   if (!content) return button;
   return (
-    <Tooltip>
-      <TooltipTrigger render={button} />
-      <TooltipContent className="max-w-xs">{content}</TooltipContent>
-    </Tooltip>
+    <>
+      <Tooltip
+        open={hoverOrFocusOpen || tapOpen}
+        onOpenChange={(next, details) => {
+          setHoverOrFocusOpen(next);
+          // A tap also reads to Base UI as a trigger press and an emulated hover ending, both reported as closes.
+          if (!next && details.reason !== 'trigger-press' && details.reason !== 'trigger-hover') setTapOpen(false);
+        }}
+      >
+        <TooltipTrigger render={button} />
+        <TooltipContent className="max-w-xs">{content}</TooltipContent>
+      </Tooltip>
+      {reason && <span id={reasonId} className="sr-only">{reason}</span>}
+    </>
   );
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test'
-import { seedSession } from '@/lib/test/session'
+import { findOpenTooltip, seedSession } from '@/lib/test/session'
 import { VIEWER_DENIED_COPY } from '@/hooks/useAuth'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import { setupUser, type TestUser } from '@/lib/test/user-event'
@@ -246,10 +246,9 @@ describe('ManagedHostsCardConnected health check role', () => {
     expect(check.getAttribute('aria-disabled')).toBe('true')
 
     await user.click(check)
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY)
     expect(healthCheckCalls).toEqual([])
     expect(toasts).toEqual([])
-    await user.hover(check)
-    expect(await screen.findByText(VIEWER_DENIED_COPY)).toBeDefined()
   })
 
   it.each(['admin', 'operator'] as const)('lets an %s run the health check', async (role) => {

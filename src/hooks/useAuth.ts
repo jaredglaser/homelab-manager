@@ -24,17 +24,24 @@ async function fetchSession(): Promise<AuthUser | null> {
   }
 }
 
-/** One getSession per page load, shared by every caller through the app's query cache. */
-export function useSession(): SessionState {
-  // AppShell calls this above its QueryClientProvider, so the client is passed explicitly.
+// Long enough that the components a page mounts together, and the page AppShell reveals once the first check lands, share one request.
+const SESSION_STALE_MS = 5_000;
+
+/**
+ * The session from the app's shared query. `page` consumers refetch it when they mount and when the
+ * window regains focus, so an expired session or a changed role shows up on the next page. Every
+ * other consumer, such as a role-gated button, only reads it.
+ */
+export function useSession({ page = false }: { page?: boolean } = {}): SessionState {
   const { data, isPending, isError } = useQuery(
     {
       queryKey: SESSION_QUERY_KEY,
       queryFn: fetchSession,
-      staleTime: Infinity,
+      staleTime: SESSION_STALE_MS,
       gcTime: Infinity,
       retry: false,
-      refetchOnWindowFocus: false,
+      refetchOnMount: page,
+      refetchOnWindowFocus: page,
       refetchOnReconnect: false,
     },
     queryClient,
@@ -46,15 +53,8 @@ export function useSession(): SessionState {
   return { status: 'signed-in', user: data };
 }
 
-/**
- * Reads the shared session and redirects to /login when there is none or the check failed.
- *
- * @returns user - the authenticated user, or null when auth is disabled or not logged in
- * @returns loading - true until the session check resolves
- * @returns authEnabled - true when authentication is on (AUTH_DISABLED not truthy, i.e. not the synthetic-admin path)
- */
-export function useAuth(): { user: AuthUser | null; loading: boolean; authEnabled: boolean } {
-  const session = useSession();
+function usePageSession(): SessionState {
+  const session = useSession({ page: true });
   const navigate = useNavigate();
   const mustLogIn = session.status === 'signed-out' || session.status === 'failed';
 
@@ -62,6 +62,18 @@ export function useAuth(): { user: AuthUser | null; loading: boolean; authEnable
     if (mustLogIn) void navigate({ to: '/login' });
   }, [mustLogIn, navigate]);
 
+  return session;
+}
+
+/**
+ * Reads the shared session, refetching it on mount, and redirects to /login when there is none or the check failed.
+ *
+ * @returns user - the authenticated user, or null when auth is disabled or not logged in
+ * @returns loading - true until the session check resolves
+ * @returns authEnabled - true when authentication is on (AUTH_DISABLED not truthy, i.e. not the synthetic-admin path)
+ */
+export function useAuth(): { user: AuthUser | null; loading: boolean; authEnabled: boolean } {
+  const session = usePageSession();
   return {
     user: session.status === 'signed-in' ? session.user : null,
     loading: session.status === 'loading',
@@ -93,7 +105,7 @@ export function useRoleAccess(requires: RoleRequirement): RoleAccess {
   return roleAccess(useSession(), requires);
 }
 
-/** True when the session may call server functions guarded by `roleMiddleware('admin', 'operator')`. */
+/** True when the session may call server functions guarded by `roleMiddleware('admin', 'operator')`. Refetches and redirects like `useAuth`. */
 export function useCanWrite(): boolean {
-  return useRoleAccess('write').kind === 'allowed';
+  return roleAccess(usePageSession(), 'write').kind === 'allowed';
 }
