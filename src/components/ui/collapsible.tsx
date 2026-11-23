@@ -15,7 +15,7 @@ function CollapsibleTrigger(props: ComponentProps<typeof CollapsiblePrimitive.Tr
  * --collapsible-panel-height var, which is what lets detail panels keep
  * animating under the DataTable's content-visibility path (below the 150-row
  * virtualization threshold) without a JS animation system fighting the
- * virtualizer. See CLAUDE.md gotcha on Collapse + virtualizer.
+ * virtualizer. See AGENTS.md#collapse-virtualizer.
  */
 function CollapsibleContent({ className, ...props }: ComponentProps<typeof CollapsiblePrimitive.Panel>) {
   return (
