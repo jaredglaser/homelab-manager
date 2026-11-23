@@ -169,5 +169,30 @@ ruleTester.run('local/modal-busy', modalBusyRule, {
       `,
       errors: [nested],
     },
+    {
+      name: 'a modal in a children function attribute',
+      code: `
+        import { Dialog, DialogContent } from '@/components/ui/dialog';
+        import { Sheet } from '@/components/ui/sheet';
+        export const View = () => (
+          <Dialog busy={false}><DialogContent children={() => <Sheet busy={false} />} /></Dialog>
+        );
+      `,
+      errors: [nested],
+    },
+    {
+      name: 'a modal in a renderDetailPanel function',
+      code: `
+        import { Dialog, DialogContent } from '@/components/ui/dialog';
+        import { Sheet } from '@/components/ui/sheet';
+        import { DataTable } from '@/components/ui/datatable/DataTable';
+        export const View = () => (
+          <Dialog busy={false}>
+            <DialogContent><DataTable renderDetailPanel={() => <Sheet busy={false} />} /></DialogContent>
+          </Dialog>
+        );
+      `,
+      errors: [nested],
+    },
   ],
 });

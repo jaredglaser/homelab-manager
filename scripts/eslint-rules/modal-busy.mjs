@@ -26,12 +26,13 @@ const jsxRootName = (name, rootNames, namespaces) => {
 
 const isFunction = (node) => node.type === 'ArrowFunctionExpression' || node.type === 'FunctionExpression';
 
-// A function passed as a prop (an event handler) builds JSX for later, not inside the modal. Base UI's render prop does render in place.
-const isDeferredAttributeFunction = (node) =>
+// An event handler builds JSX for later. Any other function prop (children, render, renderDetailPanel) renders in place.
+const isEventHandlerFunction = (node) =>
   isFunction(node) &&
   node.parent.type === 'JSXExpressionContainer' &&
   node.parent.parent.type === 'JSXAttribute' &&
-  node.parent.parent.name.name !== 'render';
+  node.parent.parent.name.type === 'JSXIdentifier' &&
+  /^on[A-Z]/.test(node.parent.parent.name.name);
 
 export const modalBusyRule = {
   meta: {
@@ -62,7 +63,7 @@ export const modalBusyRule = {
         const name = jsxRootName(node.openingElement.name, rootNames, namespaces);
         if (!name) return;
         for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
-          if (isDeferredAttributeFunction(ancestor)) return;
+          if (isEventHandlerFunction(ancestor)) return;
           if (ancestor.type === 'JSXElement' && jsxRootName(ancestor.openingElement.name, rootNames, namespaces)) {
             context.report({ node: name, messageId: 'nestedModal' });
             return;
