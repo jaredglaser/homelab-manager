@@ -69,7 +69,7 @@ mock.module('@/hooks/useAuth', () => ({
 
 let inventoryResponse: AgentInventoryEntry[] = []
 type OpResult = import('@/data/hosts/handlers').UpdateAgentResult
-let updateResult: Promise<OpResult> = Promise.resolve({ hostId: 1, healthy: true })
+let updateResult: Promise<OpResult | undefined | { message: string }> = Promise.resolve({ hostId: 1, healthy: true })
 let updateCalls: Array<{ data: { hostId: number } }> = []
 const listAgentsInventory = (): Promise<AgentInventoryEntry[]> => Promise.resolve(inventoryResponse)
 const updateAgent = (data: { data: { hostId: number } }) => {
@@ -385,7 +385,7 @@ describe('AgentsOverview (connected)', () => {
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('Update confirmed')
   })
 
-  describe('when the update call rejects', () => {
+  describe('when the update call fails', () => {
     const NETWORK_COPY = "Couldn't reach the dashboard. Check your connection and try again."
     const FALLBACK_COPY = "Couldn't start the update. Reload the page and try again."
     let errorSpy: ReturnType<typeof spyOn<Console, 'error'>>
@@ -438,6 +438,23 @@ describe('AgentsOverview (connected)', () => {
       await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
       expectCopyOnRowAndToast(FALLBACK_COPY, text)
       expectLoggedOnce(err)
+    })
+
+    it.each([
+      ['undefined', undefined],
+      ['an unrelated JSON body', { message: 'Sign in to continue' }],
+    ])('shows the fallback copy when the call resolves to %s instead of an update result, and logs it once', async (_label, value) => {
+      updateResult = Promise.resolve(value)
+      await renderConnected()
+      await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+      fireEvent.click(screen.getByLabelText('Update homeserver'))
+      await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
+      expectCopyOnRowAndToast(FALLBACK_COPY, 'Sign in to continue')
+      expect(document.body.textContent).not.toContain(NETWORK_COPY)
+      const logged = errorSpy.mock.calls.filter(
+        ([first]) => first instanceof Error && 'cause' in first && first.cause === value,
+      )
+      expect(logged).toHaveLength(1)
     })
 
     it('shows the fallback copy for a non-Error rejection and logs it once', async () => {

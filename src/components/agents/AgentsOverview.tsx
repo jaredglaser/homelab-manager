@@ -242,6 +242,10 @@ export function AgentsOverviewView({
   )
 }
 
+function isUpdateResult(value: unknown): value is Awaited<ReturnType<typeof updateAgent>> {
+  return typeof value === 'object' && value !== null && 'healthy' in value && typeof value.healthy === 'boolean'
+}
+
 function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): AgentRowFeedback {
   if (result.healthy && result.version) {
     return { severity: 'success', message: `Update confirmed, agent now on v${result.version}` }
@@ -282,7 +286,12 @@ export default function AgentsOverview() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (hostId: number) => updateAgent({ data: { hostId } }),
+    mutationFn: async (hostId: number) => {
+      const result = await updateAgent({ data: { hostId } })
+      // The fetcher hands back an unserialized JSON body (a proxy or login page) as the result instead of rejecting.
+      if (!isUpdateResult(result)) throw new Error('The update call answered with something other than an update result', { cause: result })
+      return result
+    },
     onMutate: (hostId) => {
       setBusyByHost((prev) => ({ ...prev, [hostId]: 'update' }))
       setFeedbackByHost((prev) => {
