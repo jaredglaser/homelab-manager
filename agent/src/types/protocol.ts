@@ -82,3 +82,74 @@ export const zAgentContainerEvent = z.discriminatedUnion('op', [
   z.object({ op: z.literal('destroy'), containerId: z.string() }),
 ]);
 export type AgentContainerEvent = z.infer<typeof zAgentContainerEvent>;
+
+export const zComposeAction = z.enum(['deploy', 'update', 'teardown', 'restart', 'start', 'stop']);
+export type ComposeAction = z.infer<typeof zComposeAction>;
+
+export const zComposePhase = z.enum(['prepare', 'pull', 'up', 'down', 'restart', 'start', 'stop']);
+export type ComposePhase = z.infer<typeof zComposePhase>;
+
+/** The largest SSE frame the manager will accept from the agent, framing included. */
+export const COMPOSE_MAX_FRAME_BYTES = 64 * 1024;
+
+const zSeq = z.number().int().positive();
+const zCount = z.number().int().nonnegative();
+
+export const zComposeStartFrame = z.object({
+  v: z.literal(1),
+  runId: z.string(),
+  action: zComposeAction,
+  stack: z.string(),
+});
+export type ComposeStartFrame = z.infer<typeof zComposeStartFrame>;
+
+export const zComposePhaseFrame = z.object({
+  seq: zSeq,
+  phase: zComposePhase,
+  timeoutMs: zCount.optional(),
+});
+export type ComposePhaseFrame = z.infer<typeof zComposePhaseFrame>;
+
+export const zComposeLineFrame = z.object({
+  seq: zSeq,
+  stream: z.enum(['stdout', 'stderr']),
+  text: z.string(),
+  truncated: z.literal(true).optional(),
+});
+export type ComposeLineFrame = z.infer<typeof zComposeLineFrame>;
+
+/** `code` stays a plain string so a code the manager does not know still parses. Narrow it with `isAgentRouteFailureCode`. */
+export const zComposeResultFrame = z.object({
+  seq: zSeq,
+  status: z.enum(['success', 'failed']),
+  exitCode: z.number().int().nullable(),
+  timedOut: z.boolean(),
+  timeoutMs: zCount.optional(),
+  failedPhase: zComposePhase.optional(),
+  code: z.string().optional(),
+  detail: z.string().optional(),
+  /** Lines dropped by the caps only. Output lost because a pipe never closed is not counted here, see `outputIncomplete`. */
+  droppedLines: zCount,
+  /** UTF-8 bytes of line text not delivered: whole dropped lines plus the overflow cut off lines over 4096 characters. Caps only, like `droppedLines`. */
+  droppedBytes: zCount,
+  /** The runner stopped waiting on a pipe that never closed, so some output may be missing without being counted in `droppedLines`. */
+  outputIncomplete: z.literal(true).optional(),
+  tail: z
+    .array(z.object({ stream: z.enum(['stdout', 'stderr']), text: z.string(), truncated: z.literal(true).optional() }))
+    .max(100)
+    .optional(),
+});
+export type ComposeResultFrame = z.infer<typeof zComposeResultFrame>;
+
+/** SSE event name to payload schema for POST /stacks/{deploy,update,teardown,restart,start,stop} with `Accept: text/event-stream`. */
+export const zComposeFrames = {
+  start: zComposeStartFrame,
+  phase: zComposePhaseFrame,
+  line: zComposeLineFrame,
+  result: zComposeResultFrame,
+} as const;
+
+export type ComposeFrameEvent =
+  | { event: 'phase'; data: ComposePhaseFrame }
+  | { event: 'line'; data: ComposeLineFrame }
+  | { event: 'result'; data: ComposeResultFrame };

@@ -42,3 +42,27 @@ export function parseDataFrames(text: string): any[] {
     .filter((frame) => frame.startsWith('data: '))
     .map((frame) => JSON.parse(frame.slice('data: '.length)));
 }
+
+/** Parse the named `event:` frames out of SSE text, ignoring the seam's flush and heartbeat comments. */
+export function parseEventFrames(text: string): { event: string; data: Record<string, unknown> }[] {
+  return text
+    .split('\n\n')
+    .filter((frame) => frame.startsWith('event: '))
+    .map((frame) => {
+      const [eventLine, dataLine] = frame.split('\n');
+      return { event: eventLine.slice('event: '.length), data: JSON.parse(dataLine.slice('data: '.length)) as Record<string, unknown> };
+    });
+}
+
+/** Rejects when `promise` has not settled in `ms`, so a run that never finishes or a stream that never closes fails the test instead of hanging it. */
+export async function bounded<T>(promise: Promise<T>, what = 'promise', ms = 1000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not settle within ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}

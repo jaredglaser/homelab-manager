@@ -1109,11 +1109,16 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('keeps a recognised code with no message and does not call the reply foreign', async () => {
+  it('treats a code with no message as off the error contract, so its code is not trusted', async () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ code: 'update_in_progress' }), { status: 409 })));
     try {
       const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
-      expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: '' });
+      expect(result).toEqual({
+        hostId: 1,
+        healthy: false,
+        code: 'agent_reported_error',
+        message: 'It said: {"code":"update_in_progress"}',
+      });
     } finally {
       restore();
     }

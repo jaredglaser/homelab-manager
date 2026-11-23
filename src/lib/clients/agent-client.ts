@@ -1,5 +1,6 @@
 import {
-  isAgentRouteFailureCode,
+  zAgentRouteErrorBodyFromAnyAgent,
+  zAgentStackResponse,
   type AgentRouteFailureCode,
   type AgentStackResponse,
   type AgentInfoResponse,
@@ -9,7 +10,6 @@ import {
   type AgentStackComposeResponse,
 } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from '@/lib/deploy/types';
-import { z } from 'zod';
 import { retry } from '@/lib/utils/backoff';
 import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
 import { notAnsweringLogLine, readNotAnsweringFailure, type AgentNotAnsweringCode } from '@/lib/clients/agent-identity';
@@ -316,52 +316,29 @@ function safeHost(agentUrl: string): string {
   }
 }
 
-/**
- * The agent answers a failure with `{ error, code }` (agent/src/lib/error-body.ts), plus `detail` where
- * a route has an upstream stderr. Reading the envelope keeps the code out of the operator's copy.
- */
-function readAgentFailure(raw: string): { message: string; code?: AgentRouteFailureCode } {
-  let parsed: unknown;
+function parseJson(raw: string): unknown {
   try {
-    parsed = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch {
-    parsed = undefined;
+    return undefined;
   }
-  const fields = typeof parsed === 'object' && parsed !== null ? (parsed as { error?: unknown; code?: unknown; detail?: unknown }) : {};
-  if (typeof fields.error !== 'string') return { message: singleLine(raw) };
-  const error = singleLine(fields.error);
-  const detail = typeof fields.detail === 'string' ? singleLine(fields.detail) : '';
-  return {
-    message: detail ? `${error}: ${detail}` : error,
-    code: isAgentRouteFailureCode(fields.code) ? fields.code : undefined,
-  };
 }
 
-const stackFailureSchema = z.object({
-  status: z.literal('failed'),
-  error: z.unknown().optional(),
-  stdout: z.unknown().optional(),
-  stderr: z.unknown().optional(),
-  exitCode: z.unknown().optional(),
-});
+/** Reads a failure body against the agent's error contract; anything off-contract is shown as the text that arrived. */
+function readAgentFailure(raw: string): { message: string; code?: AgentRouteFailureCode } {
+  const body = zAgentRouteErrorBodyFromAnyAgent.safeParse(parseJson(raw));
+  if (!body.success) return { message: singleLine(raw) };
+  const error = singleLine(body.data.error);
+  const detail = body.data.detail === undefined ? '' : singleLine(body.data.detail);
+  return { message: detail ? `${error}: ${detail}` : error, code: body.data.code };
+}
 
+/** A compose route's failed run, read against the agent's stack contract. Null sends the body to the error path. */
 function parseStackFailure(raw: string): AgentStackResponse | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  const result = stackFailureSchema.safeParse(parsed);
-  if (!result.success || typeof result.data.error === 'string') return null;
-  const { stdout, stderr, exitCode } = result.data;
-  if (typeof stdout !== 'string' && typeof stderr !== 'string') return null;
-  return {
-    status: 'failed',
-    stdout: typeof stdout === 'string' ? stdout : '',
-    stderr: typeof stderr === 'string' ? stderr : '',
-    ...(typeof exitCode === 'number' ? { exitCode } : {}),
-  };
+  const parsed = parseJson(raw);
+  if (zAgentRouteErrorBodyFromAnyAgent.safeParse(parsed).success) return null;
+  const result = zAgentStackResponse.safeParse(parsed);
+  return result.success && result.data.status === 'failed' ? result.data : null;
 }
 
 /** Map the agent's raw `{ status, stdout, stderr }` to internal `{ success, logs }`. */
@@ -372,6 +349,8 @@ function adaptDeployResponse(raw: AgentStackResponse): AgentDeployResponse {
   return { success, logs, ...(raw.exitCode !== undefined ? { exitCode: raw.exitCode } : {}) };
 }
 
-function silentFailureLogs(exitCode: number | undefined): string {
-  return exitCode === undefined ? 'docker compose failed with no output' : `docker compose exited with code ${exitCode}`;
+function silentFailureLogs(exitCode: number | null | undefined): string {
+  if (exitCode === undefined) return 'docker compose failed with no output';
+  if (exitCode === null) return 'docker compose was killed and never reported an exit code';
+  return `docker compose exited with code ${exitCode}`;
 }
