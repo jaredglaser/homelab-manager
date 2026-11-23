@@ -57,6 +57,36 @@ ruleTester.run('local/modal-busy', modalBusyRule, {
         export const View = () => <Dialog busy={false}><Sheet /></Dialog>;
       `,
     },
+    {
+      name: 'a modal built in an event handler under another modal',
+      code: `
+        import { Dialog, DialogContent } from '@/components/ui/dialog';
+        import { AlertDialog } from '@/components/ui/alert-dialog';
+        import { Button } from '@/components/ui/button';
+        export const View = ({ show }: { show: (node: unknown) => void }) => (
+          <Dialog busy={false}>
+            <DialogContent><Button onClick={() => show(<AlertDialog busy={false} />)} /></DialogContent>
+          </Dialog>
+        );
+      `,
+    },
+    {
+      name: "a modal built in the root's own onOpenChange",
+      code: `
+        import { Dialog } from '@/components/ui/dialog';
+        import { Sheet } from '@/components/ui/sheet';
+        export const View = ({ show }: { show: (node: unknown) => void }) => (
+          <Dialog busy={false} onOpenChange={function onOpenChange() { show(<Sheet busy={false} />); }} />
+        );
+      `,
+    },
+    {
+      name: 'a module outside src/components/ui that ends in ui/dialog',
+      code: `
+        import { Dialog } from '@/lib/ui/dialog';
+        export const View = () => <Dialog><Dialog /></Dialog>;
+      `,
+    },
   ],
   invalid: [
     {
@@ -94,6 +124,47 @@ ruleTester.run('local/modal-busy', modalBusyRule, {
         import { Dialog } from '@/components/ui/dialog';
         export const View = ({ open }: { open: boolean }) => (
           <Dialog busy={false}>{open && <Dialog busy={false} />}</Dialog>
+        );
+      `,
+      errors: [nested],
+    },
+    {
+      name: 'a modal imported by relative path',
+      filename: 'src/components/stacks/View.tsx',
+      code: `
+        import { Dialog } from '../ui/dialog';
+        import { AlertDialog } from '../ui/alert-dialog';
+        export const View = () => <Dialog busy={false}><AlertDialog busy={false} /></Dialog>;
+      `,
+      errors: [nested],
+    },
+    {
+      name: 'a modal imported with its file extension',
+      code: `
+        import { Dialog } from '@/components/ui/dialog.tsx';
+        import { Sheet } from '@/components/ui/sheet.tsx';
+        export const View = () => <Sheet busy={false}><Dialog busy={false} /></Sheet>;
+      `,
+      errors: [nested],
+    },
+    {
+      name: 'a modal in a child render function',
+      code: `
+        import { Dialog, DialogContent } from '@/components/ui/dialog';
+        import { Sheet } from '@/components/ui/sheet';
+        export const View = () => (
+          <Dialog busy={false}><DialogContent>{() => <Sheet busy={false} />}</DialogContent></Dialog>
+        );
+      `,
+      errors: [nested],
+    },
+    {
+      name: "a modal in Base UI's render prop",
+      code: `
+        import { Dialog, DialogContent } from '@/components/ui/dialog';
+        import { Sheet } from '@/components/ui/sheet';
+        export const View = () => (
+          <Dialog busy={false}><DialogContent render={() => <Sheet busy={false} />} /></Dialog>
         );
       `,
       errors: [nested],

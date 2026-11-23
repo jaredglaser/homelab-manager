@@ -326,6 +326,14 @@ const noErrorMessageMatchingRule = {
   },
 };
 
+const TAILWIND_ONLY_IMPORTS = {
+  group: ['./*.css', '../*.css', '@/**/*.css', '!**/App.css'],
+  message: 'TailwindCSS only. The single allowed stylesheet is src/App.css (AGENTS.md#tailwind-only).',
+};
+
+const MODAL_PRIMITIVE_MESSAGE =
+  'Use the Dialog, AlertDialog or Sheet wrapper from @/components/ui, which requires busy (AGENTS.md#modal-busy). The Base UI primitive skips it.';
+
 export default tseslint.config(
   {
     ignores: [
@@ -389,15 +397,22 @@ export default tseslint.config(
     rules: {
       eqeqeq: ['error', 'always', { null: 'ignore' }],
       'no-var': 'error',
+      'no-restricted-imports': ['error', { patterns: [TAILWIND_ONLY_IMPORTS] }],
+    },
+  },
+
+  // A later no-restricted-imports replaces the options above for these files, so it repeats the CSS pattern.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/components/ui/**'],
+    rules: {
       'no-restricted-imports': [
         'error',
         {
+          paths: [{ name: '@base-ui/react', importNames: ['Dialog', 'AlertDialog', 'Drawer'], message: MODAL_PRIMITIVE_MESSAGE }],
           patterns: [
-            {
-              group: ['./*.css', '../*.css', '@/**/*.css', '!**/App.css'],
-              message:
-                'TailwindCSS only. The single allowed stylesheet is src/App.css (AGENTS.md#tailwind-only).',
-            },
+            TAILWIND_ONLY_IMPORTS,
+            { group: ['@base-ui/react/dialog', '@base-ui/react/alert-dialog', '@base-ui/react/drawer'], message: MODAL_PRIMITIVE_MESSAGE },
           ],
         },
       ],
@@ -596,7 +611,7 @@ export default tseslint.config(
   },
 
   {
-    files: ['src/components/**/*.tsx'],
+    files: ['src/**/*.tsx'],
     ignores: ['**/__tests__/**', 'src/components/ui/**'],
     rules: { 'local/modal-busy': 'error' },
   },

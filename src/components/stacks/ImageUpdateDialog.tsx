@@ -181,6 +181,7 @@ export default function ImageUpdateDialog({
             : <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to the newest published version.</>;
 
   return (
+    // busy stays false: closing mid-check loses nothing, and busy would lock Close for the whole registry round trip.
     <Dialog open={open} busy={false} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent className="max-w-5xl">
         <DialogTitle className="flex items-center gap-2 py-3 text-sm font-medium min-w-0">
