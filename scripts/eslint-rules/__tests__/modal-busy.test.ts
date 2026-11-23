@@ -42,6 +42,15 @@ ruleTester.run('local/modal-busy', modalBusyRule, {
       `,
     },
     {
+      name: 'the parts of a namespace-imported modal',
+      code: `
+        import * as D from '@/components/ui/dialog';
+        export const View = () => (
+          <D.Dialog busy={false}><D.DialogContent><D.DialogTitle>A</D.DialogTitle></D.DialogContent></D.Dialog>
+        );
+      `,
+    },
+    {
       name: 'a same-named component from another module',
       code: `
         import { Dialog } from '@/components/ui/dialog';
