@@ -13,7 +13,7 @@ if npm install --silent --prefix "$TOOLS/bun" "bun@$PIN"; then
 fi
 
 # The environment cache is only kept when setup finishes in about five minutes.
-(cd "$REPO" && timeout 240 bun run setup) > "${TMPDIR:-/tmp}/hlm-setup-deps.log" 2>&1 &
+(cd "$REPO" && timeout 240 bun run setup) > /tmp/hlm-setup-deps.log 2>&1 &
 (
   bash "$REPO/scripts/cloud/session-start.sh"
   # Pulled by name: "docker compose pull" refuses to run without the stack's .env values.
@@ -21,6 +21,6 @@ fi
     timeout 240 docker pull -q "$image" &
   done
   wait
-) > "${TMPDIR:-/tmp}/hlm-setup-images.log" 2>&1 &
+) > /tmp/hlm-setup-images.log 2>&1 &
 wait
 exit 0

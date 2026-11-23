@@ -1,7 +1,6 @@
 ---
 name: orchestrate
 description: Run orchestrated PR work on this repo, with one agent per PR, acceptance criteria, independent review, behavioural verification and an evidence bundle. Use only after the maintainer has confirmed this session as orchestrator.
-disable-model-invocation: true
 ---
 
 # Orchestrator workflow (homelab-manager)

@@ -22,7 +22,7 @@ if docker info >/dev/null 2>&1; then
     row "$image" "$(docker image inspect "$image" >/dev/null 2>&1 && echo cached || echo 'not cached')"
   done
 else
-  row "dockerd" "NOT RUNNING (see ${TMPDIR:-/tmp}/dockerd.log)"
+  row "dockerd" "NOT RUNNING (see /tmp/dockerd.log)"
 fi
 
 echo "== Network (401 and 404 still mean reachable, 000 means refused)"
