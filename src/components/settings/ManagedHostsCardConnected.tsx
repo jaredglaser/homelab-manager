@@ -172,6 +172,8 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   })
 
   const updateMutation = useMutation({
+    // The settings page and the host page each mount this card, so an update queues behind one still in flight from the other.
+    scope: { id: 'managed-host-update' },
     mutationFn: ({ hostId, name, agentUrl }: { hostId: number; name: string; agentUrl: string }) =>
       updateHost({ data: { hostId, name, agentUrl } }),
     onSuccess: (updated) => {
