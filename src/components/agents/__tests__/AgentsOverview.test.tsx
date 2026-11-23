@@ -447,7 +447,6 @@ describe('AgentsOverview (connected)', () => {
       makeAgent({
         status: 'unreachable',
         version: null,
-        versionSource: 'unknown',
         failure: { code: 'unreachable', message: 'stored cause 6120' },
       }),
     ]
