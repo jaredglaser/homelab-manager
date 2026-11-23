@@ -45,11 +45,21 @@ interface Codec<T> {
   encode: (value: T) => unknown;
 }
 
-/** A per-browser layout value, read from localStorage once per store and written back on every update. */
+/**
+ * A per-browser layout value. Each update applies to a fresh read of storage, and a `storage` event from another tab
+ * re-reads it, so two tabs never undo each other's changes.
+ */
 function browserLayoutAtom<T>(key: BrowserLayoutKey, codec: Codec<T>): BrowserLayoutAtom<T> {
   const storageKey = browserLayoutStorageKey(key);
   const UNREAD = Symbol('unread');
   const local = atom<T | typeof UNREAD>(UNREAD);
+  local.onMount = (setLocal) => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === storageKey || event.key === null) setLocal(UNREAD);
+    };
+    globalThis.addEventListener('storage', onStorage);
+    return () => globalThis.removeEventListener('storage', onStorage);
+  };
   const layout: BrowserLayoutAtom<T> = atom(
     (get) => {
       const value = get(local);
@@ -57,7 +67,9 @@ function browserLayoutAtom<T>(key: BrowserLayoutKey, codec: Codec<T>): BrowserLa
       return codec.decode(readStored(storageKey)) ?? codec.fallback();
     },
     (get, set, update) => {
-      const next = update(get(layout));
+      // An unreadable or missing entry keeps the in-memory value, which may hold changes a full storage refused.
+      const current = codec.decode(readStored(storageKey)) ?? get(layout);
+      const next = update(current);
       set(local, next);
       writeStored(storageKey, codec.encode(next));
     },

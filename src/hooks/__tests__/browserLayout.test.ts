@@ -131,6 +131,31 @@ describe('browser layout', () => {
     expect(stored(BROWSER_LAYOUT_KEYS.dockerContainerShells)).toEqual({ 'server1/nginx': 'bash' });
   });
 
+  it('keeps both tabs\' changes when two tabs share one storage, and a tab picks up the other\'s change on a storage event', async () => {
+    const tabA = mountInFreshStore();
+    const tabB = mountInFreshStore();
+    expect(tabA.result.current.docker.isContainerExpanded('server1/a')).toBe(false);
+    expect(tabB.result.current.docker.isContainerExpanded('server1/a')).toBe(false);
+
+    act(() => tabA.result.current.docker.toggleContainerExpanded('server1/a'));
+    act(() => tabB.result.current.docker.toggleContainerExpanded('server2/b'));
+    expect(stored(BROWSER_LAYOUT_KEYS.dockerExpandedContainers)).toEqual(['server1/a', 'server2/b']);
+
+    act(() => {
+      globalThis.dispatchEvent(new StorageEvent('storage', {
+        key: browserLayoutStorageKey(BROWSER_LAYOUT_KEYS.dockerExpandedContainers),
+      }));
+    });
+    await waitFor(() => expect(tabA.result.current.docker.isContainerExpanded('server2/b')).toBe(true));
+    expect(tabA.result.current.docker.isContainerExpanded('server1/a')).toBe(true);
+
+    tabA.unmount();
+    tabB.unmount();
+    const reloaded = mountInFreshStore();
+    expect(reloaded.result.current.docker.isContainerExpanded('server1/a')).toBe(true);
+    expect(reloaded.result.current.docker.isContainerExpanded('server2/b')).toBe(true);
+  });
+
   it('stores expanded sets and the shell map in sorted order', () => {
     const { result } = mountInFreshStore();
     act(() => {
