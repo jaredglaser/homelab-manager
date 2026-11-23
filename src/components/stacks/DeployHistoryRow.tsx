@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type SyntheticEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,11 @@ function getActionLabel(record: StackDeployRecord): string {
 
 const ROLLBACK_ELIGIBLE: Set<DeployStatus> = new Set(['succeeded', 'no_change']);
 
+// A role-blocked action button never runs its onClick, so its own stopPropagation cannot keep the click from toggling the row.
+function isFromRowAction(event: SyntheticEvent): boolean {
+  return event.target instanceof Element && event.target.closest('button') !== null;
+}
+
 interface DeployHistoryRowProps {
   record: StackDeployRecord;
   stackName?: string;
@@ -84,8 +89,8 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
         <div
           role={record.logs ? 'button' : undefined}
           tabIndex={record.logs ? 0 : undefined}
-          onClick={() => record.logs && setExpanded(!expanded)}
-          onKeyDown={record.logs ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } } : undefined}
+          onClick={(e) => { if (record.logs && !isFromRowAction(e)) setExpanded(!expanded); }}
+          onKeyDown={record.logs ? (e) => { if ((e.key === 'Enter' || e.key === ' ') && !isFromRowAction(e)) { e.preventDefault(); setExpanded(!expanded); } } : undefined}
           className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-accent' : ''}`}
         >
           {record.logs && (

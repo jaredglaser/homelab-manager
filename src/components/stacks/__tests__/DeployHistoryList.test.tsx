@@ -140,15 +140,19 @@ describe('DeployHistoryList', () => {
       const handlers = { onApprove: mock(() => undefined), onReject: mock(() => undefined) };
       renderWithActions(handlers);
       const user = setupUser();
+      expect(screen.queryByText('Deploy output here')).toBeNull();
       for (const name of ['Approve', 'Reject', 'Rollback']) {
         const button = screen.getByRole('button', { name });
         expect(button.getAttribute('aria-disabled')).toBe('true');
         expect(roleReasonOf(button)).toBe(VIEWER_DENIED_COPY);
         fireEvent.click(button);
       }
+      expect(screen.queryByText('Deploy output here')).toBeNull();
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Rollback' }), { key: 'Enter' });
       await user.hover(screen.getByRole('button', { name: 'Rollback' }));
       expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
       expect(screen.queryByText('Rollback plex?')).toBeNull();
+      expect(screen.queryByText('Deploy output here')).toBeNull();
       expect(handlers.onApprove).not.toHaveBeenCalled();
       expect(handlers.onReject).not.toHaveBeenCalled();
       expect(mockTriggerDeploy).not.toHaveBeenCalled();
