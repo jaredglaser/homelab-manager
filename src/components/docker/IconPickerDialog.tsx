@@ -71,7 +71,7 @@ export default function IconPickerDialog({
   const displayedIcon = pendingIcon ?? currentIcon;
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+    <Dialog open={open} busy={false} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
       {/* h, not max-h: percentage heights don't resolve against a max-height-only popup, and the grid virtualizer needs a definite height to stay bounded */}
       <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-popover w-[720px] max-w-[calc(100%-64px)] h-[min(600px,calc(100%-64px))] p-0">
         <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-border shrink-0 bg-popover">

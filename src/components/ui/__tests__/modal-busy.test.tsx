@@ -19,7 +19,7 @@ interface KindSpec {
   dismissesOnBackdrop: boolean;
   Modal: (props: {
     open: boolean;
-    busy?: boolean;
+    busy: boolean;
     onOpenChange: (open: boolean) => void;
     actionsRef?: RefObject<Handle | null>;
     children?: ReactNode;
@@ -85,7 +85,7 @@ function Harness({
   actionsRef,
 }: Readonly<{
   kind: KindSpec;
-  busy?: boolean;
+  busy: boolean;
   onOpenChange: (open: boolean) => void;
   actionsRef?: RefObject<Handle | null>;
 }>) {
@@ -172,7 +172,7 @@ describe.each(KINDS)('$name busy', (kind) => {
   });
 
   it('leaves Buttons enabled when not busy, and keeps a Button\'s own disabled', async () => {
-    render(<Harness kind={kind} onOpenChange={mock<(open: boolean) => void>()} />);
+    render(<Harness kind={kind} busy={false} onOpenChange={mock<(open: boolean) => void>()} />);
     await screen.findByRole(kind.role);
 
     expect(screen.getByRole('button', { name: 'Action' }).hasAttribute('disabled')).toBe(false);
@@ -196,7 +196,7 @@ describe.each(KINDS)('$name busy', (kind) => {
   it('closes on Escape when not busy', async () => {
     const user = setupUser();
     const onOpenChange = mock<(open: boolean) => void>();
-    render(<Harness kind={kind} onOpenChange={onOpenChange} />);
+    render(<Harness kind={kind} busy={false} onOpenChange={onOpenChange} />);
     await screen.findByRole(kind.role);
 
     await user.keyboard('{Escape}');
@@ -208,7 +208,7 @@ describe.each(KINDS)('$name busy', (kind) => {
   it(`${kind.dismissesOnBackdrop ? 'closes' : 'stays open'} on a backdrop click when not busy`, async () => {
     const user = setupUser();
     const onOpenChange = mock<(open: boolean) => void>();
-    render(<Harness kind={kind} onOpenChange={onOpenChange} />);
+    render(<Harness kind={kind} busy={false} onOpenChange={onOpenChange} />);
     await screen.findByRole(kind.role);
 
     await user.click(document.querySelectorAll(`[data-slot="${kind.backdropSlot}"]`)[0]);
@@ -225,7 +225,7 @@ describe.each(KINDS)('$name busy', (kind) => {
   it('closes from its close button when not busy', async () => {
     const user = setupUser();
     const onOpenChange = mock<(open: boolean) => void>();
-    render(<Harness kind={kind} onOpenChange={onOpenChange} />);
+    render(<Harness kind={kind} busy={false} onOpenChange={onOpenChange} />);
     await screen.findByRole(kind.role);
 
     const dismiss = screen.getByRole('button', { name: 'Dismiss' });
@@ -332,12 +332,12 @@ describe('one modal at a time', () => {
   function Two({ first, second }: Readonly<{ first: boolean; second: boolean }>) {
     return (
       <>
-        <Dialog open={first}>
+        <Dialog busy={false} open={first}>
           <DialogContent>
             <DialogTitle>First title</DialogTitle>
           </DialogContent>
         </Dialog>
-        <Sheet open={second}>
+        <Sheet busy={false} open={second}>
           <SheetContent>
             <SheetTitle>Second title</SheetTitle>
           </SheetContent>
@@ -468,12 +468,12 @@ describe('one modal at a time', () => {
       function Mixed({ second }: Readonly<{ second: boolean }>) {
         return (
           <>
-            <Dialog defaultOpen>
+            <Dialog busy={false} defaultOpen>
               <DialogContent>
                 <DialogTitle>First title</DialogTitle>
               </DialogContent>
             </Dialog>
-            <Sheet open={second}>
+            <Sheet busy={false} open={second}>
               <SheetContent>
                 <SheetTitle>Second title</SheetTitle>
               </SheetContent>
@@ -497,12 +497,12 @@ describe('one modal at a time', () => {
     await withErrorSpy(async (spy) => {
       render(
         <>
-          <Dialog defaultOpen>
+          <Dialog busy={false} defaultOpen>
             <DialogContent>
               <DialogTitle>First title</DialogTitle>
             </DialogContent>
           </Dialog>
-          <AlertDialog defaultOpen>
+          <AlertDialog busy={false} defaultOpen>
             <AlertDialogContent>
               <AlertDialogTitle>Second title</AlertDialogTitle>
             </AlertDialogContent>
@@ -523,12 +523,12 @@ describe('one modal at a time', () => {
       function Keyed({ k }: Readonly<{ k: number }>) {
         return (
           <>
-            <Dialog open>
+            <Dialog busy={false} open>
               <DialogContent key={k}>
                 <DialogTitle>First title</DialogTitle>
               </DialogContent>
             </Dialog>
-            <Sheet open>
+            <Sheet busy={false} open>
               <SheetContent key={k}>
                 <SheetTitle>Second title</SheetTitle>
               </SheetContent>
@@ -555,7 +555,7 @@ describe('popup ref forwarding', () => {
     {
       name: 'DialogContent',
       render: (ref) => (
-        <Dialog open>
+        <Dialog busy={false} open>
           <DialogContent ref={ref}>
             <DialogTitle>Ref title</DialogTitle>
           </DialogContent>
@@ -565,7 +565,7 @@ describe('popup ref forwarding', () => {
     {
       name: 'AlertDialogContent',
       render: (ref) => (
-        <AlertDialog open>
+        <AlertDialog busy={false} open>
           <AlertDialogContent ref={ref}>
             <AlertDialogTitle>Ref title</AlertDialogTitle>
           </AlertDialogContent>
@@ -575,7 +575,7 @@ describe('popup ref forwarding', () => {
     {
       name: 'SheetContent',
       render: (ref) => (
-        <Sheet open>
+        <Sheet busy={false} open>
           <SheetContent ref={ref}>
             <SheetTitle>Ref title</SheetTitle>
           </SheetContent>

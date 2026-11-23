@@ -6,7 +6,7 @@ import { ModalBusyScope, ModalRootProvider, useModalBusy, useModalPopup, useModa
 
 type SheetProps = ComponentProps<typeof DialogPrimitive.Root> & ModalBusyProps;
 
-function Sheet({ busy = false, onOpenChange, ...props }: Readonly<SheetProps>) {
+function Sheet({ busy, onOpenChange, ...props }: Readonly<SheetProps>) {
   const root = useModalRoot({ kind: 'Sheet', busy, open: props.open, defaultOpen: props.defaultOpen, onOpenChange });
   return (
     <ModalRootProvider value={root.value}>

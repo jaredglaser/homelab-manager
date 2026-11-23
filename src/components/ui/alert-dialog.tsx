@@ -12,7 +12,7 @@ import { ModalBusyScope, ModalRootProvider, useModalBusy, useModalPopup, useModa
 
 type AlertDialogProps = ComponentProps<typeof AlertDialogPrimitive.Root> & ModalBusyProps;
 
-function AlertDialog({ busy = false, onOpenChange, ...props }: Readonly<AlertDialogProps>) {
+function AlertDialog({ busy, onOpenChange, ...props }: Readonly<AlertDialogProps>) {
   const root = useModalRoot({ kind: 'AlertDialog', busy, open: props.open, defaultOpen: props.defaultOpen, onOpenChange });
   return (
     <ModalRootProvider value={root.value}>

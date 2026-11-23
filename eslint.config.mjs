@@ -4,6 +4,7 @@ import pluginRouter from '@tanstack/eslint-plugin-router';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import { modalBusyRule } from './scripts/eslint-rules/modal-busy.mjs';
 
 // WS mux seam: one browser WebSocket, frames built at the mux seam, keepalive
 // timing from one constants module, and a tripwire against the deleted SSE surface.
@@ -325,105 +326,6 @@ const noErrorMessageMatchingRule = {
   },
 };
 
-const MODAL_ROOTS = {
-  '@/components/ui/dialog': 'Dialog',
-  '@/components/ui/alert-dialog': 'AlertDialog',
-  '@/components/ui/sheet': 'Sheet',
-};
-
-const IN_FLIGHT_NAME =
-  /^(?:is)?(?:pending|loading|busy|saving|submitting|updating|removing|deleting|rotating|generating|creating|deploying|approving|rejecting|revoking|applying|restarting|syncing|provisioning|checking|mutating)$/i;
-
-const IN_FLIGHT_SUFFIX = /(?:Pending|Saving)$/;
-
-const isInertBusyValue = (value) => {
-  if (value?.type !== 'JSXExpressionContainer') return false;
-  let { expression } = value;
-  while (['TSAsExpression', 'TSNonNullExpression', 'TSSatisfiesExpression'].includes(expression.type)) expression = expression.expression;
-  return (
-    (expression.type === 'Literal' && (expression.value === false || expression.value === null)) ||
-    (expression.type === 'Identifier' && expression.name === 'undefined') ||
-    (expression.type === 'UnaryExpression' && expression.operator === 'void')
-  );
-};
-
-const jsxRootName = (name, rootNames, namespaces) => {
-  if (name.type === 'JSXIdentifier') return rootNames.has(name.name) ? name : null;
-  if (
-    name.type === 'JSXMemberExpression' &&
-    name.object.type === 'JSXIdentifier' &&
-    namespaces.get(name.object.name) === name.property.name
-  ) {
-    return name;
-  }
-  return null;
-};
-
-const modalBusyRule = {
-  meta: {
-    type: 'problem',
-    docs: {
-      description:
-        'A modal that runs an action must pass busy so Escape, a backdrop click, its close button and every Button inside stop working while the action is in flight.',
-    },
-    schema: [],
-    messages: {
-      nestedModal:
-        'A Dialog, AlertDialog or Sheet inside another one opens two modals at once. Render the second one beside the first, and open one modal at a time.',
-      missingBusy:
-        'This modal references an in-flight flag (isPending, isLoading, isSaving and similar) but never sets busy, so Escape, a backdrop click or a button can still act mid-action. Pass busy={...} with that condition. This is a name-based heuristic: it does not see a spread, nor a footer rendered by a child component. If the flag is not an action in flight, disable this rule on the line with the reason.',
-    },
-  },
-  create(context) {
-    const rootNames = new Set();
-    const namespaces = new Map();
-    const { visitorKeys } = context.sourceCode;
-
-    const referencesInFlightFlag = (node) => {
-      if (node.type === 'Identifier' && (IN_FLIGHT_NAME.test(node.name) || IN_FLIGHT_SUFFIX.test(node.name))) return true;
-      if (jsxRootName(node.type === 'JSXElement' ? node.openingElement.name : { type: '' }, rootNames, namespaces)) return false;
-      for (const key of visitorKeys[node.type] ?? []) {
-        const child = node[key];
-        const children = Array.isArray(child) ? child : [child];
-        if (children.some((entry) => entry && typeof entry.type === 'string' && referencesInFlightFlag(entry))) return true;
-      }
-      return false;
-    };
-
-    const setsBusy = (attributes) =>
-      attributes.some(
-        (attribute) =>
-          attribute.type === 'JSXSpreadAttribute' ||
-          (attribute.name.type === 'JSXIdentifier' &&
-            attribute.name.name === 'busy' &&
-            !isInertBusyValue(attribute.value)),
-      );
-
-    return {
-      ImportDeclaration(node) {
-        const root = MODAL_ROOTS[node.source.value];
-        if (!root) return;
-        for (const specifier of node.specifiers) {
-          if (specifier.type === 'ImportSpecifier' && specifier.imported.name === root) rootNames.add(specifier.local.name);
-          if (specifier.type === 'ImportNamespaceSpecifier') namespaces.set(specifier.local.name, root);
-        }
-      },
-      JSXElement(node) {
-        const name = jsxRootName(node.openingElement.name, rootNames, namespaces);
-        if (!name) return;
-        for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
-          if (ancestor.type === 'JSXElement' && jsxRootName(ancestor.openingElement.name, rootNames, namespaces)) {
-            context.report({ node: name, messageId: 'nestedModal' });
-            break;
-          }
-        }
-        if (setsBusy(node.openingElement.attributes)) return;
-        if (node.children.some(referencesInFlightFlag)) context.report({ node: name, messageId: 'missingBusy' });
-      },
-    };
-  },
-};
-
 export default tseslint.config(
   {
     ignores: [
@@ -443,7 +345,7 @@ export default tseslint.config(
   ...tseslint.configs.recommendedTypeChecked,
 
   {
-    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', 'server/**/*.ts', 'e2e/**/*.ts', 'vite.config.ts', 'playwright.config.ts', 'playwright.auth.config.ts'],
+    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', 'scripts/eslint-rules/*.d.mts', 'server/**/*.ts', 'e2e/**/*.ts', 'vite.config.ts', 'playwright.config.ts', 'playwright.auth.config.ts'],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
       globals: { ...globals.browser, ...globals.node },

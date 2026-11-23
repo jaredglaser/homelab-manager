@@ -5,7 +5,7 @@ import { ModalBusyScope, ModalRootProvider, useModalBusy, useModalPopup, useModa
 
 type DialogProps = ComponentProps<typeof DialogPrimitive.Root> & ModalBusyProps;
 
-function Dialog({ busy = false, onOpenChange, ...props }: Readonly<DialogProps>) {
+function Dialog({ busy, onOpenChange, ...props }: Readonly<DialogProps>) {
   const root = useModalRoot({ kind: 'Dialog', busy, open: props.open, defaultOpen: props.defaultOpen, onOpenChange });
   return (
     <ModalRootProvider value={root.value}>

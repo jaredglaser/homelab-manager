@@ -181,8 +181,7 @@ export default function ImageUpdateDialog({
             : <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to the newest published version.</>;
 
   return (
-    // eslint-disable-next-line local/modal-busy -- Re-check only guards a double click and Close stays enabled, so closing mid-check loses nothing
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+    <Dialog open={open} busy={false} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent className="max-w-5xl">
         <DialogTitle className="flex items-center gap-2 py-3 text-sm font-medium min-w-0">
           <span className="font-mono truncate min-w-0">{container.image}</span>

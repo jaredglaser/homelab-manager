@@ -29,8 +29,8 @@ export function useModalBusy(): boolean {
 }
 
 export interface ModalBusyProps {
-  /** Blocks every user-initiated close while true and disables every Button inside the popup. Pass the in-flight condition. */
-  busy?: boolean;
+  /** Blocks every user-initiated close while true and disables every Button inside the popup. Pass the in-flight condition, or false for a modal that runs no action. */
+  busy: boolean;
 }
 
 interface CloseDetails {
