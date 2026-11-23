@@ -5,6 +5,8 @@ import type { DeployRecord, DeployRequest, DeployStatus, SecretResolver } from '
 import { computeHash, detectChanges } from '@/lib/deploy/change-detection';
 import { extractVariableReferences } from '@/lib/deploy/secret-resolver';
 
+const FAILURE_LOG_TAIL_CHARS = 2000;
+
 interface PipelineResult {
   status: DeployStatus;
   logs: string;
@@ -536,6 +538,13 @@ export class DeployPipeline {
       console.error(
         `Failed to record deploy ${deployId} result (actual status: ${finalStatus}) for stack "${request.stack}":`,
         err,
+      );
+    }
+
+    if (!result.success) {
+      const exitCode = result.exitCode == null ? 'unknown' : String(result.exitCode);
+      console.error(
+        `Deploy dispatch failed for stack "${request.stack}" on host "${host.name}" (deploy ${deployId}, exit code ${exitCode}): ${JSON.stringify(result.logs.slice(-FAILURE_LOG_TAIL_CHARS))}`,
       );
     }
 

@@ -12,7 +12,7 @@ export interface AgentRouteFailureContext {
 
 /**
  * The one place a route failure code becomes the message that travels with it. Codes stay granular
- * because the manager branches on them, and the same code reached from several sites has to read the
+ * so a caller can branch on the reason, and the same code reached from several sites has to read the
  * same everywhere, so the wording lives here instead of at each call site.
  *
  * This is the agent's own sentence, not the operator's copy: the manager owns what the operator reads
@@ -64,7 +64,7 @@ export function agentRouteFailureMessage(
   return AGENT_ROUTE_FAILURE_MESSAGES[code](ctx);
 }
 
-/** The agent's JSON error body: the human message plus the code the manager branches on. */
+/** The agent's JSON error body: the human message plus the code that travels with it. */
 export function routeErrorBody(
   code: AgentRouteFailureCode,
   ctx: AgentRouteFailureContext = {},

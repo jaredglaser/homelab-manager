@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 import type { HostRepo, AgentsInventoryDeps } from '../handlers';
 import { handleSweepAgentInventory, handleListAgentsInventorySnapshot } from '../handlers';
 import type { ManagedHost, HostHealthVerdict, UpdateAgentInfoInput } from '@/lib/database/repositories/host-repository';
@@ -182,11 +182,18 @@ describe('handleSweepAgentInventory', () => {
     });
     const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
     const d = deps(hosts, [healthy('0.2.0'), healthy('0.3.0')], { updateHealth, updateAgentInfo });
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    await handleSweepAgentInventory(d, NOW);
+    try {
+      await handleSweepAgentInventory(d, NOW);
 
-    expect(updateHealth.mock.calls.map(([id]) => id)).toEqual([1, 2]);
-    expect(updateAgentInfo.mock.calls).toEqual([[2, { version: '0.3.0' }]]);
+      expect(updateHealth.mock.calls.map(([id]) => id)).toEqual([1, 2]);
+      expect(updateAgentInfo.mock.calls).toEqual([[2, { version: '0.3.0' }]]);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0]).toEqual(['[agent-inventory] Failed to persist sweep result for host broken:', 'write failed']);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('probes every host even when one probe throws', async () => {

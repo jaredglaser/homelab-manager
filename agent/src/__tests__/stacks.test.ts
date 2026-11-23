@@ -11,6 +11,7 @@ import {
   handleGetStackCompose,
   parseContainerNames,
 } from '../routes/stacks';
+import { KILL_GRACE_MS } from '../lib/compose-run';
 import { mkdirSync, rmSync, existsSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -370,7 +371,7 @@ describe('handleStackDeploy: subprocess timeout', () => {
       const response = await handleStackDeploy(request, TEST_STACKS_DIR, hangingSpawn as any);
       const result = await response.json();
 
-      expect(capturedDelays).toEqual([300_000]);
+      expect(capturedDelays.filter((delay) => delay !== KILL_GRACE_MS)).toEqual([300_000]);
       expect(response.status).toBe(500);
       expect(result.stderr).toContain('timed out after 300s');
     } finally {
@@ -646,7 +647,7 @@ describe('handleStackUpdate: subprocess timeout', () => {
     const response = await handleStackUpdate(request, TEST_STACKS_DIR, hangingSpawn as any);
     const result = await response.json();
 
-    expect(capturedDelays).toEqual([600_000]);
+    expect(capturedDelays.filter((delay) => delay !== KILL_GRACE_MS)).toEqual([600_000]);
     expect(response.status).toBe(500);
     expect(result.status).toBe('failed');
     expect(result.stderr).toContain('timed out after 600s');
@@ -685,7 +686,7 @@ describe('handleStackUpdate: subprocess timeout', () => {
     const response = await handleStackUpdate(request, TEST_STACKS_DIR, mockSpawn as any);
     const result = await response.json();
 
-    expect(capturedDelays).toEqual([600_000, 300_000]);
+    expect(capturedDelays.filter((delay) => delay !== KILL_GRACE_MS)).toEqual([600_000, 300_000]);
     expect(response.status).toBe(500);
     expect(result.status).toBe('failed');
     expect(result.stderr).toContain('timed out after 300s');

@@ -514,14 +514,26 @@ describe('DeployRepository', () => {
       })]);
     });
 
-    it('sanitizes and truncates the outcome message, taking the first line', async () => {
-      const rawMessage = 'first line of logs\nsecond line should be dropped';
+    it('takes the last non-empty line of a failed outcome message', async () => {
       await repo.notifyStackChange('plex', 'homeserver', {
         deployId: 42,
         status: 'failed',
         action: 'deploy',
         trigger: 'git_push',
-        message: rawMessage,
+        message: 'Container app Pulling\nContainer app Pulled\nError response from daemon: pull access denied\n\n',
+      });
+
+      const payload = JSON.parse(mock.queries[0].params[0] as string);
+      expect(payload.outcome.message).toBe('Error response from daemon: pull access denied');
+    });
+
+    it('takes the first line of a message on any other outcome', async () => {
+      await repo.notifyStackChange('plex', 'homeserver', {
+        deployId: 42,
+        status: 'succeeded',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'first line of logs\nsecond line should be dropped',
       });
 
       const payload = JSON.parse(mock.queries[0].params[0] as string);
@@ -545,7 +557,7 @@ describe('DeployRepository', () => {
       const longMessage = 'x'.repeat(300);
       await repo.notifyStackChange('plex', 'homeserver', {
         deployId: 42,
-        status: 'failed',
+        status: 'succeeded',
         action: 'deploy',
         trigger: 'ui',
         message: longMessage,
@@ -562,7 +574,7 @@ describe('DeployRepository', () => {
       const longMessage = 'x'.repeat(199) + '\u{1F600}' + 'y'.repeat(10);
       await repo.notifyStackChange('plex', 'homeserver', {
         deployId: 42,
-        status: 'failed',
+        status: 'succeeded',
         action: 'deploy',
         trigger: 'ui',
         message: longMessage,
