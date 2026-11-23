@@ -1,8 +1,8 @@
 import type { TlsFailureCode } from '@homelab-manager/agent/types';
 
 export interface TlsFailureCopy {
-  /** What went wrong, in the operator's terms. */
-  headline: string;
+  /** What went wrong, in the operator's terms. A function takes the raw detail, for copy that names it in the headline. */
+  headline: string | ((detail?: string) => string);
   /** The next action, named concretely. */
   fix: string;
   /** Runbook anchor, when the fix needs more than one line of explanation. */
@@ -102,6 +102,12 @@ const TLS_FAILURE_COPY: Record<TlsFailureCode, TlsFailureCopy> = {
     retryUseless: false,
     includeDetail: false,
   },
+  unexpected_redirect: {
+    headline: 'The agent URL redirected the request instead of answering it.',
+    fix: 'Check that the URL stored for this host uses the right scheme (http or https) and the agent port, and that no proxy redirects it, then retry.',
+    retryUseless: true,
+    includeDetail: false,
+  },
   no_cert_returned: {
     headline: 'The agent reported success but returned no certificate.',
     fix: 'Retry provisioning, and check the agent logs if it repeats.',
@@ -138,6 +144,12 @@ const TLS_FAILURE_COPY: Record<TlsFailureCode, TlsFailureCopy> = {
     retryUseless: false,
     includeDetail: true,
   },
+  agent_not_answering: {
+    headline: (detail) => (detail ? `Something other than the agent answered (${detail}).` : 'Something other than the agent answered.'),
+    fix: 'Check that the agent URL points at the agent and that any proxy in front of it is running, then try again.',
+    retryUseless: false,
+    includeDetail: false,
+  },
 };
 
 export interface TlsFailureGuidance {
@@ -162,7 +174,8 @@ export function tlsFailureGuidance(code: TlsFailureCode, detail?: string): TlsFa
 /** The sentence the operator reads. Never names a control: the surface owns which button it offers. */
 export function tlsFailureMessage(code: TlsFailureCode, detail?: string): string {
   const copy = TLS_FAILURE_COPY[code];
-  const parts = [copy.headline, copy.fix];
+  const headline = typeof copy.headline === 'function' ? copy.headline(detail) : copy.headline;
+  const parts = [headline, copy.fix];
   if (copy.includeDetail && detail) parts.push(detail);
   return parts.join(' ');
 }
