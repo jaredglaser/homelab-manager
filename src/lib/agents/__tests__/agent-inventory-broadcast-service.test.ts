@@ -13,7 +13,6 @@ function snapshot(id: number): AgentInventorySnapshot {
         capabilities: {},
         status: 'online',
         version: '0.1.0',
-        versionSource: 'stored',
         agentImage: null,
         agentImageTag: null,
         agentImageDigest: null,

@@ -20,8 +20,6 @@ export const AGENT_INVENTORY_STATUSES = [
  */
 export type AgentInventoryStatus = (typeof AGENT_INVENTORY_STATUSES)[number];
 
-export type AgentVersionSource = 'live' | 'stored' | 'unknown';
-
 export interface AgentInventoryFailure {
   code: HostProbeFailureCode;
   /** Empty when the probe named no detail. */
@@ -34,9 +32,8 @@ export interface AgentInventoryEntry {
   agentUrl: string;
   capabilities: HostCapabilities;
   status: AgentInventoryStatus;
-  /** Live version from /info when online, otherwise the last stored version, otherwise null. */
+  /** Last version the agent reported, null when it never reported one. */
   version: string | null;
-  versionSource: AgentVersionSource;
   agentImage: string | null;
   agentImageTag: string | null;
   /** Digest of the image the agent container runs, from the agent's /info. Null when unknown. */
@@ -85,7 +82,6 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
     capabilities: host.capabilities ?? {},
     status: inventoryStatus(host, host.failure?.code ?? null),
     version: host.agentVersion ?? null,
-    versionSource: host.agentVersion ? 'stored' : 'unknown',
     agentImage: host.agentImage,
     agentImageTag: host.agentImageTag,
     agentImageDigest: host.agentImageDigest,

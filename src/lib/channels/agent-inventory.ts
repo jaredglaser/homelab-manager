@@ -22,7 +22,6 @@ const zAgentInventoryEntryWire = z.object({
   capabilities: zHostCapabilitiesWire,
   status: z.enum(AGENT_INVENTORY_STATUSES),
   version: z.string().nullable(),
-  versionSource: z.enum(['live', 'stored', 'unknown']),
   agentImage: z.string().nullable(),
   agentImageTag: z.string().nullable(),
   agentImageDigest: z.string().nullable(),

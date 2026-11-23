@@ -13,7 +13,6 @@ function snapshot(overrides: Record<string, unknown> = {}) {
         capabilities: { docker: true },
         status: 'online',
         version: '0.2.0',
-        versionSource: 'live',
         agentImage: null,
         agentImageTag: null,
         agentImageDigest: null,
@@ -56,5 +55,13 @@ describe('agent inventory wire schema', () => {
         snapshot({ status: 'offline', failure: { code: 'token_signing_failed', message: 'x' } }),
       ).success,
     ).toBe(false);
+  });
+
+  it('parses a frame from a manager that still sends versionSource and drops the key', () => {
+    const parsed = zAgentInventorySnapshotWire.safeParse(snapshot({ versionSource: 'stored' }));
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.entries[0]).not.toHaveProperty('versionSource');
+    expect(parsed.data?.entries[0].version).toBe('0.2.0');
   });
 });
