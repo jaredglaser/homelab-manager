@@ -1,6 +1,12 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { seedSession } from '@/lib/test/session';
 import { render, screen, fireEvent } from '@testing-library/react';
 import StackActionBar from '../StackActionBar';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('StackActionBar', () => {
   const defaultProps = {
@@ -19,10 +25,16 @@ describe('StackActionBar', () => {
     expect(screen.getByText('Delete Stack')).toBeDefined();
   });
 
-  it('omits Update images when no update handler is given', () => {
-    render(<StackActionBar {...defaultProps} onUpdate={undefined} />);
-    expect(screen.queryByText('Update images')).toBeNull();
-    expect(screen.getByText('Deploy')).toBeDefined();
+  it('shows a viewer Update images disabled with the role reason, and a click calls nothing', async () => {
+    seedSession('viewer');
+    const onUpdate = mock(() => undefined);
+    render(<StackActionBar {...defaultProps} onUpdate={onUpdate} />);
+    const update = screen.getByText('Update images').closest('button')!;
+    expect(update.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(update);
+    expect(onUpdate).not.toHaveBeenCalled();
+    fireEvent.focus(update);
+    expect(await screen.findByText(VIEWER_DENIED_COPY)).toBeDefined();
   });
 
   it('buttons are enabled when not deploying', () => {

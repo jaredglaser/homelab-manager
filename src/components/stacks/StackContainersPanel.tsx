@@ -25,7 +25,6 @@ interface StackContainersPanelProps {
   host: string;
   onRecreate: () => void;
   isDeploying: boolean;
-  canCheckUpdates: boolean;
 }
 
 type ControlAction = 'start' | 'stop' | 'restart';
@@ -37,7 +36,7 @@ type ActiveKey = string;
 
 type ModalView = 'logs' | 'terminal';
 
-export default function StackContainersPanel({ containers, stackName, host, onRecreate, isDeploying, canCheckUpdates }: StackContainersPanelProps) {
+export default function StackContainersPanel({ containers, stackName, host, onRecreate, isDeploying }: StackContainersPanelProps) {
   const [modalState, setModalState] = useState<{ container: StackContainer; view: ModalView } | null>(null);
   const [activeKey, setActiveKey] = useState<ActiveKey | null>(null);
   const [recreateConfirmOpen, setRecreateConfirmOpen] = useState(false);
@@ -147,18 +146,17 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           {isDeploying ? <Spinner className="size-3 text-current" /> : <RotateCw size={13} />}
           Recreate
         </Button>
-        {canCheckUpdates && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={checkMutation.isPending || containers.length === 0}
-            onClick={() => checkMutation.mutate()}
-            aria-label="Check for updates"
-          >
-            {checkMutation.isPending ? <Spinner className="size-3 text-current" /> : <RefreshCw size={13} />}
-            Check for updates
-          </Button>
-        )}
+        <Button
+          requires="write"
+          size="sm"
+          variant="outline"
+          disabled={checkMutation.isPending || containers.length === 0}
+          onClick={() => checkMutation.mutate()}
+          aria-label="Check for updates"
+        >
+          {checkMutation.isPending ? <Spinner className="size-3 text-current" /> : <RefreshCw size={13} />}
+          Check for updates
+        </Button>
       </div>
 
       {containers.length === 0 ? (
@@ -228,7 +226,6 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           host={host}
           container={updateDialogContainer}
           summary={updateInfoByImage.get(updateDialogContainer.image) ?? null}
-          canRecheck={canCheckUpdates}
         />
       )}
 

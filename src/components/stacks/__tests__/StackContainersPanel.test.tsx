@@ -1,10 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { seedSession } from '@/lib/test/session';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 import { mockModule } from '@/lib/test/mock-module';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 
 mock.module('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
@@ -92,7 +94,6 @@ const defaultProps = {
   host: 'server1',
   onRecreate: mockOnRecreate,
   isDeploying: false,
-  canCheckUpdates: true,
 };
 
 function createWrapper() {
@@ -107,6 +108,10 @@ function createWrapper() {
 function renderPanel(props = defaultProps) {
   return render(<StackContainersPanel {...props} />, { wrapper: createWrapper() });
 }
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('StackContainersPanel', () => {
   beforeEach(() => {
@@ -559,12 +564,19 @@ describe('StackContainersPanel', () => {
     expect(screen.getByRole('button', { name: 'Check for updates' })).toBeDefined();
   });
 
-  it('hides Check for updates and the dialog Re-check from a viewer and never runs the check', async () => {
-    renderPanel({ ...defaultProps, canCheckUpdates: false });
-    expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
+  it('shows a viewer Check for updates and the dialog Re-check disabled with the role reason, and nothing runs the check', async () => {
+    seedSession('viewer');
+    renderPanel();
+    const check = screen.getByRole('button', { name: 'Check for updates' });
+    expect(check.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(check);
+    fireEvent.focus(check);
+    expect(await screen.findByText(VIEWER_DENIED_COPY)).toBeDefined();
+
     fireEvent.click(screen.getAllByRole('button', { name: 'Image versions' })[0]);
-    await screen.findByRole('button', { name: 'Close' });
-    expect(screen.queryByRole('button', { name: 'Re-check' })).toBeNull();
+    const recheck = await screen.findByRole('button', { name: 'Re-check' });
+    expect(recheck.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(recheck);
     expect(mockCheckImageUpdates).not.toHaveBeenCalled();
   });
 

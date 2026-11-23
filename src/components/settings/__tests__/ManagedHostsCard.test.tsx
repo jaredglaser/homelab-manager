@@ -1,4 +1,5 @@
-import { describe, it, expect, mock, spyOn } from 'bun:test'
+import { describe, it, expect, mock, spyOn, beforeEach } from 'bun:test'
+import { seedSession } from '@/lib/test/session'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import { AgentChannelNotice, ManagedHostsCardView, bucketHostsByAgentChannel } from '@/components/settings/ManagedHostsCard'
@@ -59,6 +60,10 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
 async function enterHostName(user: TestUser, value = 'server1') {
   await user.type(screen.getByLabelText('Host Name'), value)
 }
+
+beforeEach(() => {
+  seedSession('admin')
+})
 
 describe('ManagedHostsCard', () => {
   describe('loading state', () => {
@@ -175,12 +180,6 @@ describe('ManagedHostsCard', () => {
   })
 
   describe('health check', () => {
-    it('omits the health check button without a health check handler', () => {
-      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onHealthCheck: undefined })} />)
-      expect(screen.queryByLabelText('check health')).toBeNull()
-      expect(screen.getByLabelText('edit host')).toBeDefined()
-    })
-
     it('calls onHealthCheck with host id when button clicked', async () => {
       const user = setupUser()
       const onHealthCheck = mock(() => undefined)
