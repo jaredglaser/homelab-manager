@@ -5,6 +5,7 @@ import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
 import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy'
 import { hostFailureDetail, hostFailureMessage } from '@/lib/errors/host-failure-copy'
+import { serverFnErrorMessage } from '@/lib/errors/server-fn-error-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
 import { useAuth } from '@/hooks/useAuth'
@@ -254,6 +255,8 @@ function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): 
   }
 }
 
+const UPDATE_CALL_FAILED_MESSAGE = "Couldn't start the update. Reload the page and try again."
+
 export default function AgentsOverview() {
   const queryClient = useQueryClient()
   const { showToast } = useToast()
@@ -298,7 +301,7 @@ export default function AgentsOverview() {
     },
     onError: (err: unknown, hostId) => {
       setBusyByHost(({ [hostId]: _done, ...rest }) => rest)
-      const message = err instanceof Error ? err.message : 'Update failed'
+      const message = serverFnErrorMessage(err, UPDATE_CALL_FAILED_MESSAGE)
       setFeedbackByHost((prev) => ({ ...prev, [hostId]: { severity: 'error', message } }))
       showToast(message, 'error')
     },

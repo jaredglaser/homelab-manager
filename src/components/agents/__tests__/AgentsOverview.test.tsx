@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AgentInventoryEntry, AgentInventoryFailure } from '@/lib/hosts/agent-inventory'
@@ -84,6 +84,11 @@ mock.module('@/lib/mux/use-mux-channel', () => ({
     sseHandler = options.onData
     return { isConnected: true, error: null }
   },
+}))
+
+const mockShowToast = mock<(message: string, severity: string) => void>()
+void mock.module('@/hooks/toastAtom', () => ({
+  useToast: () => ({ showToast: mockShowToast }),
 }))
 
 mock.module('@/data/hosts/functions', () => ({
@@ -347,6 +352,7 @@ describe('AgentsOverview (connected)', () => {
     updateResult = Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' })
     updateCalls = []
     authState = { user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' }, loading: false, authEnabled: true }
+    mockShowToast.mockClear()
   })
 
   function renderConnected() {
@@ -379,15 +385,68 @@ describe('AgentsOverview (connected)', () => {
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('Update confirmed')
   })
 
-  it('shows a per-row failure when the update fails', async () => {
-    const rejection = Promise.reject(new Error('agent unreachable'))
-    rejection.catch(() => {}) // handled by the component on click. The pre-catch silences the floating-rejection check.
-    updateResult = rejection
-    renderConnected()
-    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Update homeserver'))
-    await waitFor(() => expect(screen.getByText('agent unreachable')).toBeDefined())
-    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('agent unreachable')
+  describe('when the update call rejects', () => {
+    const NETWORK_COPY = "Couldn't reach the dashboard. Check your connection and try again."
+    const FALLBACK_COPY = "Couldn't start the update. Reload the page and try again."
+    let errorSpy: ReturnType<typeof spyOn<Console, 'error'>>
+
+    beforeEach(() => {
+      errorSpy = spyOn(console, 'error').mockImplementation(noop)
+    })
+
+    afterEach(() => {
+      errorSpy.mockRestore()
+    })
+
+    async function rejectUpdateWith(err: unknown) {
+      const rejection = Promise.reject(err)
+      rejection.catch(() => {}) // handled by the component on click. The pre-catch silences the floating-rejection check.
+      updateResult = rejection
+      await renderConnected()
+      await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+      fireEvent.click(screen.getByLabelText('Update homeserver'))
+    }
+
+    function expectCopyOnRowAndToast(copy: string, rawText: string) {
+      expect(within(screen.getByTestId('agent-row-homeserver')).getByText(copy)).toBeDefined()
+      expect(mockShowToast).toHaveBeenCalledTimes(1)
+      expect(mockShowToast).toHaveBeenCalledWith(copy, 'error')
+      expect(document.body.textContent).not.toContain(rawText)
+      expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain(copy)
+    }
+
+    function expectLoggedOnce(err: unknown) {
+      expect(errorSpy.mock.calls.filter((args) => args.includes(err))).toHaveLength(1)
+    }
+
+    it('shows the unreachable copy for a network failure and logs the error once', async () => {
+      const err = new TypeError('Failed to fetch')
+      await rejectUpdateWith(err)
+      await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
+      expectCopyOnRowAndToast(NETWORK_COPY, 'Failed to fetch')
+      expectLoggedOnce(err)
+    })
+
+    // Each arrives as Start delivers a server-side throw to the browser: a plain Error carrying only the message.
+    it.each([
+      ['a permission denial', 'Insufficient permissions'],
+      ['an expired session', 'Unauthorized'],
+      ['a missing host', 'Host with id 12 not found'],
+    ])('shows the fallback copy for %s, never its raw text, and logs the error once', async (_label, text) => {
+      const err = new Error(text)
+      await rejectUpdateWith(err)
+      await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
+      expectCopyOnRowAndToast(FALLBACK_COPY, text)
+      expectLoggedOnce(err)
+    })
+
+    it('shows the fallback copy for a non-Error rejection and logs it once', async () => {
+      const err = 'agent unreachable as raw string'
+      await rejectUpdateWith(err)
+      await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
+      expectCopyOnRowAndToast(FALLBACK_COPY, err)
+      expectLoggedOnce(err)
+    })
   })
 
   it('maps a failed update result to its code copy', async () => {
@@ -404,6 +463,9 @@ describe('AgentsOverview (connected)', () => {
       expect(screen.getByText(/The host did not answer the health check\./)).toBeDefined(),
     )
     expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('The host did not answer')
+    expect(mockShowToast).toHaveBeenCalledTimes(1)
+    expect(mockShowToast.mock.calls[0]?.[0]).toMatch(/^The host did not answer the health check\./)
+    expect(mockShowToast.mock.calls[0]?.[1]).toBe('error')
   })
 
   it('renders an agent route refusal by its own code where the generic sentence used to stand', async () => {
@@ -472,22 +534,13 @@ describe('AgentsOverview (connected)', () => {
     expect(screen.queryAllByText(/the guard rejected a second update/)).toHaveLength(0)
   })
 
-  it('pins the fallback failure copy when the update mutation rejects with a non-Error', async () => {
-    const rejection = Promise.reject('agent unreachable as raw string')
-    rejection.catch(() => {}) // handled by the component on click. The pre-catch silences the floating-rejection check.
-    updateResult = rejection
-    renderConnected()
-    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Update homeserver'))
-    await waitFor(() => expect(screen.getByText('Update failed')).toBeDefined())
-  })
-
   it('pins the success copy when the update reports health without a version', async () => {
     updateResult = Promise.resolve({ hostId: 1, healthy: true })
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update homeserver'))
     await waitFor(() => expect(screen.getByText('Update succeeded, agent is healthy')).toBeDefined())
+    expect(mockShowToast).not.toHaveBeenCalled()
   })
 
   it('blocks updates for non-admins', async () => {
