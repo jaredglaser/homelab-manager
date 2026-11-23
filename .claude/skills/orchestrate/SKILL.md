@@ -180,15 +180,20 @@ The maintainer reviews the evidence, not a summary of it.
 ## 9. Records (handoff, criteria, evidence)
 Session records live in the records repo named by `HLM_RECORDS_REPO`, not in this repo. Only the session holding the orchestrator role writes to it. Agents write to their meta folders and the orchestrator copies what belongs in the records.
 
+Read the records repo's `README.md` first and follow it. It describes the layout, and `templates/` there holds the starting point for each file:
+
 ```
 handoff.md                        the current handoff
 criteria/pr-<N>.md                acceptance criteria per PR
 evidence/pr-<N>/<short SHA>/      README.md plus screenshots, traces and output
 archive/<date>-<task>.md          finished handoffs
+designs/                          design plans and the decisions made on them
 ```
 
 - The first line of `handoff.md` is the status line: `ACTIVE: <session URL>, since <date>` or `IDLE`.
 - Run `git pull --ff-only` before every write. Commit straight to `main` and push. If the pull shows that another session changed `handoff.md` while this one holds the role, stop and tell the maintainer.
 - Keep `handoff.md` current throughout, so a new session can resume without the old context. It carries the task, the merge order, each PR's tier, criteria and current results, open questions for the maintainer, and links to the evidence.
 - At the wrap-up, copy `handoff.md` to `archive/`, then set its status line to `IDLE`.
+- Questions and findings go to the maintainer in the session first. For a decision, a follow-up or an environment problem that is still open when the session ends, open an issue in the records repo from its matching template and link it from `handoff.md`.
+- Check `designs/` for a plan that covers the work before writing criteria for it.
 - Never put secrets in the records.
