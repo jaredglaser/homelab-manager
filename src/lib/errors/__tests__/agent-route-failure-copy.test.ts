@@ -118,6 +118,13 @@ describe('agentRouteFailureCopy', () => {
     expect(updateFailureMessage('agent_reported_error', 'x')).toContain('The agent refused the update.');
   });
 
+  it('sends the not-the-agent code to the host copy with the status the update path carries', () => {
+    expect(updateFailureMessage('agent_not_answering', 'HTTP 502')).toBe(hostFailureMessage('agent_not_answering', 'HTTP 502'));
+    expect(updateFailureMessage('agent_not_answering', 'HTTP 502')).toBe(
+      'Something other than the agent answered (HTTP 502). Check that the agent URL points at the agent and that any proxy in front of it is running, then try again.',
+    );
+  });
+
   it('sends every probe code to the host copy, with the probe detail where that copy shows it', () => {
     for (const code of HOST_PROBE_FAILURE_CODES) {
       expect(isAgentRouteFailureCode(code)).toBe(false);
@@ -133,8 +140,7 @@ describe('agentRouteFailureCopy', () => {
 
   it('never tells the operator to read something below, since the detail is appended inline', () => {
     for (const code of AGENT_ROUTE_FAILURE_CODES) {
-      const { headline, fix } = agentRouteFailureCopy(code);
-      expect(`${headline} ${fix}`).not.toMatch(/\bbelow\b/);
+      expect(agentRouteOperatorMessage(code)).not.toMatch(/\bbelow\b/);
     }
   });
 });

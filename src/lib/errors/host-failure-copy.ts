@@ -1,3 +1,4 @@
+import type { AgentNotAnsweringCode } from '@/lib/clients/agent-identity';
 import type { AgentHealthFailureReason } from '@/lib/services/agent-health-service';
 
 /**
@@ -13,6 +14,7 @@ export type HostFailureCode =
   | 'agent_unreachable'
   | 'unexpected_redirect'
   | 'agent_reported_error'
+  | AgentNotAnsweringCode
   | 'update_interrupted'
   | 'restart_unconfirmed'
   | 'version_unconfirmed'
@@ -38,8 +40,8 @@ export function probeFailureCode(outcome: { reason?: HostProbeFailureCode }): Ho
 }
 
 export interface HostFailureCopy {
-  /** What went wrong, in the operator's terms. */
-  headline: string;
+  /** What went wrong, in the operator's terms. A function takes the raw detail, for copy that names it in the headline. */
+  headline: string | ((detail?: string) => string);
   /** The next action, named concretely. */
   fix: string;
   /** True when the underlying detail carries the diagnosis, so it is worth showing. */
@@ -111,6 +113,11 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
     fix: 'Correct the cause on the agent host, then retry the update.',
     includeDetail: true,
   },
+  agent_not_answering: {
+    headline: (detail) => (detail ? `Something other than the agent answered (${detail}).` : 'Something other than the agent answered.'),
+    fix: 'Check that the agent URL points at the agent and that any proxy in front of it is running, then try again.',
+    includeDetail: false,
+  },
   update_interrupted: {
     headline: 'The agent is still running its previous image, so the update did not complete.',
     fix: 'Retry the update, and restart the agent container on the host if it repeats.',
@@ -143,7 +150,8 @@ export function hostFailureDetail(code: HostFailureCode, detail?: string): strin
 
 /** The sentence the operator reads. Never names a control: the surface owns which button it offers. */
 export function composeFailureMessage(copy: HostFailureCopy, detail?: string): string {
-  const parts = [copy.headline, copy.fix];
+  const headline = typeof copy.headline === 'function' ? copy.headline(detail) : copy.headline;
+  const parts = [headline, copy.fix];
   const shown = shownDetail(copy, detail);
   if (shown) parts.push(shown);
   return parts.join(' ');

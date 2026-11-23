@@ -12,7 +12,8 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
-import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isAllowedOverPlainHttp, resolveTlsStartup, tlsErrorBody } from './lib/tls-enroll';
+import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, resolveTlsStartup } from './lib/tls-enroll';
+import { createFetchHandler, type ExecWebSocketData } from './lib/request-handler';
 import { certificateFingerprint } from './lib/cert-fingerprint';
 import { scheduleSelfRestart } from './lib/self-restart';
 
@@ -211,15 +212,6 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   return null;
 }
 
-interface ExecWebSocketData {
-  containerId: string;
-  shell: string;
-  cols: number;
-  rows: number;
-  execStream?: import('node:stream').Duplex;
-  execInstance?: { resize(opts: { h: number; w: number }): Promise<void> };
-}
-
 Bun.serve<ExecWebSocketData>({
   port: PORT,
   tls: tlsConfig,
@@ -244,46 +236,12 @@ Bun.serve<ExecWebSocketData>({
       ws.data.execStream?.destroy();
     },
   },
-  async fetch(request: Request, server): Promise<Response> {
-    try {
-      const url = new URL(request.url);
-
-      const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname, AGENT_HOST_NAME);
-      if (authError) return authError;
-
-      // Restricted plain-HTTP mode (TLS configured but no certificate yet):
-      // only the enrollment endpoints are served, so the unencrypted window
-      // cannot expose stats, container control, stack deploys or exec.
-      if (tlsDecision.mode === 'http' && tlsDecision.restricted && !isAllowedOverPlainHttp(url.pathname)) {
-        return Response.json(
-          tlsErrorBody(
-            'restricted_plain_http',
-            `Agent TLS is configured but no certificate is enrolled yet, so this endpoint is not served over plain HTTP. Only ${HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT} are available. Run TLS provisioning from the manager (Managed Hosts card), or see the agent TLS recovery steps in the self-hosting guide.`,
-          ),
-          { status: 403 },
-        );
-      }
-
-      // WebSocket upgrade for exec sessions: must happen before matchRoute since server.upgrade() is Bun-specific
-      if (docker && request.headers.get('upgrade') === 'websocket') {
-        const execMatch = /^\/exec\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)$/.exec(url.pathname);
-        if (execMatch) {
-          const containerId = execMatch[1];
-          const shell = url.searchParams.get('shell') ?? 'auto';
-          const cols = Number(url.searchParams.get('cols') ?? 80);
-          const rows = Number(url.searchParams.get('rows') ?? 24);
-          const upgraded = server.upgrade(request, { data: { containerId, shell, cols, rows } });
-          if (upgraded) return undefined as unknown as Response;
-          return new Response('WebSocket upgrade failed', { status: 426 });
-        }
-      }
-
-      return (await matchRoute(request, url)) ?? new Response('Not Found', { status: 404 });
-    } catch (error) {
-      console.error('Unhandled error in request handler:', error);
-      return Response.json(tlsErrorBody('internal_error', 'Internal server error'), { status: 500 });
-    }
-  },
+  fetch: createFetchHandler({
+    authenticate: (headers, pathname) => authenticateRequest(headers, TRUSTED_PUBKEY, pathname, AGENT_HOST_NAME),
+    restrictedPlainHttp: tlsDecision.mode === 'http' && tlsDecision.restricted,
+    dockerAvailable: docker !== null,
+    matchRoute,
+  }),
 });
 
 if (docker) console.info(`Docker capability: enabled (${DOCKER_HOST})`);
