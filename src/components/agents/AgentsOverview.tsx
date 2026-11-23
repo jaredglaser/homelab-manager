@@ -20,6 +20,9 @@ export const AGENTS_INVENTORY_QUERY_KEY = ['agents-inventory'] as const
 export const AGENT_UPDATE_AVAILABLE_MESSAGE =
   'A newer agent image is available for this host. Select Update to apply it.'
 
+export const AGENT_STORED_VERSION_MESSAGE =
+  'Last version the agent reported. It is not online right now, so this may be out of date.'
+
 export type AgentRowFeedback = {
   severity: 'success' | 'info' | 'error'
   message: string
@@ -80,7 +83,7 @@ function VersionCell({ agent }: { agent: AgentInventoryEntry }) {
               </Badge>
             }
           />
-          <TooltipContent>Last version the agent reported. It is not online right now, so this may be out of date.</TooltipContent>
+          <TooltipContent>{AGENT_STORED_VERSION_MESSAGE}</TooltipContent>
         </Tooltip>
       )}
     </span>
