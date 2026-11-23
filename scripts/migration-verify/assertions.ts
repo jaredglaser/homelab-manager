@@ -1498,24 +1498,50 @@ export async function assertReadInvariantConstraints(pool: Pool, checks: Checks)
   checks.equal('deploy_history action CHECK no longer allows restart', definition?.definition.includes("'restart'"), false);
   checks.equal('deploy_history action CHECK allows update', definition?.definition.includes("'update'"), true);
 
-  const client = await pool.connect();
-  let refusal: string | undefined;
-  try {
-    await client.query('BEGIN');
-    await client.query(
-      `INSERT INTO managed_hosts (name, agent_url) VALUES ('ci-action-check', 'http://localhost:9090')`
-    );
-    await client.query(
-      `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, trigger, action)
-       VALUES ('ci-action-check', 'ci-action-check', 'sha', 'c', 'e', 'ui', 'restart')`
-    );
-  } catch (err) {
-    refusal = (err as { code?: string }).code;
-  } finally {
-    await client.query('ROLLBACK');
-    client.release();
-  }
-  checks.equal('the database refuses a restart deploy row', refusal, '23514');
+  const triggerCheck = await selectRow<{ definition: string }>(
+    pool,
+    `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+     WHERE conname = 'deploy_history_trigger_check' AND conrelid = 'deploy_history'::regclass`
+  );
+  checks.equal('deploy_history trigger CHECK lists manual_rollback', triggerCheck?.definition.includes("'manual_rollback'"), true);
+
+  const refusalCode = async (row: { host: string; trigger: string; action: string; postSuccess?: string }): Promise<string | undefined> => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO managed_hosts (name, agent_url) VALUES ($1, 'http://localhost:9090')`,
+        [row.host]
+      );
+      await client.query(
+        `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, trigger, action, post_success)
+         VALUES ('ci-enum-check', $1, 'sha', 'c', 'e', $2, $3, $4)`,
+        [row.host, row.trigger, row.action, row.postSuccess ?? null]
+      );
+      return undefined;
+    } catch (err) {
+      return (err as { code?: string }).code;
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  };
+
+  checks.equal(
+    'the database refuses a restart deploy row',
+    await refusalCode({ host: 'ci-action-check', trigger: 'ui', action: 'restart' }),
+    '23514'
+  );
+  checks.equal(
+    'the database refuses an unknown deploy trigger',
+    await refusalCode({ host: 'ci-trigger-check', trigger: 'cron', action: 'deploy' }),
+    '23514'
+  );
+  checks.equal(
+    'the database refuses an unknown post_success hook',
+    await refusalCode({ host: 'ci-post-success-check', trigger: 'ui', action: 'deploy', postSuccess: 'notify' }),
+    '23514'
+  );
 }
 
 /** Drives the real repository reads, since the typed read path throws on an action outside DeployAction. */
