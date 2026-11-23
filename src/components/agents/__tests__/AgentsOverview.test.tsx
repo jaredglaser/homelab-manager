@@ -220,6 +220,7 @@ describe('AgentsOverviewView', () => {
     for (const status of AGENT_INVENTORY_STATUSES) {
       const badge = within(screen.getByTestId(`agent-row-host-${status}`)).queryByLabelText('stored version')
       expect(badge === null, status).toBe(status === 'online')
+      if (badge) expect(badge.textContent, status).toBe('stored')
     }
   })
 
