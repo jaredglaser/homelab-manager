@@ -4,6 +4,7 @@ import type { AuthUser } from '@/lib/auth/types';
 import { withStartContext } from '@/lib/test/start-context';
 import * as requireRoleModule from '@/lib/auth/require-role';
 import { mockModule } from '@/lib/test/mock-module';
+import type * as ManualCheck from '@/lib/image-updates/manual-check';
 
 // Inject a synthetic admin user so requireRole checks pass in tests.
 // `activeUser` is read at call time, so `withUser` can swap the role for one call.
@@ -126,7 +127,7 @@ mockModule<typeof import('@/lib/stacks/stack-service')>('@/lib/stacks/stack-serv
 
 const mockRunManualImageUpdateCheck = mock(() => Promise.resolve({ summaries: [], checked: 2, changed: 1, failed: 0 }));
 
-mockModule<typeof import('@/lib/image-updates/manual-check')>('@/lib/image-updates/manual-check', (real) => ({ ...real,
+mockModule<typeof ManualCheck>('@/lib/image-updates/manual-check', (real) => ({ ...real,
   runManualImageUpdateCheck: mockRunManualImageUpdateCheck,
 }));
 
@@ -323,9 +324,9 @@ describe('stacks.functions module', () => {
       const { checkImageUpdates } = await import('../functions');
       const viewer: AuthUser = { ...SYNTHETIC_ADMIN, role: 'viewer' };
 
-      await expect(
-        withUser(viewer, () => withStartContext(() => checkImageUpdates({ data: payload }))),
-      ).rejects.toThrow('Insufficient permissions');
+      const error = await withUser(viewer, () => withStartContext(() => checkImageUpdates({ data: payload })))
+        .catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(requireRoleModule.ForbiddenError);
       expect(mockRunManualImageUpdateCheck).not.toHaveBeenCalled();
     });
 

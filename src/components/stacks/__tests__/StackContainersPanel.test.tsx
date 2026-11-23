@@ -562,7 +562,7 @@ describe('StackContainersPanel', () => {
   it('hides Check for updates and the dialog Re-check from a viewer and never runs the check', async () => {
     renderPanel({ ...defaultProps, canCheckUpdates: false });
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Image versions' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Image versions' })[0]);
     await screen.findByRole('button', { name: 'Close' });
     expect(screen.queryByRole('button', { name: 'Re-check' })).toBeNull();
     expect(mockCheckImageUpdates).not.toHaveBeenCalled();

@@ -3,6 +3,10 @@ import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser, Role } from '@/lib/auth/types';
 import { withStartContext } from '@/lib/test/start-context';
 import { mockModule } from '@/lib/test/mock-module';
+import { ForbiddenError } from '@/lib/auth/require-role';
+import type * as AuthMiddleware from '@/middleware/auth-middleware';
+import type * as DatabaseMiddleware from '@/middleware/database-middleware';
+import type * as EntityMetadataRepository from '@/lib/database/repositories/entity-metadata-repository';
 
 let activeUser: AuthUser = SYNTHETIC_ADMIN;
 
@@ -17,25 +21,25 @@ async function withRole<T>(role: Role, run: () => Promise<T>): Promise<T> {
 
 type Next = (opts: { sendContext?: unknown; context?: unknown }) => unknown;
 
-mockModule<typeof import('@/middleware/auth-middleware')>('@/middleware/auth-middleware', (real) => ({ ...real,
+mockModule<typeof AuthMiddleware>('@/middleware/auth-middleware', (real) => ({ ...real,
   authMiddleware: {
     options: {
       type: 'function',
-      client: async ({ next, sendContext }: { next: Next; sendContext: unknown }) =>
+      client: ({ next, sendContext }: { next: Next; sendContext: unknown }) =>
         next({ sendContext: { ...(sendContext as Record<string, unknown>), user: activeUser } }),
-      server: async ({ next, context }: { next: Next; context: unknown }) =>
+      server: ({ next, context }: { next: Next; context: unknown }) =>
         next({ context: { ...(context as Record<string, unknown>), user: activeUser } }),
     },
   },
 }));
 
-mockModule<typeof import('@/middleware/database-middleware')>('@/middleware/database-middleware', (real) => ({ ...real,
+mockModule<typeof DatabaseMiddleware>('@/middleware/database-middleware', (real) => ({ ...real,
   databaseMiddleware: {
     options: {
       type: 'function',
-      client: async ({ next, sendContext }: { next: Next; sendContext: unknown }) =>
+      client: ({ next, sendContext }: { next: Next; sendContext: unknown }) =>
         next({ sendContext: { ...(sendContext as Record<string, unknown>), pool: {} } }),
-      server: async ({ next, context }: { next: Next; context: unknown }) =>
+      server: ({ next, context }: { next: Next; context: unknown }) =>
         next({ context: { ...(context as Record<string, unknown>), pool: {} } }),
     },
   },
@@ -44,7 +48,7 @@ mockModule<typeof import('@/middleware/database-middleware')>('@/middleware/data
 const mockUpsertEntityMetadata = mock(() => Promise.resolve());
 const mockDeleteEntityIcon = mock(() => Promise.resolve());
 
-mockModule<typeof import('@/lib/database/repositories/entity-metadata-repository')>(
+mockModule<typeof EntityMetadataRepository>(
   '@/lib/database/repositories/entity-metadata-repository',
   (real) => ({ ...real,
     EntityMetadataRepository: class {
@@ -65,9 +69,10 @@ describe('container icon server functions', () => {
   describe('updateContainerIcon', () => {
     it('refuses a viewer without writing metadata', async () => {
       const { updateContainerIcon } = await import('../functions');
-      await expect(
-        withRole('viewer', () => withStartContext(() => updateContainerIcon({ data: { serviceKeyEntity, iconSlug: 'nginx' } }))),
-      ).rejects.toThrow('Insufficient permissions');
+      const error = await withRole('viewer', () =>
+        withStartContext(() => updateContainerIcon({ data: { serviceKeyEntity, iconSlug: 'nginx' } })),
+      ).catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(ForbiddenError);
       expect(mockUpsertEntityMetadata).not.toHaveBeenCalled();
     });
 
@@ -81,9 +86,10 @@ describe('container icon server functions', () => {
   describe('clearContainerIcon', () => {
     it('refuses a viewer without deleting metadata', async () => {
       const { clearContainerIcon } = await import('../functions');
-      await expect(
-        withRole('viewer', () => withStartContext(() => clearContainerIcon({ data: { serviceKeyEntity } }))),
-      ).rejects.toThrow('Insufficient permissions');
+      const error = await withRole('viewer', () =>
+        withStartContext(() => clearContainerIcon({ data: { serviceKeyEntity } })),
+      ).catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(ForbiddenError);
       expect(mockDeleteEntityIcon).not.toHaveBeenCalled();
     });
 

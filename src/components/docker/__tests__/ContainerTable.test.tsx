@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { DockerStatsRow } from '@/types/docker';
 import { mockModule } from '@/lib/test/mock-module';
+import type * as UseAuth from '@/hooks/useAuth';
 
 mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({ ...real, 
   useToast: () => ({ showToast: () => {} }),
@@ -74,7 +75,7 @@ mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolve
 }));
 
 let mockCanWrite = true;
-mockModule<typeof import('@/hooks/useAuth')>('@/hooks/useAuth', (real) => ({ ...real,
+mockModule<typeof UseAuth>('@/hooks/useAuth', (real) => ({ ...real,
   useCanWrite: () => mockCanWrite,
 }));
 

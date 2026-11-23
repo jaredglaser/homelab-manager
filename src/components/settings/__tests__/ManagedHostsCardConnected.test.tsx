@@ -3,6 +3,7 @@ import { render, screen, waitFor, act } from '@testing-library/react'
 import { setupUser, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
+import type * as UseAuth from '@/hooks/useAuth'
 // Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
 // screen.* queries and clicks leak into whichever wizard was mounted first.
 import '@/lib/test/testing-library'
@@ -24,7 +25,7 @@ mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({
 }))
 
 let mockCanWrite = true
-mockModule<typeof import('@/hooks/useAuth')>('@/hooks/useAuth', (real) => ({
+mockModule<typeof UseAuth>('@/hooks/useAuth', (real) => ({
   ...real,
   useCanWrite: () => mockCanWrite,
 }))
