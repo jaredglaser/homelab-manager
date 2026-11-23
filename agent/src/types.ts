@@ -7,6 +7,12 @@
 
 import { z } from 'zod';
 
+/** Set on every response the agent sends. The manager treats a failure without it as an answer from something else. */
+export const AGENT_IDENTITY_HEADER = 'X-Homelab-Agent';
+
+/** The header's value: the agent wire protocol this agent speaks. Changes only on a breaking wire change, never with the release version, since unauthenticated responses carry it. */
+export const AGENT_PROTOCOL_VERSION = 1;
+
 /** Successful or failed result from /stacks/deploy, /stacks/teardown, /stacks/restart. */
 export const zAgentStackResponse = z.object({
   status: z.enum(['success', 'failed']),
@@ -78,12 +84,16 @@ export const TLS_FAILURE_CODES = [
   'poll_timeout',
   'no_keypair',
   'unexpected_agent_response',
+  'agent_not_answering',
+  'unexpected_redirect',
 ] as const;
 export type TlsFailureCode = (typeof TLS_FAILURE_CODES)[number];
 
-/** Narrows a code an agent sent, so a code this manager does not know degrades instead of crashing. */
+const MANAGER_ONLY_TLS_CODES: ReadonlySet<string> = new Set(['agent_not_answering', 'unexpected_redirect']);
+
+/** Narrows a code an agent sent. Excludes the codes only the manager raises. */
 export function isTlsFailureCode(value: unknown): value is TlsFailureCode {
-  return typeof value === 'string' && (TLS_FAILURE_CODES as readonly string[]).includes(value);
+  return typeof value === 'string' && !MANAGER_ONLY_TLS_CODES.has(value) && (TLS_FAILURE_CODES as readonly string[]).includes(value);
 }
 
 export const AGENT_ROUTE_FAILURE_CODES = [

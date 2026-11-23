@@ -1725,4 +1725,135 @@ describe('DeployPipeline', () => {
       expect(result.logs).toBe('agent down');
     });
   });
+
+  describe('bounded logs', () => {
+    const MARKER = /\[\.\.\. \d+ lines? \(\d+\.\d KiB\) omitted \.\.\.\]/;
+
+    function noisyLog(lineCount: number): string {
+      return `${Array.from({ length: lineCount }, (_, i) => `${String(i).padStart(7, '0')} ${'x'.repeat(91)}`).join('\n')}\nError response from daemon: pull access denied`;
+    }
+
+    function useAgentResult(method: 'deploy' | 'teardown' | 'update', result: { success: boolean; logs: string }): void {
+      agentClientFactory = mock().mockReturnValue({ ...createMockAgentClient(true), [method]: mock().mockResolvedValue(result) });
+      pipeline = new DeployPipeline({
+        deployRepo,
+        hostsRepo,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => Promise.resolve(() => Promise.resolve('mock-jwt')),
+        stackRepoWriter: createMockStackRepoWriter(),
+        runDetached: detachCollector(),
+      });
+    }
+
+    function lastRecordedLogs(): string {
+      const calls = (deployRepo.updateStatus as ReturnType<typeof mock>).mock.calls;
+      return calls.at(-1)?.[2] as string;
+    }
+
+    it('stores and returns output of exactly 256 KiB unchanged', async () => {
+      const text = `${'a'.repeat(99)}\n`.repeat(2621);
+      const exact = `${text}${'b'.repeat(256 * 1024 - text.length)}`;
+      expect(Buffer.byteLength(exact)).toBe(256 * 1024);
+      useAgentResult('deploy', { success: true, logs: exact });
+
+      const result = await pipeline.execute(testRequest);
+
+      expect(lastRecordedLogs()).toBe(exact);
+      expect(result.logs).toBe(exact);
+    });
+
+    it('bounds output one byte over 256 KiB and marks the omission', async () => {
+      const text = `${'a'.repeat(99)}\n`.repeat(2621);
+      const over = `${text}${'b'.repeat(256 * 1024 - text.length + 1)}`;
+      useAgentResult('deploy', { success: true, logs: over });
+
+      const result = await pipeline.execute(testRequest);
+
+      expect(lastRecordedLogs()).toMatch(MARKER);
+      expect(Buffer.byteLength(lastRecordedLogs())).toBeLessThanOrEqual(256 * 1024);
+      expect(result.logs).toBe(lastRecordedLogs());
+    });
+
+    it('returns the browser exactly what a failed deploy stored, keeping the last line', async () => {
+      const raw = noisyLog(4000);
+      useAgentResult('deploy', { success: false, logs: raw });
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+
+      const result = await pipeline.execute(testRequest);
+
+      expect(result.status).toBe('failed');
+      expect(lastRecordedLogs()).toMatch(MARKER);
+      expect(result.logs).toBe(lastRecordedLogs());
+      expect(result.logs.endsWith('Error response from daemon: pull access denied')).toBe(true);
+      expect(result.logs.startsWith('0000000 ')).toBe(true);
+      errorSpy.mockRestore();
+    });
+
+    it('bounds a teardown run and a rollback run the same way', async () => {
+      const raw = noisyLog(4000);
+      useAgentResult('teardown', { success: true, logs: raw });
+      const teardown = await pipeline.execute({ ...testRequest, action: 'teardown' });
+      expect(teardown.logs).toMatch(MARKER);
+      expect(teardown.logs).toBe(lastRecordedLogs());
+
+      useAgentResult('deploy', { success: true, logs: raw });
+      const rollback = await pipeline.execute({ ...testRequest, trigger: 'manual_rollback' });
+      expect(rollback.logs).toMatch(MARKER);
+      expect(rollback.logs).toBe(lastRecordedLogs());
+    });
+
+    it('bounds a background image update before recording it', async () => {
+      useAgentResult('update', { success: true, logs: noisyLog(4000) });
+
+      await pipeline.execute({ ...testRequest, action: 'update', trigger: 'ui' });
+      await drainDetached();
+
+      expect(lastRecordedLogs()).toMatch(MARKER);
+      expect(Buffer.byteLength(lastRecordedLogs())).toBeLessThanOrEqual(256 * 1024);
+    });
+
+    it('stores and returns teardown, rollback and image update output within 256 KiB unchanged', async () => {
+      const within = `${`${'w'.repeat(99)}\n`.repeat(2000)}last line`;
+      expect(Buffer.byteLength(within)).toBeLessThan(256 * 1024);
+
+      useAgentResult('teardown', { success: true, logs: within });
+      const teardown = await pipeline.execute({ ...testRequest, action: 'teardown' });
+      expect(lastRecordedLogs()).toBe(within);
+      expect(teardown.logs).toBe(within);
+
+      useAgentResult('deploy', { success: true, logs: within });
+      const rollback = await pipeline.execute({ ...testRequest, trigger: 'manual_rollback' });
+      expect(lastRecordedLogs()).toBe(within);
+      expect(rollback.logs).toBe(within);
+
+      useAgentResult('update', { success: true, logs: within });
+      await pipeline.execute({ ...testRequest, action: 'update', trigger: 'ui' });
+      await drainDetached();
+      expect(lastRecordedLogs()).toBe(within);
+    });
+
+    it('stores output with unsafe characters sanitized', async () => {
+      useAgentResult('deploy', { success: true, logs: '\u001b[32mStarted\u001b[0m\n\u202eevil\u0007\n' });
+
+      const result = await pipeline.execute(testRequest);
+
+      expect(lastRecordedLogs()).toBe('Started\nevil\n');
+      expect(result.logs).toBe('Started\nevil\n');
+    });
+
+    it('leaves the stack-status message and the server log tail on the raw agent output', async () => {
+      const raw = `${noisyLog(4000)}\u001b[31m`;
+      useAgentResult('deploy', { success: false, logs: raw });
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+
+      await pipeline.execute(testRequest);
+
+      const notify = (deployRepo as unknown as { notifyStackChange: ReturnType<typeof mock> }).notifyStackChange;
+      expect(notify).toHaveBeenCalledWith('plex', 'homeserver', expect.objectContaining({ status: 'failed', message: raw }));
+      const logged = errorSpy.mock.calls.map((call) => String(call[0])).find((line) => line.startsWith('Deploy dispatch failed'));
+      expect(logged).toContain(JSON.stringify(raw.slice(-2000)));
+      errorSpy.mockRestore();
+    });
+  });
 });

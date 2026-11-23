@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { hostFailureDetail, hostFailureMessage, probeFailureCode } from '../host-failure-copy';
+import { AGENT_ROUTE_FAILURE_CODES, isAgentRouteFailureCode, isAgentUpdateFailureCode } from '@homelab-manager/agent/types';
+import { HOST_PROBE_FAILURE_CODES, hostFailureDetail, hostFailureMessage, probeFailureCode } from '../host-failure-copy';
 
 describe('probeFailureCode', () => {
   it('keeps the probe reason and falls back when the probe named none', () => {
@@ -25,5 +26,34 @@ describe('hostFailureMessage', () => {
     expect(hostFailureMessage('awaiting-enrollment', 'boom')).toBe(
       'The agent is serving plain HTTP because it holds no certificate yet. Enroll a certificate for this host, then check again.',
     );
+  });
+});
+
+describe('agent_not_answering', () => {
+  it('pins the sentence the operator reads, with the status named in the headline', () => {
+    expect(hostFailureMessage('agent_not_answering', 'HTTP 502')).toBe(
+      'Something other than the agent answered (HTTP 502). Check that the agent URL points at the agent and that any proxy in front of it is running, then try again.',
+    );
+  });
+
+  it('reads whole when no status is known', () => {
+    expect(hostFailureMessage('agent_not_answering')).toBe(
+      'Something other than the agent answered. Check that the agent URL points at the agent and that any proxy in front of it is running, then try again.',
+    );
+  });
+
+  it('does not repeat the status after the fix', () => {
+    expect(hostFailureDetail('agent_not_answering', 'HTTP 502')).toBeNull();
+  });
+
+  it('keeps internal vocabulary out of the copy', () => {
+    expect(hostFailureMessage('agent_not_answering', 'HTTP 502')).not.toMatch(/header|endpoint|json|code|body/i);
+  });
+
+  it('is a manager-side code: the agent never sends it, so it is in no agent code set and no probe code set', () => {
+    expect(isAgentRouteFailureCode('agent_not_answering')).toBe(false);
+    expect(isAgentUpdateFailureCode('agent_not_answering')).toBe(false);
+    expect(AGENT_ROUTE_FAILURE_CODES as readonly string[]).not.toContain('agent_not_answering');
+    expect(HOST_PROBE_FAILURE_CODES as readonly string[]).not.toContain('agent_not_answering');
   });
 });
