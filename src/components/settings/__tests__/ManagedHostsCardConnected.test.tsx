@@ -1,9 +1,10 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test'
+import { seedSession } from '@/lib/test/session'
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import { setupUser, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
-import type * as UseAuth from '@/hooks/useAuth'
 // Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
 // screen.* queries and clicks leak into whichever wizard was mounted first.
 import '@/lib/test/testing-library'
@@ -22,12 +23,6 @@ mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({
       toasts.push({ message, severity })
     },
   }),
-}))
-
-let mockCanWrite = true
-mockModule<typeof UseAuth>('@/hooks/useAuth', (real) => ({
-  ...real,
-  useCanWrite: () => mockCanWrite,
 }))
 
 const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
@@ -177,7 +172,10 @@ beforeEach(() => {
     publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
   })
   healthCheckResult = Promise.resolve({ hostId: 1, healthy: true })
-  mockCanWrite = true
+})
+
+beforeEach(() => {
+  seedSession('admin')
 })
 
 describe('ManagedHostsCardConnected rotate TLS toasts', () => {
@@ -238,20 +236,29 @@ describe('ManagedHostsCardConnected health check toasts', () => {
   })
 })
 
-describe('ManagedHostsCardConnected health check visibility', () => {
-  it('hides the health check from a viewer and never runs it', async () => {
-    mockCanWrite = false
+describe('ManagedHostsCardConnected health check role', () => {
+  it('shows a viewer the health check disabled with the role reason, and neither a load nor a click runs it', async () => {
+    seedSession('viewer')
+    const user = setupUser()
     renderCard()
     await screen.findByText('server1')
-    expect(screen.queryByLabelText('check health')).toBeNull()
+    const check = screen.getByLabelText('check health')
+    expect(check.getAttribute('aria-disabled')).toBe('true')
+
+    await user.click(check)
     expect(healthCheckCalls).toEqual([])
     expect(toasts).toEqual([])
+    await user.hover(check)
+    expect(await screen.findByText(VIEWER_DENIED_COPY)).toBeDefined()
   })
 
-  it('shows the health check to a user who can write', async () => {
+  it.each(['admin', 'operator'] as const)('lets an %s run the health check', async (role) => {
+    seedSession(role)
+    const user = setupUser()
     renderCard()
     await screen.findByText('server1')
-    expect(screen.getByLabelText('check health')).toBeDefined()
+    await user.click(screen.getByLabelText('check health'))
+    await waitFor(() => expect(healthCheckCalls).toEqual([1]))
   })
 })
 

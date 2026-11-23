@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDetail } from '@/types/stacks';
 import { mockModule } from '@/lib/test/mock-module';
+import { seedSession } from '@/lib/test/session';
 
 // Integration test: exercises the REAL ComposeEditor (Controller + shared form)
 // against the deploy guard in StackEditorForm. Only Monaco and the router hooks
@@ -71,6 +72,10 @@ async function renderForm() {
   );
   await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
 }
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('StackEditorForm deploy guard (real ComposeEditor)', () => {
   beforeEach(() => {

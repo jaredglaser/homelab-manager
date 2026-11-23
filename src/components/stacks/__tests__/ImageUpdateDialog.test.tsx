@@ -1,10 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { seedSession } from '@/lib/test/session';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 import { mockModule } from '@/lib/test/mock-module';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 
 const mockGetImageChangelog = mock(
   async (_opts: { data: { stack: string; host: string; image: string } }): Promise<ImageChangelog> => ({
@@ -103,7 +105,6 @@ function renderDialog(props?: {
   container?: StackContainer;
   summary?: ImageUpdateSummary | null;
   open?: boolean;
-  canRecheck?: boolean;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -116,13 +117,16 @@ function renderDialog(props?: {
       host="server1"
       container={props?.container ?? container}
       summary={props?.summary === undefined ? summary : props.summary}
-      canRecheck={props?.canRecheck ?? true}
     />,
     { wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     ) },
   );
 }
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('ImageUpdateDialog', () => {
   beforeEach(() => {
@@ -460,12 +464,16 @@ describe('ImageUpdateDialog', () => {
     expect(screen.getByRole('button', { name: 'Close' })).toBeDefined();
   });
 
-  it('hides the Re-check button from a viewer and never runs the check', async () => {
-    renderDialog({ canRecheck: false });
+  it('shows a viewer Re-check disabled with the role reason, and a click calls nothing', async () => {
+    seedSession('viewer');
+    renderDialog();
     await screen.findByText('v2.9.4');
-    expect(screen.queryByRole('button', { name: 'Re-check' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Close' })).toBeDefined();
+    const recheck = screen.getByRole('button', { name: 'Re-check' });
+    expect(recheck.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(recheck);
     expect(mockCheckImageUpdates).not.toHaveBeenCalled();
+    fireEvent.focus(recheck);
+    expect(await screen.findByText(VIEWER_DENIED_COPY)).toBeDefined();
   });
 
   it('calls checkImageUpdates for this image when Re-check is clicked and stays open', async () => {

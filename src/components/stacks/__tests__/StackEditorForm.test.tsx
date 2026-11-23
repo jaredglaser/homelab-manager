@@ -59,20 +59,19 @@ mock.module('@/components/stacks/DeployHistoryList', () => ({
   ),
 }));
 mock.module('@/components/stacks/StackContainersPanel', () => ({
-  default: ({ onRecreate, isDeploying, canCheckUpdates }: { onRecreate: () => void; isDeploying: boolean; canCheckUpdates: boolean }) => (
+  default: ({ onRecreate, isDeploying }: { onRecreate: () => void; isDeploying: boolean }) => (
     <div>
       containers-panel
       <button onClick={onRecreate}>containers-recreate</button>
       <span data-testid="containers-is-deploying">{String(isDeploying)}</span>
-      <span data-testid="containers-can-check-updates">{String(canCheckUpdates)}</span>
     </div>
   ),
 }));
 mock.module('@/components/stacks/StackActionBar', () => ({
-  default: ({ onDeploy, onUpdate, onTeardown, onDelete, isDeploying, activeDeploy }: { onDeploy: () => void; onUpdate?: () => void; onTeardown: () => void; onDelete: () => void; isDeploying: boolean; activeDeploy: { status: string; action: string } | null }) => (
+  default: ({ onDeploy, onUpdate, onTeardown, onDelete, isDeploying, activeDeploy }: { onDeploy: () => void; onUpdate: () => void; onTeardown: () => void; onDelete: () => void; isDeploying: boolean; activeDeploy: { status: string; action: string } | null }) => (
     <div>
       <button onClick={onDeploy}>action-deploy</button>
-      {onUpdate && <button onClick={onUpdate}>action-update</button>}
+      <button onClick={onUpdate}>action-update</button>
       <button onClick={onTeardown}>action-teardown</button>
       <button onClick={onDelete}>action-delete</button>
       <span data-testid="is-deploying">{String(isDeploying)}</span>
@@ -228,24 +227,6 @@ describe('StackEditorForm', () => {
     await renderForm();
     await waitFor(() => expect(screen.getByRole('heading', { name: 'web' })).toBeDefined());
     expect(mockScanDrift).not.toHaveBeenCalled();
-  });
-
-  it('hides the image-update controls from a viewer and never runs the update check', async () => {
-    mockCanWrite = false;
-    await renderForm();
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'web' })).toBeDefined());
-    expect(screen.queryByRole('button', { name: 'action-update' })).toBeNull();
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Containers' }));
-    await waitFor(() => expect(screen.getByTestId('containers-can-check-updates').textContent).toBe('false'));
-    expect(mockCheckImageUpdates).not.toHaveBeenCalled();
-  });
-
-  it('shows the image-update controls to a user who can deploy', async () => {
-    await renderForm();
-    expect(screen.getByRole('button', { name: 'action-update' })).toBeDefined();
-    fireEvent.click(screen.getByRole('tab', { name: 'Containers' }));
-    await waitFor(() => expect(screen.getByTestId('containers-can-check-updates').textContent).toBe('true'));
   });
 
   it('rescans for drift after a successful deploy', async () => {
