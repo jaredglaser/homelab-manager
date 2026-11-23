@@ -15,7 +15,7 @@ import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
-export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
+export type { AgentInventoryEntry, AgentInventoryStatus } from '@/lib/hosts/agent-inventory';
 
 export interface KeypairsDep {
   createForHost: (hostName: string) => Promise<{ publicJwk: JWK }>;
