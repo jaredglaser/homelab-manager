@@ -69,7 +69,7 @@ mock.module('@/hooks/useAuth', () => ({
 
 let inventoryResponse: AgentInventoryEntry[] = []
 type OpResult = import('@/data/hosts/handlers').UpdateAgentResult
-let updateResult: Promise<OpResult | undefined | { message: string }> = Promise.resolve({ hostId: 1, healthy: true })
+let updateResult: Promise<OpResult | undefined | { hostId?: number; healthy?: boolean; code?: string; message: string }> = Promise.resolve({ hostId: 1, healthy: true })
 let updateCalls: Array<{ data: { hostId: number } }> = []
 const listAgentsInventory = (): Promise<AgentInventoryEntry[]> => Promise.resolve(inventoryResponse)
 const updateAgent = (data: { data: { hostId: number } }) => {
@@ -443,6 +443,8 @@ describe('AgentsOverview (connected)', () => {
     it.each([
       ['undefined', undefined],
       ['an unrelated JSON body', { message: 'Sign in to continue' }],
+      ['a failure without a code', { healthy: false, message: 'Sign in to continue' }],
+      ['a failure with a code this build does not know', { hostId: 1, healthy: false, code: 'code_from_a_newer_server', message: 'Sign in to continue' }],
     ])('shows the fallback copy when the call resolves to %s instead of an update result, and logs it once', async (_label, value) => {
       updateResult = Promise.resolve(value)
       await renderConnected()

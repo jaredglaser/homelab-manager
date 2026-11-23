@@ -4,7 +4,8 @@ import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
 import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy'
-import { hostFailureDetail, hostFailureMessage } from '@/lib/errors/host-failure-copy'
+import { isAgentUpdateFailureCode } from '@homelab-manager/agent/types'
+import { hostFailureDetail, hostFailureMessage, isHostFailureCode } from '@/lib/errors/host-failure-copy'
 import { serverFnErrorMessage } from '@/lib/errors/server-fn-error-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
@@ -243,7 +244,9 @@ export function AgentsOverviewView({
 }
 
 function isUpdateResult(value: unknown): value is Awaited<ReturnType<typeof updateAgent>> {
-  return typeof value === 'object' && value !== null && 'healthy' in value && typeof value.healthy === 'boolean'
+  if (typeof value !== 'object' || value === null || !('healthy' in value)) return false
+  if (value.healthy === true) return true
+  return value.healthy === false && 'code' in value && (isAgentUpdateFailureCode(value.code) || isHostFailureCode(value.code))
 }
 
 function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): AgentRowFeedback {
@@ -288,7 +291,7 @@ export default function AgentsOverview() {
   const updateMutation = useMutation({
     mutationFn: async (hostId: number) => {
       const result = await updateAgent({ data: { hostId } })
-      // The fetcher hands back an unserialized JSON body (a proxy or login page) as the result instead of rejecting.
+      // The fetcher resolves a non-Start response (a proxy or login page) as the result instead of rejecting.
       if (!isUpdateResult(result)) throw new Error('The update call answered with something other than an update result', { cause: result })
       return result
     },

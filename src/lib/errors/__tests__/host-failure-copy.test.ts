@@ -1,11 +1,26 @@
 import { describe, it, expect } from 'bun:test';
-import { hostFailureDetail, hostFailureMessage, probeFailureCode } from '../host-failure-copy';
+import { HOST_PROBE_FAILURE_CODES, hostFailureDetail, hostFailureMessage, isHostFailureCode, probeFailureCode } from '../host-failure-copy';
 
 describe('probeFailureCode', () => {
   it('keeps the probe reason and falls back when the probe named none', () => {
     expect(probeFailureCode({ reason: 'awaiting-enrollment' })).toBe('awaiting-enrollment');
     expect(probeFailureCode({})).toBe('health_check_failed');
   });
+});
+
+describe('isHostFailureCode', () => {
+  it('accepts the codes that have copy', () => {
+    for (const code of [...HOST_PROBE_FAILURE_CODES, 'agent_did_not_restart', 'version_unconfirmed'] as const) {
+      expect(isHostFailureCode(code)).toBe(true);
+    }
+  });
+
+  it.each([['an unknown code', 'code_from_a_newer_server'], ['a prototype key', 'toString'], ['a number', 1], ['undefined', undefined]])(
+    'rejects %s',
+    (_label, value) => {
+      expect(isHostFailureCode(value)).toBe(false);
+    },
+  );
 });
 
 describe('hostFailureDetail', () => {
