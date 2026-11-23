@@ -27,7 +27,7 @@
 - Always target the correct base branch; never target `main` for a mid-stack PR.
 
 **Coverage verification:**
-- Coverage percentages differ between local and CI (some tests skip in CI). Use `gh run view` or `gh pr checks` to verify pipeline results, not just local `bun test`.
+- Coverage percentages differ between local and CI (some tests skip in CI). Use `gh run view` or `gh pr checks` to verify pipeline results, not just local `bun test`. In a Claude Code cloud session `gh pr checks` fails, because GitHub GraphQL is blocked there: use `gh run view <run id>` or `gh api repos/jaredglaser/homelab-manager/commits/<sha>/check-runs`.
 
 ## Commands
 
