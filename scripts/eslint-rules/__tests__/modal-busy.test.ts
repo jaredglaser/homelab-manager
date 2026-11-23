@@ -5,7 +5,6 @@ import { modalBusyRule } from '../modal-busy.mjs';
 
 RuleTester.describe = describe;
 RuleTester.it = it;
-RuleTester.itOnly = it.only;
 
 const ruleTester = new RuleTester({
   languageOptions: {
