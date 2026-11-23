@@ -271,5 +271,4 @@ Env vars documented in `.env.example`. `.env` sets `POSTGRES_HOST=localhost` for
 
 ## Agent-Specific Notes
 
-- **Codex** reads this file natively. Repo-local Codex skills live under `.codex/skills/`; Codex only auto-discovers skills from `~/.codex/skills` (or `$CODEX_HOME/skills`), so install the repo-local ones as symlinks with `.codex/scripts/install-repo-skills.sh`.
 - **Zed** reads this file natively as project instructions. Project settings and tasks live under `.zed/`. MCP servers are the one exception Zed configures at the user level, not per project; the snippet in [docs/development.md](docs/development.md) matches your local `.mcp.json` (gitignored, not committed).
