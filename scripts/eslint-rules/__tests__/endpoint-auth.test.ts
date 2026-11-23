@@ -79,7 +79,7 @@ ruleTester.run('endpoint-auth', endpointAuthRule, {
           .middleware([roleMiddleware('admin', 'operator'), authMiddleware])
           .handler(async () => scan());
       `,
-      errors: [{ messageId: 'fnRoleNotAfterAuth' }],
+      errors: [{ messageId: 'fnRoleNotAfterAuth' }, { messageId: 'fnAuthNotFirst' }],
     },
     {
       name: 'another middleware between authMiddleware and roleMiddleware',
@@ -90,6 +90,49 @@ ruleTester.run('endpoint-auth', endpointAuthRule, {
           .handler(async () => save());
       `,
       errors: [{ messageId: 'fnRoleNotAfterAuth' }],
+    },
+    {
+      name: 'another middleware before authMiddleware',
+      filename: serverFnFile,
+      code: `
+        export const setVariableValue = createServerFn()
+          .middleware([stackSecretsMiddleware, authMiddleware, roleMiddleware('admin')])
+          .handler(async () => save());
+      `,
+      errors: [{ messageId: 'fnAuthNotFirst' }],
+    },
+    {
+      name: 'another middleware in an earlier .middleware call than authMiddleware',
+      filename: serverFnFile,
+      code: `
+        export const setVariableValue = createServerFn()
+          .middleware([stackSecretsMiddleware])
+          .middleware([authMiddleware, roleMiddleware('admin')])
+          .handler(async () => save());
+      `,
+      errors: [{ messageId: 'fnAuthNotFirst' }],
+    },
+    {
+      name: 'authMiddleware and databaseMiddleware in one call, roleMiddleware in the next',
+      filename: serverFnFile,
+      code: `
+        export const listStacks = createServerFn()
+          .middleware([authMiddleware, databaseMiddleware])
+          .middleware([roleMiddleware('admin', 'operator', 'viewer')])
+          .handler(async () => list());
+      `,
+      errors: [{ messageId: 'fnRoleNotAfterAuth' }],
+    },
+    {
+      name: 'roleMiddleware in one call and authMiddleware in a later one',
+      filename: serverFnFile,
+      code: `
+        export const scanDrift = createServerFn()
+          .middleware([roleMiddleware('admin', 'operator')])
+          .middleware([authMiddleware])
+          .handler(async () => scan());
+      `,
+      errors: [{ messageId: 'fnRoleNotAfterAuth' }, { messageId: 'fnAuthNotFirst' }],
     },
     {
       name: 'a second roleMiddleware in the same chain',

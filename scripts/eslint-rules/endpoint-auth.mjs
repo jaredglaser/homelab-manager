@@ -29,7 +29,7 @@ export const endpointAuthRule = {
     type: 'problem',
     docs: {
       description:
-        'Route modules must enforce auth, and createServerFn chains must declare authMiddleware directly followed by one roleMiddleware(...), or carry an inline eslint-disable with the reason they are unauthenticated by design.',
+        'Route modules must enforce auth, and createServerFn chains must open with authMiddleware directly followed by one roleMiddleware(...), or carry an inline eslint-disable with the reason they are unauthenticated by design.',
     },
     schema: [],
     messages: {
@@ -39,6 +39,8 @@ export const endpointAuthRule = {
         'createServerFn chain attaches no authMiddleware. Add it to .middleware([...]) or disable this rule on this line with the reason the function is unauthenticated by design.',
       fnMissingRole:
         "createServerFn chain declares no roles. Add roleMiddleware(...) directly after authMiddleware in .middleware([...]), naming every role that may call it (a read open to every signed-in user is roleMiddleware('admin', 'operator', 'viewer')).",
+      fnAuthNotFirst:
+        'authMiddleware must be the first middleware in the chain. Anything before it (a database pool, decrypted stack secrets) runs for a caller who is not signed in or whose role is then refused.',
       fnRoleNotAfterAuth:
         'roleMiddleware(...) must come directly after authMiddleware. Before it, the user is not resolved yet. After another middleware, that middleware (a database pool, decrypted stack secrets) runs for a caller the role check then refuses.',
       fnDuplicateRole:
@@ -70,7 +72,10 @@ export const endpointAuthRule = {
         const roleCalls = elements.filter(isRoleMiddleware);
         if (authIndex === -1) {
           context.report({ node, messageId: 'fnMissingAuth' });
-        } else if (roleCalls.length === 0) {
+          return;
+        }
+        if (authIndex > 0) context.report({ node: elements[authIndex], messageId: 'fnAuthNotFirst' });
+        if (roleCalls.length === 0) {
           context.report({ node, messageId: 'fnMissingRole' });
         } else if (elements[authIndex + 1] !== roleCalls[0]) {
           context.report({ node: roleCalls[0], messageId: 'fnRoleNotAfterAuth' });
