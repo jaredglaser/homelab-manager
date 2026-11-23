@@ -4,6 +4,7 @@ import { FormProvider, useForm, useFormState } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { RoleGate } from '@/components/ui/role-gate'
 import { Settings2 } from 'lucide-react'
 import { useStackStatusContext } from '@/components/stacks/stacks-context'
 import { useToast } from '@/hooks/toastAtom'
@@ -35,6 +36,8 @@ import type { ImageUpdateSummary } from '@/types/image-updates'
 import type { StackFormValues } from '@/components/stacks/stack-form'
 
 type Panel = 'compose' | 'secrets' | 'containers' | 'deploys'
+
+export const SECRETS_DENIED_COPY = "Your role cannot see this stack's secrets. Ask an operator or admin."
 
 // The server rejects every deploy while such a row exists, so the buttons follow it.
 function findActiveDeploy(records: StackDeployRecord[] | undefined, host: string): ActiveDeployInfo | null {
@@ -429,9 +432,13 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
               <TabsTrigger value="compose" className="py-2">
                 Compose{composeDirty && <TabDirtyDot />}
               </TabsTrigger>
-              <TabsTrigger value="secrets" className="py-2">
-                Secrets{secretsDirty && <TabDirtyDot />}
-              </TabsTrigger>
+              <RoleGate requires="write" deniedReason={SECRETS_DENIED_COPY} className="inline-flex">
+                {(blocked) => (
+                  <TabsTrigger value="secrets" className="py-2" disabled={blocked}>
+                    Secrets{secretsDirty && <TabDirtyDot />}
+                  </TabsTrigger>
+                )}
+              </RoleGate>
               <TabsTrigger value="containers" className="py-2">Containers</TabsTrigger>
               <TabsTrigger value="deploys" className="py-2">Deploys</TabsTrigger>
             </TabsList>

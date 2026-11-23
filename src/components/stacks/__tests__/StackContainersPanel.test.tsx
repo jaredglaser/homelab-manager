@@ -135,7 +135,7 @@ describe('StackContainersPanel', () => {
   const STACK_CONTROLS = ['Start', 'Stop', 'Restart', 'Recreate'];
   const SERVICE_CONTROLS = ['Start web', 'Stop web', 'Restart web', 'Start db', 'Stop db', 'Restart db'];
 
-  it('shows a viewer the stack and service Start, Stop, Restart and Recreate disabled with the role reason, and clicking them calls nothing', async () => {
+  it('shows a viewer the stack and service Start, Stop, Restart, Recreate and Terminal disabled with the role reason, and clicking them calls nothing', async () => {
     seedSession('viewer');
     renderPanel();
     for (const name of [...STACK_CONTROLS, ...SERVICE_CONTROLS]) {
@@ -144,13 +144,30 @@ describe('StackContainersPanel', () => {
       expect(roleReasonOf(button)).toBe(VIEWER_DENIED_COPY);
       fireEvent.click(button);
     }
+    const terminals = screen.getAllByRole('button', { name: 'Terminal' });
+    expect(terminals).toHaveLength(2);
+    for (const terminal of terminals) {
+      expect(terminal.getAttribute('aria-disabled')).toBe('true');
+      expect(roleReasonOf(terminal)).toBe(VIEWER_DENIED_COPY);
+      fireEvent.click(terminal);
+    }
 
     // Logs opens for a viewer, so its awaited render shows the clicks above had their turn.
     fireEvent.click(screen.getAllByRole('button', { name: 'Logs' })[0]);
     await screen.findByTestId('log-viewer');
     expect(mockControlStack).not.toHaveBeenCalled();
     expect(screen.queryByText('Recreate plex?')).toBeNull();
+    expect(screen.queryByTestId('terminal-viewer')).toBeNull();
     expect(mockOnRecreate).not.toHaveBeenCalled();
+  });
+
+  it.each(['admin', 'operator'] as const)('lets an %s open a service terminal', async (role) => {
+    seedSession(role);
+    renderPanel();
+    const terminal = screen.getAllByRole('button', { name: 'Terminal' })[0];
+    expect(terminal.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(terminal);
+    expect((await screen.findByTestId('terminal-viewer')).textContent).toBe('abc123');
   });
 
   it.each(['admin', 'operator'] as const)('lets an %s run the stack and service controls and open Recreate', async (role) => {

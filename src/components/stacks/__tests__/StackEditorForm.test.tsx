@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
 import { setupUser } from '@/lib/test/user-event';
 import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
+import { SECRETS_DENIED_COPY } from '@/components/stacks/StackEditorForm';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFormContext } from 'react-hook-form';
@@ -699,6 +700,27 @@ describe('StackEditorForm', () => {
     await setupUser().hover(settings);
     expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
     expect(screen.queryByRole('button', { name: 'settings-save' })).toBeNull();
+  });
+
+  it('shows a viewer the Secrets tab disabled with the secrets reason, and selecting it loads no secrets', async () => {
+    expect(SECRETS_DENIED_COPY).toBe("Your role cannot see this stack's secrets. Ask an operator or admin.");
+    seedSession('viewer');
+    await renderForm();
+    const user = setupUser();
+    const secrets = screen.getByRole('tab', { name: /Secrets/ });
+    expect(secrets.hasAttribute('disabled') || secrets.getAttribute('aria-disabled') === 'true').toBe(true);
+    expect(roleReasonOf(secrets.parentElement!)).toBe(SECRETS_DENIED_COPY);
+    fireEvent.click(secrets);
+    await user.hover(secrets.parentElement!);
+    expect(await findOpenTooltip()).toBe(SECRETS_DENIED_COPY);
+    expect(screen.queryByLabelText('secret-input')).toBeNull();
+  });
+
+  it.each(['admin', 'operator'] as const)('lets an %s open the Secrets tab', async (role) => {
+    seedSession(role);
+    await renderForm();
+    fireEvent.click(screen.getByRole('tab', { name: /Secrets/ }));
+    expect(await screen.findByLabelText('secret-input')).toBeDefined();
   });
 
   it('lets an operator open Stack settings', async () => {

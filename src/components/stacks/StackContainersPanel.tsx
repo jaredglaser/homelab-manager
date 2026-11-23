@@ -431,14 +431,9 @@ function ServiceControls({
           </TooltipTrigger>
           <TooltipContent>Logs</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={<Button variant="ghost" size="icon-sm" onClick={onOpenTerminal} aria-label="Terminal" />}
-          >
-            <Terminal size={13} />
-          </TooltipTrigger>
-          <TooltipContent>Terminal</TooltipContent>
-        </Tooltip>
+        <Button requires="write" tooltip="Terminal" variant="ghost" size="icon-sm" onClick={onOpenTerminal} aria-label="Terminal">
+          <Terminal size={13} />
+        </Button>
       </div>
     </TooltipProvider>
   );
