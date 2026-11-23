@@ -175,6 +175,12 @@ describe('ManagedHostsCard', () => {
   })
 
   describe('health check', () => {
+    it('omits the health check button without a health check handler', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onHealthCheck: undefined })} />)
+      expect(screen.queryByLabelText('check health')).toBeNull()
+      expect(screen.getByLabelText('edit host')).toBeDefined()
+    })
+
     it('calls onHealthCheck with host id when button clicked', async () => {
       const user = setupUser()
       const onHealthCheck = mock(() => undefined)

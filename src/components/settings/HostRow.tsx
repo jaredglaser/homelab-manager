@@ -24,7 +24,7 @@ interface HostRowProps {
   isChecking: boolean
   isRemoving: boolean
   isRotatingTls: boolean
-  onHealthCheck: () => void
+  onHealthCheck?: () => void
   onEdit: () => void
   onRemove: () => void
   onKeypair: () => void
@@ -117,9 +117,11 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <HostAction label="Check health" ariaLabel="check health" disabled={busy} onClick={onHealthCheck}>
-          {isChecking ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
-        </HostAction>
+        {onHealthCheck && (
+          <HostAction label="Check health" ariaLabel="check health" disabled={busy} onClick={onHealthCheck}>
+            {isChecking ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
+          </HostAction>
+        )}
         <HostAction label="Edit host" ariaLabel="edit host" disabled={busy} onClick={onEdit}>
           <Pencil size={14} />
         </HostAction>

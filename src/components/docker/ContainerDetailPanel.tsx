@@ -20,7 +20,7 @@ interface ContainerDetailPanelProps {
   inventory: DockerInventorySnapshotContainer;
   iconSlug?: string | null;
   serviceKeyEntity: string;
-  onIconChange: (serviceKeyEntity: string, iconSlug: string | null) => Promise<void>;
+  onIconChange?: (serviceKeyEntity: string, iconSlug: string | null) => Promise<void>;
 }
 
 // Wire JSON delivers ISO strings and frames are parsed without Zod coercion at the boundary.
@@ -108,7 +108,7 @@ function StatusStrip({
   containerId: string;
   host: string;
   onAction: (action: ModalTab) => void;
-  onIconClick: () => void;
+  onIconClick?: () => void;
 }) {
   const isRunning = inventory.state === 'running';
   const isExited = inventory.state === 'exited';
@@ -145,13 +145,17 @@ function StatusStrip({
       <div className="w-full lg:w-auto lg:ml-auto flex items-center gap-1">
         <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
 
-        <div className="w-px h-4 mx-1 shrink-0 bg-border" />
+        {onIconClick && (
+          <>
+            <div className="w-px h-4 mx-1 shrink-0 bg-border" />
 
-        <ActionStripButton
-          icon={<Image size={12} />}
-          label="Icon"
-          onClick={onIconClick}
-        />
+            <ActionStripButton
+              icon={<Image size={12} />}
+              label="Icon"
+              onClick={onIconClick}
+            />
+          </>
+        )}
 
         <div className="w-px h-4 mx-1 shrink-0 bg-border" />
 
@@ -233,7 +237,7 @@ export default memo(function ContainerDetailPanel({
 
   const handleIconSelect = useCallback(async (slug: string | null) => {
     try {
-      await onIconChange(serviceKeyEntity, slug);
+      await onIconChange?.(serviceKeyEntity, slug);
     } catch (err) {
       console.error('Failed to update container icon:', err);
       showToast('Failed to update icon. Please try again.', 'error');
@@ -259,7 +263,7 @@ export default memo(function ContainerDetailPanel({
         containerId={containerId}
         host={host}
         onAction={openModal}
-        onIconClick={() => setIconPickerOpen(true)}
+        onIconClick={onIconChange ? () => setIconPickerOpen(true) : undefined}
       />
 
       {(inventory.ports.length > 0 || inventory.mounts.length > 0) && (
@@ -287,7 +291,7 @@ export default memo(function ContainerDetailPanel({
         iconSlug={iconSlug}
       />
 
-      {iconPickerOpen && (
+      {onIconChange && iconPickerOpen && (
         <IconPickerDialog
           open={iconPickerOpen}
           onClose={() => setIconPickerOpen(false)}

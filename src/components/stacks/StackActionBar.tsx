@@ -12,7 +12,7 @@ export interface ActiveDeployInfo {
 
 interface StackActionBarProps {
   onDeploy: () => void;
-  onUpdate: () => void;
+  onUpdate?: () => void;
   onTeardown: () => void;
   onDelete: () => void;
   isDeploying: boolean;
@@ -48,25 +48,27 @@ export default function StackActionBar({
         Deploy
       </Button>
 
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={blocked}
-              onClick={onUpdate}
-            />
-          }
-        >
-          <RefreshCw size={14} />
-          Update images
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
-          Pulls newer images for every service and recreates containers whose image changed.
-          Also applies any undeployed compose changes.
-        </TooltipContent>
-      </Tooltip>
+      {onUpdate && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={blocked}
+                onClick={onUpdate}
+              />
+            }
+          >
+            <RefreshCw size={14} />
+            Update images
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            Pulls newer images for every service and recreates containers whose image changed.
+            Also applies any undeployed compose changes.
+          </TooltipContent>
+        </Tooltip>
+      )}
 
       <Button
         variant="outline"

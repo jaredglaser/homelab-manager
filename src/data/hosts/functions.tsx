@@ -199,7 +199,8 @@ export const listAgentsInventory = createServerFn()
 export const checkHostHealth = createServerFn()
   .middleware([authMiddleware])
   .validator(checkHostHealthSchema)
-  .handler(async ({ data }): Promise<HostOperationResult> => {
+  .handler(async ({ data, context }): Promise<HostOperationResult> => {
+    requireRole('admin', 'operator')(context.user);
     const baseDeps = await loadDeps();
     return handleCheckHostHealth({ ...baseDeps, checkHealth: await buildProbeCheckHealth() }, data);
   });

@@ -3,6 +3,7 @@ import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import { Spinner } from '@/components/ui/spinner';
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
+import { useCanWrite } from '@/hooks/useAuth';
 import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
@@ -90,6 +91,7 @@ export default function ContainerTable({
     toggleContainerExpanded,
   } = useDockerSettings();
   const { general } = useGeneralSettings();
+  const canWrite = useCanWrite();
 
   const prevStatsRef = useRef<Map<string, DockerStatsFromDB>>(new Map());
 
@@ -365,11 +367,11 @@ export default function ContainerTable({
           inventory={row.inventory}
           iconSlug={entityIcons[entityId]?.iconSlug ?? null}
           serviceKeyEntity={entityIcons[entityId]?.serviceKeyEntity ?? entityId}
-          onIconChange={onIconChange}
+          onIconChange={canWrite ? onIconChange : undefined}
         />
       );
     },
-    [entityIcons, onIconChange],
+    [entityIcons, onIconChange, canWrite],
   );
 
   const rowClassName = useCallback((row: DockerTableRow) => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, afterEach } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { DockerStatsRow } from '@/types/docker';
@@ -71,6 +71,11 @@ mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolve
   extractImageBaseName: (image: string) => image,
   hasIcon: () => false,
   findIconContaining: () => null,
+}));
+
+let mockCanWrite = true;
+mockModule<typeof import('@/hooks/useAuth')>('@/hooks/useAuth', (real) => ({ ...real,
+  useCanWrite: () => mockCanWrite,
 }));
 
 const { default: ContainerTable } = await import('../ContainerTable');
@@ -260,6 +265,30 @@ describe('ContainerTable', () => {
     expect(screen.getAllByText('exited').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Exit')).toBeDefined();
     expect(screen.getByText('137')).toBeDefined();
+  });
+
+  describe('container icon control', () => {
+    afterEach(() => {
+      mockCanWrite = true;
+    });
+
+    function expandContainer() {
+      const inventory = new Map([['host1/abc123', makeInventory('host1', 'abc123', 'web-app')]]);
+      renderTable({ inventory });
+      fireEvent.click(screen.getByText('web-app'));
+    }
+
+    it('hides the Icon button from a viewer', () => {
+      mockCanWrite = false;
+      expandContainer();
+      expect(screen.getByText('Logs')).toBeDefined();
+      expect(screen.queryByRole('button', { name: 'Icon' })).toBeNull();
+    });
+
+    it('shows the Icon button to a user who can write', () => {
+      expandContainer();
+      expect(screen.getByRole('button', { name: 'Icon' })).toBeDefined();
+    });
   });
 
   describe('chart data memoization', () => {

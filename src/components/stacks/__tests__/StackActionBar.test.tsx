@@ -19,6 +19,12 @@ describe('StackActionBar', () => {
     expect(screen.getByText('Delete Stack')).toBeDefined();
   });
 
+  it('omits Update images when no update handler is given', () => {
+    render(<StackActionBar {...defaultProps} onUpdate={undefined} />);
+    expect(screen.queryByText('Update images')).toBeNull();
+    expect(screen.getByText('Deploy')).toBeDefined();
+  });
+
   it('buttons are enabled when not deploying', () => {
     render(<StackActionBar {...defaultProps} isDeploying={false} />);
     const deployBtn = screen.getByText('Deploy').closest('button');

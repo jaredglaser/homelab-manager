@@ -5,6 +5,7 @@ import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
 import type { PendingHostState } from '@/components/settings/AddHostWizard'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { useToast } from '@/hooks/toastAtom'
+import { useCanWrite } from '@/hooks/useAuth'
 import { tlsFailureGuidance, type TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
 
@@ -17,6 +18,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const queryClient = useQueryClient()
   const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
   const { showToast } = useToast()
+  const canWrite = useCanWrite()
   const [pendingHost, setPendingHost] = useState<PendingHostState | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
   const [provisionError, setProvisionError] = useState<TlsFailureGuidance | null>(null)
@@ -286,7 +288,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
         updateMutation.mutateAsync({ hostId, name, agentUrl }).then(() => true, () => false)
       }
       isUpdating={updateMutation.isPending}
-      onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
+      onHealthCheck={canWrite ? (hostId) => healthMutation.mutate(hostId) : undefined}
       checkingHostIds={checkingHostIds}
       onViewKeypair={(hostId) => {
         setKeypairJwkJson(null)

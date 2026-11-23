@@ -23,6 +23,12 @@ mockModule<typeof import('@/hooks/toastAtom')>('@/hooks/toastAtom', (real) => ({
   }),
 }))
 
+let mockCanWrite = true
+mockModule<typeof import('@/hooks/useAuth')>('@/hooks/useAuth', (real) => ({
+  ...real,
+  useCanWrite: () => mockCanWrite,
+}))
+
 const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   id: 1,
   name: 'server1',
@@ -170,6 +176,7 @@ beforeEach(() => {
     publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
   })
   healthCheckResult = Promise.resolve({ hostId: 1, healthy: true })
+  mockCanWrite = true
 })
 
 describe('ManagedHostsCardConnected rotate TLS toasts', () => {
@@ -227,6 +234,23 @@ describe('ManagedHostsCardConnected health check toasts', () => {
         },
       ])
     })
+  })
+})
+
+describe('ManagedHostsCardConnected health check visibility', () => {
+  it('hides the health check from a viewer and never runs it', async () => {
+    mockCanWrite = false
+    renderCard()
+    await screen.findByText('server1')
+    expect(screen.queryByLabelText('check health')).toBeNull()
+    expect(healthCheckCalls).toEqual([])
+    expect(toasts).toEqual([])
+  })
+
+  it('shows the health check to a user who can write', async () => {
+    renderCard()
+    await screen.findByText('server1')
+    expect(screen.getByLabelText('check health')).toBeDefined()
   })
 })
 

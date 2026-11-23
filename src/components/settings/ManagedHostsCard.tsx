@@ -26,7 +26,7 @@ export interface ManagedHostsCardProps {
   isRemoving: boolean
   onUpdate: (hostId: number, name: string, agentUrl: string) => Promise<boolean>
   isUpdating: boolean
-  onHealthCheck: (hostId: number) => void
+  onHealthCheck?: (hostId: number) => void
   checkingHostIds: Set<number>
   onViewKeypair: (hostId: number) => void
   keypairLoading: boolean
@@ -223,7 +223,7 @@ export function ManagedHostsCardView({
                 isChecking={checkingHostIds.has(host.id)}
                 isRemoving={isRemoving}
                 isRotatingTls={rotatingTlsHostIds.has(host.id)}
-                onHealthCheck={() => onHealthCheck(host.id)}
+                onHealthCheck={onHealthCheck && (() => onHealthCheck(host.id))}
                 onEdit={() => setEditTarget(host)}
                 onRemove={() => setRemoveTarget(host)}
                 onKeypair={() => setKeypairTarget(host)}

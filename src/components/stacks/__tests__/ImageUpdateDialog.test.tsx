@@ -103,6 +103,7 @@ function renderDialog(props?: {
   container?: StackContainer;
   summary?: ImageUpdateSummary | null;
   open?: boolean;
+  canRecheck?: boolean;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -115,6 +116,7 @@ function renderDialog(props?: {
       host="server1"
       container={props?.container ?? container}
       summary={props?.summary === undefined ? summary : props.summary}
+      canRecheck={props?.canRecheck ?? true}
     />,
     { wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -456,6 +458,14 @@ describe('ImageUpdateDialog', () => {
     await screen.findByText('v2.9.4');
     expect(screen.getByRole('button', { name: 'Re-check' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'Close' })).toBeDefined();
+  });
+
+  it('hides the Re-check button from a viewer and never runs the check', async () => {
+    renderDialog({ canRecheck: false });
+    await screen.findByText('v2.9.4');
+    expect(screen.queryByRole('button', { name: 'Re-check' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDefined();
+    expect(mockCheckImageUpdates).not.toHaveBeenCalled();
   });
 
   it('calls checkImageUpdates for this image when Re-check is clicked and stays open', async () => {

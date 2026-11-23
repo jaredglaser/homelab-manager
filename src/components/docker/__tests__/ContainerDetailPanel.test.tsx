@@ -86,6 +86,12 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPan
 }
 
 describe('ContainerDetailPanel', () => {
+  it('omits the Icon button without an icon change handler', () => {
+    renderPanel({ onIconChange: undefined });
+    expect(screen.getByText('History')).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'Icon' })).toBeNull();
+  });
+
   it('renders a combined metrics chart', () => {
     renderPanel();
     // New design uses a single combined chart with 6 stackable series

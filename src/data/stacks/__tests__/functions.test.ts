@@ -124,6 +124,12 @@ mockModule<typeof import('@/lib/stacks/stack-service')>('@/lib/stacks/stack-serv
   resolveStackDriftItem: mockResolveStackDriftItem,
 }));
 
+const mockRunManualImageUpdateCheck = mock(() => Promise.resolve({ summaries: [], checked: 2, changed: 1, failed: 0 }));
+
+mockModule<typeof import('@/lib/image-updates/manual-check')>('@/lib/image-updates/manual-check', (real) => ({ ...real,
+  runManualImageUpdateCheck: mockRunManualImageUpdateCheck,
+}));
+
 /**
  * Server function tests for stack management.
  *
@@ -151,6 +157,7 @@ describe('stacks.functions module', () => {
     mockControlStackForHost.mockClear();
     mockScanStackDrift.mockClear();
     mockResolveStackDriftItem.mockClear();
+    mockRunManualImageUpdateCheck.mockClear();
   });
 
   describe('exports', () => {
@@ -306,6 +313,29 @@ describe('stacks.functions module', () => {
         requireRoleSpy.mockRestore();
       }
       expect(mockResolveStackDriftItem).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('checkImageUpdates', () => {
+    const payload = { stack: 'nginx', host: 'server1', image: 'nginx:1.27' };
+
+    it('refuses a viewer before any registry check runs', async () => {
+      const { checkImageUpdates } = await import('../functions');
+      const viewer: AuthUser = { ...SYNTHETIC_ADMIN, role: 'viewer' };
+
+      await expect(
+        withUser(viewer, () => withStartContext(() => checkImageUpdates({ data: payload }))),
+      ).rejects.toThrow('Insufficient permissions');
+      expect(mockRunManualImageUpdateCheck).not.toHaveBeenCalled();
+    });
+
+    it.each(['admin', 'operator'] as const)('lets an %s run the check', async (role) => {
+      const { checkImageUpdates } = await import('../functions');
+      const user: AuthUser = { ...SYNTHETIC_ADMIN, role };
+
+      await withUser(user, () => withStartContext(() => checkImageUpdates({ data: payload })));
+
+      expect(mockRunManualImageUpdateCheck).toHaveBeenCalledWith('nginx', 'server1', 'nginx:1.27');
     });
   });
 

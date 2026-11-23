@@ -32,6 +32,7 @@ interface ImageUpdateDialogProps {
   host: string;
   container: StackContainer;
   summary: ImageUpdateSummary | null;
+  canRecheck: boolean;
 }
 
 type ReleaseView = 'matching' | 'all';
@@ -109,6 +110,7 @@ export default function ImageUpdateDialog({
   host,
   container,
   summary,
+  canRecheck,
 }: ImageUpdateDialogProps) {
   const currentTag = summary?.currentTag ?? tagOfImage(container.image);
   const constraint = currentTag !== null ? constraintFromTag(currentTag) : null;
@@ -276,15 +278,17 @@ export default function ImageUpdateDialog({
         </DialogBody>
         <DialogFooter className="grid grid-cols-2 items-center gap-x-3 gap-y-1 sm:grid-cols-[1fr_auto_auto]">
           <p className="col-span-2 text-xs text-muted-foreground sm:col-span-1 sm:col-start-1 sm:row-start-1">{footerText}</p>
-          <Button
-            variant="ghost"
-            className="col-start-1 row-start-3 text-foreground sm:col-start-2 sm:row-start-1 sm:row-span-2"
-            disabled={recheckMutation.isPending}
-            onClick={() => recheckMutation.mutate()}
-          >
-            {recheckMutation.isPending ? <Spinner className="size-3" /> : null}
-            Re-check
-          </Button>
+          {canRecheck && (
+            <Button
+              variant="ghost"
+              className="col-start-1 row-start-3 text-foreground sm:col-start-2 sm:row-start-1 sm:row-span-2"
+              disabled={recheckMutation.isPending}
+              onClick={() => recheckMutation.mutate()}
+            >
+              {recheckMutation.isPending ? <Spinner className="size-3" /> : null}
+              Re-check
+            </Button>
+          )}
           <p className="col-span-2 text-xs text-muted-foreground sm:col-span-1 sm:col-start-1 sm:row-start-2">
             {summary?.checkedAt ? `Last checked ${relativeCheckedAt(summary.checkedAt)}` : 'Not checked yet'}
           </p>

@@ -460,6 +460,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 host={detail.host}
                 onRecreate={handleRecreate}
                 isDeploying={isDeploying}
+                canCheckUpdates={canWrite}
               />
             )}
             {panel === 'deploys' && (
@@ -500,7 +501,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         <div className="shrink-0 border-t border-border bg-background px-1 py-3">
           <StackActionBar
             onDeploy={handleDeploy}
-            onUpdate={handleUpdate}
+            onUpdate={canWrite ? handleUpdate : undefined}
             onTeardown={() => deployMutation.mutate({ action: 'teardown' })}
             onDelete={() => setDeleteDialogOpen(true)}
             isDeploying={deployMutation.isPending}

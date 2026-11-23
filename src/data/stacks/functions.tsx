@@ -333,7 +333,8 @@ export const getImageChangelog = createServerFn()
 export const checkImageUpdates = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .validator(manualImageUpdateCheckSchema)
-  .handler(async ({ data }): Promise<ManualCheckResult> => {
+  .handler(async ({ data, context }): Promise<ManualCheckResult> => {
+    requireRole('admin', 'operator')(context.user);
     const { runManualImageUpdateCheck } = await import('@/lib/image-updates/manual-check');
     return runManualImageUpdateCheck(data.stack, data.host, data.image);
   });

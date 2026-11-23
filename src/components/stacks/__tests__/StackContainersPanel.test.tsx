@@ -92,6 +92,7 @@ const defaultProps = {
   host: 'server1',
   onRecreate: mockOnRecreate,
   isDeploying: false,
+  canCheckUpdates: true,
 };
 
 function createWrapper() {
@@ -556,6 +557,15 @@ describe('StackContainersPanel', () => {
   it('renders the Check for updates button next to Recreate', () => {
     renderPanel();
     expect(screen.getByRole('button', { name: 'Check for updates' })).toBeDefined();
+  });
+
+  it('hides Check for updates and the dialog Re-check from a viewer and never runs the check', async () => {
+    renderPanel({ ...defaultProps, canCheckUpdates: false });
+    expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Image versions' })[0]!);
+    await screen.findByRole('button', { name: 'Close' });
+    expect(screen.queryByRole('button', { name: 'Re-check' })).toBeNull();
+    expect(mockCheckImageUpdates).not.toHaveBeenCalled();
   });
 
   it('disables the Check for updates button when the stack has no containers', () => {
