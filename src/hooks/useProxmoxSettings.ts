@@ -1,11 +1,12 @@
 import { useCallback, useMemo } from 'react';
-import { useAtomValue } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import {
   proxmoxSettingsAtom,
   type Settings,
   type ProxmoxUpdateInterval,
 } from '@/hooks/settingsAtom';
-import { useOptimisticSetting, toggleInSet } from '@/hooks/useOptimisticSetting';
+import { proxmoxCollapsedHostsAtom, proxmoxCollapsedSectionsAtom, toggledInSet } from '@/hooks/browserLayout';
+import { useOptimisticSetting } from '@/hooks/useOptimisticSetting';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 export interface ProxmoxSettingsValue {
@@ -18,38 +19,36 @@ export interface ProxmoxSettingsValue {
 }
 
 /**
- * Proxmox-dashboard settings: update interval and host / section expansion
- * state. Subscribes only to the proxmox slice.
+ * Proxmox-dashboard settings: the update interval is global (the worker polls at it), host / section expansion is
+ * kept in this browser.
  */
 export function useProxmoxSettings(): ProxmoxSettingsValue {
   const proxmox = useAtomValue(proxmoxSettingsAtom);
   const optimisticSet = useOptimisticSetting();
+  const [collapsedHosts, setCollapsedHosts] = useAtom(proxmoxCollapsedHostsAtom);
+  const [collapsedSections, setCollapsedSections] = useAtom(proxmoxCollapsedSectionsAtom);
 
   const setProxmoxUpdateInterval = useCallback((interval: ProxmoxUpdateInterval) => {
     optimisticSet(SETTINGS_KEYS.proxmox.updateInterval, () => String(interval));
   }, [optimisticSet]);
 
   const toggleProxmoxHostExpanded = useCallback((node: string) => {
-    optimisticSet(SETTINGS_KEYS.proxmox.expandedHosts, prev => toggleInSet(prev, node));
-  }, [optimisticSet]);
+    setCollapsedHosts(prev => toggledInSet(prev, node));
+  }, [setCollapsedHosts]);
 
-  // Default expanded: the persisted set stores the *collapsed* nodes (absence
-  // = expanded), matching Docker's `isHostExpanded`. Storing expanded nodes
-  // instead would make "no saved state" indistinguishable from "everything
-  // collapsed" and force a size-based default that flips every row on the
-  // first toggle.
+  // Storing expanded nodes instead would need a size-based default that flips every row on the first toggle.
   const isProxmoxHostExpanded = useCallback(
-    (node: string): boolean => !proxmox.expandedHosts.has(node),
-    [proxmox.expandedHosts],
+    (node: string): boolean => !collapsedHosts.has(node),
+    [collapsedHosts],
   );
 
   const toggleProxmoxSectionExpanded = useCallback((key: string) => {
-    optimisticSet(SETTINGS_KEYS.proxmox.expandedSections, prev => toggleInSet(prev, key));
-  }, [optimisticSet]);
+    setCollapsedSections(prev => toggledInSet(prev, key));
+  }, [setCollapsedSections]);
 
   const isProxmoxSectionExpanded = useCallback(
-    (key: string): boolean => !proxmox.expandedSections.has(key),
-    [proxmox.expandedSections],
+    (key: string): boolean => !collapsedSections.has(key),
+    [collapsedSections],
   );
 
   return useMemo<ProxmoxSettingsValue>(() => ({

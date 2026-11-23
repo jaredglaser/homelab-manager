@@ -30,6 +30,20 @@ describe('updateSettingSchema', () => {
     expect(() => updateSettingSchema.parse({ key: 'theme', value: 'dark' })).toThrow();
   });
 
+  it.each([
+    'docker/expandedHosts',
+    'docker/expandedContainers',
+    'docker/containerShells',
+    'stacks/expandedStacks',
+    'zfs/expandedHosts',
+    'zfs/expandedPools',
+    'zfs/expandedVdevs',
+    'proxmox/expandedHosts',
+    'proxmox/expandedSections',
+  ])('rejects the per-browser layout key %s', (key) => {
+    expect(() => updateSettingSchema.parse({ key, value: '[]' })).toThrow();
+  });
+
   it('rejects empty key', () => {
     expect(() => updateSettingSchema.parse({ key: '', value: 'x' })).toThrow();
   });

@@ -46,20 +46,6 @@ describe('useDockerSettings', () => {
     expect(typeof result.current.setMemoryDisplayMode).toBe('function');
     expect(typeof result.current.toggleHostExpanded).toBe('function');
   });
-
-  it('persists stack toggles via the stacks key', () => {
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useDockerSettings(), { wrapper });
-
-    act(() => {
-      result.current.toggleStackExpanded('server1/my-stack');
-    });
-
-    expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
-    expect(mockUpdateSetting).toHaveBeenCalledWith({
-      data: { key: SETTINGS_KEYS.stacks.expandedStacks, value: '["server1/my-stack"]' },
-    });
-  });
 });
 
 describe('useGeneralSettings', () => {
@@ -129,12 +115,12 @@ describe('cross-domain re-render isolation', () => {
     // which is async). This simulates a settings 'change' event updating the raw atom.
     act(() => {
       store.set(rawSettingsAtom, {
-        [SETTINGS_KEYS.zfs.expandedHosts]: '["host-a"]',
+        [SETTINGS_KEYS.zfs.decimals.diskSpeed]: 'true',
       });
     });
 
     // ZFS hook must have re-rendered and picked up the change.
-    expect(zfsResult.current.isZfsHostExpanded('host-a', 2)).toBe(true);
+    expect(zfsResult.current.zfs.decimals.diskSpeed).toBe(true);
     expect(zfsRenders).toBeGreaterThan(1);
 
     // Docker consumer must not have re-rendered.
@@ -155,7 +141,7 @@ describe('cross-domain re-render isolation', () => {
 
     act(() => {
       store.set(rawSettingsAtom, {
-        [SETTINGS_KEYS.proxmox.expandedHosts]: '["pve1"]',
+        [SETTINGS_KEYS.proxmox.updateInterval]: '1000',
       });
     });
 
@@ -176,7 +162,7 @@ describe('cross-domain re-render isolation', () => {
 
     act(() => {
       store.set(rawSettingsAtom, {
-        [SETTINGS_KEYS.docker.expandedContainers]: '["container-1"]',
+        [SETTINGS_KEYS.docker.memoryDisplayMode]: 'percentage',
       });
     });
 
