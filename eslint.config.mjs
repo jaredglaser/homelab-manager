@@ -234,7 +234,7 @@ const agentErrorCodeRule = {
 
 // Manager files that read agent response bodies. The agent's wire schemas live in
 // agent/src/types.ts (HTTP) and agent/src/types/protocol.ts (SSE), so a reader here parses with
-// those instead of describing the body again (AGENTS.md rule 18).
+// those instead of describing the body again (AGENTS.md#agent-wire-schemas).
 const AGENT_WIRE_READERS = [
   'src/lib/clients/**/*.ts',
   'src/lib/services/agent-*.ts',
@@ -249,7 +249,7 @@ const noLocalAgentSchemaRule = {
     schema: [],
     messages: {
       localSchema:
-        'This declares an object schema in a file that reads agent bodies. Declare the body in agent/src/types.ts (HTTP) or agent/src/types/protocol.ts (SSE), infer its type there, and parse with that schema (AGENTS.md rule 18).',
+        'This declares an object schema in a file that reads agent bodies. Declare the body in agent/src/types.ts (HTTP) or agent/src/types/protocol.ts (SSE), infer its type there, and parse with that schema (AGENTS.md#agent-wire-schemas).',
     },
   },
   create(context) {
@@ -268,7 +268,7 @@ const noAgentBodyCastRule = {
     schema: [],
     messages: {
       cast:
-        'This casts parsed JSON instead of checking it. Parse it with the agent contract schema from agent/src/types.ts or agent/src/types/protocol.ts (AGENTS.md rule 18).',
+        'This casts parsed JSON instead of checking it. Parse it with the agent contract schema from agent/src/types.ts or agent/src/types/protocol.ts (AGENTS.md#agent-wire-schemas).',
     },
   },
   create(context) {
@@ -396,7 +396,7 @@ export default tseslint.config(
             {
               group: ['./*.css', '../*.css', '@/**/*.css', '!**/App.css'],
               message:
-                'TailwindCSS only. The single allowed stylesheet is src/App.css (AGENTS.md rule 1).',
+                'TailwindCSS only. The single allowed stylesheet is src/App.css (AGENTS.md#tailwind-only).',
             },
           ],
         },
@@ -414,7 +414,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ['../*'],
-              message: 'Use the @/ alias for src imports outside __tests__ (AGENTS.md rule 2).',
+              message: 'Use the @/ alias for src imports outside __tests__ (AGENTS.md#import-alias).',
             },
           ],
         },
@@ -530,7 +530,7 @@ export default tseslint.config(
     },
   },
 
-  // 0 findings since the rule 7 cleanup, so it lands as error per the calibration rule.
+  // 0 findings since the AGENTS.md#no-bare-timers cleanup, so it lands as error per the calibration rule.
   {
     files: ['**/__tests__/**/*.{ts,tsx}'],
     rules: {
@@ -540,7 +540,7 @@ export default tseslint.config(
           selector:
             "AwaitExpression > NewExpression[callee.name='Promise'] > :function CallExpression[callee.name='setTimeout']",
           message:
-            'Do not await a bare setTimeout to let async settle (AGENTS.md rule 7). Await a deterministic signal, use waitFor/findBy*, or spy on globalThis.setTimeout.',
+            'Do not await a bare setTimeout to let async settle (AGENTS.md#no-bare-timers). Await a deterministic signal, use waitFor/findBy*, or spy on globalThis.setTimeout.',
         },
       ],
     },
@@ -597,7 +597,7 @@ export default tseslint.config(
   // A stale eslint-disable is enforcement that reads as done, so it fails the build instead of warning.
   { linterOptions: { reportUnusedDisableDirectives: 'error' } },
 
-  // AGENTS.md rule 8.
+  // AGENTS.md#console-usage.
   {
     files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     rules: { 'no-console': ['warn', { allow: ['error', 'info', 'warn'] }] },
