@@ -1,15 +1,21 @@
 /**
  * Shared API contract types for the homelab-manager agent.
  * The main app imports these to stay in sync with the agent's response shapes.
+ * A body the manager parses at runtime is declared as a zod schema with its type inferred, so the
+ * check the manager runs and the type the agent sends cannot drift apart.
  */
 
+import { z } from 'zod';
+
 /** Successful or failed result from /stacks/deploy, /stacks/teardown, /stacks/restart. */
-export interface AgentStackResponse {
-  status: 'success' | 'failed';
-  stdout: string;
-  stderr: string;
-  exitCode?: number;
-}
+export const zAgentStackResponse = z.object({
+  status: z.enum(['success', 'failed']),
+  stdout: z.string(),
+  stderr: z.string(),
+  /** Null when the process was killed and never reported an exit. */
+  exitCode: z.number().nullable().optional(),
+});
+export type AgentStackResponse = z.infer<typeof zAgentStackResponse>;
 
 export interface AgentStackInventoryEntry {
   name: string;
@@ -112,7 +118,27 @@ export const AGENT_ROUTE_FAILURE_CODES = [
   'zfs_unavailable',
   'zfs_pool_list_failed',
 ] as const;
-export type AgentRouteFailureCode = (typeof AGENT_ROUTE_FAILURE_CODES)[number];
+export const zAgentRouteFailureCode = z.enum(AGENT_ROUTE_FAILURE_CODES);
+export type AgentRouteFailureCode = z.infer<typeof zAgentRouteFailureCode>;
+
+export function isAgentRouteFailureCode(value: unknown): value is AgentRouteFailureCode {
+  return typeof value === 'string' && (AGENT_ROUTE_FAILURE_CODES as readonly string[]).includes(value);
+}
+
+/** The codes POST /agent/update refuses with. The Agents page branches on this set, so a code from another route stays generic there. */
+export const AGENT_UPDATE_FAILURE_CODES = [
+  'update_docker_unavailable',
+  'update_request_invalid',
+  'update_target_not_pinned',
+  'update_target_repo_mismatch',
+  'update_in_progress',
+  'update_start_failed',
+] as const satisfies readonly AgentRouteFailureCode[];
+export type AgentUpdateFailureCode = (typeof AGENT_UPDATE_FAILURE_CODES)[number];
+
+export function isAgentUpdateFailureCode(value: unknown): value is AgentUpdateFailureCode {
+  return typeof value === 'string' && (AGENT_UPDATE_FAILURE_CODES as readonly string[]).includes(value);
+}
 
 /** The agent's JSON error shape wherever it reports a TLS failure: a human message plus the reason. */
 export interface AgentErrorBody {
@@ -120,10 +146,21 @@ export interface AgentErrorBody {
   code: TlsFailureCode;
 }
 
-export interface AgentRouteErrorBody {
-  error: string;
-  code: AgentRouteFailureCode;
-}
+/** The agent's JSON error body for a route failure. `detail` carries upstream text a route did not fold into `error`. */
+export const zAgentRouteErrorBody = z.object({
+  error: z.string(),
+  code: zAgentRouteFailureCode,
+  detail: z.string().optional(),
+});
+export type AgentRouteErrorBody = z.infer<typeof zAgentRouteErrorBody>;
+
+/**
+ * How the manager reads an error body. An agent older or newer than the manager can send no code or one
+ * this manager does not know, and that has to degrade to generic copy instead of rejecting the message.
+ */
+export const zAgentRouteErrorBodyFromAnyAgent = zAgentRouteErrorBody.extend({
+  code: zAgentRouteFailureCode.optional().catch(undefined),
+});
 
 export interface AgentDockerCapability {
   available: boolean;

@@ -1,14 +1,17 @@
-import type {
-  AgentStackResponse,
-  AgentInfoResponse,
-  AgentStackInventoryResponse,
-  AgentStackInventoryEntry,
-  AgentStackInventoryError,
-  AgentStackComposeResponse,
+import {
+  zAgentRouteErrorBodyFromAnyAgent,
+  zAgentStackResponse,
+  type AgentRouteFailureCode,
+  type AgentStackResponse,
+  type AgentInfoResponse,
+  type AgentStackInventoryResponse,
+  type AgentStackInventoryEntry,
+  type AgentStackInventoryError,
+  type AgentStackComposeResponse,
 } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from '@/lib/deploy/types';
 import { retry } from '@/lib/utils/backoff';
-import { agentFetch } from '@/lib/clients/agent-http';
+import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
 
 /** Agent's 15-min pull+up budget on /stacks/update, plus 1 min network slack. */
 const UPDATE_TIMEOUT_MS = 960_000;
@@ -24,6 +27,11 @@ export interface ZfsPool {
   health: string;
 }
 
+const WHOLE_BODY = Number.POSITIVE_INFINITY;
+
+/** Reads a non-2xx body a route answers with its own typed result. Null sends the body to the error path. */
+type FailureResultParser<T> = (raw: string) => T | null;
+
 export class AgentClientError extends Error {
   constructor(
     message: string,
@@ -33,6 +41,7 @@ export class AgentClientError extends Error {
      *  re-running a long-running operation (e.g. `docker compose up`) that may still
      *  be in flight on the agent. */
     public readonly wasTimeout: boolean = false,
+    public readonly code?: AgentRouteFailureCode,
   ) {
     super(message);
     this.name = 'AgentClientError';
@@ -77,8 +86,9 @@ export type StackControlRequest =
  *
  * Transient failures (network errors, 502/503/504) are retried up to 3 total
  * attempts with exponential backoff (1s, 2s) via the shared `retry()` helper.
- * 4xx responses, non-retryable 5xx responses, per-attempt timeouts, and invalid
- * JSON bodies fail immediately.
+ * 4xx responses, other 5xx responses, per-attempt timeouts, and invalid JSON
+ * bodies fail immediately. A compose route's failed run (HTTP 500 with an
+ * AgentStackResponse body) returns as a result and is never retried.
  */
 export class AgentClient {
   private readonly agentUrl: string;
@@ -99,16 +109,16 @@ export class AgentClient {
   }
 
   async deploy(payload: AgentDeployPayload): Promise<AgentDeployResponse> {
-    const raw = await this.postJson<AgentStackResponse>('/stacks/deploy', payload);
+    const raw = await this.postStack('/stacks/deploy', payload);
     return adaptDeployResponse(raw);
   }
 
   async update(payload: AgentUpdatePayload): Promise<AgentDeployResponse> {
     let raw: AgentStackResponse;
     try {
-      raw = await this.postJson<AgentStackResponse>('/stacks/update', payload, UPDATE_TIMEOUT_MS);
+      raw = await this.postStack('/stacks/update', payload, UPDATE_TIMEOUT_MS);
     } catch (err) {
-      if (err instanceof AgentClientError && err.statusCode === 404) {
+      if (err instanceof AgentClientError && err.statusCode === 404 && err.code === undefined) {
         const host = safeHost(this.agentUrl);
         throw new AgentClientError(
           `Agent on ${host} does not support image updates. Update the agent container and retry.`,
@@ -123,22 +133,22 @@ export class AgentClient {
   }
 
   async teardown(stack: string): Promise<AgentDeployResponse> {
-    const raw = await this.postJson<AgentStackResponse>('/stacks/teardown', { stack });
+    const raw = await this.postStack('/stacks/teardown', { stack });
     return adaptDeployResponse(raw);
   }
 
   async restart(req: StackControlRequest): Promise<AgentDeployResponse> {
-    const raw = await this.postJson<AgentStackResponse>('/stacks/restart', req, this.controlTimeoutMs);
+    const raw = await this.postStack('/stacks/restart', req, this.controlTimeoutMs);
     return adaptDeployResponse(raw);
   }
 
   async start(req: StackControlRequest): Promise<AgentDeployResponse> {
-    const raw = await this.postJson<AgentStackResponse>('/stacks/start', req, this.controlTimeoutMs);
+    const raw = await this.postStack('/stacks/start', req, this.controlTimeoutMs);
     return adaptDeployResponse(raw);
   }
 
   async stop(req: StackControlRequest): Promise<AgentDeployResponse> {
-    const raw = await this.postJson<AgentStackResponse>('/stacks/stop', req, this.controlTimeoutMs);
+    const raw = await this.postStack('/stacks/stop', req, this.controlTimeoutMs);
     return adaptDeployResponse(raw);
   }
 
@@ -175,7 +185,7 @@ export class AgentClient {
     return result.pools;
   }
 
-  private async postJson<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
+  private async postJson<T>(path: string, body: unknown, timeoutMs?: number, parseFailure?: FailureResultParser<T>): Promise<T> {
     const jwt = await this.signer();
     return this.request<T>(path, {
       method: 'POST',
@@ -184,7 +194,11 @@ export class AgentClient {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
-    }, timeoutMs);
+    }, timeoutMs, parseFailure);
+  }
+
+  private async postStack(path: string, body: unknown, timeoutMs?: number): Promise<AgentStackResponse> {
+    return await this.postJson<AgentStackResponse>(path, body, timeoutMs, parseStackFailure);
   }
 
   private async getJson<T>(path: string): Promise<T> {
@@ -208,10 +222,10 @@ export class AgentClient {
     return err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504;
   }
 
-  private async request<T>(path: string, init: RequestInit, timeoutMs?: number): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, timeoutMs?: number, parseFailure?: FailureResultParser<T>): Promise<T> {
     const MAX_RETRIES = 2; // maxAttempts - 1
     const url = `${this.agentUrl}${path}`;
-    return retry(() => this.attempt<T>(url, init, timeoutMs), {
+    return retry(() => this.attempt<T>(url, init, timeoutMs, parseFailure), {
       maxAttempts: MAX_RETRIES + 1,
       baseMs: 1000,
       maxExponent: 2,
@@ -227,7 +241,7 @@ export class AgentClient {
     });
   }
 
-  private async attempt<T>(url: string, init: RequestInit, timeoutMs?: number): Promise<T> {
+  private async attempt<T>(url: string, init: RequestInit, timeoutMs?: number, parseFailure?: FailureResultParser<T>): Promise<T> {
     let response: Response;
     try {
       response = await agentFetch(url, {
@@ -255,12 +269,19 @@ export class AgentClient {
     }
 
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
+      const isComposeFailure = parseFailure !== undefined && response.status >= 500;
+      const raw = await readBoundedBody(response, isComposeFailure ? WHOLE_BODY : MAX_AGENT_FAILURE_BODY_BYTES);
+      if (isComposeFailure) {
+        const result = parseFailure(raw);
+        if (result !== null) return result;
+      }
+      const failure = readAgentFailure(raw);
       throw new AgentClientError(
-        `Agent returned ${response.status}: ${body}`,
+        `Agent returned ${response.status}: ${failure.message}`,
         response.status,
         url,
         false,
+        failure.code,
       );
     }
 
@@ -269,7 +290,7 @@ export class AgentClient {
       return JSON.parse(text) as T;
     } catch {
       throw new AgentClientError(
-        `Agent returned invalid JSON from ${url}: ${text.slice(0, 200)}`,
+        `Agent returned invalid JSON from ${url}: ${singleLine(text)}`,
         response.status,
         url,
         false,
@@ -286,10 +307,41 @@ function safeHost(agentUrl: string): string {
   }
 }
 
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reads a failure body against the agent's error contract; anything off-contract is shown as the text that arrived. */
+function readAgentFailure(raw: string): { message: string; code?: AgentRouteFailureCode } {
+  const body = zAgentRouteErrorBodyFromAnyAgent.safeParse(parseJson(raw));
+  if (!body.success) return { message: singleLine(raw) };
+  const error = singleLine(body.data.error);
+  const detail = body.data.detail === undefined ? '' : singleLine(body.data.detail);
+  return { message: detail ? `${error}: ${detail}` : error, code: body.data.code };
+}
+
+/** A compose route's failed run, read against the agent's stack contract. Null sends the body to the error path. */
+function parseStackFailure(raw: string): AgentStackResponse | null {
+  const parsed = parseJson(raw);
+  if (zAgentRouteErrorBodyFromAnyAgent.safeParse(parsed).success) return null;
+  const result = zAgentStackResponse.safeParse(parsed);
+  return result.success && result.data.status === 'failed' ? result.data : null;
+}
+
 /** Map the agent's raw `{ status, stdout, stderr }` to internal `{ success, logs }`. */
 function adaptDeployResponse(raw: AgentStackResponse): AgentDeployResponse {
-  return {
-    success: raw.status === 'success',
-    logs: [raw.stdout, raw.stderr].filter(Boolean).join('\n'),
-  };
+  const success = raw.status === 'success';
+  const output = [raw.stdout, raw.stderr].filter(Boolean).join('\n');
+  const logs = success || output.trim() !== '' ? output : silentFailureLogs(raw.exitCode);
+  return { success, logs, ...(raw.exitCode !== undefined ? { exitCode: raw.exitCode } : {}) };
+}
+
+function silentFailureLogs(exitCode: number | null | undefined): string {
+  if (exitCode === undefined) return 'docker compose failed with no output';
+  if (exitCode === null) return 'docker compose was killed and never reported an exit code';
+  return `docker compose exited with code ${exitCode}`;
 }

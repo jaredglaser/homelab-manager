@@ -124,4 +124,6 @@ export interface AgentUpdatePayload {
 export interface AgentDeployResponse {
   success: boolean;
   logs: string;
+  /** Null when the agent killed the process and it never reported an exit. */
+  exitCode?: number | null;
 }
