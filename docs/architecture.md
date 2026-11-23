@@ -164,6 +164,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 - Optional TLS via `TLS_CERT_PATH` and `TLS_KEY_PATH`
 - Connects to Docker via `DOCKER_HOST` env var (socket proxy recommended)
 - Subprocess timeout (5 minutes) for `docker compose` operations
+- Every response, errors and SSE streams included, carries `X-Homelab-Agent: 1` (`AGENT_PROTOCOL_VERSION`, the wire protocol the agent speaks, which changes only on a breaking wire change and never carries the release version because unauthenticated responses send it too), set once in the central request handler (`agent/src/lib/request-handler.ts`). The manager treats a failed response without it as an answer from something else, typically a reverse proxy's error page, and reports `agent_not_answering` instead of an agent failure. A proxy in front of an agent must pass the agent's response headers through, which is the default for nginx and Caddy. Agents older than 0.4.0 do not send it
 
 **Endpoints:**
 
