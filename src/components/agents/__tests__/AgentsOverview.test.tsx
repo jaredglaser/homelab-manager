@@ -1,7 +1,9 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AgentInventoryEntry, AgentInventoryFailure } from '@/lib/hosts/agent-inventory'
+import { AGENT_INVENTORY_STATUSES, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory'
+import type { ManagedHost } from '@/lib/database/repositories/host-repository'
 
 const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntry => ({
   id: 1,
@@ -10,13 +12,30 @@ const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntr
   capabilities: { docker: true },
   status: 'online',
   version: '0.2.0',
-  versionSource: 'live',
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentImageTag: 'latest',
   agentImageDigest: 'sha256:' + 'a'.repeat(64),
   agentOutOfDate: false,
   failure: null,
   checkedAt: '2026-09-25T23:00:00.000Z',
+  ...overrides,
+})
+
+const makeStoredHost = (overrides?: Partial<ManagedHost>): ManagedHost => ({
+  id: 1,
+  name: 'homeserver',
+  agentUrl: 'http://192.168.1.10:9090',
+  capabilities: { docker: true },
+  agentVersion: '0.2.0',
+  agentImage: null,
+  agentImageTag: null,
+  agentImageDigest: null,
+  agentOutOfDate: false,
+  failure: null,
+  status: 'healthy',
+  createdAt: new Date('2026-09-25T00:00:00Z'),
+  updatedAt: new Date('2026-09-25T00:00:00Z'),
+  lastSweptAt: new Date('2026-09-25T23:00:00Z'),
   ...overrides,
 })
 
@@ -101,7 +120,7 @@ describe('AgentsOverviewView', () => {
         {...makeProps({
           agents: [
             makeAgent(),
-            makeAgent({ id: 2, name: 'media-server', status: 'offline', version: '0.1.0', versionSource: 'stored', failure: { code: 'offline', message: 'timed out' }, agentUrl: 'http://192.168.1.20:9090' }),
+            makeAgent({ id: 2, name: 'media-server', status: 'offline', version: '0.1.0', failure: { code: 'offline', message: 'timed out' }, agentUrl: 'http://192.168.1.20:9090' }),
           ],
         })}
       />,
@@ -187,6 +206,57 @@ describe('AgentsOverviewView', () => {
     const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     render(<AgentsOverviewView {...makeProps({ agents: [makeAgent()] })} />)
     expect(screen.queryByText(/then check again/)).toBeNull()
+  })
+
+  it('marks the version as stored for every agent that is not online, and never for one that is', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    render(
+      <AgentsOverviewView
+        {...makeProps({
+          agents: AGENT_INVENTORY_STATUSES.map((status, i) => makeAgent({ id: i + 1, name: `host-${status}`, status })),
+        })}
+      />,
+    )
+    for (const status of AGENT_INVENTORY_STATUSES) {
+      const badge = within(screen.getByTestId(`agent-row-host-${status}`)).queryByLabelText('stored version')
+      expect(badge === null, status).toBe(status === 'online')
+      if (badge) expect(badge.textContent, status).toBe('stored')
+    }
+  })
+
+  it('shows an online agent built from its stored row with its version and no stored badge', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    const entry = buildStoredAgentInventoryEntry(makeStoredHost())
+    expect(entry.status).toBe('online')
+    render(<AgentsOverviewView {...makeProps({ agents: [entry] })} />)
+    const row = screen.getByTestId('agent-row-homeserver')
+    expect(within(row).getByText('v0.2.0')).toBeDefined()
+    expect(within(row).queryByLabelText('stored version')).toBeNull()
+  })
+
+  it('shows no version, and no stored badge, for a host that never reported one', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    const agents = [
+      buildStoredAgentInventoryEntry(makeStoredHost({ id: 1, name: 'enrolling', agentVersion: null, failure: { code: 'awaiting-enrollment', detail: null } })),
+      buildStoredAgentInventoryEntry(makeStoredHost({ id: 2, name: 'broken', agentVersion: null, status: 'error', failure: { code: 'unreachable', detail: null } })),
+    ]
+    expect(agents.map((a) => a.status)).toEqual(['awaiting-enrollment', 'unreachable'])
+    render(<AgentsOverviewView {...makeProps({ agents })} />)
+    for (const name of ['enrolling', 'broken']) {
+      const row = screen.getByTestId(`agent-row-${name}`)
+      expect(within(row).getByText('unknown')).toBeDefined()
+      expect(within(row).queryByLabelText('stored version')).toBeNull()
+    }
+  })
+
+  it('pins the stored-version tooltip copy and shows it when the badge is hovered', async () => {
+    const { AgentsOverviewView, AGENT_STORED_VERSION_MESSAGE } = await import('@/components/agents/AgentsOverview')
+    expect(AGENT_STORED_VERSION_MESSAGE).toBe(
+      'Last version the agent reported. It is not online right now, so this may be out of date.',
+    )
+    render(<AgentsOverviewView {...makeProps({ agents: [makeAgent({ status: 'offline' })] })} />)
+    fireEvent.focus(screen.getByLabelText('stored version'))
+    expect((await screen.findByText(AGENT_STORED_VERSION_MESSAGE)).textContent).toBe(AGENT_STORED_VERSION_MESSAGE)
   })
 
   it('lets an admin trigger the update for one row without touching the other', async () => {
@@ -378,7 +448,6 @@ describe('AgentsOverview (connected)', () => {
       makeAgent({
         status: 'unreachable',
         version: null,
-        versionSource: 'unknown',
         failure: { code: 'unreachable', message: 'stored cause 6120' },
       }),
     ]

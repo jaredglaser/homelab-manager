@@ -318,10 +318,8 @@ describe('handleListAgentsInventorySnapshot', () => {
     const entries = await handleListAgentsInventorySnapshot({ repo });
 
     expect(entries.map((e) => e.status)).toEqual(['online', 'offline', 'unknown']);
-    expect(entries[0].versionSource).toBe('stored');
     expect(entries[0].checkedAt).toBe('2026-02-28T10:00:00.000Z');
     expect(entries[2].version).toBeNull();
-    expect(entries[2].versionSource).toBe('unknown');
   });
 
   it('maps an error status host to unreachable', async () => {
