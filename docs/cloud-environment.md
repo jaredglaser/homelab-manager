@@ -38,7 +38,7 @@ exit 0
 The setup script runs when the environment's cache is built: on the first session, after the script or the allowed hosts change, and about weekly. Later sessions start from a snapshot of the disk.
 
 - **Kept:** the pinned Bun, Bun's package cache, pulled images.
-- **Not kept:** running processes. `scripts/cloud/session-start.sh` starts `dockerd` in each session, through the SessionStart hook in `.claude/settings.json`. A session with more than one repository attached does not load repo hooks, so the `orchestrate` skill also runs the script as its first step.
+- **Not kept:** running processes. `scripts/cloud/session-start.sh` starts `dockerd` in each session, through the SessionStart hook in `.claude/settings.json`. A session with more than one repository attached starts in their parent directory and does not load repo hooks, so Docker is not running there until something runs the script. The `orchestrate` skill runs it as its first step.
 - **Possibly stale:** the clone the setup script made. Sessions work in their own fresh checkout.
 
 ## Checking a box
