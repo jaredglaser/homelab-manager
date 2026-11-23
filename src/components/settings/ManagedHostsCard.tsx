@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
@@ -24,7 +24,7 @@ export interface ManagedHostsCardProps {
   onDiscard: () => void
   onRemove: (hostId: number) => void
   isRemoving: boolean
-  onUpdate: (hostId: number, name: string, agentUrl: string) => void
+  onUpdate: (hostId: number, name: string, agentUrl: string) => Promise<boolean>
   isUpdating: boolean
   onHealthCheck: (hostId: number) => void
   checkingHostIds: Set<number>
@@ -161,6 +161,7 @@ export function ManagedHostsCardView({
   const [removeTarget, setRemoveTarget] = useState<HostListItem | null>(null)
   const [editTarget, setEditTarget] = useState<HostListItem | null>(null)
   const [keypairTarget, setKeypairTarget] = useState<HostListItem | null>(null)
+  const savingRef = useRef(false)
   const agentImageTag = getAgentImageTag()
   const channel = bucketHostsByAgentChannel(hosts, agentImageTag)
   const showChannelNotice =
@@ -175,8 +176,18 @@ export function ManagedHostsCardView({
     }
   }
 
-  function handleEditConfirm(hostId: number, name: string, agentUrl: string) {
-    onUpdate(hostId, name, agentUrl)
+  async function handleEditConfirm(hostId: number, name: string, agentUrl: string) {
+    if (savingRef.current) return
+    savingRef.current = true
+    let saved = false
+    try {
+      saved = await onUpdate(hostId, name, agentUrl)
+    } catch (err) {
+      console.error('Failed to update host', err)
+    } finally {
+      savingRef.current = false
+    }
+    if (saved) setEditTarget((current) => (current?.id === hostId ? null : current))
   }
 
   return (
@@ -241,7 +252,7 @@ export function ManagedHostsCardView({
         open={editTarget !== null}
         host={editTarget}
         isUpdating={isUpdating}
-        onConfirm={handleEditConfirm}
+        onConfirm={(hostId, name, agentUrl) => { void handleEditConfirm(hostId, name, agentUrl) }}
         onClose={() => setEditTarget(null)}
       />
 

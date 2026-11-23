@@ -1,5 +1,6 @@
-import { describe, it, expect, mock } from 'bun:test'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { describe, it, expect, mock, spyOn } from 'bun:test'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import { AgentChannelNotice, ManagedHostsCardView, bucketHostsByAgentChannel } from '@/components/settings/ManagedHostsCard'
 import type { ManagedHostsCardProps } from '@/components/settings/ManagedHostsCard'
 import type { HostListItem } from '@/lib/hosts/host-utils'
@@ -32,22 +33,22 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
       status: 'pending',
       publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
     },
-    onCreateHost: mock(() => {}),
-    onVerify: mock(() => {}),
-    onCancelVerify: mock(() => {}),
-    onDiscard: mock(() => {}),
-    onRemove: mock(() => {}),
+    onCreateHost: mock(() => undefined),
+    onVerify: mock(() => undefined),
+    onCancelVerify: mock(() => undefined),
+    onDiscard: mock(() => undefined),
+    onRemove: mock(() => undefined),
     isRemoving: false,
-    onUpdate: mock(() => {}),
+    onUpdate: mock(() => Promise.resolve(true)),
     isUpdating: false,
-    onHealthCheck: mock(() => {}),
+    onHealthCheck: mock(() => undefined),
     checkingHostIds: new Set<number>(),
-    onViewKeypair: mock(() => {}),
+    onViewKeypair: mock(() => undefined),
     keypairLoading: false,
-    onRotateKeypair: mock(() => {}),
+    onRotateKeypair: mock(() => undefined),
     keypairRotating: false,
     keypairJwkJson: null,
-    onRotateTls: mock(() => {}),
+    onRotateTls: mock(() => undefined),
     rotatingTlsHostIds: new Set<number>(),
     ...overrides,
   }
@@ -55,8 +56,8 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
 
 // The Add Host wizard collects the host name on the first step and gates Next
 // on it, so navigation tests must fill it before advancing.
-function enterHostName(value = 'server1') {
-  fireEvent.change(screen.getByLabelText('Host Name'), { target: { value } })
+async function enterHostName(user: TestUser, value = 'server1') {
+  await user.type(screen.getByLabelText('Host Name'), value)
 }
 
 describe('ManagedHostsCard', () => {
@@ -132,14 +133,13 @@ describe('ManagedHostsCard', () => {
     it('renders capability chips for docker', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { docker: true } })] })} />)
       expect(screen.getAllByText('Docker').length).toBeGreaterThanOrEqual(1)
-      // Chip is rendered inside the host row
       const chips = document.querySelectorAll('[data-slot="badge"]')
       expect(chips.length).toBeGreaterThanOrEqual(1)
     })
 
     it('renders capability chips for zfs', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { zfs: true } })] })} />)
-      // ZFS chip in host row (wizard also has ZFS checkbox label)
+      // The wizard also renders a ZFS checkbox label, so match the badge, not the text.
       const chips = document.querySelectorAll('[data-slot="badge"]')
       const zfsChip = Array.from(chips).find((c) => c.textContent === 'ZFS')
       expect(zfsChip).toBeDefined()
@@ -175,14 +175,27 @@ describe('ManagedHostsCard', () => {
   })
 
   describe('health check', () => {
-    it('calls onHealthCheck with host id when button clicked', () => {
-      const onHealthCheck = mock(() => {})
+    it('calls onHealthCheck with host id when button clicked', async () => {
+      const user = setupUser()
+      const onHealthCheck = mock(() => undefined)
       render(
         <ManagedHostsCardView
           {...makeProps({ hosts: [makeHost()], onHealthCheck })}
         />
       )
-      fireEvent.click(screen.getByLabelText('check health'))
+      await user.click(screen.getByLabelText('check health'))
+      expect(onHealthCheck).toHaveBeenCalledWith(1)
+    })
+
+    it('calls onHealthCheck with host id when the button is activated from the keyboard', async () => {
+      const user = setupUser()
+      const onHealthCheck = mock(() => undefined)
+      render(
+        <ManagedHostsCardView
+          {...makeProps({ hosts: [makeHost()], onHealthCheck })}
+        />
+      )
+      await activateWithKey(user, screen.getByLabelText('check health'), '{Enter}')
       expect(onHealthCheck).toHaveBeenCalledWith(1)
     })
 
@@ -209,35 +222,38 @@ describe('ManagedHostsCard', () => {
   })
 
   describe('remove host', () => {
-    it('opens confirm dialog when remove button is clicked', () => {
+    it('opens confirm dialog when remove button is clicked', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
-      fireEvent.click(screen.getByLabelText('remove host'))
+      await user.click(screen.getByLabelText('remove host'))
       expect(screen.getByRole('dialog')).toBeDefined()
       expect(screen.getByRole('button', { name: 'Remove' })).toBeDefined()
     })
 
-    it('shows host name in confirm dialog', () => {
+    it('shows host name in confirm dialog', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
-      fireEvent.click(screen.getByLabelText('remove host'))
+      await user.click(screen.getByLabelText('remove host'))
       const dialog = screen.getByRole('dialog')
       expect(dialog.textContent).toContain('server1')
     })
 
-    it('calls onRemove with host id after confirm', () => {
-      const onRemove = mock(() => {})
+    it('calls onRemove with host id after confirm', async () => {
+      const user = setupUser()
+      const onRemove = mock(() => undefined)
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onRemove })} />)
-      fireEvent.click(screen.getByLabelText('remove host'))
-      // Click the confirm Remove button (color="error" button inside the dialog)
+      await user.click(screen.getByLabelText('remove host'))
       const removeBtn = screen.getByRole('button', { name: 'Remove' })
-      fireEvent.click(removeBtn)
+      await user.click(removeBtn)
       expect(onRemove).toHaveBeenCalledWith(1)
     })
 
-    it('does not call onRemove when Cancel is clicked', () => {
-      const onRemove = mock(() => {})
+    it('does not call onRemove when Cancel is clicked', async () => {
+      const user = setupUser()
+      const onRemove = mock(() => undefined)
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onRemove })} />)
-      fireEvent.click(screen.getByLabelText('remove host'))
-      fireEvent.click(screen.getByText('Cancel'))
+      await user.click(screen.getByLabelText('remove host'))
+      await user.click(screen.getByText('Cancel'))
       expect(onRemove).not.toHaveBeenCalled()
     })
 
@@ -255,175 +271,195 @@ describe('ManagedHostsCard', () => {
       expect(screen.getByLabelText('ZFS capability')).toBeDefined()
     })
 
-    it('Next button advances to compose step (no ZFS)', () => {
+    it('Next button advances to compose step (no ZFS)', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
       // Docker is checked by default, ZFS is not, skip ZFS Setup
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-compose')).toBeDefined()
     })
 
-    it('Next button advances to ZFS setup when ZFS is selected', () => {
+    it('Next button advances to ZFS setup when ZFS is selected', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByLabelText('ZFS capability'))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByLabelText('ZFS capability'))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
     })
 
-    it('ZFS setup step shows UID/GID fields', () => {
+    it('ZFS setup step shows UID/GID fields', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByLabelText('ZFS capability'))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByLabelText('ZFS capability'))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByLabelText('HLM_ZFS_UID')).toBeDefined()
       expect(screen.getByLabelText('HLM_ZFS_GID')).toBeDefined()
     })
 
-    it('ZFS setup shows DOCKER_GID when Docker is also selected', () => {
+    it('ZFS setup shows DOCKER_GID when Docker is also selected', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByLabelText('ZFS capability'))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByLabelText('ZFS capability'))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByLabelText('DOCKER_GID')).toBeDefined()
     })
 
-    it('Next is disabled on capabilities step when no capability selected', () => {
+    it('Next is disabled on capabilities step when no capability selected', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
+      await enterHostName(user)
       // Uncheck Docker (default checked)
-      fireEvent.click(screen.getByLabelText('Docker capability'))
+      await user.click(screen.getByLabelText('Docker capability'))
       const nextBtn = screen.getByRole('button', { name: 'Next' })
       expect(nextBtn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('Next is disabled on capabilities step until a host name is entered', () => {
+    it('Next is disabled on capabilities step until a host name is entered', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
       expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(true)
-      enterHostName()
+      await enterHostName(user)
       expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
     })
 
-    it('compose step shows compose file content', () => {
+    it('compose step shows compose file content', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText('docker-compose.yml')).toBeDefined()
     })
 
-    it('verify step shows the agent host and port fields', () => {
+    it('verify step shows the agent host and port fields', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
+      await enterHostName(user)
       // Advance through capabilities -> compose -> configuration -> verify
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByLabelText('Agent host or IP')).toBeDefined()
       expect(screen.getByLabelText('Agent port')).toBeDefined()
     })
 
-    it('Verify Connection button is disabled when the agent host is empty', () => {
+    it('Verify Connection button is disabled when the agent host is empty', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       const btn = screen.getByRole('button', { name: /Verify Connection/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('Verify Connection button is enabled when fields are filled', () => {
+    it('Verify Connection button is enabled when fields are filled', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: 'localhost' } })
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.type(screen.getByLabelText('Agent host or IP'), 'localhost')
       const btn = screen.getByRole('button', { name: /Verify Connection/ })
       expect(btn.hasAttribute('disabled')).toBe(false)
     })
 
-    it('composes the plain-HTTP URL from host and port when Verify Connection is clicked', () => {
-      const onVerify = mock(() => {})
+    it('composes the plain-HTTP URL from host and port when Verify Connection is clicked', async () => {
+      const user = setupUser()
+      const onVerify = mock(() => undefined)
       render(<ManagedHostsCardView {...makeProps({ onVerify })} />)
-      enterHostName('  server1  ')
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: '  10.1.1.99  ' } })
-      fireEvent.change(screen.getByLabelText('Agent port'), { target: { value: '9191' } })
-      fireEvent.click(screen.getByRole('button', { name: /Verify Connection/ }))
+      await enterHostName(user, '  server1  ')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.type(screen.getByLabelText('Agent host or IP'), '  10.1.1.99  ')
+      await user.clear(screen.getByLabelText('Agent port'))
+      await user.type(screen.getByLabelText('Agent port'), '9191')
+      await user.click(screen.getByRole('button', { name: /Verify Connection/ }))
       expect(onVerify).toHaveBeenCalledTimes(1)
       expect(onVerify).toHaveBeenCalledWith(1, 'http://10.1.1.99:9191')
     })
 
-    it('Verify Connection button is disabled while isProvisioning', () => {
-      render(<ManagedHostsCardView {...makeProps({ isProvisioning: true })} />)
-      enterHostName()
-      // Navigate to verify step: capabilities -> compose -> configuration -> verify
-      // The Next button is not disabled by isProvisioning, only Back and Verify are
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Agent host or IP'), { target: { value: 'localhost' } })
+    it('Verify Connection button is disabled while isProvisioning', async () => {
+      const user = setupUser()
+      const { rerender } = render(<ManagedHostsCardView {...makeProps()} />)
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.type(screen.getByLabelText('Agent host or IP'), 'localhost')
+      rerender(<ManagedHostsCardView {...makeProps({ isProvisioning: true })} />)
       const btn = screen.getByRole('button', { name: /Verifying/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('shows the provisioning error with a re-run action on the verify step when provisionError is set', () => {
+    it('shows the provisioning error with a re-run action on the verify step when provisionError is set', async () => {
+      const user = setupUser()
       render(
         <ManagedHostsCardView {...makeProps({ provisionError: { message: 'Agent health check failed', retryUseless: false } })} />
       )
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText('Agent health check failed')).toBeDefined()
       expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
     })
 
-    it('does not show an error when provisionError is null', () => {
+    it('does not show an error when provisionError is null', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps({ provisionError: null })} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-verify')).toBeDefined()
       expect(screen.queryByText('Agent health check failed')).toBeNull()
     })
 
-    it('Back button goes to previous step', () => {
+    it('Back button goes to previous step', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-compose')).toBeDefined()
-      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+      await user.click(screen.getByRole('button', { name: 'Back' }))
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
     })
 
-    it('Reset button returns to first step', () => {
+    it('Reset button returns to first step', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Reset' }))
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
     })
 
-    it('references the key in the compose and puts the real key in the .env', () => {
+    it('references the key in the compose and puts the real key in the .env', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-compose').textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
       expect(screen.getByTestId('step-compose').textContent).not.toContain('wizard-key-x')
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-env').textContent).toContain('wizard-key-x')
     })
 
-    it('does not show the verify-step pubkey display: the key lives in the compose', () => {
+    it('does not show the verify-step pubkey display: the key lives in the compose', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      enterHostName()
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-verify')).toBeDefined()
       expect(screen.queryByTestId('pubkey-display')).toBeNull()
     })
   })
@@ -434,49 +470,56 @@ describe('ManagedHostsCard', () => {
       expect(screen.getByLabelText('edit host')).toBeDefined()
     })
 
-    it('opens edit dialog when edit button is clicked', () => {
+    it('opens edit dialog when edit button is clicked', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
-      fireEvent.click(screen.getByLabelText('edit host'))
+      await user.click(screen.getByLabelText('edit host'))
       expect(screen.getByRole('dialog')).toBeDefined()
       expect(screen.getByLabelText('Edit Host Name')).toBeDefined()
     })
 
-    it('pre-fills edit dialog with current host values', () => {
+    it('pre-fills edit dialog with current host values', async () => {
+      const user = setupUser()
       const host = makeHost({ name: 'myserver', agentUrl: 'http://10.0.0.1:9090' })
       render(<ManagedHostsCardView {...makeProps({ hosts: [host] })} />)
-      fireEvent.click(screen.getByLabelText('edit host'))
+      await user.click(screen.getByLabelText('edit host'))
       expect((screen.getByLabelText('Edit Host Name') as HTMLInputElement).value).toBe('myserver')
       expect((screen.getByLabelText('Edit Agent URL') as HTMLInputElement).value).toBe('http://10.0.0.1:9090')
     })
 
-    it('edit dialog does not have Socket Proxy URL field', () => {
+    it('edit dialog does not have Socket Proxy URL field', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
-      fireEvent.click(screen.getByLabelText('edit host'))
+      await user.click(screen.getByLabelText('edit host'))
       expect(screen.queryByLabelText('Edit Socket Proxy URL')).toBeNull()
     })
 
-    it('calls onUpdate with the unchanged name and edited URL when Save is clicked', () => {
-      const onUpdate = mock(() => {})
+    it('calls onUpdate with the unchanged name and edited URL when Save is clicked', async () => {
+      const user = setupUser()
+      const onUpdate = mock(() => Promise.resolve(true))
       const host = makeHost()
       render(<ManagedHostsCardView {...makeProps({ hosts: [host], onUpdate })} />)
-      fireEvent.click(screen.getByLabelText('edit host'))
-      fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: 'http://10.0.0.9:9090' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await user.click(screen.getByLabelText('edit host'))
+      await user.clear(screen.getByLabelText('Edit Agent URL'))
+      await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
       expect(onUpdate).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.9:9090')
     })
 
-    it('does not call onUpdate when Cancel is clicked', () => {
-      const onUpdate = mock(() => {})
+    it('does not call onUpdate when Cancel is clicked', async () => {
+      const user = setupUser()
+      const onUpdate = mock(() => Promise.resolve(true))
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
-      fireEvent.click(screen.getByLabelText('edit host'))
-      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      await user.click(screen.getByLabelText('edit host'))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
       expect(onUpdate).not.toHaveBeenCalled()
     })
 
-    it('Save button is disabled while isUpdating', () => {
+    it('Save button is disabled while isUpdating', async () => {
+      const user = setupUser()
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], isUpdating: true })} />)
-      fireEvent.click(screen.getByLabelText('edit host'))
-      // When isUpdating, the button shows CircularProgress instead of 'Save' text
+      await user.click(screen.getByLabelText('edit host'))
+      // While isUpdating the Save label is replaced by a Spinner, so find the button by elimination.
       const dialog = screen.getByRole('dialog')
       const buttons = Array.from(dialog.querySelectorAll('button'))
       const saveBtn = buttons.find((b) => b !== screen.getByRole('button', { name: 'Cancel' }))
@@ -485,6 +528,384 @@ describe('ManagedHostsCard', () => {
     })
   })
 
+})
+
+describe('ManagedHostsCard host actions', () => {
+  const hosts = [
+    makeHost({ id: 1, name: 'server1' }),
+    makeHost({ id: 2, name: 'server2', agentUrl: 'http://192.168.1.11:9090' }),
+  ]
+  const confirmDialog = () => screen.getByRole('dialog')
+  const dialogGone = () => waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
+
+  describe('per-row buttons act on their own host', () => {
+    it('checks the health of the second host', async () => {
+      const user = setupUser()
+      const onHealthCheck = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ hosts, onHealthCheck })} />)
+      await user.click(screen.getAllByLabelText('check health')[1])
+      expect(onHealthCheck).toHaveBeenCalledTimes(1)
+      expect(onHealthCheck).toHaveBeenCalledWith(2)
+    })
+
+    it('rotates TLS for the second host', async () => {
+      const user = setupUser()
+      const onRotateTls = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ hosts, onRotateTls })} />)
+      await user.click(screen.getAllByLabelText('rotate TLS')[1])
+      expect(onRotateTls).toHaveBeenCalledTimes(1)
+      expect(onRotateTls).toHaveBeenCalledWith(2)
+    })
+
+    it('opens the keypair dialog for the second host and asks to load its key', async () => {
+      const user = setupUser()
+      const onViewKeypair = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ hosts, onViewKeypair, keypairJwkJson: '{"kty":"OKP","x":"abc"}', keypairFingerprint: 'AB:CD:EF' })} />)
+      expect(screen.queryAllByRole('dialog').length).toBe(0)
+      await user.click(screen.getAllByLabelText('agent keypair')[1])
+      expect(within(confirmDialog()).getByText('Agent Keypair')).toBeDefined()
+      expect(within(confirmDialog()).getByText('server2')).toBeDefined()
+      expect(onViewKeypair).toHaveBeenCalledTimes(1)
+      expect(onViewKeypair).toHaveBeenCalledWith(2)
+      expect(screen.getByTestId('host-pubkey-display').textContent).toBe('{"kty":"OKP","x":"abc"}')
+      expect(screen.getByTestId('host-fingerprint-display').textContent).toBe('AB:CD:EF')
+    })
+
+    it('rotates the keypair of the host whose dialog is open after the confirming click', async () => {
+      const user = setupUser()
+      const onRotateKeypair = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ hosts, onRotateKeypair, keypairJwkJson: '{"kty":"OKP","x":"abc"}' })} />)
+      await user.click(screen.getAllByLabelText('agent keypair')[1])
+      await user.click(screen.getByRole('button', { name: 'Rotate keypair' }))
+      expect(onRotateKeypair).not.toHaveBeenCalled()
+      await user.click(screen.getByRole('button', { name: 'Confirm rotation' }))
+      expect(onRotateKeypair).toHaveBeenCalledTimes(1)
+      expect(onRotateKeypair).toHaveBeenCalledWith(2)
+    })
+
+    it('disables the keypair dialog actions while the keypair rotates', async () => {
+      const user = setupUser()
+      const view = render(<ManagedHostsCardView {...makeProps({ hosts, keypairJwkJson: '{"kty":"OKP","x":"abc"}' })} />)
+      await user.click(screen.getAllByLabelText('agent keypair')[0])
+      expect(screen.getByRole('button', { name: 'Close' }).hasAttribute('disabled')).toBe(false)
+      view.rerender(<ManagedHostsCardView {...makeProps({ hosts, keypairJwkJson: '{"kty":"OKP","x":"abc"}', keypairRotating: true })} />)
+      expect(screen.getByRole('button', { name: 'Close' }).hasAttribute('disabled')).toBe(true)
+    })
+
+    it('shows the loading state in the keypair dialog while the key loads', async () => {
+      const user = setupUser()
+      render(<ManagedHostsCardView {...makeProps({ hosts, keypairLoading: true })} />)
+      await user.click(screen.getAllByLabelText('agent keypair')[0])
+      expect(screen.getByText('Loading keypair…')).toBeDefined()
+    })
+
+    it('closes the keypair dialog with Close', async () => {
+      const user = setupUser()
+      render(<ManagedHostsCardView {...makeProps({ hosts })} />)
+      await user.click(screen.getAllByLabelText('agent keypair')[0])
+      await user.click(screen.getByRole('button', { name: 'Close' }))
+      await dialogGone()
+    })
+
+    it('opens the edit dialog for the second host and saves against its id', async () => {
+      const user = setupUser()
+      const onUpdate = mock(() => Promise.resolve(true))
+      render(<ManagedHostsCardView {...makeProps({ hosts, onUpdate })} />)
+      await user.click(screen.getAllByLabelText('edit host')[1])
+      expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await dialogGone()
+      expect(onUpdate).toHaveBeenCalledTimes(1)
+      expect(onUpdate).toHaveBeenCalledWith(2, 'server2', 'http://192.168.1.11:9090')
+    })
+
+    it('confirms removal of the second host by name and removes its id', async () => {
+      const user = setupUser()
+      const onRemove = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ hosts, onRemove })} />)
+      await user.click(screen.getAllByLabelText('remove host')[1])
+      expect(within(confirmDialog()).getByText('server2')).toBeDefined()
+      expect(within(confirmDialog()).queryAllByText('server1').length).toBe(0)
+      await user.click(screen.getByRole('button', { name: 'Remove' }))
+      expect(onRemove).toHaveBeenCalledTimes(1)
+      expect(onRemove).toHaveBeenCalledWith(2)
+    })
+  })
+
+  describe('row buttons while busy', () => {
+    const labels = ['check health', 'edit host', 'agent keypair', 'rotate TLS', 'remove host']
+
+    it('enables every row button when nothing is in flight', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      for (const label of labels) expect(screen.getByLabelText(label).hasAttribute('disabled')).toBe(false)
+    })
+
+    it.each([
+      ['a health check is running', { checkingHostIds: new Set([1]) }],
+      ['a removal is running', { isRemoving: true }],
+      ['a TLS rotation is running', { rotatingTlsHostIds: new Set([1]) }],
+    ])('disables every button of the host while %s', (_label, overrides) => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], ...overrides })} />)
+      for (const label of labels) expect(screen.getByLabelText(label).hasAttribute('disabled')).toBe(true)
+    })
+
+    it.each([
+      ['running a health check', { checkingHostIds: new Set([2]) }],
+      ['rotating TLS', { rotatingTlsHostIds: new Set([2]) }],
+    ])('leaves the other host\'s buttons enabled while the second host is %s', (_label, overrides) => {
+      render(<ManagedHostsCardView {...makeProps({ hosts, ...overrides })} />)
+      for (const label of labels) {
+        const [first, second] = screen.getAllByLabelText(label)
+        expect(first.hasAttribute('disabled')).toBe(false)
+        expect(second.hasAttribute('disabled')).toBe(true)
+      }
+    })
+  })
+
+  describe('dialogs', () => {
+    it('closes the remove dialog after Remove is confirmed', async () => {
+      const user = setupUser()
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      await user.click(screen.getByLabelText('remove host'))
+      await user.click(screen.getByRole('button', { name: 'Remove' }))
+      await dialogGone()
+    })
+
+    it('closes the remove dialog with Cancel and with Escape', async () => {
+      const user = setupUser()
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      await user.click(screen.getByLabelText('remove host'))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await dialogGone()
+      await user.click(screen.getByLabelText('remove host'))
+      expect(screen.getByRole('dialog')).toBeDefined()
+      await user.keyboard('{Escape}')
+      await dialogGone()
+    })
+
+    it('does not remove a host after the dialog was cancelled and reopened for another host', async () => {
+      const user = setupUser()
+      const onRemove = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ hosts, onRemove })} />)
+      await user.click(screen.getAllByLabelText('remove host')[0])
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await dialogGone()
+      await user.click(screen.getAllByLabelText('remove host')[1])
+      await user.click(screen.getByRole('button', { name: 'Remove' }))
+      expect(onRemove).toHaveBeenCalledTimes(1)
+      expect(onRemove).toHaveBeenCalledWith(2)
+    })
+
+    it('disables the remove dialog buttons while a removal is running', async () => {
+      const user = setupUser()
+      const view = render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      await user.click(screen.getByLabelText('remove host'))
+      expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(false)
+      expect(screen.getByRole('button', { name: 'Remove' }).hasAttribute('disabled')).toBe(false)
+      view.rerender(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], isRemoving: true })} />)
+      const cancelBtn = screen.getByRole('button', { name: 'Cancel' })
+      expect(cancelBtn.hasAttribute('disabled')).toBe(true)
+      const confirmBtn = within(confirmDialog()).getAllByRole('button').find((b) => b !== cancelBtn)!
+      expect(confirmBtn.hasAttribute('disabled')).toBe(true)
+    })
+
+    it('closes the edit dialog with Cancel and with Escape', async () => {
+      const user = setupUser()
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      await user.click(screen.getByLabelText('edit host'))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      await dialogGone()
+      await user.click(screen.getByLabelText('edit host'))
+      expect(screen.getByRole('dialog')).toBeDefined()
+      await user.keyboard('{Escape}')
+      await dialogGone()
+    })
+
+    it('keeps the edit dialog open while an update is running and disables its buttons', async () => {
+      const user = setupUser()
+      const view = render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      await user.click(screen.getByLabelText('edit host'))
+      view.rerender(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], isUpdating: true })} />)
+      expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true)
+      expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').disabled).toBe(true)
+    })
+
+    describe('after Save', () => {
+      function pendingUpdate() {
+        let settle: (saved: boolean) => void = () => undefined
+        const result = new Promise<boolean>((resolve) => { settle = resolve })
+        const onUpdate = mock<ManagedHostsCardProps['onUpdate']>(() => result)
+        const finish = (saved: boolean) => act(() => Promise.resolve(settle(saved)))
+        return { onUpdate, finish }
+      }
+
+      it('closes the edit dialog once the update succeeds, after a single onUpdate call', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+        await finish(true)
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+      })
+
+      it('calls onUpdate once when Save is double-clicked before the update settles', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.dblClick(screen.getByRole('button', { name: 'Save' }))
+        await finish(true)
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+      })
+
+      it('keeps the edit dialog open with the edited URL when the update fails, and lets the user retry', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.clear(screen.getByLabelText('Edit Agent URL'))
+        await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await finish(false)
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://10.0.0.9:9090')
+        onUpdate.mockImplementation(() => Promise.resolve(true))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(2)
+        expect(onUpdate).toHaveBeenLastCalledWith(1, 'server1', 'http://10.0.0.9:9090')
+      })
+
+      it('leaves the dialog of another host open when the first host\'s save finishes after the switch', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts, onUpdate })} />)
+        await user.click(screen.getAllByLabelText('edit host')[0])
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await user.keyboard('{Escape}')
+        await dialogGone()
+        await user.click(screen.getAllByLabelText('edit host')[1])
+        await finish(true)
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+      })
+
+      it('does not reopen or break anything when a save fails after the dialog was dismissed', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await user.keyboard('{Escape}')
+        await dialogGone()
+        await finish(false)
+        expect(screen.queryAllByRole('dialog')).toHaveLength(0)
+        onUpdate.mockImplementation(() => Promise.resolve(true))
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(2)
+      })
+
+      it('treats a rejected onUpdate as a failed save: the dialog stays open and a retry calls onUpdate again', async () => {
+        const user = setupUser()
+        const consoleError = spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+          const onUpdate = mock<ManagedHostsCardProps['onUpdate']>(() => Promise.reject(new Error('boom')))
+          render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+          await user.click(screen.getByLabelText('edit host'))
+          await user.click(screen.getByRole('button', { name: 'Save' }))
+          await waitFor(() => expect(consoleError).toHaveBeenCalledWith('Failed to update host', expect.any(Error)))
+          expect(screen.getAllByRole('dialog')).toHaveLength(1)
+          onUpdate.mockImplementation(() => Promise.resolve(true))
+          await user.click(screen.getByRole('button', { name: 'Save' }))
+          await dialogGone()
+          expect(onUpdate).toHaveBeenCalledTimes(2)
+        } finally {
+          consoleError.mockRestore()
+        }
+      })
+
+      it('keeps the edits and still closes on success when the host list refreshes while the dialog is open', async () => {
+        const user = setupUser()
+        const onUpdate = mock(() => Promise.resolve(true))
+        const view = render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.clear(screen.getByLabelText('Edit Agent URL'))
+        await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+        view.rerender(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ updatedAt: '2024-02-01T00:00:00.000Z' })], onUpdate })} />)
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://10.0.0.9:9090')
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.9:9090')
+      })
+
+      it('shows the host\'s current values when the dialog is reopened after a successful save', async () => {
+        const user = setupUser()
+        const onUpdate = mock(() => Promise.resolve(true))
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.clear(screen.getByLabelText('Edit Agent URL'))
+        await user.type(screen.getByLabelText('Edit Agent URL'), 'http://10.0.0.9:9090')
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        await user.click(screen.getByLabelText('edit host'))
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe('http://192.168.1.10:9090')
+      })
+    })
+  })
+
+  describe('add host wizard hand-offs', () => {
+    it('creates the pending host with the entered name and capabilities when Next reaches the Compose step', async () => {
+      const user = setupUser()
+      const onCreateHost = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ onCreateHost })} />)
+      await enterHostName(user, 'newbox')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(onCreateHost).toHaveBeenCalledTimes(1)
+      expect(onCreateHost).toHaveBeenCalledWith('newbox', { docker: true, zfs: false })
+    })
+
+    it('discards the pending host when the wizard is reset', async () => {
+      const user = setupUser()
+      const onDiscard = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ onDiscard })} />)
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Reset' }))
+      expect(onDiscard).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('step-capabilities')).toBeDefined()
+    })
+
+    it('cancels the verification when Cancel is clicked while provisioning', async () => {
+      const user = setupUser()
+      const onCancelVerify = mock(() => undefined)
+      render(<ManagedHostsCardView {...makeProps({ onCancelVerify, isProvisioning: true })} />)
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-verify')).toBeDefined()
+      await user.click(screen.getByTestId('cancel-provisioning'))
+      expect(onCancelVerify).toHaveBeenCalledTimes(1)
+    })
+
+    it('passes the keypair failure state and the creation flags through to the wizard', async () => {
+      const user = setupUser()
+      const view = render(<ManagedHostsCardView {...makeProps({ pendingHost: null })} />)
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      view.rerender(<ManagedHostsCardView {...makeProps({ pendingHost: null, isCreating: true })} />)
+      expect(screen.getByTestId('step-compose-loading')).toBeDefined()
+      view.rerender(<ManagedHostsCardView {...makeProps({ pendingHost: null, createError: 'Failed to generate agent keypair: disk full' })} />)
+      expect(screen.getByText('Failed to generate agent keypair: disk full')).toBeDefined()
+    })
+  })
 })
 
 describe('bucketHostsByAgentChannel', () => {
