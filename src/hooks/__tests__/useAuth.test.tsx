@@ -1,8 +1,10 @@
-import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, mock, beforeEach, spyOn, beforeAll, afterAll } from 'bun:test';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { focusManager } from '@tanstack/react-query';
 import '@/lib/test/testing-library';
 import { mockModule } from '@/lib/test/mock-module';
 import { clearSession } from '@/lib/test/session';
+import { queryClient } from '@/lib/query-client';
 import { SYNTHETIC_ADMIN, type AuthUser } from '@/lib/auth/types';
 import type * as AuthFunctions from '@/data/auth.functions';
 import type * as Router from '@tanstack/react-router';
@@ -35,6 +37,22 @@ function Probe({ id }: { id: number }) {
   );
 }
 
+function CanWriteProbe() {
+  return <span data-testid="can-write">{String(useCanWrite())}</span>;
+}
+
+function pastStaleTime() {
+  const later = Date.now() + 60_000;
+  return spyOn(Date, 'now').mockImplementation(() => later);
+}
+
+function refocusWindow() {
+  act(() => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+  });
+}
+
 function Page() {
   return (
     <>
@@ -49,6 +67,15 @@ async function settled(): Promise<string> {
 }
 
 describe('useAuth shared session', () => {
+  // The app mounts this client through the QueryClientProvider in __root.tsx, which is what subscribes it to window focus.
+  beforeAll(() => {
+    queryClient.mount();
+  });
+
+  afterAll(() => {
+    queryClient.unmount();
+  });
+
   beforeEach(() => {
     clearSession();
     mockGetSession.mockClear();
@@ -99,6 +126,72 @@ describe('useAuth shared session', () => {
     } finally {
       nowSpy.mockRestore();
     }
+  });
+
+  it('refetches for a page that only asks useCanWrite, so a session that expired since redirects to /login', async () => {
+    sessionResult = () => Promise.resolve(admin);
+    const first = render(<CanWriteProbe />);
+    await waitFor(() => expect(screen.getByTestId('can-write').textContent).toBe('true'));
+    first.unmount();
+
+    sessionResult = () => Promise.resolve(null);
+    const nowSpy = pastStaleTime();
+    try {
+      render(<CanWriteProbe />);
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: '/login' }));
+      expect(screen.getByTestId('can-write').textContent).toBe('false');
+      expect(mockGetSession).toHaveBeenCalledTimes(2);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('picks up a changed role when the window regains focus', async () => {
+    sessionResult = () => Promise.resolve(admin);
+    render(<Probe id={1} />);
+    expect(await settled()).toBe('admin|true|true');
+
+    sessionResult = () => Promise.resolve(viewer);
+    const nowSpy = pastStaleTime();
+    try {
+      refocusWindow();
+      await waitFor(() => expect(screen.getByTestId('probe-1').textContent).toBe('viewer|true|false'));
+      expect(mockGetSession).toHaveBeenCalledTimes(2);
+    } finally {
+      nowSpy.mockRestore();
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  it('keeps the signed-in session and stays put when a focus refetch fails', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    sessionResult = () => Promise.resolve(admin);
+    render(<Probe id={1} />);
+    expect(await settled()).toBe('admin|true|true');
+
+    sessionResult = () => Promise.reject(new Error('server restarting'));
+    const nowSpy = pastStaleTime();
+    try {
+      refocusWindow();
+      await waitFor(() => expect(errorSpy).toHaveBeenCalledTimes(1));
+      expect(mockGetSession).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('probe-1').textContent).toBe('admin|true|true');
+      expect(mockNavigate).not.toHaveBeenCalled();
+    } finally {
+      nowSpy.mockRestore();
+      errorSpy.mockRestore();
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  it('sends one getSession when a page mounts right after the first check for the app shell lands', async () => {
+    sessionResult = () => Promise.resolve(admin);
+    render(<Probe id={1} />);
+    expect(await settled()).toBe('admin|true|true');
+
+    render(<CanWriteProbe />);
+    expect(screen.getByTestId('can-write').textContent).toBe('true');
+    expect(mockGetSession).toHaveBeenCalledTimes(1);
   });
 
   it('redirects to /login when there is no session', async () => {
