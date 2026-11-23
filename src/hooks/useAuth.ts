@@ -33,7 +33,7 @@ const SESSION_STALE_MS = 5_000;
  * other consumer, such as a role-gated button, only reads it.
  */
 export function useSession({ page = false }: { page?: boolean } = {}): SessionState {
-  const { data, isPending, isError } = useQuery(
+  const { data, isPending, isLoadingError } = useQuery(
     {
       queryKey: SESSION_QUERY_KEY,
       queryFn: fetchSession,
@@ -47,7 +47,8 @@ export function useSession({ page = false }: { page?: boolean } = {}): SessionSt
     queryClient,
   );
   if (isPending) return { status: 'loading' };
-  if (isError) return { status: 'failed' };
+  // A refetch that fails keeps the last session: a restarting server or a network not yet up after sleep is not a logout.
+  if (isLoadingError) return { status: 'failed' };
   if (!data) return { status: 'signed-out' };
   if (data.id === SYNTHETIC_ADMIN.id) return { status: 'auth-disabled' };
   return { status: 'signed-in', user: data };

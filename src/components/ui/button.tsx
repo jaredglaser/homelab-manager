@@ -36,17 +36,18 @@ const buttonVariants = cva(
   },
 );
 
-type ButtonProps = ComponentProps<typeof ButtonPrimitive> & VariantProps<typeof buttonVariants>;
+type ButtonProps = ComponentProps<typeof ButtonPrimitive> &
+  VariantProps<typeof buttonVariants> & {
+    /** The role a click needs. Any other role gets the button disabled with the reason in a tooltip. */
+    requires?: RoleRequirement;
+    /** With `requires`: shown on hover while the role may use the button. The role reason replaces it otherwise. */
+    tooltip?: ReactNode;
+  };
 
-type RoleGatedButtonProps = ButtonProps & {
-  /** The role a click needs. Any other role gets the button disabled with the reason in a tooltip. */
-  requires: RoleRequirement;
-  /** Shown on hover while the role may use the button. The role reason replaces it otherwise. */
-  tooltip?: ReactNode;
-};
+type RoleGatedButtonProps = Omit<ButtonProps, 'requires'> & { requires: RoleRequirement };
 
-function Button(props: ButtonProps | RoleGatedButtonProps) {
-  if ('requires' in props) return <RoleGatedButton {...props} />;
+function Button({ requires, tooltip, ...props }: ButtonProps) {
+  if (requires !== undefined) return <RoleGatedButton requires={requires} tooltip={tooltip} {...props} />;
   const { className, variant, size, ...rest } = props;
   return (
     <ButtonPrimitive
@@ -67,6 +68,7 @@ function RoleGatedButton({
   ref,
   onPointerUp,
   onBlur,
+  'aria-describedby': describedBy,
   ...props
 }: RoleGatedButtonProps) {
   const access = useRoleAccess(requires);
@@ -101,7 +103,7 @@ function RoleGatedButton({
       className={cn(buttonVariants({ variant, size }), className)}
       disabled={disabled || roleBlocked}
       focusableWhenDisabled={roleBlocked}
-      aria-describedby={reason ? reasonId : undefined}
+      aria-describedby={[reason ? reasonId : null, describedBy].filter(Boolean).join(' ') || undefined}
       onPointerUp={(event) => {
         // Base UI opens a tooltip only for a mouse hover or a keyboard focus, so a touch tap would never show why.
         // Pointer up, because a disabled Base UI button swallows pointer down.

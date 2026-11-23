@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, afterEach } from 'bun:test';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@/lib/test/testing-library';
 import { Button } from '@/components/ui/button';
 import { OPERATOR_DENIED_COPY, VIEWER_DENIED_COPY } from '@/hooks/useAuth';
@@ -10,7 +10,7 @@ import type * as AuthFunctions from '@/data/auth.functions';
 
 mockModule<typeof AuthFunctions>('@/data/auth.functions', (real) => ({
   ...real,
-  getSession: () => new Promise(() => {}),
+  getSession: () => new Promise(() => undefined),
 }));
 
 describe('Button', () => {
@@ -106,14 +106,46 @@ describe('Button role requirement', () => {
     await waitFor(() => expect(openTooltip()).toBeNull());
   });
 
+  it('closes a tapped reason when the button loses focus', async () => {
+    seedSession('viewer');
+    render(<Button requires="write">Save</Button>);
+    const button = screen.getByRole('button', { name: 'Save' });
+    fireEvent.pointerUp(button, { pointerType: 'touch' });
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+
+    fireEvent.blur(button);
+    await waitFor(() => expect(openTooltip()).toBeNull());
+  });
+
+  it('keeps a caller aria-describedby alongside the role reason', () => {
+    seedSession('viewer');
+    render(<><p id="hint">Applies to every host</p><Button requires="write" aria-describedby="hint">Save</Button></>);
+    const ids = screen.getByRole('button', { name: 'Save' }).getAttribute('aria-describedby')?.split(' ') ?? [];
+    expect(ids).toContain('hint');
+    expect(ids.map((id) => document.getElementById(id)?.textContent)).toContain(VIEWER_DENIED_COPY);
+  });
+
+  it('treats requires={undefined} as no requirement', () => {
+    seedSession('viewer');
+    const onClick = mock(() => undefined);
+    render(<Button requires={undefined} onClick={onClick}>Save</Button>);
+    const button = screen.getByRole('button', { name: 'Save' });
+    expect(button.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
   it('opens no reason on a mouse press, which hover covers', async () => {
     seedSession('viewer');
-    render(<><Button requires="write">Save</Button><button type="button">other</button></>);
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Save' }), { pointerType: 'mouse' });
-    fireEvent.pointerUp(screen.getByRole('button', { name: 'Save' }), { pointerType: 'mouse' });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'other' }));
-    });
+    render(<Button requires="write">Save</Button>);
+    const button = screen.getByRole('button', { name: 'Save' });
+    fireEvent.pointerUp(button, { pointerType: 'touch' });
+    expect(openTooltip()).not.toBeNull();
+    fireEvent.pointerDown(document.body, { pointerType: 'touch' });
+    await waitFor(() => expect(openTooltip()).toBeNull());
+
+    fireEvent.pointerDown(button, { pointerType: 'mouse' });
+    fireEvent.pointerUp(button, { pointerType: 'mouse' });
     expect(openTooltip()).toBeNull();
   });
 
