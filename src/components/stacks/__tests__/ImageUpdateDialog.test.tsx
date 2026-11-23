@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { seedSession } from '@/lib/test/session';
+import { findOpenTooltip, seedSession } from '@/lib/test/session';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
@@ -7,6 +7,7 @@ import type { StackContainer } from '@/types/stacks';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 import { mockModule } from '@/lib/test/mock-module';
 import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
+import { setupUser } from '@/lib/test/user-event';
 
 const mockGetImageChangelog = mock(
   async (_opts: { data: { stack: string; host: string; image: string } }): Promise<ImageChangelog> => ({
@@ -468,12 +469,23 @@ describe('ImageUpdateDialog', () => {
     seedSession('viewer');
     renderDialog();
     await screen.findByText('v2.9.4');
+    const user = setupUser();
     const recheck = screen.getByRole('button', { name: 'Re-check' });
     expect(recheck.getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(recheck);
+    await user.hover(recheck);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
     expect(mockCheckImageUpdates).not.toHaveBeenCalled();
-    fireEvent.focus(recheck);
-    expect(await screen.findByText(VIEWER_DENIED_COPY)).toBeDefined();
+  });
+
+  it('lets an operator run Re-check', async () => {
+    seedSession('operator');
+    renderDialog();
+    await screen.findByText('v2.9.4');
+    const recheck = screen.getByRole('button', { name: 'Re-check' });
+    expect(recheck.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(recheck);
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1));
   });
 
   it('calls checkImageUpdates for this image when Re-check is clicked and stays open', async () => {

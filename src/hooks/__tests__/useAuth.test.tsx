@@ -23,6 +23,7 @@ mockModule<typeof Router>('@tanstack/react-router', (real) => ({
 const { useAuth, useCanWrite } = await import('@/hooks/useAuth');
 
 const viewer: AuthUser = { id: 3, email: 'viewer@example.com', name: 'Viewer', role: 'viewer' };
+const admin: AuthUser = { id: 4, email: 'admin@example.com', name: 'Admin', role: 'admin' };
 
 function Probe({ id }: { id: number }) {
   const { user, loading, authEnabled } = useAuth();
@@ -61,6 +62,43 @@ describe('useAuth shared session', () => {
     for (const id of [2, 3, 4, 5, 6]) expect(screen.getByTestId(`probe-${id}`).textContent).toBe('viewer|true|false');
     expect(mockGetSession).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('refetches on the next page mount, so a session that expired since redirects to /login', async () => {
+    sessionResult = () => Promise.resolve(admin);
+    const first = render(<Page />);
+    expect(await settled()).toBe('admin|true|true');
+    first.unmount();
+    expect(mockGetSession).toHaveBeenCalledTimes(1);
+
+    sessionResult = () => Promise.resolve(null);
+    const later = Date.now() + 60_000;
+    const nowSpy = spyOn(Date, 'now').mockImplementation(() => later);
+    try {
+      render(<Page />);
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: '/login' }));
+      expect(screen.getByTestId('probe-1').textContent).toBe('none|true|false');
+      expect(mockGetSession).toHaveBeenCalledTimes(2);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('picks up a changed role on the next page mount', async () => {
+    sessionResult = () => Promise.resolve(admin);
+    const first = render(<Probe id={1} />);
+    expect(await settled()).toBe('admin|true|true');
+    first.unmount();
+
+    sessionResult = () => Promise.resolve(viewer);
+    const later = Date.now() + 60_000;
+    const nowSpy = spyOn(Date, 'now').mockImplementation(() => later);
+    try {
+      render(<Probe id={1} />);
+      await waitFor(() => expect(screen.getByTestId('probe-1').textContent).toBe('viewer|true|false'));
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('redirects to /login when there is no session', async () => {

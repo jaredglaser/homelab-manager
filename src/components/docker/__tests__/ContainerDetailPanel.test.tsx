@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { seedSession } from '@/lib/test/session';
+import { findOpenTooltip, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import type { ComponentProps } from 'react';
@@ -95,12 +96,13 @@ describe('ContainerDetailPanel', () => {
   it('disables the Icon control for a viewer with the role reason, and a click opens no picker', async () => {
     seedSession('viewer');
     renderPanel();
+    const user = setupUser();
     const icon = screen.getByRole('button', { name: 'Icon' });
     expect(icon.getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(icon);
+    await user.hover(icon);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
     expect(screen.queryByRole('dialog')).toBeNull();
-    fireEvent.focus(icon);
-    expect((await screen.findByText(VIEWER_DENIED_COPY)).textContent).toBe(VIEWER_DENIED_COPY);
   });
 
   it.each(['admin', 'operator'] as const)('opens the icon picker for an %s', async (role) => {
