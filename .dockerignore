@@ -15,7 +15,6 @@ e2e-build
 .github
 .vscode
 .claude
-.codex
 *.log
 
 # Secrets and local runtime state (supplied at runtime via env or volume mounts)
