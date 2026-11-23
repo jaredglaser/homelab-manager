@@ -4,6 +4,7 @@ import '@/lib/test/testing-library';
 import { RoleGate } from '@/components/ui/role-gate';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { OPERATOR_DENIED_COPY, VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { clearSession, findOpenTooltip, openTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
 import { setupUser } from '@/lib/test/user-event';
@@ -97,5 +98,29 @@ describe('RoleGate', () => {
     await setupUser().hover(group);
     expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
     expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it('keeps a blocked select trigger from drawing its open ring while the reason tooltip is open', async () => {
+    seedSession('viewer');
+    render(
+      <Select readOnly value="a">
+        <RoleGate requires="write">
+          {(blocked) => (
+            <SelectTrigger aria-label="Memory Display" aria-disabled={blocked || undefined}>
+              <SelectValue />
+            </SelectTrigger>
+          )}
+        </RoleGate>
+        <SelectContent>
+          <SelectItem value="a">A</SelectItem>
+        </SelectContent>
+      </Select>,
+    );
+    const trigger = screen.getByRole('combobox', { name: 'Memory Display' });
+    await setupUser().hover(trigger);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(trigger.hasAttribute('data-popup-open')).toBe(true);
+    expect(trigger.className).toContain('aria-disabled:data-[popup-open]:ring-0');
+    expect(trigger.className).toContain('aria-disabled:data-[popup-open]:border-foreground/25');
   });
 });

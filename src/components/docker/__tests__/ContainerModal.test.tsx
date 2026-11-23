@@ -139,6 +139,13 @@ describe('ContainerModal', () => {
     expect(screen.getByTestId('log-viewer').closest('.hidden')).toBeNull();
   });
 
+  it.each(['admin', 'operator'] as const)('opens an %s straight on the Terminal tab when asked', (role) => {
+    seedSession(role);
+    renderModal({ initialTab: 'terminal' });
+    expect(screen.getByTestId('terminal').closest('.hidden')).toBeNull();
+    expect(screen.getByTestId('log-viewer').closest('.hidden')).not.toBeNull();
+  });
+
   it.each(['admin', 'operator'] as const)('lets an %s open the Terminal tab', async (role) => {
     seedSession(role);
     renderModal();
