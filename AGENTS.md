@@ -27,7 +27,7 @@
 - Always target the correct base branch; never target `main` for a mid-stack PR.
 
 **Coverage verification:**
-- Coverage percentages differ between local and CI (some tests skip in CI). Use `gh run view` or `gh pr checks` to verify pipeline results, not just local `bun test`.
+- Coverage percentages differ between local and CI (some tests skip in CI). Use `gh run view` or `gh pr checks` to verify pipeline results, not just local `bun test`. In a Claude Code cloud session `gh pr checks` fails, because GitHub GraphQL is blocked there: use `gh run view <run id>` or `gh api repos/jaredglaser/homelab-manager/commits/<sha>/check-runs`.
 
 ## Commands
 
@@ -271,4 +271,5 @@ Env vars documented in `.env.example`. `.env` sets `POSTGRES_HOST=localhost` for
 
 ## Agent-Specific Notes
 
+- **Claude Code** reads `CLAUDE.md`, which imports this file. Shared config lives under `.claude/`: the `orchestrate` skill, the `pr-owner` agent, and a SessionStart hook that only acts in cloud sessions. Everything else in `.claude/` is gitignored. Cloud environment setup is in [docs/cloud-environment.md](docs/cloud-environment.md).
 - **Zed** reads this file natively as project instructions. Project settings and tasks live under `.zed/`. MCP servers are the one exception Zed configures at the user level, not per project; the snippet in [docs/development.md](docs/development.md) matches your local `.mcp.json` (gitignored, not committed).
