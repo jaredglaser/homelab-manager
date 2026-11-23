@@ -121,6 +121,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
           {showApprovalActions && onApprove !== undefined && (
             <Button
+              requires="write"
               size="sm"
               className="text-xs h-6 px-2 ml-1"
               onClick={(e) => {
@@ -135,6 +136,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
           )}
           {showApprovalActions && onReject !== undefined && (
             <Button
+              requires="write"
               size="sm"
               variant="outline"
               className="text-xs h-6 px-2 ml-1 text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5"
@@ -151,6 +153,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
           {canRollback && (
             <Button
+              requires="write"
               size="sm"
               variant="outline"
               className="text-xs h-6 px-2 ml-1 border-destructive text-destructive hover:bg-destructive/10"

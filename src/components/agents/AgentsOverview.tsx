@@ -7,7 +7,6 @@ import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy'
 import { hostFailureDetail, hostFailureMessage } from '@/lib/errors/host-failure-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
-import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/hooks/toastAtom'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -32,7 +31,6 @@ export type AgentsOverviewProps = {
   agents: AgentInventoryEntry[]
   isLoading: boolean
   isError: boolean
-  isAdmin: boolean
   busyByHost: Record<number, 'update' | undefined>
   feedbackByHost: Record<number, AgentRowFeedback>
   onUpdate: (hostId: number) => void
@@ -104,13 +102,11 @@ function AgentFailure({ failure }: { failure: NonNullable<AgentInventoryEntry['f
 
 function AgentRow({
   agent,
-  isAdmin,
   busy,
   feedback,
   onUpdate,
 }: {
   agent: AgentInventoryEntry
-  isAdmin: boolean
   busy: 'update' | undefined
   feedback: AgentRowFeedback | undefined
   onUpdate: () => void
@@ -130,23 +126,17 @@ function AgentRow({
           {agent.status !== 'online' && agent.failure && <AgentFailure failure={agent.failure} />}
         </div>
         <div className="flex items-center gap-4 shrink-0">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!isAdmin || busy !== undefined}
-                  onClick={onUpdate}
-                  aria-label={`Update ${agent.name}`}
-                />
-              }
-            >
-              {busy === 'update' ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
-              <span className="ml-1">Update</span>
-            </TooltipTrigger>
-            {!isAdmin && <TooltipContent>Admins only</TooltipContent>}
-          </Tooltip>
+          <Button
+            requires="admin"
+            size="sm"
+            variant="outline"
+            disabled={busy !== undefined}
+            onClick={onUpdate}
+            aria-label={`Update ${agent.name}`}
+          >
+            {busy === 'update' ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
+            <span className="ml-1">Update</span>
+          </Button>
         </div>
       </div>
       {feedback && (
@@ -172,7 +162,6 @@ export function AgentsOverviewView({
   agents,
   isLoading,
   isError,
-  isAdmin,
   busyByHost,
   feedbackByHost,
   onUpdate,
@@ -231,7 +220,6 @@ export function AgentsOverviewView({
         <AgentRow
           key={agent.id}
           agent={agent}
-          isAdmin={isAdmin}
           busy={busyByHost[agent.id]}
           feedback={feedbackByHost[agent.id]}
           onUpdate={() => onUpdate(agent.id)}
@@ -257,8 +245,6 @@ function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): 
 export default function AgentsOverview() {
   const queryClient = useQueryClient()
   const { showToast } = useToast()
-  const { user, loading: authLoading, authEnabled } = useAuth()
-  const isAdmin = !authLoading && (!authEnabled || user?.role === 'admin')
   const [busyByHost, setBusyByHost] = useState<Record<number, 'update' | undefined>>({})
   const [feedbackByHost, setFeedbackByHost] = useState<Record<number, AgentRowFeedback>>({})
 
@@ -310,7 +296,6 @@ export default function AgentsOverview() {
         agents={agents}
         isLoading={isLoading}
         isError={isError}
-        isAdmin={isAdmin}
         busyByHost={busyByHost}
         feedbackByHost={feedbackByHost}
         onUpdate={(hostId) => updateMutation.mutate(hostId)}

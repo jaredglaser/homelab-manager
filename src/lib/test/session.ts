@@ -26,3 +26,9 @@ export async function findOpenTooltip(): Promise<string> {
 export function openTooltip(): Element | null {
   return document.querySelector('[data-slot="tooltip-content"]');
 }
+
+/** The role reason a blocked control announces through `aria-describedby`, readable without opening its tooltip. */
+export function roleReasonOf(element: Element): string | null {
+  const ids = element.getAttribute('aria-describedby')?.split(' ') ?? [];
+  return ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ').trim() || null;
+}

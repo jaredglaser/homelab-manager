@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test'
-import { findOpenTooltip, seedSession } from '@/lib/test/session'
-import { VIEWER_DENIED_COPY } from '@/hooks/useAuth'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session'
+import { OPERATOR_DENIED_COPY, VIEWER_DENIED_COPY } from '@/hooks/useAuth'
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { setupUser, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
@@ -258,6 +258,68 @@ describe('ManagedHostsCardConnected health check role', () => {
     await screen.findByText('server1')
     await user.click(screen.getByLabelText('check health'))
     await waitFor(() => expect(healthCheckCalls).toEqual([1]))
+  })
+})
+
+describe('ManagedHostsCardConnected admin-only actions', () => {
+  const ADMIN_ONLY_ROW_ACTIONS = ['edit host', 'remove host', 'agent keypair', 'rotate TLS']
+
+  it.each([
+    ['operator', OPERATOR_DENIED_COPY],
+    ['viewer', VIEWER_DENIED_COPY],
+  ] as const)('disables Edit, Remove, Keypair, Rotate TLS and Add Host for the %s role with its reason, and clicking them opens and sends nothing', async (role, copy) => {
+    seedSession(role)
+    const user = setupUser()
+    renderCard()
+    await screen.findByText('server1')
+    fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'newhost' } })
+    const controls = [...ADMIN_ONLY_ROW_ACTIONS.map((label) => screen.getByLabelText(label)), screen.getByRole('button', { name: 'Next' })]
+    for (const control of controls) {
+      expect(control.getAttribute('aria-disabled')).toBe('true')
+      expect(roleReasonOf(control)).toBe(copy)
+      fireEvent.click(control)
+    }
+
+    await user.hover(screen.getByLabelText('edit host'))
+    expect(await findOpenTooltip()).toBe(copy)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByLabelText('Host Name')).toBeDefined()
+    expect(updateHostCalls).toEqual([])
+    expect(removeHostCalls).toEqual([])
+    expect(keypairCalls).toEqual([])
+    expect(rotateTlsCalls).toEqual([])
+    expect(createPendingHostCalls).toEqual([])
+  })
+
+  it('lets an admin use Edit, Remove, Keypair, Rotate TLS and Add Host', async () => {
+    const user = setupUser()
+    renderCard()
+    await screen.findByText('server1')
+    for (const label of ADMIN_ONLY_ROW_ACTIONS) {
+      expect(screen.getByLabelText(label).getAttribute('aria-disabled')).toBeNull()
+    }
+
+    await user.click(screen.getByLabelText('edit host'))
+    expect(await screen.findByText('Edit Host')).toBeDefined()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await user.click(screen.getByLabelText('remove host'))
+    expect(await screen.findByText('Remove Host')).toBeDefined()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await user.click(screen.getByLabelText('agent keypair'))
+    await waitFor(() => expect(keypairCalls).toEqual([{ op: 'view', hostId: 1 }]))
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await user.click(screen.getByLabelText('rotate TLS'))
+    await waitFor(() => expect(rotateTlsCalls.map((call) => call.data.hostId)).toEqual([1]))
+
+    await user.type(screen.getByLabelText('Host Name'), 'newhost')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(createPendingHostCalls).toEqual([{ name: 'newhost' }]))
   })
 })
 

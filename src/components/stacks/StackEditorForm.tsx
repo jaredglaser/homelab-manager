@@ -4,7 +4,6 @@ import { FormProvider, useForm, useFormState } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Settings2 } from 'lucide-react'
 import { useStackStatusContext } from '@/components/stacks/stacks-context'
 import { useToast } from '@/hooks/toastAtom'
@@ -404,22 +403,17 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
               {detail.deployMode === 'auto' ? 'Auto Deploy' : 'Manual Deploy'}
             </span>
           </div>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-foreground"
-                  onClick={() => setSettingsDialogOpen(true)}
-                  aria-label="stack settings"
-                />
-              }
-            >
-              <Settings2 size={16} />
-            </TooltipTrigger>
-            <TooltipContent>Stack settings</TooltipContent>
-          </Tooltip>
+          <Button
+            requires="write"
+            tooltip="Stack settings"
+            variant="ghost"
+            size="icon-sm"
+            className="text-foreground"
+            onClick={() => setSettingsDialogOpen(true)}
+            aria-label="stack settings"
+          >
+            <Settings2 size={16} />
+          </Button>
         </div>
 
         {driftItem && (

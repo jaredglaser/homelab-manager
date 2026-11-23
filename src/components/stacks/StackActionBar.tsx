@@ -42,7 +42,7 @@ export default function StackActionBar({
   const blocked = isDeploying || activeDeploy !== null;
   return (
     <div className="flex items-center gap-2">
-      <Button size="sm" disabled={blocked} onClick={onDeploy}>
+      <Button requires="write" size="sm" disabled={blocked} onClick={onDeploy}>
         {isDeploying ? <Spinner className="size-3.5 text-inherit" /> : <Play size={14} />}
         Deploy
       </Button>
@@ -60,6 +60,7 @@ export default function StackActionBar({
       </Button>
 
       <Button
+        requires="write"
         variant="outline"
         size="sm"
         disabled={blocked}
@@ -79,6 +80,7 @@ export default function StackActionBar({
 
       <div className="ml-auto">
         <Button
+          requires="write"
           variant="outline"
           size="sm"
           disabled={blocked}

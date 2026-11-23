@@ -1,4 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FormProvider, useForm } from 'react-hook-form';
@@ -51,6 +54,10 @@ async function renderPanel(stackName = 'mystack', composeVariables: string[] = [
     { wrapper: createWrapper() },
   );
 }
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('VariablesPanel', () => {
   beforeEach(() => {
@@ -133,6 +140,21 @@ describe('VariablesPanel', () => {
 
     fireEvent.click(screen.getByLabelText('Hide all values'));
     expect(dbInput.type).toBe('password');
+  });
+
+  it('shows a viewer Save changes disabled with the role reason on an edited field, and a click writes nothing', async () => {
+    seedSession('viewer');
+    mockGetValues.mockImplementation(() => Promise.resolve({ API_KEY: 'original-value' }));
+    await renderPanel();
+    await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('API_KEY value').value).toBe('original-value'));
+    fireEvent.change(screen.getByLabelText('API_KEY value'), { target: { value: 'new-value' } });
+    const saveBtn = screen.getByRole('button', { name: /save changes/i });
+    expect(saveBtn.getAttribute('aria-disabled')).toBe('true');
+    expect(roleReasonOf(saveBtn)).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(saveBtn);
+    await setupUser().hover(saveBtn);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(mockSetSecret).not.toHaveBeenCalled();
   });
 
   it('fields are editable without revealing and Save changes persists edits', async () => {

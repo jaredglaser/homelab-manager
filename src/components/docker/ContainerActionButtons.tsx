@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import IconTooltip from '@/components/docker/IconTooltip';
 import { Play, Square, RotateCcw } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { useToast } from '@/hooks/toastAtom';
@@ -56,54 +55,54 @@ export default function ContainerActionButtons({
 
   return (
     <div className="flex items-center gap-0.5">
-      <IconTooltip label="Start">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="p-1!"
-          disabled={isRunning || isPending}
-          onClick={() => trigger('start')}
-          aria-label="Start container"
-        >
-          {pendingAction === 'start' ? (
-            <Spinner className="size-3.5 text-current" />
-          ) : (
-            <Play size={14} />
-          )}
-        </Button>
-      </IconTooltip>
-      <IconTooltip label="Stop">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={`p-1! ${isRunning && !isPending ? 'text-destructive' : ''}`}
-          disabled={!isRunning || isPending}
-          onClick={() => trigger('stop')}
-          aria-label="Stop container"
-        >
-          {pendingAction === 'stop' ? (
-            <Spinner className="size-3.5 text-current" />
-          ) : (
-            <Square size={14} />
-          )}
-        </Button>
-      </IconTooltip>
-      <IconTooltip label="Restart">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="p-1!"
-          disabled={!isRunning || isPending}
-          onClick={() => trigger('restart')}
-          aria-label="Restart container"
-        >
-          {pendingAction === 'restart' ? (
-            <Spinner className="size-3.5 text-current" />
-          ) : (
-            <RotateCcw size={14} />
-          )}
-        </Button>
-      </IconTooltip>
+      <Button
+        requires="write"
+        tooltip="Start"
+        variant="ghost"
+        size="icon-sm"
+        className="p-1!"
+        disabled={isRunning || isPending}
+        onClick={() => trigger('start')}
+        aria-label="Start container"
+      >
+        {pendingAction === 'start' ? (
+          <Spinner className="size-3.5 text-current" />
+        ) : (
+          <Play size={14} />
+        )}
+      </Button>
+      <Button
+        requires="write"
+        tooltip="Stop"
+        variant="ghost"
+        size="icon-sm"
+        className={`p-1! ${isRunning && !isPending ? 'text-destructive' : ''}`}
+        disabled={!isRunning || isPending}
+        onClick={() => trigger('stop')}
+        aria-label="Stop container"
+      >
+        {pendingAction === 'stop' ? (
+          <Spinner className="size-3.5 text-current" />
+        ) : (
+          <Square size={14} />
+        )}
+      </Button>
+      <Button
+        requires="write"
+        tooltip="Restart"
+        variant="ghost"
+        size="icon-sm"
+        className="p-1!"
+        disabled={!isRunning || isPending}
+        onClick={() => trigger('restart')}
+        aria-label="Restart container"
+      >
+        {pendingAction === 'restart' ? (
+          <Spinner className="size-3.5 text-current" />
+        ) : (
+          <RotateCcw size={14} />
+        )}
+      </Button>
     </div>
   );
 }

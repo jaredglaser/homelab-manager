@@ -1,4 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFormContext } from 'react-hook-form';
@@ -150,6 +153,10 @@ async function renderForm() {
   const result = render(ui(detail));
   return { ...result, queryClient, rerenderWith: (d: StackDetail) => result.rerender(ui(d)) };
 }
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('StackEditorForm', () => {
   beforeEach(() => {
@@ -680,6 +687,25 @@ describe('StackEditorForm', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'rollback-err' }));
     expect(mockShowToast).toHaveBeenCalledWith('rollback boom', 'error');
+  });
+
+  it('shows a viewer Stack settings disabled with the role reason, and a click opens nothing', async () => {
+    seedSession('viewer');
+    await renderForm();
+    const settings = screen.getByRole('button', { name: 'stack settings' });
+    expect(settings.getAttribute('aria-disabled')).toBe('true');
+    expect(roleReasonOf(settings)).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(settings);
+    await setupUser().hover(settings);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(screen.queryByRole('button', { name: 'settings-save' })).toBeNull();
+  });
+
+  it('lets an operator open Stack settings', async () => {
+    seedSession('operator');
+    await renderForm();
+    fireEvent.click(screen.getByRole('button', { name: 'stack settings' }));
+    expect(await screen.findByRole('button', { name: 'settings-save' })).toBeDefined();
   });
 
   it('saves stack settings from the settings dialog', async () => {

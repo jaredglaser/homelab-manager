@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { seedSession } from '@/lib/test/session';
+import { roleReasonOf, seedSession } from '@/lib/test/session';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
@@ -130,6 +130,43 @@ describe('StackContainersPanel', () => {
       releases: [],
       error: null,
     }));
+  });
+
+  const STACK_CONTROLS = ['Start', 'Stop', 'Restart', 'Recreate'];
+  const SERVICE_CONTROLS = ['Start web', 'Stop web', 'Restart web', 'Start db', 'Stop db', 'Restart db'];
+
+  it('shows a viewer the stack and service Start, Stop, Restart and Recreate disabled with the role reason, and clicking them calls nothing', async () => {
+    seedSession('viewer');
+    renderPanel();
+    for (const name of [...STACK_CONTROLS, ...SERVICE_CONTROLS]) {
+      const button = screen.getByRole('button', { name });
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(roleReasonOf(button)).toBe(VIEWER_DENIED_COPY);
+      fireEvent.click(button);
+    }
+
+    // Logs opens for a viewer, so its awaited render shows the clicks above had their turn.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Logs' })[0]);
+    await screen.findByTestId('log-viewer');
+    expect(mockControlStack).not.toHaveBeenCalled();
+    expect(screen.queryByText('Recreate plex?')).toBeNull();
+    expect(mockOnRecreate).not.toHaveBeenCalled();
+  });
+
+  it.each(['admin', 'operator'] as const)('lets an %s run the stack and service controls and open Recreate', async (role) => {
+    seedSession(role);
+    renderPanel();
+    for (const name of [...STACK_CONTROLS, ...SERVICE_CONTROLS]) {
+      expect(screen.getByRole('button', { name }).getAttribute('aria-disabled')).toBeNull();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(mockControlStack).toHaveBeenCalledWith({ data: { stack: 'plex', host: 'server1', action: 'stop', scope: 'stack' } }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart web' })).toHaveProperty('disabled', false));
+    fireEvent.click(screen.getByRole('button', { name: 'Restart web' }));
+    await waitFor(() => expect(mockControlStack).toHaveBeenCalledWith({ data: { stack: 'plex', host: 'server1', action: 'restart', scope: 'service', service: 'web' } }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Recreate' })).toHaveProperty('disabled', false));
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate' }));
+    expect(await screen.findByText('Recreate plex?')).toBeDefined();
   });
 
   it('renders container names and statuses', () => {

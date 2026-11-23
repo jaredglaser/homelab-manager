@@ -101,7 +101,7 @@ export default function StacksOverview() {
         <div className="flex flex-col items-center justify-center h-64 gap-3">
           <Layers size={40} className="opacity-20" />
           <p className="text-base opacity-50">No stacks yet.</p>
-          <Button variant="outline" size="sm" onClick={openDialog}>
+          <Button requires="write" variant="outline" size="sm" onClick={openDialog}>
             <Plus size={14} />
             New stack
           </Button>
@@ -117,7 +117,7 @@ export default function StacksOverview() {
         {driftSummary}
         <div className="flex items-center justify-between mb-4">
           <h6 className="text-xl font-medium">Stacks Overview</h6>
-          <Button variant="outline" size="sm" onClick={openDialog}>
+          <Button requires="write" variant="outline" size="sm" onClick={openDialog}>
             <Plus size={14} />
             New stack
           </Button>
