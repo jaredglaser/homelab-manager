@@ -23,4 +23,8 @@ fi
   wait
 ) > /tmp/hlm-setup-images.log 2>&1 &
 wait
+
+# Stopped so the environment snapshot holds no pid file or socket from a daemon that is gone.
+pkill -x dockerd
+for _ in $(seq 1 20); do pgrep -x dockerd >/dev/null || break; sleep 1; done
 exit 0
