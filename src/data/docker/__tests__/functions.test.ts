@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser, Role } from '@/lib/auth/types';
-import { withStartContext } from '@/lib/test/start-context';
+import { withStartContext, runRoleMiddlewareOnClientPath } from '@/lib/test/start-context';
 import { mockModule } from '@/lib/test/mock-module';
 import { ForbiddenError } from '@/lib/auth/require-role';
 import type * as AuthMiddleware from '@/middleware/auth-middleware';
@@ -20,6 +20,8 @@ async function withRole<T>(role: Role, run: () => Promise<T>): Promise<T> {
 }
 
 type Next = (opts: { sendContext?: unknown; context?: unknown }) => unknown;
+
+runRoleMiddlewareOnClientPath();
 
 mockModule<typeof AuthMiddleware>('@/middleware/auth-middleware', (real) => ({ ...real,
   authMiddleware: {

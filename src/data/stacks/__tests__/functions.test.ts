@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
-import { withStartContext } from '@/lib/test/start-context';
+import { withStartContext, runRoleMiddlewareOnClientPath } from '@/lib/test/start-context';
 import * as requireRoleModule from '@/lib/auth/require-role';
 import { mockModule } from '@/lib/test/mock-module';
 import type * as ManualCheck from '@/lib/image-updates/manual-check';
@@ -26,6 +26,8 @@ async function withUser<T>(user: AuthUser, run: () => Promise<T>): Promise<T> {
     activeUser = SYNTHETIC_ADMIN;
   }
 }
+
+runRoleMiddlewareOnClientPath();
 
 mockModule<typeof import('@/middleware/auth-middleware')>('@/middleware/auth-middleware', (real) => ({ ...real, 
   authMiddleware: {

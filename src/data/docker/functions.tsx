@@ -3,7 +3,7 @@ import type { DockerStatsRow } from '@/types/docker';
 import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { databaseMiddleware } from '@/middleware/database-middleware';
 import { authMiddleware } from '@/middleware/auth-middleware';
-import { requireRole } from '@/lib/auth/require-role';
+import { roleMiddleware } from '@/lib/auth/role-middleware';
 import {
   getHistoricalDockerStatsSchema,
   getContainerHistorySchema,
@@ -16,7 +16,7 @@ import {
  * Get historical Docker stats (wide rows) for preloading.
  */
 export const getHistoricalDockerStats = createServerFn()
-  .middleware([authMiddleware, databaseMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer'), databaseMiddleware])
   .validator(getHistoricalDockerStatsSchema)
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
@@ -39,7 +39,7 @@ export const getHistoricalDockerStats = createServerFn()
  * Icons are stored under the service_key entity so they survive container recreation.
  */
 export const getDockerEntityIcons = createServerFn()
-  .middleware([authMiddleware, databaseMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer'), databaseMiddleware])
   .handler(async ({ context }): Promise<Record<string, { iconSlug: string | null; serviceKeyEntity: string }>> => {
     try {
       const { EntityMetadataRepository } = await import(
@@ -56,7 +56,7 @@ export const getDockerEntityIcons = createServerFn()
   });
 
 export const getContainerHistory = createServerFn()
-  .middleware([authMiddleware, databaseMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer'), databaseMiddleware])
   .validator(getContainerHistorySchema)
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
@@ -99,10 +99,9 @@ export const getContainerHistory = createServerFn()
  * Stores the icon slug under the service_key entity so it persists across container recreations.
  */
 export const controlContainer = createServerFn({ method: 'POST' })
-  .middleware([authMiddleware, databaseMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator'), databaseMiddleware])
   .validator(controlContainerSchema)
   .handler(async ({ context, data }): Promise<void> => {
-    requireRole('admin', 'operator')(context.user);
     const { HostRepository } = await import('@/lib/database/repositories/host-repository');
     const { AgentClient } = await import('@/lib/clients/agent-client');
     const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
@@ -138,10 +137,9 @@ export const controlContainer = createServerFn({ method: 'POST' })
   });
 
 export const updateContainerIcon = createServerFn()
-  .middleware([authMiddleware, databaseMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator'), databaseMiddleware])
   .validator(updateContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
-    requireRole('admin', 'operator')(context.user);
     const { EntityMetadataRepository } = await import(
       '@/lib/database/repositories/entity-metadata-repository'
     );
@@ -151,10 +149,9 @@ export const updateContainerIcon = createServerFn()
   });
 
 export const clearContainerIcon = createServerFn()
-  .middleware([authMiddleware, databaseMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator'), databaseMiddleware])
   .validator(clearContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
-    requireRole('admin', 'operator')(context.user);
     const { EntityMetadataRepository } = await import(
       '@/lib/database/repositories/entity-metadata-repository'
     );

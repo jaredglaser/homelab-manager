@@ -4,7 +4,7 @@ import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import { removeHostSchema, checkHostHealthSchema, createPendingHostSchema, updateHostSchema, getHostPublicJwkSchema, rotateHostKeypairSchema, rotateHostTlsSchema, updateAgentSchema } from '@/data/hosts/schemas';
 import { authMiddleware } from '@/middleware/auth-middleware';
-import { requireRole } from '@/lib/auth/require-role';
+import { roleMiddleware } from '@/lib/auth/role-middleware';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
   handleUpdateHost, handleCreatePendingHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair, handleRotateHostTls,
@@ -141,10 +141,9 @@ function makeProvisionTls(
 }
 
 export const createPendingHost = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(createPendingHostSchema)
-  .handler(async ({ data, context }): Promise<{ host: HostListItem; publicJwk: import('jose').JWK }> => {
-    requireRole('admin')(context.user);
+  .handler(async ({ data }): Promise<{ host: HostListItem; publicJwk: import('jose').JWK }> => {
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     return handleCreatePendingHost({
@@ -154,10 +153,9 @@ export const createPendingHost = createServerFn()
   });
 
 export const removeHost = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(removeHostSchema)
-  .handler(async ({ data, context }): Promise<{ success: boolean }> => {
-    requireRole('admin')(context.user);
+  .handler(async ({ data }): Promise<{ success: boolean }> => {
     const baseDeps = await loadDeps();
     return handleRemoveHost({
       ...baseDeps,
@@ -175,7 +173,7 @@ export const removeHost = createServerFn()
   });
 
 export const listHosts = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer')])
   .handler(async (): Promise<HostListItem[]> => {
     const deps = await loadDeps();
     return handleListHosts(deps);
@@ -190,35 +188,32 @@ export const listHosts = createServerFn()
  * is the initial data source for the admin agents overview.
  */
 export const listAgentsInventory = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer')])
   .handler(async (): Promise<AgentInventoryEntry[]> => {
     const deps = await loadDeps();
     return handleListAgentsInventorySnapshot(deps);
   });
 
 export const checkHostHealth = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator')])
   .validator(checkHostHealthSchema)
-  .handler(async ({ data, context }): Promise<HostOperationResult> => {
-    requireRole('admin', 'operator')(context.user);
+  .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
     return handleCheckHostHealth({ ...baseDeps, checkHealth: await buildProbeCheckHealth() }, data);
   });
 
 export const updateHost = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(updateHostSchema)
-  .handler(async ({ data, context }): Promise<HostListItem> => {
-    requireRole('admin')(context.user);
+  .handler(async ({ data }): Promise<HostListItem> => {
     const deps = await loadDeps();
     return handleUpdateHost({ ...deps, checkHealth: await buildProbeCheckHealth() }, data);
   });
 
 export const getHostPublicJwk = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(getHostPublicJwkSchema)
-  .handler(async ({ data, context }): Promise<{ publicJwk: import('jose').JWK; fingerprint: string | null }> => {
-    requireRole('admin')(context.user);
+  .handler(async ({ data }): Promise<{ publicJwk: import('jose').JWK; fingerprint: string | null }> => {
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     const tlsCerts = await loadTlsCertsRepo();
@@ -229,20 +224,18 @@ export const getHostPublicJwk = createServerFn()
   });
 
 export const rotateHostKeypair = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(rotateHostKeypairSchema)
-  .handler(async ({ data, context }): Promise<{ hostId: number; publicJwk: import('jose').JWK }> => {
-    requireRole('admin')(context.user);
+  .handler(async ({ data }): Promise<{ hostId: number; publicJwk: import('jose').JWK }> => {
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     return handleRotateHostKeypair({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
   });
 
 export const rotateHostTls = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(rotateHostTlsSchema)
-  .handler(async ({ data, context }): Promise<import('@/data/hosts/handlers').RotateHostTlsResult> => {
-    requireRole('admin')(context.user);
+  .handler(async ({ data }): Promise<import('@/data/hosts/handlers').RotateHostTlsResult> => {
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     const tlsCerts = await loadTlsCertsRepo();
@@ -254,10 +247,9 @@ export const rotateHostTls = createServerFn()
   });
 
 export const updateAgent = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(updateAgentSchema)
-  .handler(async ({ data, context }): Promise<UpdateAgentResult> => {
-    requireRole('admin')(context.user);
+  .handler(async ({ data }): Promise<UpdateAgentResult> => {
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     const tlsCerts = await loadTlsCertsRepo();

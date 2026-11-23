@@ -46,7 +46,7 @@ export function useAuth(): { user: AuthUser | null; loading: boolean; authEnable
 }
 
 /**
- * True when the session may call server functions guarded by `requireRole('admin', 'operator')`.
+ * True when the session may call server functions guarded by `roleMiddleware('admin', 'operator')`.
  * False while the check is in flight; true when auth is disabled, where every request runs
  * as the synthetic admin that `useAuth` reports as a null user.
  */

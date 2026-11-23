@@ -4,6 +4,7 @@ import pluginRouter from '@tanstack/eslint-plugin-router';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import { endpointAuthRule } from './scripts/eslint-rules/endpoint-auth.mjs';
 
 // WS mux seam: one browser WebSocket, frames built at the mux seam, keepalive
 // timing from one constants module, and a tripwire against the deleted SSE surface.
@@ -83,11 +84,6 @@ export const WS_MUX_SEAM_RESTRICTIONS = [
 
 ];
 
-// Endpoint auth enforcement. Exemptions are inline eslint-disable directives at the exempt site, never a central allowlist.
-// resolveUserFromCookie only counts as a call argument, never a callee: it resolves a user without rejecting, so a route that calls it and ignores the result stays unauthenticated.
-const ENFORCING_SEAM_NAMES = ['authMiddleware', 'requireRole', 'authenticateWsUpgrade', 'authenticateRequest'];
-const ARGUMENT_SEAM_NAMES = [...ENFORCING_SEAM_NAMES, 'resolveUserFromCookie'];
-
 const flattenUnion = (node) =>
   node.types.flatMap((member) => (member.type === 'TSUnionType' ? flattenUnion(member) : [member]));
 
@@ -121,66 +117,6 @@ const noOverwideUnionRule = {
         if (isStringNumberUnion(members) || isDateStringUnion(members)) {
           context.report({ node, messageId: 'overwide' });
         }
-      },
-    };
-  },
-};
-
-const endpointAuthRule = {
-  meta: {
-    type: 'problem',
-    docs: {
-      description:
-        'Route modules and createServerFn chains must enforce auth or carry an inline eslint-disable with the reason they are unauthenticated by design.',
-    },
-    schema: [],
-    messages: {
-      routeMissingAuth:
-        'Route references no auth enforcement call (authenticateWsUpgrade, authenticateRequest, authMiddleware, requireRole as a call callee or argument). resolveUserFromCookie does not qualify because it resolves a user without rejecting. Add auth enforcement or disable this rule at the top of the file with the reason it is unauthenticated by design.',
-      fnMissingAuth:
-        'createServerFn chain attaches no authMiddleware. Add it to .middleware([...]) or disable this rule on this line with the reason the function is unauthenticated by design.',
-    },
-  },
-  create(context) {
-    const filename = context.filename;
-    if (filename.includes('/server/routes/') || filename.includes('/src/routes/api/')) {
-      let sawEnforcingCall = false;
-      return {
-        'CallExpression > Identifier'(node) {
-          const call = node.parent;
-          if (call.callee === node) {
-            if (ENFORCING_SEAM_NAMES.includes(node.name)) sawEnforcingCall = true;
-          } else if (call.arguments.includes(node)) {
-            if (ARGUMENT_SEAM_NAMES.includes(node.name)) sawEnforcingCall = true;
-          }
-        },
-        'Program:exit'(program) {
-          if (!sawEnforcingCall) context.report({ node: program, messageId: 'routeMissingAuth' });
-        },
-      };
-    }
-    return {
-      'CallExpression[callee.name="createServerFn"]'(node) {
-        let cursor = node;
-        let hasAuthMiddleware = false;
-        while (cursor.parent) {
-          if (cursor.parent.type !== 'MemberExpression' || cursor.parent.object !== cursor) break;
-          const member = cursor.parent;
-          if (member.parent.type !== 'CallExpression' || member.parent.callee !== member) break;
-          const call = member.parent;
-          if (member.property.type === 'Identifier' && member.property.name === 'middleware') {
-            const list = call.arguments[0];
-            if (
-              list &&
-              list.type === 'ArrayExpression' &&
-              list.elements.some((el) => el && el.type === 'Identifier' && el.name === 'authMiddleware')
-            ) {
-              hasAuthMiddleware = true;
-            }
-          }
-          cursor = call;
-        }
-        if (!hasAuthMiddleware) context.report({ node, messageId: 'fnMissingAuth' });
       },
     };
   },
@@ -344,7 +280,7 @@ export default tseslint.config(
   ...tseslint.configs.recommendedTypeChecked,
 
   {
-    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', 'server/**/*.ts', 'e2e/**/*.ts', 'vite.config.ts', 'playwright.config.ts', 'playwright.auth.config.ts'],
+    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', 'scripts/eslint-rules/*.d.mts', 'server/**/*.ts', 'e2e/**/*.ts', 'vite.config.ts', 'playwright.config.ts', 'playwright.auth.config.ts'],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
       globals: { ...globals.browser, ...globals.node },
