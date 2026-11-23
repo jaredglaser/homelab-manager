@@ -5,7 +5,6 @@ import { endpointAuthRule } from '../endpoint-auth.mjs';
 
 RuleTester.describe = describe;
 RuleTester.it = it;
-RuleTester.itOnly = it.only;
 
 const ruleTester = new RuleTester({
   languageOptions: { parser: tseslint.parser },
