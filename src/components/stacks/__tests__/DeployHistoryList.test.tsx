@@ -151,6 +151,7 @@ describe('DeployHistoryList', () => {
       fireEvent.keyDown(screen.getByRole('button', { name: 'Rollback' }), { key: 'Enter' });
       await user.hover(screen.getByRole('button', { name: 'Rollback' }));
       expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+      fireEvent.click(document.querySelector('[data-slot="tooltip-content"]')!);
       expect(screen.queryByText('Rollback plex?')).toBeNull();
       expect(screen.queryByText('Deploy output here')).toBeNull();
       expect(handlers.onApprove).not.toHaveBeenCalled();

@@ -16,7 +16,7 @@ import {
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 import { AuthManagementCard, GitTokensSection } from '@/components/settings/AuthManagementCard'
-import { useAuth } from '@/hooks/useAuth'
+import { useAuth, useRoleAccess } from '@/hooks/useAuth'
 import {
   CHART_WINDOW_MARKS,
   UPDATE_INTERVAL_MARKS,
@@ -54,6 +54,7 @@ function SettingsContent() {
   const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
   const { zfs, setZfsDecimal } = useZfsSettings();
   const { user } = useAuth();
+  const settingsBlocked = useRoleAccess('write').kind !== 'allowed';
   const hash = useLocation({ select: (l) => l.hash });
 
   useEffect(() => {
@@ -81,10 +82,12 @@ function SettingsContent() {
           <div className="flex flex-col gap-6">
             <div className="flex justify-between items-center">
               <Label>Use 12-hour time format</Label>
-              <RoleGate requires="write" className="inline-flex">
+              <RoleGate requires="write">
                 {(blocked) => (
                   <Switch
-                    disabled={blocked}
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Use 12-hour time format"
                     checked={general.use12HourTime}
                     onCheckedChange={setUse12HourTime}
                   />
@@ -100,7 +103,7 @@ function SettingsContent() {
               <span className="text-xs text-muted-foreground mb-3 block">
                 Controls how frequently stats are collected and displayed (requires worker restart)
               </span>
-              <RoleGate requires="write" className="block">
+              <RoleGate requires="write" wrapper={{ label: 'Update Interval', className: 'block' }}>
                 {(blocked) => (
                   <Slider
                     disabled={blocked}
@@ -116,10 +119,12 @@ function SettingsContent() {
             </div>
             <div className="flex justify-between items-center">
               <Label>Show Sparklines</Label>
-              <RoleGate requires="write" className="inline-flex">
+              <RoleGate requires="write">
                 {(blocked) => (
                   <Switch
-                    disabled={blocked}
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Show Sparklines"
                     checked={general.showSparklines}
                     onCheckedChange={setShowSparklines}
                   />
@@ -129,10 +134,12 @@ function SettingsContent() {
 
             <div className="flex justify-between items-center">
               <Label>Use Abbreviated Units</Label>
-              <RoleGate requires="write" className="inline-flex">
+              <RoleGate requires="write">
                 {(blocked) => (
                   <Switch
-                    disabled={blocked}
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Use Abbreviated Units"
                     checked={general.useAbbreviatedUnits}
                     onCheckedChange={setUseAbbreviatedUnits}
                   />
@@ -145,26 +152,26 @@ function SettingsContent() {
               <span className="text-xs text-muted-foreground mb-2 block">
                 Background color palette used in light mode
               </span>
-              <RoleGate requires="write" className="flex flex-col">
-                {(blocked) => (
-                  <Select
-                    disabled={blocked}
-                    value={general.lightPalette}
-                    onValueChange={(value) => { if (value) setLightPalette(value as LightPalette); }}
-                  >
-                    <SelectTrigger aria-label="Light Mode Palette">
+              <Select
+                readOnly={settingsBlocked}
+                value={general.lightPalette}
+                onValueChange={(value) => { if (value) setLightPalette(value as LightPalette); }}
+              >
+                <RoleGate requires="write">
+                  {(blocked) => (
+                    <SelectTrigger aria-disabled={blocked || undefined} aria-label="Light Mode Palette">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cool-blue">Cool Blue</SelectItem>
-                      <SelectItem value="dusty-rose">Dusty Rose</SelectItem>
-                      <SelectItem value="forest-mist">Forest Mist</SelectItem>
-                      <SelectItem value="soft-stone">Soft Stone</SelectItem>
-                      <SelectItem value="warm-slate">Warm Slate</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              </RoleGate>
+                  )}
+                </RoleGate>
+                <SelectContent>
+                  <SelectItem value="cool-blue">Cool Blue</SelectItem>
+                  <SelectItem value="dusty-rose">Dusty Rose</SelectItem>
+                  <SelectItem value="forest-mist">Forest Mist</SelectItem>
+                  <SelectItem value="soft-stone">Soft Stone</SelectItem>
+                  <SelectItem value="warm-slate">Warm Slate</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
           </div>
@@ -175,25 +182,25 @@ function SettingsContent() {
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
               <Label>Memory Display</Label>
-              <RoleGate requires="write" className="flex flex-col">
-                {(blocked) => (
-                  <Select
-                    disabled={blocked}
-                    value={docker.memoryDisplayMode}
-                    onValueChange={(value) => {
-                      if (value) setMemoryDisplayMode(value as MemoryDisplayMode);
-                    }}
-                  >
-                    <SelectTrigger aria-label="Memory Display">
+              <Select
+                readOnly={settingsBlocked}
+                value={docker.memoryDisplayMode}
+                onValueChange={(value) => {
+                  if (value) setMemoryDisplayMode(value as MemoryDisplayMode);
+                }}
+              >
+                <RoleGate requires="write">
+                  {(blocked) => (
+                    <SelectTrigger aria-disabled={blocked || undefined} aria-label="Memory Display">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="percentage">Percentage (%)</SelectItem>
-                      <SelectItem value="bytes">Bytes (B, KiB, MiB, GiB)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              </RoleGate>
+                  )}
+                </RoleGate>
+                <SelectContent>
+                  <SelectItem value="percentage">Percentage (%)</SelectItem>
+                  <SelectItem value="bytes">Bytes (B, KiB, MiB, GiB)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -206,7 +213,7 @@ function SettingsContent() {
               <span className="text-xs text-muted-foreground mb-3 block">
                 Time range shown in the expanded container metric charts
               </span>
-              <RoleGate requires="write" className="block">
+              <RoleGate requires="write" wrapper={{ label: 'Chart Window', className: 'block' }}>
                 {(blocked) => (
                   <Slider
                     disabled={blocked}
@@ -227,10 +234,12 @@ function SettingsContent() {
                 {(Object.keys(docker.decimals) as (keyof DecimalSettings)[]).map((key) => (
                   <div key={key} className="flex justify-between items-center">
                     <Label>{formatDecimalLabel(key)}</Label>
-                    <RoleGate requires="write" className="inline-flex">
+                    <RoleGate requires="write">
                       {(blocked) => (
                         <Switch
-                          disabled={blocked}
+                          readOnly={blocked}
+                          aria-disabled={blocked || undefined}
+                          aria-label={formatDecimalLabel(key)}
                           checked={docker.decimals[key]}
                           onCheckedChange={(checked) => setDockerDecimal(key, checked)}
                         />
@@ -250,10 +259,12 @@ function SettingsContent() {
             <div className="flex flex-col gap-2">
               <div className="flex justify-between items-center">
                 <Label>Disk Speed</Label>
-                <RoleGate requires="write" className="inline-flex">
+                <RoleGate requires="write">
                   {(blocked) => (
                     <Switch
-                      disabled={blocked}
+                      readOnly={blocked}
+                      aria-disabled={blocked || undefined}
+                      aria-label="Disk Speed"
                       checked={zfs.decimals.diskSpeed}
                       onCheckedChange={(checked) => setZfsDecimal('diskSpeed', checked)}
                     />
@@ -338,10 +349,12 @@ function SettingsContent() {
                   Log connection lifecycle, stream events, and collection timing
                 </span>
               </div>
-              <RoleGate requires="write" className="inline-flex">
+              <RoleGate requires="write">
                 {(blocked) => (
                   <Switch
-                    disabled={blocked}
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Docker Debug Logging"
                     checked={developer.dockerDebugLogging}
                     onCheckedChange={setDockerDebugLogging}
                   />
@@ -355,10 +368,12 @@ function SettingsContent() {
                   Log batch flush counts and database write timing
                 </span>
               </div>
-              <RoleGate requires="write" className="inline-flex">
+              <RoleGate requires="write">
                 {(blocked) => (
                   <Switch
-                    disabled={blocked}
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Database Flush Logging"
                     checked={developer.dbFlushDebugLogging}
                     onCheckedChange={setDbFlushDebugLogging}
                   />
@@ -372,10 +387,12 @@ function SettingsContent() {
                   Log live stream preload and buffer refresh activity
                 </span>
               </div>
-              <RoleGate requires="write" className="inline-flex">
+              <RoleGate requires="write">
                 {(blocked) => (
                   <Switch
-                    disabled={blocked}
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Stream Debug Logging"
                     checked={developer.streamDebugLogging}
                     onCheckedChange={setStreamDebugLogging}
                   />

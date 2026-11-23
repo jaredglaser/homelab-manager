@@ -432,7 +432,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
               <TabsTrigger value="compose" className="py-2">
                 Compose{composeDirty && <TabDirtyDot />}
               </TabsTrigger>
-              <RoleGate requires="write" deniedReason={SECRETS_DENIED_COPY} className="inline-flex">
+              <RoleGate requires="write" deniedReason={SECRETS_DENIED_COPY}>
                 {(blocked) => (
                   <TabsTrigger value="secrets" className="py-2" disabled={blocked}>
                     Secrets{secretsDirty && <TabDirtyDot />}

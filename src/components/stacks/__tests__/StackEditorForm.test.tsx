@@ -708,10 +708,12 @@ describe('StackEditorForm', () => {
     await renderForm();
     const user = setupUser();
     const secrets = screen.getByRole('tab', { name: /Secrets/ });
-    expect(secrets.hasAttribute('disabled') || secrets.getAttribute('aria-disabled') === 'true').toBe(true);
-    expect(roleReasonOf(secrets.parentElement!)).toBe(SECRETS_DENIED_COPY);
+    expect(secrets.hasAttribute('data-disabled')).toBe(true);
+    expect(secrets.getAttribute('aria-disabled')).toBe('true');
+    expect(roleReasonOf(secrets)).toBe(SECRETS_DENIED_COPY);
+    expect(secrets.closest('[data-slot="role-gate"]')).toBeNull();
     fireEvent.click(secrets);
-    await user.hover(secrets.parentElement!);
+    await user.hover(secrets);
     expect(await findOpenTooltip()).toBe(SECRETS_DENIED_COPY);
     expect(screen.queryByLabelText('secret-input')).toBeNull();
   });

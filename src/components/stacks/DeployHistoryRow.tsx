@@ -44,9 +44,9 @@ function getActionLabel(record: StackDeployRecord): string {
 
 const ROLLBACK_ELIGIBLE: Set<DeployStatus> = new Set(['succeeded', 'no_change']);
 
-// A role-blocked action button never runs its onClick, so its own stopPropagation cannot keep the click from toggling the row.
+// A role-blocked action button never runs its onClick, and its reason popup is portaled but still bubbles through React, so neither can stop the click from toggling the row.
 function isFromRowAction(event: SyntheticEvent): boolean {
-  return event.target instanceof Element && event.target.closest('button') !== null;
+  return event.target instanceof Element && event.target.closest('button, [data-slot="tooltip-content"]') !== null;
 }
 
 interface DeployHistoryRowProps {

@@ -1,4 +1,7 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import { mockModule } from '@/lib/test/mock-module';
@@ -70,6 +73,10 @@ function renderModal(props: Partial<Parameters<typeof ContainerModal>[0]> = {}) 
   );
 }
 
+beforeEach(() => {
+  seedSession('admin');
+});
+
 describe('ContainerModal', () => {
   it('renders the container name in the header', () => {
     renderModal();
@@ -109,6 +116,34 @@ describe('ContainerModal', () => {
   it('shows the state chip', () => {
     renderModal();
     screen.getByText('running');
+  });
+
+  it('shows a viewer the Terminal tab disabled with the role reason, and a click opens no terminal', async () => {
+    seedSession('viewer');
+    renderModal();
+    const user = setupUser();
+    const terminal = screen.getByRole('button', { name: 'Terminal' });
+    expect(terminal.getAttribute('aria-disabled')).toBe('true');
+    expect(roleReasonOf(terminal)).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(terminal);
+    await user.hover(terminal);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(screen.queryByTestId('terminal')).toBeNull();
+    expect(screen.getByTestId('log-viewer').closest('.hidden')).toBeNull();
+  });
+
+  it('opens a viewer on Logs when asked for the terminal tab', () => {
+    seedSession('viewer');
+    renderModal({ initialTab: 'terminal' });
+    expect(screen.queryByTestId('terminal')).toBeNull();
+    expect(screen.getByTestId('log-viewer').closest('.hidden')).toBeNull();
+  });
+
+  it.each(['admin', 'operator'] as const)('lets an %s open the Terminal tab', async (role) => {
+    seedSession(role);
+    renderModal();
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
+    expect(await screen.findByTestId('terminal')).toBeDefined();
   });
 
   it('shows the terminal tab as disabled when container is not running', () => {
