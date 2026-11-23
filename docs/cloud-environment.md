@@ -6,7 +6,7 @@ How to set up a [Claude Code cloud environment](https://code.claude.com/docs/en/
 
 Create an environment at claude.ai/code and attach this repo.
 
-**Network access:** Custom, with "Allow package managers" ticked. The default list already covers Docker Hub and GHCR. Add the hosts it lacks:
+**Network access:** Custom, with "Allow package managers" ticked. The default list already covers Docker Hub, GHCR and `mirror.gcr.io`, which `dockerd` is started with as a Docker Hub mirror because anonymous Docker Hub pulls from a cloud box are often rate limited. Add the hosts it lacks:
 
 ```text
 lscr.io
