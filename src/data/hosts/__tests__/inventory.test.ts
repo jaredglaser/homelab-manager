@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 import type { HostRepo, AgentsInventoryDeps } from '../handlers';
 import { handleSweepAgentInventory, handleListAgentsInventorySnapshot } from '../handlers';
 import type { ManagedHost, HostHealthVerdict, UpdateAgentInfoInput } from '@/lib/database/repositories/host-repository';
@@ -70,14 +70,14 @@ function deps(
 describe('handleSweepAgentInventory', () => {
   it('probes every host exactly once per sweep and persists healthy/unhealthy plus agent info', async () => {
     const updateHealth = mock<(id: number, verdict: HostHealthVerdict, probedUrl: string) => Promise<void>>(() => Promise.resolve());
-    const updateAgentInfo = mock((_id: number, _fields: UpdateAgentInfoInput) => Promise.resolve());
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
     const hosts = [
       mockRow({ id: 1, name: 'up' }),
       mockRow({ id: 2, name: 'down' }),
     ];
     const d = deps(hosts, [healthy('0.2.0'), offline()], { updateHealth, updateAgentInfo });
 
-    const entries = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
     expect(d.checkHealth).toHaveBeenCalledTimes(2);
     expect(updateHealth.mock.calls).toEqual([
@@ -86,7 +86,6 @@ describe('handleSweepAgentInventory', () => {
     ]);
     expect(updateAgentInfo.mock.calls.length).toBe(1);
     expect(updateAgentInfo.mock.calls[0]?.[0]).toBe(1);
-    expect(entries.map((e) => e.status)).toEqual(['online', 'offline']);
   });
 
   it('persists the probe reason, not just the unhealthy status', async () => {
@@ -116,7 +115,7 @@ describe('handleSweepAgentInventory', () => {
     ]);
   });
 
-  it('records an agent that reports itself unhealthy as unreachable with that cause', async () => {
+  it('records an agent that reports itself unhealthy with that cause', async () => {
     const updateHealth = mock<(id: number, verdict: HostHealthVerdict, probedUrl: string) => Promise<void>>(() => Promise.resolve());
     const d = deps(
       [mockRow({ status: 'healthy' })],
@@ -124,13 +123,12 @@ describe('handleSweepAgentInventory', () => {
       { updateHealth },
     );
 
-    const [entry] = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
     expect(updateHealth.mock.calls[0]?.[1]).toEqual({
       status: 'unhealthy',
       failure: { code: 'agent-unhealthy', detail: 'Agent reported itself unhealthy' },
     });
-    expect(entry.status).toBe('unreachable');
   });
 
   it('records why a pending host failed its probe and leaves its status pending', async () => {
@@ -141,12 +139,11 @@ describe('handleSweepAgentInventory', () => {
       { updateHealth },
     );
 
-    const [entry] = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
     expect(updateHealth.mock.calls).toEqual([
       [1, { status: 'pending', failure: { code: 'awaiting-enrollment', detail: 'plain HTTP' } }, 'http://192.168.1.10:9090'],
     ]);
-    expect(entry.status).toBe('awaiting-enrollment');
   });
 
   it('neither probes nor writes a host the wizard created that has no URL yet', async () => {
@@ -154,13 +151,11 @@ describe('handleSweepAgentInventory', () => {
     const updateLastSweptAt = mock(() => Promise.resolve());
     const d = deps([mockRow({ status: 'pending', agentUrl: '' })], [offline()], { updateHealth, updateLastSweptAt });
 
-    const [entry] = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
     expect(d.checkHealth).not.toHaveBeenCalled();
     expect(updateHealth).not.toHaveBeenCalled();
     expect(updateLastSweptAt).not.toHaveBeenCalled();
-    expect(entry.status).toBe('unknown');
-    expect(entry.failure).toBeNull();
   });
 
   it('clears the cause and verifies a pending host whose probe succeeds', async () => {
@@ -185,32 +180,39 @@ describe('handleSweepAgentInventory', () => {
       if (id === 1) return Promise.reject(new Error('write failed'));
       return Promise.resolve();
     });
-    const d = deps(hosts, [healthy('0.2.0'), healthy('0.3.0')], { updateHealth });
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
+    const d = deps(hosts, [healthy('0.2.0'), healthy('0.3.0')], { updateHealth, updateAgentInfo });
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    const entries = await handleSweepAgentInventory(d, NOW);
+    try {
+      await handleSweepAgentInventory(d, NOW);
 
-    expect(entries).toHaveLength(2);
-    expect(entries[0].status).toBe('online');
-    expect(entries[1].status).toBe('online');
-    expect(entries[1].version).toBe('0.3.0');
+      expect(updateHealth.mock.calls.map(([id]) => id)).toEqual([1, 2]);
+      expect(updateAgentInfo.mock.calls).toEqual([[2, { version: '0.3.0' }]]);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0]).toEqual(['[agent-inventory] Failed to persist sweep result for host broken:', 'write failed']);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('probes every host even when one probe throws', async () => {
     const hosts = [mockRow({ id: 1, name: 'a' }), mockRow({ id: 2, name: 'b' })];
-    const repo = mockRepo(hosts);
+    const updateHealth = mock<(id: number, verdict: HostHealthVerdict, probedUrl: string) => Promise<void>>(() => Promise.resolve());
+    const repo = mockRepo(hosts, { updateHealth });
     const checkHealth = mock((_url: string, hostName: string) => {
       if (hostName === 'a') return Promise.reject(new Error('boom'));
       return Promise.resolve(healthy('0.2.0'));
     }) as unknown as (url: string, hostName: string) => Promise<HealthCheckOutcome>;
     const d = { repo, checkHealth };
 
-    const entries = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
     expect(checkHealth).toHaveBeenCalledTimes(2);
-    expect(entries).toHaveLength(2);
-    expect(entries[0].status).toBe('offline');
-    expect(entries[0].failure).toEqual({ code: 'offline', message: 'boom' });
-    expect(entries[1].status).toBe('online');
+    expect(updateHealth.mock.calls).toEqual([
+      [1, { status: 'unhealthy', failure: { code: 'offline', detail: 'boom' } }, 'http://192.168.1.10:9090'],
+      [2, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090'],
+    ]);
   });
 
   it('stamps lastSweptAt for every probed host, including a pending one it leaves alone', async () => {
@@ -226,17 +228,18 @@ describe('handleSweepAgentInventory', () => {
     expect(updateLastSweptAt.mock.calls).toEqual([[1, NOW], [2, NOW]]);
   });
 
-  it('returns an empty list when no hosts are registered', async () => {
-    const d = deps([], []);
+  it('neither probes nor writes when no hosts are registered', async () => {
+    const updateHealth = mock<(id: number, verdict: HostHealthVerdict, probedUrl: string) => Promise<void>>(() => Promise.resolve());
+    const d = deps([], [], { updateHealth });
 
-    const entries = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
-    expect(entries).toEqual([]);
     expect(d.checkHealth).not.toHaveBeenCalled();
+    expect(updateHealth).not.toHaveBeenCalled();
   });
 
   it('flags a host whose running digest differs from the manager agent digest and persists the verdict', async () => {
-    const updateAgentInfo = mock((_id: number, _fields: UpdateAgentInfoInput) => Promise.resolve());
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
     const staleDigest = 'sha256:' + 'c'.repeat(64);
     const expectedDigest = 'sha256:' + 'd'.repeat(64);
     const hosts = [
@@ -253,11 +256,8 @@ describe('handleSweepAgentInventory', () => {
       mock(async (_imageRef: string) => expectedDigest),
     );
 
-    const entries = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
-    expect(entries[0].agentOutOfDate).toBe(true);
-    expect(entries[0].agentImageDigest).toBe(staleDigest);
-    expect(entries[1].agentOutOfDate).toBe(false);
     expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({
       imageDigest: staleDigest,
       outOfDate: true,
@@ -265,45 +265,44 @@ describe('handleSweepAgentInventory', () => {
     expect(updateAgentInfo.mock.calls[1]?.[1]).toMatchObject({ outOfDate: false });
   });
 
-  it('reports no digest instead of the stored one when the live probe could not read it', async () => {
-    const storedDigest = 'sha256:' + 'c'.repeat(64);
-    const hosts = [mockRow({ id: 1, name: 'a', agentImageDigest: storedDigest })];
+  it('clears the stored digest and the verdict when the probe could not read the digest', async () => {
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
+    const hosts = [mockRow({ id: 1, name: 'a', agentImageDigest: 'sha256:' + 'c'.repeat(64), agentOutOfDate: true })];
     const d = deps(
       hosts,
       [{ healthy: true, infoSupported: true }],
-      undefined,
+      { updateAgentInfo },
       mock(async (_imageRef: string) => 'sha256:' + 'd'.repeat(64)),
     );
 
-    const [entry] = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
-    expect(entry.agentImageDigest).toBeNull();
-    expect(entry.agentOutOfDate).toBe(false);
+    expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({ imageDigest: null, outOfDate: false });
   });
 
   it('leaves every host unflagged when the manager agent digest is unresolvable', async () => {
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
     const hosts = [mockRow({ id: 1, name: 'a' })];
     const d = deps(
       hosts,
       [{ healthy: true, infoSupported: true, agentImageDigest: 'sha256:' + 'c'.repeat(64) }],
-      undefined,
+      { updateAgentInfo },
       mock(async (_imageRef: string) => null),
     );
 
-    const [entry] = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
-    expect(entry.agentOutOfDate).toBe(false);
+    expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({ outOfDate: false });
   });
 
-  it('carries the stored out-of-date verdict for a host whose probe fails', async () => {
+  it('leaves the stored digest and out-of-date verdict alone for a host whose probe fails', async () => {
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
     const hosts = [mockRow({ id: 1, name: 'down', agentImageDigest: 'sha256:' + 'c'.repeat(64), agentOutOfDate: true })];
-    const d = deps(hosts, [offline()], undefined, mock(async (_imageRef: string) => 'sha256:' + 'd'.repeat(64)));
+    const d = deps(hosts, [offline()], { updateAgentInfo }, mock(async (_imageRef: string) => 'sha256:' + 'd'.repeat(64)));
 
-    const [entry] = await handleSweepAgentInventory(d, NOW);
+    await handleSweepAgentInventory(d, NOW);
 
-    expect(entry.status).toBe('offline');
-    expect(entry.agentOutOfDate).toBe(true);
-    expect(entry.agentImageDigest).toBe('sha256:' + 'c'.repeat(64));
+    expect(updateAgentInfo).not.toHaveBeenCalled();
   });
 });
 
