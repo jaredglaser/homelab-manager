@@ -1,4 +1,4 @@
-// Bun fetch pinned 1.4.2 ignores a node:https Agent dispatcher but honors its native tls option.
+// Bun fetch pinned 1.4.4 ignores a node:https Agent dispatcher but honors its native tls option.
 export interface AgentTlsContext {
   /** PEM of the pinned per-host certificate. http/ws URLs ignore it. An https/wss URL without it refuses to connect. */
   caCertPem?: string | null;
