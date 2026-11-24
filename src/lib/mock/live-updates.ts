@@ -19,4 +19,5 @@ function createBus<T>() {
 }
 
 export const settingsUpdates = createBus<SettingsWireMessage>();
+export const userSettingsUpdates = createBus<SettingsWireMessage>();
 export const stackStatusUpdates = createBus<StackStatusWireMessage>();

@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+import { SETTINGS_KEYS, USER_SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { mockModule } from '@/lib/test/mock-module';
 
 const { renderHook, act, waitFor } = await import('@testing-library/react');
@@ -8,9 +8,11 @@ type ReactNode = import('react').ReactNode;
 
     // Mock the settings functions
     const mockUpdateSetting = mock(() => Promise.resolve());
+    const mockUpdateUserSetting = mock(() => Promise.resolve());
 
     mockModule<typeof import('@/data/settings/functions')>('@/data/settings/functions', (real) => ({ ...real, 
         updateSetting: mockUpdateSetting,
+        updateUserSetting: mockUpdateUserSetting,
     }));
 
     const mockToastError = mock(() => {});
@@ -25,6 +27,7 @@ type ReactNode = import('react').ReactNode;
 
     // Import after mocking
     const { useSettings } = await import('../useSettings');
+    const { useOptimisticSetting } = await import('../useOptimisticSetting');
     const { rawSettingsAtom } = await import('../settingsAtom');
     const { createStore, Provider } = await import('jotai');
 
@@ -43,6 +46,8 @@ type ReactNode = import('react').ReactNode;
     beforeEach(() => {
         mockUpdateSetting.mockClear();
         mockUpdateSetting.mockImplementation(() => Promise.resolve());
+        mockUpdateUserSetting.mockClear();
+        mockUpdateUserSetting.mockImplementation(() => Promise.resolve());
         mockToastError.mockClear();
     });
 
@@ -94,7 +99,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setUseAbbreviatedUnits(true);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.general.useAbbreviatedUnits, value: 'true' },
             });
         });
@@ -122,7 +127,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setShowSparklines(false);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.general.showSparklines, value: 'false' },
             });
         });
@@ -150,7 +155,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setMemoryDisplayMode('percentage');
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.docker.memoryDisplayMode, value: 'percentage' },
             });
         });
@@ -178,7 +183,7 @@ type ReactNode = import('react').ReactNode;
 
             act(() => { result.current.setLightPalette('forest-mist'); });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.general.lightPalette, value: 'forest-mist' },
             });
         });
@@ -229,7 +234,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setDockerDecimal('networkSpeed', true);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.docker.decimals.networkSpeed, value: 'true' },
             });
         });
@@ -430,7 +435,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setChartWindowSeconds(120);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.docker.chartWindowSeconds, value: '120' },
             });
         });
@@ -570,7 +575,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setStreamDebugLogging(true);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.developer.streamDebugLogging, value: 'true' },
             });
         });
@@ -637,9 +642,32 @@ type ReactNode = import('react').ReactNode;
         });
     });
 
+    describe('persist routing', () => {
+        it.each([...USER_SETTINGS_KEYS])('saves %s to the signed-in user, not the shared server settings', (key) => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useOptimisticSetting(), { wrapper });
+            act(() => result.current(key, () => 'v'));
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({ data: { key, value: 'v' } });
+            expect(mockUpdateSetting).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            SETTINGS_KEYS.general.updateIntervalMs,
+            SETTINGS_KEYS.proxmox.updateInterval,
+            SETTINGS_KEYS.developer.dockerDebugLogging,
+            SETTINGS_KEYS.developer.dbFlushDebugLogging,
+        ])('saves %s to the shared server settings', (key) => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useOptimisticSetting(), { wrapper });
+            act(() => result.current(key, () => 'v'));
+            expect(mockUpdateSetting).toHaveBeenCalledWith({ data: { key, value: 'v' } });
+            expect(mockUpdateUserSetting).not.toHaveBeenCalled();
+        });
+    });
+
     describe('rollback on persist failure', () => {
         it('should roll back a simple setting on failure', async () => {
-            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
+            mockUpdateUserSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
 
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -662,7 +690,7 @@ type ReactNode = import('react').ReactNode;
             expect(mockToastError).toHaveBeenCalledWith('Failed to save setting');
         });
         it('should roll back to existing value when key was already set', async () => {
-            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
+            mockUpdateUserSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
 
             const { wrapper } = createWrapper({
                 [SETTINGS_KEYS.general.showSparklines]: 'false',
@@ -685,7 +713,7 @@ type ReactNode = import('react').ReactNode;
         });
 
         it('should not roll back when persist succeeds', async () => {
-            mockUpdateSetting.mockImplementation(() => Promise.resolve());
+            mockUpdateUserSetting.mockImplementation(() => Promise.resolve());
 
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -696,9 +724,9 @@ type ReactNode = import('react').ReactNode;
 
             expect(result.current.general.showSparklines).toBe(false);
 
-            expect(mockUpdateSetting).toHaveBeenCalledTimes(1);
+            expect(mockUpdateUserSetting).toHaveBeenCalledTimes(1);
             await act(async () => {
-                await mockUpdateSetting.mock.results[0]?.value;
+                await mockUpdateUserSetting.mock.results[0]?.value;
             });
 
             // Still false - no rollback

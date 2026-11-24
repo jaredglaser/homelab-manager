@@ -10,9 +10,11 @@ import type * as MuxConnection from '@/lib/mux/mux-connection';
 import type { BrowserLayoutKey } from '../browserLayout';
 
 const mockUpdateSetting = mock(() => Promise.resolve());
+const mockUpdateUserSetting = mock(() => Promise.resolve());
 mockModule<typeof SettingsFunctions>('@/data/settings/functions', (real) => ({
   ...real,
   updateSetting: mockUpdateSetting,
+  updateUserSetting: mockUpdateUserSetting,
 }));
 
 const mockShowToast = mock(() => undefined);
@@ -113,6 +115,8 @@ function replaceStorage(get: () => Partial<Storage>): () => void {
 beforeEach(() => {
   mockUpdateSetting.mockClear();
   mockUpdateSetting.mockImplementation(() => Promise.resolve());
+  mockUpdateUserSetting.mockClear();
+  mockUpdateUserSetting.mockImplementation(() => Promise.resolve());
   mockShowToast.mockClear();
   fakeMux.subscriptions.clear();
 });
@@ -127,6 +131,7 @@ describe('browser layout', () => {
     const reloaded = mountInFreshStore();
     expectEveryLayoutControlToggled(reloaded.result.current);
     expect(mockUpdateSetting).not.toHaveBeenCalled();
+    expect(mockUpdateUserSetting).not.toHaveBeenCalled();
     expect(stored(BROWSER_LAYOUT_KEYS.dockerExpandedContainers)).toEqual(['server1/abc123']);
     expect(stored(BROWSER_LAYOUT_KEYS.dockerContainerShells)).toEqual({ 'server1/nginx': 'bash' });
   });
@@ -178,6 +183,7 @@ describe('browser layout', () => {
 
   it('keeps a viewer\'s layout with no "Failed to save setting" toast and no snap-back when every save is rejected', async () => {
     mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('Forbidden')));
+    mockUpdateUserSetting.mockImplementation(() => Promise.reject(new Error('Forbidden')));
     const { result } = mountInFreshStore();
 
     toggleEveryLayoutControl(result.current);
@@ -197,7 +203,6 @@ describe('browser layout', () => {
       fakeMux.emitWire('settings', 'data', {
         type: 'init',
         settings: {
-          'docker/memoryDisplayMode': 'percentage',
           'docker/expandedHosts': '[]',
           'docker/expandedContainers': '["server1/other"]',
           'docker/containerShells': '{"server1/nginx":"sh"}',
@@ -212,7 +217,8 @@ describe('browser layout', () => {
     });
     act(() => {
       fakeMux.emitWire('settings', 'data', { type: 'change', key: 'docker/expandedContainers', value: '[]' });
-      fakeMux.emitWire('settings', 'data', { type: 'change', key: 'docker/chartWindowSeconds', value: '120' });
+      fakeMux.emitWire('user-settings', 'data', { type: 'init', settings: { 'docker/memoryDisplayMode': 'percentage' } });
+      fakeMux.emitWire('user-settings', 'data', { type: 'change', key: 'docker/chartWindowSeconds', value: '120' });
     });
 
     await waitFor(() => expect(result.current.docker.docker.chartWindowSeconds).toBe(120));
@@ -232,9 +238,9 @@ describe('browser layout', () => {
 
       toggleEveryLayoutControl(result.current);
       act(() => result.current.general.setShowSparklines(false));
-      await waitFor(() => expect(mockUpdateSetting).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(mockUpdateUserSetting).toHaveBeenCalledTimes(1));
       await act(async () => {
-        await mockUpdateSetting.mock.results[0]?.value;
+        await mockUpdateUserSetting.mock.results[0]?.value;
       });
 
       expectEveryLayoutControlToggled(result.current);

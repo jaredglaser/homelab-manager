@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+import { SETTINGS_KEYS, USER_SETTINGS_KEYS, isUserSettingsKey, type UserSettingsKey } from '@/lib/constants/settings-keys';
 
 /** Recursively extract all string values from a nested object. */
 type DeepStringValues<T> = T extends string
@@ -23,9 +23,19 @@ function collectValues(obj: Record<string, unknown>): string[] {
 
 export type SettingsKey = DeepStringValues<typeof SETTINGS_KEYS>;
 
-const VALID_KEYS = collectValues(SETTINGS_KEYS) as [SettingsKey, ...SettingsKey[]];
+export type GlobalSettingsKey = Exclude<SettingsKey, UserSettingsKey>;
+
+const GLOBAL_KEYS = (collectValues(SETTINGS_KEYS) as SettingsKey[]).filter(
+  (key): key is GlobalSettingsKey => !isUserSettingsKey(key),
+) as [GlobalSettingsKey, ...GlobalSettingsKey[]];
 
 export const updateSettingSchema = z.object({
-  key: z.enum(VALID_KEYS),
+  key: z.enum(GLOBAL_KEYS),
   value: z.string(),
+});
+
+// Strict, so a request body naming a user is rejected instead of silently ignored.
+export const updateUserSettingSchema = z.strictObject({
+  key: z.enum(USER_SETTINGS_KEYS),
+  value: z.string().max(255),
 });
