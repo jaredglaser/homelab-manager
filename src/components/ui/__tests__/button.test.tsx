@@ -6,6 +6,7 @@ import { OPERATOR_DENIED_COPY, VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { clearSession, findOpenTooltip, openTooltip, seedSession } from '@/lib/test/session';
 import { setupUser } from '@/lib/test/user-event';
 import { mockModule } from '@/lib/test/mock-module';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import type * as AuthFunctions from '@/data/auth.functions';
 
 mockModule<typeof AuthFunctions>('@/data/auth.functions', (real) => ({
@@ -123,6 +124,37 @@ describe('Button role requirement', () => {
     const ids = screen.getByRole('button', { name: 'Save' }).getAttribute('aria-describedby')?.split(' ') ?? [];
     expect(ids).toContain('hint');
     expect(ids.map((id) => document.getElementById(id)?.textContent)).toContain(VIEWER_DENIED_COPY);
+  });
+
+  it.each([
+    ['an admin', 'admin', false],
+    ['a viewer', 'viewer', true],
+  ] as const)('disables a role-gated Button inside a busy modal for %s, and shows the role reason only for the role', async (_label, role, roleReason) => {
+    seedSession(role);
+    const onClick = mock(() => undefined);
+    render(
+      <Dialog open busy>
+        <DialogContent>
+          <DialogTitle>Busy</DialogTitle>
+          <Button requires="write" onClick={onClick}>Save</Button>
+          <Button requires="write" allowWhileBusy onClick={onClick}>Keep going</Button>
+        </DialogContent>
+      </Dialog>,
+    );
+    const save = await screen.findByRole('button', { name: 'Save' });
+    const keepGoing = screen.getByRole('button', { name: 'Keep going' });
+    if (roleReason) {
+      expect(save.getAttribute('aria-disabled')).toBe('true');
+      expect(document.getElementById(save.getAttribute('aria-describedby') ?? '')?.textContent).toBe(VIEWER_DENIED_COPY);
+      expect(keepGoing.getAttribute('aria-disabled')).toBe('true');
+    } else {
+      expect(save.hasAttribute('disabled')).toBe(true);
+      expect(save.getAttribute('aria-describedby')).toBeNull();
+      expect(keepGoing.hasAttribute('disabled')).toBe(false);
+      expect(keepGoing.getAttribute('aria-disabled')).toBeNull();
+    }
+    fireEvent.click(save);
+    expect(onClick).not.toHaveBeenCalled();
   });
 
   it('treats requires={undefined} as no requirement', () => {
