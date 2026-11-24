@@ -36,6 +36,7 @@ const sessions = new Map<string, MuxSession>();
 // messages arriving before async open() finishes auth are buffered here and replayed only
 // after auth succeeds; without this the client's first sub commands are silently dropped
 const pendingMessages = new Map<string, string[]>();
+const openingPeers = new Set<string>();
 
 function stopTopic(session: MuxSession, topic: string): void {
   const stream = session.topics.get(topic);
@@ -60,6 +61,7 @@ function startTopic(session: MuxSession, topic: string, adapter: TopicAdapter): 
   const controller = new AbortController();
   session.topics.set(topic, { controller });
   const emit: EmitFrame = (frame) => {
+    if (controller.signal.aborted) return;
     if (session.outbox.pushFrame(frame) === 'failed') {
       controller.abort();
     }
@@ -183,6 +185,11 @@ export function parseAgentSseBlock(block: string): { event: string; data: string
   return { event: eventName, data: dataParts.join('\n') };
 }
 
+// TypeScript keeps signal.aborted narrowed to false after a first check, though any await can flip it.
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
 async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
   const { parseLogsTopic } = await import('../../../src/lib/mux/protocol');
   const parsed = parseLogsTopic(topic);
@@ -195,9 +202,12 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   const { databaseConnectionManager } = await import('../../../src/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('../../../src/lib/config/database-config');
   const { HostRepository } = await import('../../../src/lib/database/repositories/host-repository');
+  if (isAborted(signal)) return;
   const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  if (isAborted(signal)) return;
   const hostRepo = new HostRepository(dbClient.getPool());
   const managedHost = await hostRepo.findByName(host);
+  if (isAborted(signal)) return;
   if (!managedHost) {
     emit({ topic, kind: 'error', payload: { message: `Unknown host: ${host}`, gone: true } });
     return;
@@ -209,9 +219,12 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   );
   const { loadMasterKeyring } = await import('../../../src/lib/crypto/master-key');
   const { signAgentJwt } = await import('../../../src/lib/crypto/agent-jwt');
+  if (isAborted(signal)) return;
   const keyring = await loadMasterKeyring();
+  if (isAborted(signal)) return;
   const keypairs = new AgentKeypairsRepository(dbClient.getPool(), keyring);
   const privateKey = await keypairs.getPrivateKeyForHost(host);
+  if (isAborted(signal)) return;
   if (!privateKey) {
     emit({ topic, kind: 'error', payload: { message: `No agent keypair for host: ${host}`, gone: true } });
     return;
@@ -220,6 +233,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   // A missing pin is permanent, so fail as gone instead of looping as a fake agent outage.
   const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
   const caCertPem = (await tlsCerts.getCertForHost(host))?.trim() || null;
+  if (isAborted(signal)) return;
   if (isTlsUrl(managedHost.agentUrl) && !caCertPem) {
     emit({
       topic,
@@ -238,7 +252,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   let attempt = 0;
   let degraded = false;
   for (;;) {
-    if (signal.aborted) return;
+    if (isAborted(signal)) return;
     attempt++;
     try {
       const agentResponse = await agentFetch(agentUrl, {
@@ -246,6 +260,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
         signal,
         redirect: 'manual',
       }, { caCertPem });
+      if (isAborted(signal)) return;
       if (!agentResponse.ok || !agentResponse.body) {
         throw new Error(`Agent request failed with status ${agentResponse.status}`);
       }
@@ -254,7 +269,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
       await pipeAgentSse(agentResponse.body, topic, emit, signal);
       return;
     } catch (err) {
-      if (signal.aborted) return;
+      if (isAborted(signal)) return;
       if (!degraded) {
         degraded = true;
         console.error('[mux-ws] log upstream degraded:', err instanceof Error ? err.message : String(err), { host, containerId });
@@ -368,17 +383,20 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
 
   return {
     async open(peer: Peer) {
+      openingPeers.add(peer.id);
       let user: AuthUser | null;
       try {
         const { authenticateWsUpgrade } = await import('../../../src/lib/auth/ws-auth');
         user = await authenticateWsUpgrade(peer.request as unknown as Request);
         if (!user) {
           pendingMessages.delete(peer.id);
+          openingPeers.delete(peer.id);
           try { peer.close(1008, 'Unauthorized'); } catch { /* already closed */ }
           return;
         }
       } catch (err) {
         pendingMessages.delete(peer.id);
+        openingPeers.delete(peer.id);
         console.error('[mux-ws] auth failed:', err instanceof Error ? err.message : String(err));
         try { peer.close(1011, 'Internal error'); } catch { /* already closed */ }
         return;
@@ -400,6 +418,8 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
           },
         }),
       };
+      // A close during auth or the imports found no session to tear down, so storing one now would leak it and its ping timer.
+      if (!openingPeers.delete(peer.id)) return;
       sessions.set(peer.id, session);
       session.pingTimer = setInterval(() => {
         session.outbox.pushPing();
@@ -428,12 +448,14 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
 
     close(peer: Peer) {
       pendingMessages.delete(peer.id);
+      openingPeers.delete(peer.id);
       teardownSession(peer);
     },
 
     error(peer: Peer, err?: WSError) {
       console.error('[mux-ws] peer error:', { peerId: peer.id, error: err?.message ?? '(no error)' });
       pendingMessages.delete(peer.id);
+      openingPeers.delete(peer.id);
       teardownSession(peer);
     },
   };

@@ -49,6 +49,7 @@ export class AgentInventoryBroadcastService {
   private subscribers = new Set<InventorySnapshotCallback>();
   private listenerClient: PoolClient | null = null;
   private stopped = true;
+  private listenGeneration = 0;
   private reconnecting = false;
   private reconnectFailures = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -90,12 +91,13 @@ export class AgentInventoryBroadcastService {
 
   private async startListening(): Promise<void> {
     this.stopped = false;
+    const generation = ++this.listenGeneration;
 
-    while (!this.stopped) {
+    while (!this.stopped && generation === this.listenGeneration) {
       try {
         const poolClient = await this.getPoolClient();
 
-        if (this.stopped) {
+        if (this.stopped || generation !== this.listenGeneration) {
           try { poolClient.release(); } catch { /* best-effort */ }
           return;
         }
@@ -134,6 +136,7 @@ export class AgentInventoryBroadcastService {
         this.reconnectFailures = 0;
         return;
       } catch (err) {
+        if (generation !== this.listenGeneration) return;
         const delay = backoffDelayMs(this.reconnectFailures, { baseMs: BACKOFF_BASE_MS, capMs: BACKOFF_CAP_MS });
         console.error(`[AgentInventoryBroadcastService] Failed to start listener, retrying in ${delay}ms:`, err);
         this.reconnectFailures++;

@@ -325,3 +325,31 @@ describe('SettingsBroadcastService scoped by user', () => {
     await counting.stop();
   });
 });
+
+describe('SettingsBroadcastService re-subscribe while connecting', () => {
+  it('ends with one LISTEN client when a re-subscribe lands while the first client is still being acquired', async () => {
+    const clients = [createMockPoolClient(), createMockPoolClient()];
+    const acquisitions: ((client: PoolClient) => void)[] = [];
+    const service = new SettingsBroadcastService({
+      getPoolClient: () => new Promise<PoolClient>((resolve) => acquisitions.push(resolve)),
+      loadAllSettings: () => Promise.resolve(new Map([['theme', 'dark']])),
+      loadSingleSetting: () => Promise.resolve('light'),
+    });
+
+    service.subscribe(() => undefined, undefined)();
+    const received: SettingsWireMessage[] = [];
+    service.subscribe((m) => received.push(m), undefined);
+    acquisitions.forEach((resolve, i) => resolve(clients[i] as unknown as PoolClient));
+    const handed = clients.slice(0, acquisitions.length);
+    await waitForCondition(() => received.length >= 1 && handed.every((c) => c.released || c.querySql !== null));
+
+    const live = handed.filter((c) => c.querySql === 'LISTEN settings_change' && !c.released);
+    expect(live).toHaveLength(1);
+    expect(received[0]).toEqual({ type: 'init', settings: { theme: 'dark' } });
+
+    live[0].emit('notification', { channel: 'settings_change', payload: 'theme' });
+    await waitForCondition(() => received.length >= 2);
+    expect(received[1]).toEqual({ type: 'change', key: 'theme', value: 'light' });
+    await service.stop();
+  });
+});

@@ -117,14 +117,16 @@ mockModule<typeof import('@/lib/database/repositories/agent-tls-certificates-rep
   }),
 );
 
+const mockLoadMasterKeyring = mock(() => Promise.resolve({}));
 mockModule<typeof import('@/lib/crypto/master-key')>('@/lib/crypto/master-key', (real) => ({
   ...real,
-  loadMasterKeyring: async () => ({}),
+  loadMasterKeyring: mockLoadMasterKeyring,
 }));
 
+const mockSignAgentJwt = mock(() => Promise.resolve('fake.jwt.token'));
 mockModule<typeof import('@/lib/crypto/agent-jwt')>('@/lib/crypto/agent-jwt', (real) => ({
   ...real,
-  signAgentJwt: async () => 'fake.jwt.token',
+  signAgentJwt: mockSignAgentJwt,
 }));
 
 // Real server-init runs deploy recovery and DB shutdown hooks on import. Stub it to a no-op.
@@ -302,6 +304,76 @@ describe('mux ws route', () => {
     const acks = peer.sent.filter((f) => f.type === 'ack');
     expect(acks).toHaveLength(MAX_PENDING_FRAMES);
     expect(acks.every((a) => a.ok === true)).toBe(true);
+  });
+
+  it('leaves no session or ping timer when the socket closes while open() is authenticating', async () => {
+    const { gate, release } = authGate();
+    mockAuthenticate.mockImplementation(() => gate);
+    const { calls, adapter } = makeAdapter();
+    const h = createMuxWsHandlers({ topicAdapter: adapter });
+    const peer = makePeer(`race-${++peerCounter}`);
+    const intervals = mockSetInterval();
+    try {
+      const opened = h.open(peer as unknown as Peer);
+      h.close(peer as unknown as Peer);
+      release({ id: 'test-user' });
+      await opened;
+
+      expect(intervals.scheduled).toHaveLength(0);
+      await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+      expect(calls).toHaveLength(0);
+      expect(peer.sent).toEqual([]);
+    } finally {
+      intervals.restore();
+      h.close(peer as unknown as Peer);
+    }
+  });
+
+  it('leaves no ping timer running wherever a close lands during open()', async () => {
+    const h = createMuxWsHandlers({ topicAdapter: () => undefined });
+    const intervals = mockSetInterval();
+    try {
+      let microtasksBeforeClose = 0;
+      for (let openedFirst = false; !openedFirst; microtasksBeforeClose++) {
+        const peer = makePeer(`race-${++peerCounter}`);
+        const scheduledBefore = intervals.scheduled.length;
+        const opened = h.open(peer as unknown as Peer);
+        for (let i = 0; i < microtasksBeforeClose; i++) await Promise.resolve();
+        openedFirst = intervals.scheduled.length > scheduledBefore;
+        h.close(peer as unknown as Peer);
+        await opened;
+
+        expect(intervals.scheduled.filter((timer) => !timer.cleared)).toEqual([]);
+      }
+      expect(microtasksBeforeClose).toBeGreaterThan(1);
+    } finally {
+      intervals.restore();
+    }
+  });
+
+  it('sends no frame of any kind for a topic once it is unsubscribed', async () => {
+    const { calls, adapter } = makeAdapter();
+    const { peer, h } = await openWith({ adapter });
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+    await h.message(peer as unknown as Peer, command('unsub', ['inventory'], 2));
+
+    calls[0].emit({ topic: 'inventory', kind: 'data', payload: { type: 'init', containers: [] } });
+    calls[0].emit({ topic: 'inventory', kind: 'data', payload: { type: 'upsert' } });
+    calls[0].emit({ topic: 'inventory', kind: 'error', payload: { message: 'Unknown host: server1', gone: true } });
+
+    expect(peer.sent.filter((f) => f.type === 'event')).toEqual([]);
+  });
+
+  it('sends no frame of any kind for a topic once its socket closes', async () => {
+    const { calls, adapter } = makeAdapter();
+    const { peer, h } = await openWith({ adapter });
+    await h.message(peer as unknown as Peer, command('sub', ['inventory'], 1));
+    h.close(peer as unknown as Peer);
+
+    calls[0].emit({ topic: 'inventory', kind: 'data', payload: { type: 'init', containers: [] } });
+    calls[0].emit({ topic: 'inventory', kind: 'error', payload: { message: 'Unknown host: server1', gone: true } });
+
+    expect(peer.sent.filter((f) => f.type === 'event')).toEqual([]);
   });
 
   it('starts the adapter for each subscribed topic and acks the command', async () => {
@@ -653,26 +725,43 @@ describe('logs adapter pipe', () => {
     h.close(peer as unknown as Peer);
   });
 
-  it('never calls the agent when the logs topic is aborted before its fetch', async () => {
+  it.each([
+    ['a reachable host', (): void => undefined],
+    ['an unknown host', (): void => { mockFindByName.mockImplementation(() => Promise.resolve(null)); }],
+    ['a host with no keypair', (): void => { mockGetPrivateKeyForHost.mockImplementation(() => Promise.resolve(null)); }],
+    ['an https host with no pinned certificate', (): void => {
+      mockFindByName.mockImplementation(() => Promise.resolve({ name: 'server1', agentUrl: 'https://agent' }));
+      mockGetCertForHost.mockImplementation(() => Promise.resolve(null));
+    }],
+  ] as const)('does no further work and sends nothing for %s once the logs topic is aborted', async (_, arrange) => {
+    arrange();
     const user: AuthUser = { id: 1, email: 'alice@example.com', name: 'Alice', role: 'viewer' };
-    const fetchMock = mock(() => Promise.resolve(new Response(sseBody(''))));
+    const fetchMock = mock((_url: string, init?: RequestInit) => Promise.resolve().then(() => {
+      if (init?.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
+      return new Response(sseBody(''));
+    }));
     (globalThis as unknown as Record<string, unknown>).fetch = fetchMock;
+    const steps = [mockFindByName, mockLoadMasterKeyring, mockGetPrivateKeyForHost, mockGetCertForHost, mockSignAgentJwt, fetchMock];
+    const stepCalls = () => steps.map((step) => step.mock.calls.length);
 
     let microtasksBeforeAbort = 0;
-    for (let fetchedFirst = false; !fetchedFirst; microtasksBeforeAbort++) {
-      fetchMock.mockClear();
+    for (let finishedFirst = false; !finishedFirst; microtasksBeforeAbort++) {
+      for (const step of steps) step.mockClear();
       const emitted: MuxFrameBody[] = [];
+      const progress = { settled: false };
       const controller = new AbortController();
-      const started = defaultTopicAdapter('logs:server1/abc', (frame) => emitted.push(frame), controller.signal, user);
+      const started = Promise.resolve(
+        defaultTopicAdapter('logs:server1/abc', (frame) => emitted.push(frame), controller.signal, user),
+      ).then(() => { progress.settled = true; });
       for (let i = 0; i < microtasksBeforeAbort; i++) await Promise.resolve();
-      fetchedFirst = fetchMock.mock.calls.length > 0;
+      finishedFirst = progress.settled;
+      const callsAtAbort = stepCalls();
+      const emittedAtAbort = emitted.length;
       controller.abort();
       await started;
 
-      if (!fetchedFirst) {
-        expect(fetchMock).not.toHaveBeenCalled();
-        expect(emitted).toEqual([]);
-      }
+      expect(stepCalls()).toEqual(callsAtAbort);
+      expect(emitted).toHaveLength(emittedAtAbort);
     }
     expect(microtasksBeforeAbort).toBeGreaterThan(1);
   });
