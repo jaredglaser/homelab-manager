@@ -70,7 +70,6 @@ jobs:
             exit 1
           fi
 
-      # A wedged test worker otherwise holds the runner until GitHub's 6-hour job limit.
       - name: Run tests with coverage check
         timeout-minutes: 10
         run: bun run test
