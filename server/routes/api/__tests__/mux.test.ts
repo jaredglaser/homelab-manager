@@ -1186,6 +1186,7 @@ describe('topic adapters and an abort before they subscribe', () => {
   ];
   const subscribingTopics = subscribingServices.map(([topic]) => topic);
   const prefixesWithOwnAbortTest = ['logs:'];
+  const maxMicrotasksBeforeSubscribe = 200;
 
   beforeAll(async () => {
     for (const [topic, load] of subscribingServices) services.set(topic, (await load()) as TrackedService);
@@ -1228,9 +1229,12 @@ describe('topic adapters and an abort before they subscribe', () => {
 
   it('covers every registered topic adapter, or names the adapter that has its own abort test', () => {
     const uncoveredStatic = Object.keys(STATIC_TOPIC_ADAPTERS).filter((topic) => !subscribingTopics.includes(topic));
-    const uncoveredPrefixes = PREFIX_TOPIC_ADAPTERS.map(({ prefix }) => prefix).filter(
-      (prefix) => !prefixesWithOwnAbortTest.includes(prefix) && !subscribingTopics.some((topic) => topic.startsWith(prefix)),
-    );
+    const resolvedPrefixEntries = subscribingTopics
+      .filter((topic) => !(topic in STATIC_TOPIC_ADAPTERS))
+      .map((topic) => PREFIX_TOPIC_ADAPTERS.find(({ prefix }) => topic.startsWith(prefix)));
+    const uncoveredPrefixes = PREFIX_TOPIC_ADAPTERS.filter(
+      (entry) => !prefixesWithOwnAbortTest.includes(entry.prefix) && !resolvedPrefixEntries.includes(entry),
+    ).map(({ prefix }) => prefix);
 
     expect([...uncoveredStatic, ...uncoveredPrefixes]).toEqual([]);
   });
@@ -1273,7 +1277,8 @@ describe('topic adapters and an abort before they subscribe', () => {
 
   it.each(subscribingTopics)('leaves no %s subscription wherever an abort lands before the subscribe', async (topic) => {
     let microtasksBeforeAbort = 0;
-    for (let subscribedFirst = false; !subscribedFirst; microtasksBeforeAbort++) {
+    let subscribedFirst = false;
+    for (; !subscribedFirst && microtasksBeforeAbort <= maxMicrotasksBeforeSubscribe; microtasksBeforeAbort++) {
       const controller = new AbortController();
       const started = defaultTopicAdapter(topic, () => undefined, controller.signal, user);
       for (let i = 0; i < microtasksBeforeAbort; i++) await Promise.resolve();
@@ -1282,6 +1287,9 @@ describe('topic adapters and an abort before they subscribe', () => {
       await started;
 
       expect(liveCallbacks.size).toBe(0);
+    }
+    if (!subscribedFirst) {
+      throw new Error(`${topic} never subscribed to its spied service within ${maxMicrotasksBeforeSubscribe} microtasks`);
     }
     expect(microtasksBeforeAbort).toBeGreaterThan(1);
   });
