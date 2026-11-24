@@ -352,4 +352,65 @@ describe('SettingsBroadcastService re-subscribe while connecting', () => {
     expect(received[1]).toEqual({ type: 'change', key: 'theme', value: 'light' });
     await service.stop();
   });
+
+  it('ends with one LISTEN client when a re-subscribe lands while a reconnect attempt is acquiring its client', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const reconnects: (() => void)[] = [];
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+      if ((ms ?? 0) < 500) return realSetTimeout(fn, ms);
+      reconnects.push(fn);
+      return reconnects.length as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    const clients: MockPoolClient[] = [];
+    const acquisitions: ((client: PoolClient) => void)[] = [];
+    let connects = 0;
+    const service = new SettingsBroadcastService({
+      getPoolClient: () => {
+        connects++;
+        if (connects === 1) return Promise.reject(new Error('db down'));
+        return new Promise<PoolClient>((resolve) => acquisitions.push(resolve));
+      },
+      loadAllSettings: () => Promise.resolve(new Map([['theme', 'dark']])),
+      loadSingleSetting: () => Promise.resolve('light'),
+    });
+    const handOut = (resolve: (client: PoolClient) => void) => {
+      const client = createMockPoolClient();
+      clients.push(client);
+      resolve(client as unknown as PoolClient);
+    };
+
+    try {
+      const unsubscribeFirst = service.subscribe(() => undefined, undefined);
+      await waitForCondition(() => reconnects.length === 1);
+      reconnects.shift()?.();
+      await waitForCondition(() => acquisitions.length === 1);
+      unsubscribeFirst();
+      const received: SettingsWireMessage[] = [];
+      service.subscribe((m) => received.push(m), undefined);
+      await waitForCondition(() => acquisitions.length === 2);
+
+      handOut(acquisitions[0]);
+      await waitForCondition(() => clients[0].released);
+      handOut(acquisitions[1]);
+      await waitForCondition(() => received.length >= 1 && clients[1].querySql !== null);
+      while (reconnects.length > 0) {
+        const pending = acquisitions.length;
+        reconnects.shift()?.();
+        await waitForCondition(() => acquisitions.length > pending);
+        handOut(acquisitions[pending]);
+        await waitForCondition(() => clients[pending].querySql !== null || clients[pending].released);
+      }
+
+      const live = clients.filter((c) => c.querySql === 'LISTEN settings_change' && !c.released);
+      expect(live).toHaveLength(1);
+      live[0].emit('notification', { channel: 'settings_change', payload: 'theme' });
+      await waitForCondition(() => received.length >= 2);
+      expect(received.filter((m) => m.type === 'change')).toEqual([{ type: 'change', key: 'theme', value: 'light' }]);
+    } finally {
+      await service.stop();
+      setTimeoutSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
 });

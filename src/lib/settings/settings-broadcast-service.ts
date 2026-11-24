@@ -207,7 +207,9 @@ export class SettingsBroadcastService<Scope = void> {
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       if (!this.stopped && this.subscribers.size > 0) {
+        const generation = this.listenGeneration;
         const ok = await this.startListening();
+        if (generation !== this.listenGeneration) return;
         if (ok) {
           this.reconnecting = false;
           // Settings may have changed during the disconnect window; push the
