@@ -38,11 +38,6 @@ export interface Settings {
   proxmox: {
     updateInterval: ProxmoxUpdateInterval;
   };
-  retention: {
-    rawDataHours: number;
-    minuteAggDays: number;
-    hourAggDays: number;
-  };
   developer: {
     dockerDebugLogging: boolean;
     dbFlushDebugLogging: boolean;
@@ -77,11 +72,6 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   proxmox: {
     updateInterval: 10000,
-  },
-  retention: {
-    rawDataHours: 1,
-    minuteAggDays: 3,
-    hourAggDays: 30,
   },
   developer: {
     dockerDebugLogging: false,
@@ -146,11 +136,6 @@ export function parseSettings(raw: Record<string, string>): Settings {
     proxmox: {
       updateInterval: parseProxmoxUpdateInterval(raw[SETTINGS_KEYS.proxmox.updateInterval]),
     },
-    retention: {
-      rawDataHours: parseIntSetting(raw[SETTINGS_KEYS.retention.rawDataHours], DEFAULT_SETTINGS.retention.rawDataHours),
-      minuteAggDays: parseIntSetting(raw[SETTINGS_KEYS.retention.minuteAggDays], DEFAULT_SETTINGS.retention.minuteAggDays),
-      hourAggDays: parseIntSetting(raw[SETTINGS_KEYS.retention.hourAggDays], DEFAULT_SETTINGS.retention.hourAggDays),
-    },
     developer: {
       dockerDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.dockerDebugLogging], DEFAULT_SETTINGS.developer.dockerDebugLogging),
       dbFlushDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.dbFlushDebugLogging], DEFAULT_SETTINGS.developer.dbFlushDebugLogging),
@@ -201,15 +186,6 @@ function proxmoxEqual(a: Settings['proxmox'], b: Settings['proxmox']): boolean {
   return a === b || a.updateInterval === b.updateInterval;
 }
 
-function retentionEqual(a: Settings['retention'], b: Settings['retention']): boolean {
-  return (
-    a === b ||
-    (a.rawDataHours === b.rawDataHours &&
-      a.minuteAggDays === b.minuteAggDays &&
-      a.hourAggDays === b.hourAggDays)
-  );
-}
-
 function developerEqual(a: Settings['developer'], b: Settings['developer']): boolean {
   return (
     a === b ||
@@ -230,5 +206,4 @@ export const generalSettingsAtom = selectAtom(settingsAtom, (s) => s.general, ge
 export const dockerSettingsAtom = selectAtom(settingsAtom, (s) => s.docker, dockerEqual);
 export const zfsSettingsAtom = selectAtom(settingsAtom, (s) => s.zfs, zfsEqual);
 export const proxmoxSettingsAtom = selectAtom(settingsAtom, (s) => s.proxmox, proxmoxEqual);
-export const retentionSettingsAtom = selectAtom(settingsAtom, (s) => s.retention, retentionEqual);
 export const developerSettingsAtom = selectAtom(settingsAtom, (s) => s.developer, developerEqual);

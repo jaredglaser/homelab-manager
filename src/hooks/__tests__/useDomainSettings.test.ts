@@ -49,26 +49,12 @@ describe('useDockerSettings', () => {
 });
 
 describe('useGeneralSettings', () => {
-  it('exposes general, retention, and developer slices', () => {
+  it('exposes general and developer slices', () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useGeneralSettings(), { wrapper });
 
     expect(result.current.general.showSparklines).toBe(true);
-    expect(result.current.retention.rawDataHours).toBe(1);
     expect(result.current.developer.dockerDebugLogging).toBe(false);
-  });
-
-  it('persists retention updates', () => {
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useGeneralSettings(), { wrapper });
-
-    act(() => {
-      result.current.setRetention('minuteAggDays', 14);
-    });
-
-    expect(mockUpdateSetting).toHaveBeenCalledWith({
-      data: { key: SETTINGS_KEYS.retention.minuteAggDays, value: '14' },
-    });
   });
 });
 

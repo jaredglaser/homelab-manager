@@ -2,7 +2,6 @@ import { useCallback, useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import {
   generalSettingsAtom,
-  retentionSettingsAtom,
   developerSettingsAtom,
   type Settings,
   type LightPalette,
@@ -12,14 +11,12 @@ import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 export interface GeneralSettingsValue {
   general: Settings['general'];
-  retention: Settings['retention'];
   developer: Settings['developer'];
   setUse12HourTime: (value: boolean) => void;
   setUpdateInterval: (value: number) => void;
   setShowSparklines: (value: boolean) => void;
   setUseAbbreviatedUnits: (value: boolean) => void;
   setLightPalette: (palette: LightPalette) => void;
-  setRetention: (key: keyof Settings['retention'], value: number) => void;
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
   setStreamDebugLogging: (value: boolean) => void;
@@ -27,13 +24,12 @@ export interface GeneralSettingsValue {
 
 /**
  * Cross-cutting app settings: theme/time format, data update cadence, unit
- * formatting, retention windows, and developer debug toggles. Subscribes only
- * to the general/retention/developer slices: Docker, ZFS, and Proxmox
+ * formatting, and developer debug toggles. Subscribes only
+ * to the general/developer slices: Docker, ZFS, and Proxmox
  * changes do not re-render consumers.
  */
 export function useGeneralSettings(): GeneralSettingsValue {
   const general = useAtomValue(generalSettingsAtom);
-  const retention = useAtomValue(retentionSettingsAtom);
   const developer = useAtomValue(developerSettingsAtom);
   const optimisticSet = useOptimisticSetting();
 
@@ -57,10 +53,6 @@ export function useGeneralSettings(): GeneralSettingsValue {
     optimisticSet(SETTINGS_KEYS.general.lightPalette, () => palette);
   }, [optimisticSet]);
 
-  const setRetention = useCallback((key: keyof Settings['retention'], value: number) => {
-    optimisticSet(SETTINGS_KEYS.retention[key], () => String(value));
-  }, [optimisticSet]);
-
   const setDockerDebugLogging = useCallback((value: boolean) => {
     optimisticSet(SETTINGS_KEYS.developer.dockerDebugLogging, () => String(value));
   }, [optimisticSet]);
@@ -75,27 +67,23 @@ export function useGeneralSettings(): GeneralSettingsValue {
 
   return useMemo<GeneralSettingsValue>(() => ({
     general,
-    retention,
     developer,
     setUse12HourTime,
     setUpdateInterval,
     setShowSparklines,
     setUseAbbreviatedUnits,
     setLightPalette,
-    setRetention,
     setDockerDebugLogging,
     setDbFlushDebugLogging,
     setStreamDebugLogging,
   }), [
     general,
-    retention,
     developer,
     setUse12HourTime,
     setUpdateInterval,
     setShowSparklines,
     setUseAbbreviatedUnits,
     setLightPalette,
-    setRetention,
     setDockerDebugLogging,
     setDbFlushDebugLogging,
     setStreamDebugLogging,

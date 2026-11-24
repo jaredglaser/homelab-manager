@@ -451,21 +451,6 @@ type ReactNode = import('react').ReactNode;
         });
     });
 
-    describe('setRetention', () => {
-        it('should update retention settings', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.setRetention('rawDataHours', 48);
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.retention.rawDataHours, value: '48' },
-            });
-        });
-    });
-
     describe('ZFS decimal settings', () => {
         it('should update ZFS decimal settings', () => {
             const { wrapper } = createWrapper();

@@ -44,6 +44,14 @@ describe('updateSettingSchema', () => {
     expect(() => updateSettingSchema.parse({ key, value: '[]' })).toThrow();
   });
 
+  it.each([
+    'retention/rawDataHours',
+    'retention/minuteAggDays',
+    'retention/hourAggDays',
+  ])('rejects the removed retention key %s', (key) => {
+    expect(() => updateSettingSchema.parse({ key, value: '24' })).toThrow();
+  });
+
   it('rejects empty key', () => {
     expect(() => updateSettingSchema.parse({ key: '', value: 'x' })).toThrow();
   });

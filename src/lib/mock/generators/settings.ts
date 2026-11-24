@@ -62,10 +62,6 @@ export function generateDefaultSettings(): Record<string, string> {
 
     [SETTINGS_KEYS.proxmox.updateInterval]: '1000',
 
-    [SETTINGS_KEYS.retention.rawDataHours]: '24',
-    [SETTINGS_KEYS.retention.minuteAggDays]: '7',
-    [SETTINGS_KEYS.retention.hourAggDays]: '30',
-
     [SETTINGS_KEYS.developer.dockerDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.dbFlushDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.streamDebugLogging]: 'false',
