@@ -1,55 +1,54 @@
 import type { PoolClient } from 'pg';
 import type { SettingsWireMessage } from '@/types/settings';
 import { backoffDelayMs } from '@/lib/utils/backoff';
+import { USER_SETTINGS_CHANNEL, parseUserSettingsNotifyPayload } from '@/lib/database/repositories/settings-repository';
 
 type SettingsCallback = (message: SettingsWireMessage) => void;
 
-async function defaultGetPoolClient(): Promise<PoolClient> {
+const GLOBAL_SETTINGS_CHANNEL = 'settings_change';
+
+async function getDatabasePool() {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-  const config = loadDatabaseConfig();
-  const client = await databaseConnectionManager.getClient(config);
-  return client.getPool().connect();
+  const client = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  return client.getPool();
+}
+
+async function defaultGetPoolClient(): Promise<PoolClient> {
+  return await (await getDatabasePool()).connect();
 }
 
 async function defaultLoadAllSettings(): Promise<Map<string, string>> {
-  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { SettingsRepository } = await import('@/lib/database/repositories/settings-repository');
-  const config = loadDatabaseConfig();
-  const client = await databaseConnectionManager.getClient(config);
-  const repo = new SettingsRepository(client.getPool());
-  return repo.getAll();
+  return await new SettingsRepository(await getDatabasePool()).getAll();
 }
 
 async function defaultLoadSingleSetting(key: string): Promise<string | null> {
-  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { SettingsRepository } = await import('@/lib/database/repositories/settings-repository');
-  const config = loadDatabaseConfig();
-  const client = await databaseConnectionManager.getClient(config);
-  const repo = new SettingsRepository(client.getPool());
-  return repo.get(key);
+  return await new SettingsRepository(await getDatabasePool()).get(key);
 }
 
-export interface SettingsBroadcastServiceDeps {
+export interface SettingsBroadcastServiceDeps<Scope = void> {
   getPoolClient?: () => Promise<PoolClient>;
-  loadAllSettings?: () => Promise<Map<string, string>>;
-  loadSingleSetting?: (key: string) => Promise<string | null>;
+  channel?: string;
+  /** Maps a NOTIFY payload to the scope whose subscribers receive the change. A null result drops it. */
+  parseNotification?: (payload: string) => { scope: Scope; key: string } | null;
+  loadAllSettings?: (scope: Scope) => Promise<Map<string, string>>;
+  loadSingleSetting?: (key: string, scope: Scope) => Promise<string | null>;
 }
 
 /**
  * Server-side broadcast service for settings changes.
  *
- * Listens to PostgreSQL NOTIFY on the 'settings_change' channel and
- * broadcasts changes to all subscribed WebSocket clients. On subscribe,
- * sends the full settings state as an 'init' message - this handles
- * both startup sync and reconnection recovery.
+ * Listens to PostgreSQL NOTIFY on one channel and broadcasts changes to the
+ * subscribers of the scope the notification names. On subscribe, sends that
+ * scope's full settings state as an 'init' message - this handles both
+ * startup sync and reconnection recovery.
  *
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.
  */
-export class SettingsBroadcastService {
-  private subscribers = new Set<SettingsCallback>();
+export class SettingsBroadcastService<Scope = void> {
+  private subscribers = new Map<SettingsCallback, Scope>();
   private listenerClient: PoolClient | null = null;
   private stopped = true;
   private reconnecting = false;
@@ -63,24 +62,28 @@ export class SettingsBroadcastService {
    */
   private startInFlight: Promise<boolean> | null = null;
   private readonly getPoolClient: () => Promise<PoolClient>;
-  private readonly loadAllSettings: () => Promise<Map<string, string>>;
-  private readonly loadSingleSetting: (key: string) => Promise<string | null>;
+  private readonly channel: string;
+  private readonly parseNotification: (payload: string) => { scope: Scope; key: string } | null;
+  private readonly loadAllSettings: (scope: Scope) => Promise<Map<string, string>>;
+  private readonly loadSingleSetting: (key: string, scope: Scope) => Promise<string | null>;
 
-  constructor(deps: SettingsBroadcastServiceDeps = {}) {
+  constructor(deps: SettingsBroadcastServiceDeps<Scope> = {}) {
     this.getPoolClient = deps.getPoolClient ?? defaultGetPoolClient;
+    this.channel = deps.channel ?? GLOBAL_SETTINGS_CHANNEL;
+    this.parseNotification = deps.parseNotification ?? ((key) => ({ scope: undefined as Scope, key }));
     this.loadAllSettings = deps.loadAllSettings ?? defaultLoadAllSettings;
     this.loadSingleSetting = deps.loadSingleSetting ?? defaultLoadSingleSetting;
   }
 
-  subscribe(callback: SettingsCallback): () => void {
-    this.subscribers.add(callback);
+  subscribe(callback: SettingsCallback, scope: Scope): () => void {
+    this.subscribers.set(callback, scope);
 
     if (this.subscribers.size === 1) {
-      this.startListening();
+      void this.startListening();
     }
 
     // Send full state to new subscriber
-    this.sendInit(callback);
+    void this.sendInit(callback, scope);
 
     return () => {
       this.subscribers.delete(callback);
@@ -90,9 +93,9 @@ export class SettingsBroadcastService {
     };
   }
 
-  private async sendInit(callback: SettingsCallback): Promise<void> {
+  private async sendInit(callback: SettingsCallback, scope: Scope): Promise<void> {
     try {
-      const all = await this.loadAllSettings();
+      const all = await this.loadAllSettings(scope);
 
       // Only send if subscriber is still active
       if (this.subscribers.has(callback)) {
@@ -127,8 +130,8 @@ export class SettingsBroadcastService {
       this.listenerClient = poolClient;
 
       this.listenerClient.on('notification', (msg) => {
-        if (msg.channel === 'settings_change' && msg.payload) {
-          this.handleChange(msg.payload);
+        if (msg.channel === this.channel && msg.payload) {
+          void this.handleChange(msg.payload);
         }
       });
 
@@ -141,7 +144,7 @@ export class SettingsBroadcastService {
         }
       });
 
-      await this.listenerClient.query('LISTEN settings_change');
+      await this.listenerClient.query(`LISTEN ${this.channel}`);
       this.reconnectFailures = 0;
       return true;
     } catch (error) {
@@ -165,20 +168,25 @@ export class SettingsBroadcastService {
 
   /** Re-send full settings state to every active subscriber. */
   private async resyncAllSubscribers(): Promise<void> {
-    if (this.subscribers.size === 0) return;
-    try {
-      const all = await this.loadAllSettings();
-      const message: SettingsWireMessage = { type: 'init', settings: Object.fromEntries(all) };
-
-      for (const cb of this.subscribers) {
-        try {
-          cb(message);
-        } catch (err) {
-          console.error('[SettingsBroadcastService] Subscriber callback failed during resync:', err);
-        }
+    for (const scope of new Set(this.subscribers.values())) {
+      try {
+        const all = await this.loadAllSettings(scope);
+        const message: SettingsWireMessage = { type: 'init', settings: Object.fromEntries(all) };
+        this.deliver(scope, message, 'resync');
+      } catch (error) {
+        console.error('[SettingsBroadcastService] Failed to resync subscribers:', error);
       }
-    } catch (error) {
-      console.error('[SettingsBroadcastService] Failed to resync subscribers:', error);
+    }
+  }
+
+  private deliver(scope: Scope, message: SettingsWireMessage, phase: 'change' | 'resync'): void {
+    for (const [cb, subscribedScope] of this.subscribers) {
+      if (subscribedScope !== scope) continue;
+      try {
+        cb(message);
+      } catch (err) {
+        console.error(`[SettingsBroadcastService] Subscriber callback failed during ${phase}:`, err);
+      }
     }
   }
 
@@ -208,15 +216,14 @@ export class SettingsBroadcastService {
     }, delayMs);
   }
 
-  private async handleChange(key: string): Promise<void> {
+  private async handleChange(payload: string): Promise<void> {
+    const target = this.parseNotification(payload);
+    if (target === null) return;
     try {
-      const value = await this.loadSingleSetting(key);
+      const value = await this.loadSingleSetting(target.key, target.scope);
 
       if (value !== null) {
-        const message: SettingsWireMessage = { type: 'change', key, value };
-        for (const cb of this.subscribers) {
-          cb(message);
-        }
+        this.deliver(target.scope, { type: 'change', key: target.key, value }, 'change');
       }
     } catch (error) {
       console.error('[SettingsBroadcastService] Failed to handle change:', error);
@@ -256,3 +263,17 @@ export class SettingsBroadcastService {
 }
 
 export const settingsBroadcastService = new SettingsBroadcastService();
+
+/** Scoped by user id, which the caller takes from the authenticated session. */
+export const userSettingsBroadcastService = new SettingsBroadcastService<number>({
+  channel: USER_SETTINGS_CHANNEL,
+  parseNotification: parseUserSettingsNotifyPayload,
+  loadAllSettings: async (userId) => {
+    const { UserSettingsRepository } = await import('@/lib/database/repositories/settings-repository');
+    return await new UserSettingsRepository(await getDatabasePool()).getAll(userId);
+  },
+  loadSingleSetting: async (key, userId) => {
+    const { UserSettingsRepository } = await import('@/lib/database/repositories/settings-repository');
+    return await new UserSettingsRepository(await getDatabasePool()).get(userId, key);
+  },
+});

@@ -51,8 +51,8 @@ describe('NAV_ITEMS', () => {
 })
 
 describe('SETTINGS_SECTIONS', () => {
-  it('has exactly 6 entries', () => {
-    expect(SETTINGS_SECTIONS.length).toBe(6)
+  it('has exactly 7 entries', () => {
+    expect(SETTINGS_SECTIONS.length).toBe(7)
   })
 
   it('has the expected ids in order', () => {
@@ -61,6 +61,7 @@ describe('SETTINGS_SECTIONS', () => {
       'general',
       'docker-dashboard',
       'zfs-dashboard',
+      'data-collection',
       'data-retention',
       'managed-hosts',
       'developer',

@@ -246,3 +246,58 @@ describe('SettingsBroadcastService', () => {
     });
   });
 });
+
+describe('SettingsBroadcastService scoped by user', () => {
+  let poolClient: MockPoolClient;
+  let service: SettingsBroadcastService<number>;
+  const stored = new Map<number, Map<string, string>>();
+
+  beforeEach(() => {
+    poolClient = createMockPoolClient();
+    stored.clear();
+    stored.set(1, new Map([['general/use12HourTime', 'false']]));
+    stored.set(2, new Map([['general/use12HourTime', 'true']]));
+    service = new SettingsBroadcastService<number>({
+      getPoolClient: () => Promise.resolve(poolClient as unknown as PoolClient),
+      channel: 'user_settings_change',
+      parseNotification: (payload) => {
+        const [id, key] = payload.split(':');
+        return id && key ? { scope: Number(id), key } : null;
+      },
+      loadAllSettings: (userId) => Promise.resolve(new Map(stored.get(userId))),
+      loadSingleSetting: (key, userId) => Promise.resolve(stored.get(userId)?.get(key) ?? null),
+    });
+  });
+
+  afterEach(async () => {
+    await service.stop();
+  });
+
+  it("sends each subscriber its own user's init, listening on the user channel", async () => {
+    const one: SettingsWireMessage[] = [];
+    const two: SettingsWireMessage[] = [];
+    service.subscribe((m) => one.push(m), 1);
+    service.subscribe((m) => two.push(m), 2);
+    await waitForCondition(() => one.length > 0 && two.length > 0 && poolClient.querySql !== null);
+
+    expect(poolClient.querySql).toBe('LISTEN user_settings_change');
+    expect(one).toEqual([{ type: 'init', settings: { 'general/use12HourTime': 'false' } }]);
+    expect(two).toEqual([{ type: 'init', settings: { 'general/use12HourTime': 'true' } }]);
+  });
+
+  it('delivers a change only to subscribers of the user it names', async () => {
+    const one: SettingsWireMessage[] = [];
+    const two: SettingsWireMessage[] = [];
+    service.subscribe((m) => one.push(m), 1);
+    service.subscribe((m) => two.push(m), 2);
+    await waitForCondition(() => one.length > 0 && two.length > 0 && poolClient.notificationHandlers.length > 0);
+
+    stored.get(2)?.set('general/use12HourTime', 'false');
+    poolClient.emit('notification', { channel: 'user_settings_change', payload: '2:general/use12HourTime' });
+    poolClient.emit('notification', { channel: 'user_settings_change', payload: 'garbage' });
+    await waitForCondition(() => two.length > 1);
+
+    expect(two[1]).toEqual({ type: 'change', key: 'general/use12HourTime', value: 'false' });
+    expect(one).toHaveLength(1);
+  });
+});

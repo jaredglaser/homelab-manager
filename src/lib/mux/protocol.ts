@@ -7,6 +7,7 @@
  */
 export const INVENTORY_TOPIC = 'inventory';
 export const SETTINGS_TOPIC = 'settings';
+export const USER_SETTINGS_TOPIC = 'user-settings';
 export const STACK_STATUS_TOPIC = 'stack-status';
 export const AGENT_INVENTORY_TOPIC = 'agent-inventory';
 export const IMAGE_UPDATES_TOPIC = 'image-updates';
@@ -114,6 +115,7 @@ export function isValidTopic(topic: unknown): topic is string {
   if (typeof topic !== 'string') return false;
   return (
     topic === SETTINGS_TOPIC ||
+    topic === USER_SETTINGS_TOPIC ||
     topic === STACK_STATUS_TOPIC ||
     topic === AGENT_INVENTORY_TOPIC ||
     lookupTopicSpec(topic) !== null

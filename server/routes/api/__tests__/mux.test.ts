@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import type { PoolClient } from 'pg';
 import { mockModule } from '@/lib/test/mock-module';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
+import type { AuthUser } from '@/lib/auth/types';
 
 const mockAuthenticate = mock(async () => ({ id: 'test-user' } as unknown));
 const mockFindByName = mock(async (_: string) => null as null | { name: string; agentUrl: string });
@@ -36,8 +37,10 @@ function makePoolHarness() {
 }
 
 const settingsHarness = makePoolHarness();
+const userSettingsHarness = makePoolHarness();
 const stackHarness = makePoolHarness();
 const settingsState = { all: new Map<string, string>(), values: new Map<string, string>() };
+const userSettingsState = new Map<number, Map<string, string>>();
 const stackState = { snapshot: [] as DockerInventorySnapshotContainer[] };
 
 mockModule<typeof import('@/lib/settings/settings-broadcast-service')>(
@@ -48,6 +51,16 @@ mockModule<typeof import('@/lib/settings/settings-broadcast-service')>(
       getPoolClient: settingsHarness.getPoolClient,
       loadAllSettings: async () => new Map(settingsState.all),
       loadSingleSetting: async (key) => settingsState.values.get(key) ?? null,
+    }),
+    userSettingsBroadcastService: new real.SettingsBroadcastService<number>({
+      getPoolClient: () => userSettingsHarness.getPoolClient(),
+      channel: 'user_settings_change',
+      parseNotification: (payload) => {
+        const [userId, key] = payload.split(':');
+        return { scope: Number(userId), key };
+      },
+      loadAllSettings: (userId) => Promise.resolve(new Map(userSettingsState.get(userId))),
+      loadSingleSetting: (key, userId) => Promise.resolve(userSettingsState.get(userId)?.get(key) ?? null),
     }),
   }),
 );
@@ -837,6 +850,78 @@ describe('control topics (settings, stack-status)', () => {
   });
 });
 
+describe('user-settings topic', () => {
+  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+  async function until(predicate: () => boolean, maxRounds = 50): Promise<void> {
+    for (let i = 0; i < maxRounds && !predicate(); i++) await settle();
+  }
+  let peerCounter = 0;
+  const alice: AuthUser = { id: 1, email: 'alice@example.com', name: 'Alice', role: 'viewer' };
+  const bob: AuthUser = { id: 2, email: 'bob@example.com', name: 'Bob', role: 'admin' };
+
+  beforeAll(async () => {
+    await import('@/lib/settings/settings-broadcast-service');
+  });
+
+  beforeEach(() => {
+    userSettingsHarness.clients.length = 0;
+    userSettingsState.clear();
+    userSettingsState.set(alice.id, new Map([['general/use12HourTime', 'false']]));
+    userSettingsState.set(bob.id, new Map([['general/use12HourTime', 'true']]));
+  });
+
+  async function openAs(user: AuthUser): Promise<{ peer: FakePeer; h: ReturnType<typeof createMuxWsHandlers> }> {
+    mockAuthenticate.mockImplementation(() => Promise.resolve(user));
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer(`user-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', ['user-settings'], 1));
+    await until(() => dataFrames(peer, 'user-settings').length >= 1);
+    return { peer, h };
+  }
+
+  it("sends each session its own user's values, taken from the authenticated session", async () => {
+    const a = await openAs(alice);
+    const b = await openAs(bob);
+
+    expect(dataFrames(a.peer, 'user-settings')[0].payload).toEqual({ type: 'init', settings: { 'general/use12HourTime': 'false' } });
+    expect(dataFrames(b.peer, 'user-settings')[0].payload).toEqual({ type: 'init', settings: { 'general/use12HourTime': 'true' } });
+    a.h.close(a.peer as unknown as Peer);
+    b.h.close(b.peer as unknown as Peer);
+  });
+
+  it("delivers a change to every open client of that user and to no other user's client", async () => {
+    const a1 = await openAs(alice);
+    const a2 = await openAs(alice);
+    const b = await openAs(bob);
+
+    userSettingsState.get(alice.id)?.set('docker/chartWindowSeconds', '600');
+    userSettingsHarness.clients.at(-1)?.emit('notification', {
+      channel: 'user_settings_change',
+      payload: `${alice.id}:docker/chartWindowSeconds`,
+    });
+    await until(() => dataFrames(a1.peer, 'user-settings').length >= 2 && dataFrames(a2.peer, 'user-settings').length >= 2);
+
+    const change = { type: 'change', key: 'docker/chartWindowSeconds', value: '600' };
+    expect(dataFrames(a1.peer, 'user-settings')[1].payload).toEqual(change);
+    expect(dataFrames(a2.peer, 'user-settings')[1].payload).toEqual(change);
+    expect(dataFrames(b.peer, 'user-settings')).toHaveLength(1);
+    for (const { h, peer } of [a1, a2, b]) h.close(peer as unknown as Peer);
+  });
+
+  it('rejects a topic that names a user', async () => {
+    mockAuthenticate.mockImplementation(() => Promise.resolve(alice));
+    const h = createMuxWsHandlers({ topicAdapter: defaultTopicAdapter });
+    const peer = makePeer(`user-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    await h.message(peer as unknown as Peer, command('sub', [`user-settings:${bob.id}`], 4));
+
+    expect(peer.sent.filter((f) => f.type === 'ack')).toEqual([{ type: 'ack', ref: 0, ok: false, error: 'Invalid command' }]);
+    expect(userSettingsHarness.clients).toHaveLength(0);
+    h.close(peer as unknown as Peer);
+  });
+});
+
 describe('stats topic adapters', () => {
   beforeEach(() => {
     statsSubscribeCalls.length = 0;
@@ -910,7 +995,8 @@ describe('stats topic adapters', () => {
 
   it('rejects an unregistered stats source with a gone error frame', async () => {
     const emitted: MuxFrameBody[] = [];
-    await defaultTopicAdapter('stats:bogus', (frame) => emitted.push(frame), new AbortController().signal);
+    const user = { id: 1, email: 'a@example.com', name: null, role: 'viewer' } as const;
+    await defaultTopicAdapter('stats:bogus', (frame) => emitted.push(frame), new AbortController().signal, user);
 
     expect(emitted).toEqual([
       { topic: 'stats:bogus', kind: 'error', payload: { message: 'Invalid stats topic', gone: true } },

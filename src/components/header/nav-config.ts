@@ -1,4 +1,4 @@
-import { Archive, Bot as BotIcon, Code, HardDrive, Layers, Server, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react'
+import { Archive, Bot as BotIcon, Code, HardDrive, Layers, Server, Settings as SettingsIcon, SlidersHorizontal, Timer } from 'lucide-react'
 import { DockerIcon, ProxmoxIcon } from '@/components/header/icons'
 import type { IconProps } from '@/components/header/icons'
 import { queryClient } from '@/lib/query-client'
@@ -50,6 +50,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDescriptor[] = [
   { id: 'general', label: 'General', Icon: SlidersHorizontal },
   { id: 'docker-dashboard', label: 'Docker Dashboard', Icon: DockerIcon },
   { id: 'zfs-dashboard', label: 'ZFS Dashboard', Icon: HardDrive },
+  { id: 'data-collection', label: 'Data Collection', Icon: Timer },
   { id: 'data-retention', label: 'Data Retention', Icon: Archive },
   { id: 'managed-hosts', label: 'Managed Hosts', Icon: Server },
   { id: 'developer', label: 'Developer', Icon: Code },
