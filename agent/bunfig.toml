@@ -1,2 +1,4 @@
 [test]
-preload = ["../src/lib/test/test-timeout.ts"]
+preload = ["../src/lib/test/test-timeout.ts", "../src/lib/test/network-guard.ts"]
+# Tested in the root package. Counted here, its untaken block paths pull the agent under the line gate.
+coveragePathIgnorePatterns = ["../src/lib/test/network-guard.ts"]
