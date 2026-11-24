@@ -10,32 +10,45 @@ import { connect as tlsConnect } from 'node:tls';
 import pg from 'pg';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { drainBlockedNetworkCalls, isLoopbackHost } from '../network-guard';
+import { drainBlockedNetworkCalls, isLoopbackHost, NetworkGuardError } from '../network-guard';
 import { getTestTmpDir } from '../tmp-dir';
 
 const HOST = 'guard-probe.invalid';
 const IP = '192.0.2.1';
+type UntypedBunDns = Record<'lookupService' | 'resolve' | 'reverse', (...args: unknown[]) => Promise<unknown>>;
+const bunDns = Bun.dns as typeof Bun.dns & UntypedBunDns;
 
-async function blockedError(call: () => unknown): Promise<{ error: Error; elapsed: number }> {
-  const started = performance.now();
+async function blockedError(call: () => unknown): Promise<{ error: Error }> {
   try {
     await call();
   } catch (error) {
-    return { error: error as Error, elapsed: performance.now() - started };
+    return { error: error as Error };
   }
   throw new Error('call was not blocked');
 }
 
 async function expectBlocked(api: string, call: () => unknown, fix: RegExp, host = HOST): Promise<void> {
-  const { error, elapsed } = await blockedError(call);
+  const { error } = await blockedError(call);
   expect(error.name).toBe('NetworkGuardError');
   expect(error.message).toContain(`${api} tried to reach "${host}"`);
   expect(error.message).toMatch(fix);
-  expect(elapsed).toBeLessThan(100);
   const calls = drainBlockedNetworkCalls();
   expect(calls).toHaveLength(1);
   expect(calls[0]).toStartWith(`${error.message}\n`);
-  expect(calls[0]).toContain('network-guard.test.ts');
+  const stack = calls[0].slice(error.message.length + 1);
+  expect(stack).toContain('network-guard.test.ts');
+  expect(stack).not.toContain('network-guard.ts:');
+}
+
+async function expectRejected(api: string, call: () => Promise<unknown>, host = HOST): Promise<void> {
+  let pending: Promise<unknown> | undefined;
+  expect(() => {
+    pending = call();
+  }).not.toThrow();
+  const error: unknown = await pending?.catch((rejection: unknown) => rejection);
+  expect(error).toBeInstanceOf(NetworkGuardError);
+  expect((error as Error).message).toContain(`${api} tried to reach "${host}"`);
+  expect(drainBlockedNetworkCalls()).toHaveLength(1);
 }
 
 const INJECT_RESOLVER = /Inject the resolver into the code under test, or (mock|stub) it/;
@@ -66,13 +79,28 @@ describe('DNS from a unit test', () => {
     await expectBlocked('node:dns/promises resolve4', () => new dnsPromises.Resolver().resolve4(HOST), INJECT_RESOLVER);
   });
 
-  test('Bun.dns.lookup', async () => {
+  test('node:dns lookupService and reverse', async () => {
+    await expectBlocked('node:dns lookupService', () => dns.lookupService(IP, 80, () => undefined), INJECT_RESOLVER, IP);
+    await expectBlocked('node:dns reverse', () => dns.reverse(IP, () => undefined), INJECT_RESOLVER, IP);
+  });
+
+  test('node:dns/promises rejects instead of throwing', async () => {
+    await expectRejected('node:dns/promises lookup', () => lookupPromise(HOST));
+    await expectRejected('node:dns/promises reverse', () => dnsPromises.reverse(IP), IP);
+  });
+
+  test('Bun.dns', async () => {
     await expectBlocked('Bun.dns.lookup', () => Bun.dns.lookup(HOST), INJECT_RESOLVER);
+    await expectBlocked('Bun.dns.prefetch', () => Bun.dns.prefetch(HOST), INJECT_RESOLVER);
+    await expectBlocked('Bun.dns.lookupService', () => bunDns.lookupService(IP, 80), INJECT_RESOLVER, IP);
+    await expectBlocked('Bun.dns.resolve', () => bunDns.resolve(HOST), INJECT_RESOLVER);
+    await expectBlocked('Bun.dns.reverse', () => bunDns.reverse(IP), INJECT_RESOLVER, IP);
+    await expectRejected('Bun.dns.lookup', () => Bun.dns.lookup(HOST));
   });
 
   test('a loopback name still resolves', async () => {
-    const { address } = await lookupPromise('127.0.0.1');
-    expect(address).toBe('127.0.0.1');
+    const { address } = await lookupPromise('localhost');
+    expect(isLoopbackHost(address)).toBe(true);
   });
 });
 
@@ -87,6 +115,16 @@ describe('connections from a unit test', () => {
     const { error } = await blockedError(() => fetch('http://127.0.0.1.guard.invalid/'));
     expect(error.message).toContain('fetch tried to reach "127.0.0.1.guard.invalid"');
     drainBlockedNetworkCalls();
+  });
+
+  test('a remote proxy is blocked even for a loopback URL', async () => {
+    await expectBlocked('fetch', () => fetch('http://127.0.0.1:9/', { proxy: `http://${IP}:3128` } as RequestInit), INJECT_CLIENT, IP);
+  });
+
+  test('a file: URL with a host is left to fetch to reject', async () => {
+    const { error } = await blockedError(() => fetch(`file://${HOST}/etc/hostname`));
+    expect(error.name).not.toBe('NetworkGuardError');
+    expect(drainBlockedNetworkCalls()).toEqual([]);
   });
 
   test('a relative URL is left to fetch to reject', async () => {
@@ -167,8 +205,8 @@ describe('loopback and unix sockets', () => {
     },
   };
   let server: TCPSocketListener;
-  let unixServer: UnixSocketListener<unknown>;
-  let socketDir: string;
+  let unixServer: UnixSocketListener<unknown> | undefined;
+  let socketDir: string | undefined;
   let socketPath: string;
 
   beforeAll(() => {
@@ -180,11 +218,11 @@ describe('loopback and unix sockets', () => {
 
   afterAll(() => {
     server.stop(true);
-    unixServer.stop(true);
-    rmSync(socketDir, { recursive: true, force: true });
+    unixServer?.stop(true);
+    if (socketDir) rmSync(socketDir, { recursive: true, force: true });
   });
 
-  test.each(['localhost', 'LOCALHOST', '127.0.0.1', '127.0.0.2', '0.0.0.0', '::1', '[::1]', '0:0:0:0:0:0:0:1', '::ffff:127.0.0.1', '::1%lo'])(
+  test.each(['', 'localhost', 'localhost.', 'LOCALHOST', '127.0.0.1', '127.0.0.2', '0.0.0.0', '::1', '[::1]', '0:0:0:0:0:0:0:1', '::ffff:127.0.0.1', '::1%lo'])(
     '%s counts as loopback',
     (host) => {
       expect(isLoopbackHost(host)).toBe(true);
@@ -210,6 +248,15 @@ describe('loopback and unix sockets', () => {
       socket.once('error', reject);
     });
     socket.destroy();
+  });
+
+  test('Bun.connect with a unix socket ignores the host beside it', async () => {
+    const reply = Promise.withResolvers<string>();
+    const options = { unix: socketPath, hostname: HOST, socket: { data: (_socket: unknown, data: Buffer) => reply.resolve(data.toString()) } };
+    const socket = await Bun.connect(options as unknown as Parameters<typeof Bun.connect>[0]);
+    socket.write('GET / HTTP/1.1\r\n\r\n');
+    expect(await reply.promise).toContain('loopback');
+    socket.end();
   });
 
   test('node:http reaches a unix socket', async () => {

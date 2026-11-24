@@ -95,7 +95,11 @@ function urlHost(input: unknown): string | undefined {
 const nameHost: BlockedHost = (args) => remote(args[0]);
 const anyName: BlockedHost = (args) => String(args[0]);
 
-const fetchHost: BlockedHost = ([input, init]) => (objectArg(init)?.unix ? undefined : urlHost(input));
+const fetchHost: BlockedHost = ([input, init]) => {
+  const options = objectArg(init);
+  if (options?.unix) return undefined;
+  return (options?.proxy ? urlHost(options.proxy) : undefined) ?? urlHost(input);
+};
 
 const socketHost: BlockedHost = (args) => {
   const [first, second] = Array.isArray(args[0]) ? (args[0] as unknown[]) : args;
