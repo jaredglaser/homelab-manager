@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { updateSettingSchema } from '../schemas';
-import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+import { updateSettingSchema, updateUserSettingSchema } from '../schemas';
+import { SETTINGS_KEYS, USER_SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 function collectValues(obj: Record<string, unknown>): string[] {
   const result: string[] = [];
@@ -13,17 +13,24 @@ function collectValues(obj: Record<string, unknown>): string[] {
 
 describe('updateSettingSchema', () => {
   it('accepts a valid settings key and value', () => {
-    const result = updateSettingSchema.parse({ key: 'general/use12HourTime', value: 'true' });
-    expect(result.key).toBe('general/use12HourTime');
-    expect(result.value).toBe('true');
+    const result = updateSettingSchema.parse({ key: 'general/updateIntervalMs', value: '1000' });
+    expect(result.key).toBe('general/updateIntervalMs');
+    expect(result.value).toBe('1000');
   });
 
-  it('accepts all known settings keys', () => {
-    const allKeys = collectValues(SETTINGS_KEYS as unknown as Record<string, unknown>);
-    expect(allKeys.length).toBeGreaterThan(0);
-    for (const key of allKeys) {
-      expect(() => updateSettingSchema.parse({ key, value: 'x' })).not.toThrow();
-    }
+  it('accepts exactly the four shared server settings', () => {
+    const allKeys = collectValues(SETTINGS_KEYS);
+    const accepted = allKeys.filter((key) => updateSettingSchema.safeParse({ key, value: 'x' }).success);
+    expect([...accepted].sort()).toEqual([
+      'developer/dbFlushDebugLogging',
+      'developer/dockerDebugLogging',
+      'general/updateIntervalMs',
+      'proxmox/updateInterval',
+    ]);
+  });
+
+  it.each([...USER_SETTINGS_KEYS])('rejects the per-user display key %s', (key) => {
+    expect(() => updateSettingSchema.parse({ key, value: 'true' })).toThrow();
   });
 
   it('rejects unknown keys', () => {
@@ -62,6 +69,27 @@ describe('updateSettingSchema', () => {
   });
 
   it('accepts empty value string', () => {
-    expect(updateSettingSchema.parse({ key: 'general/use12HourTime', value: '' }).value).toBe('');
+    expect(updateSettingSchema.parse({ key: 'general/updateIntervalMs', value: '' }).value).toBe('');
+  });
+});
+
+describe('updateUserSettingSchema', () => {
+  it('accepts every per-user display key and nothing else', () => {
+    const allKeys = collectValues(SETTINGS_KEYS);
+    const accepted = allKeys.filter((key) => updateUserSettingSchema.safeParse({ key, value: 'x' }).success);
+    expect([...accepted].sort()).toEqual([...USER_SETTINGS_KEYS].sort());
+    expect(accepted).toHaveLength(12);
+  });
+
+  it.each([
+    ['userId', 2],
+    ['user_id', 2],
+    ['user', { id: 2 }],
+  ])('rejects a body that names a user through %s', (field, value) => {
+    expect(() => updateUserSettingSchema.parse({ key: 'general/use12HourTime', value: 'true', [field]: value })).toThrow();
+  });
+
+  it('bounds the stored value', () => {
+    expect(() => updateUserSettingSchema.parse({ key: 'general/lightPalette', value: 'x'.repeat(256) })).toThrow();
   });
 });

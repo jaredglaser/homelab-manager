@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 
 import { createConnectionHandler, type MuxMockClient } from '@/lib/mock/handlers/ws';
-import { settingsUpdates, stackStatusUpdates } from '@/lib/mock/live-updates';
+import { settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/mock/live-updates';
 import { generateDefaultSettings } from '@/lib/mock/generators/settings';
 import { generateStackStatusEntry } from '@/lib/mock/generators/stacks';
-import { settingsChannel } from '@/lib/channels/settings';
+import { settingsChannel, userSettingsChannel } from '@/lib/channels/settings';
+import { USER_SETTINGS_KEYS, isUserSettingsKey } from '@/lib/constants/settings-keys';
 import { stackStatusChannel } from '@/lib/channels/stack-status';
 import { dockerInventoryChannel } from '@/lib/channels/docker-inventory';
 
@@ -69,9 +70,24 @@ describe('mock mux ws handlers', () => {
         settings: Record<string, string>;
       };
       expect(payload.type).toBe('init');
-      expect(payload.settings).toEqual(generateDefaultSettings());
+      expect(payload.settings).toEqual(
+        Object.fromEntries(Object.entries(generateDefaultSettings()).filter(([key]) => !isUserSettingsKey(key))),
+      );
       expect(settingsChannel.schema.safeParse(payload).success).toBe(true);
     }
+  });
+
+  it("serves the demo user's display preferences on the user-settings topic and pushes their changes", () => {
+    const conn = connect();
+    conn.command('sub', ['user-settings']);
+    const init = conn.dataFrames('user-settings')[0].payload as { type: string; settings: Record<string, string> };
+    expect(init.type).toBe('init');
+    expect(Object.keys(init.settings).sort()).toEqual([...USER_SETTINGS_KEYS].sort());
+    expect(userSettingsChannel.schema.safeParse(init).success).toBe(true);
+
+    userSettingsUpdates.emit({ type: 'change', key: 'general/use12HourTime', value: 'true' });
+    expect(conn.dataFrames('user-settings').at(-1)?.payload).toEqual({ type: 'change', key: 'general/use12HourTime', value: 'true' });
+    expect(conn.dataFrames('settings')).toHaveLength(0);
   });
 
   it('pushes live settings changes and validates them against the channel schema', () => {

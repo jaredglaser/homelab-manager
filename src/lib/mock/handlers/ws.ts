@@ -8,7 +8,8 @@ import {
 } from '@/lib/mock/generators/docker';
 import { generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
 import { loadDemoSettings } from '@/lib/mock/generators/settings';
-import { settingsUpdates, stackStatusUpdates } from '@/lib/mock/live-updates';
+import { isUserSettingsKey } from '@/lib/constants/settings-keys';
+import { settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/mock/live-updates';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
@@ -75,6 +76,10 @@ export interface MuxMockClient {
 }
 
 // Event payloads follow the channel wire schemas in src/lib/channels.
+function demoSettingsWhere(keep: (key: string) => boolean): Record<string, string> {
+  return Object.fromEntries(Object.entries(loadDemoSettings()).filter(([key]) => keep(key)));
+}
+
 export function createConnectionHandler({ client }: { client: MuxMockClient }): void {
   const topicCleanups = new Map<string, () => void>();
   const stopTopic = (topic: string) => {
@@ -95,7 +100,14 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
       topicCleanups.set(topic, settingsUpdates.on((message) => {
         client.send(eventFrame(topic, 'data', message));
       }));
-      client.send(eventFrame(topic, 'data', { type: 'init', settings: loadDemoSettings() }));
+      client.send(eventFrame(topic, 'data', { type: 'init', settings: demoSettingsWhere((key) => !isUserSettingsKey(key)) }));
+      return;
+    }
+    if (topic === 'user-settings') {
+      topicCleanups.set(topic, userSettingsUpdates.on((message) => {
+        client.send(eventFrame(topic, 'data', message));
+      }));
+      client.send(eventFrame(topic, 'data', { type: 'init', settings: demoSettingsWhere(isUserSettingsKey) }));
       return;
     }
     if (topic === 'agent-inventory') {

@@ -50,3 +50,19 @@ export async function sessionCountForEmail(email: string): Promise<number> {
     return result.rows[0]?.n ?? 0;
   });
 }
+
+export async function clearUserSettings(email: string): Promise<void> {
+  await withPool((pool) =>
+    pool.query('DELETE FROM user_settings WHERE user_id = (SELECT id FROM users WHERE email = $1)', [email]),
+  );
+}
+
+export async function userSettingValue(email: string, key: string): Promise<string | null> {
+  return await withPool(async (pool) => {
+    const result = await pool.query<{ value: string }>(
+      `SELECT s.value FROM user_settings s JOIN users u ON u.id = s.user_id WHERE u.email = $1 AND s.key = $2`,
+      [email, key],
+    );
+    return result.rows[0]?.value ?? null;
+  });
+}

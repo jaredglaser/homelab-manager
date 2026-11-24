@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Pool } from 'pg';
@@ -67,6 +67,11 @@ function scanFixtureDir(dir: string, baseDir = dir): SourceScan {
 function scrapeFile(file: string): QuerySite[] {
   return scanFixtureDir(path.dirname(file)).sites.filter((site) => site.file === path.basename(file));
 }
+
+// The first scan parses lib.d.ts and the pg and node declarations (about 1s, 2s under parallel workers), which scanSources then caches.
+beforeAll(() => {
+  scrapeFile(fixture('warm.ts', 'export {};'));
+}, 30_000);
 
 function observed(wire: string[], nullable: ObservedField['nullable'] = '?'): ObservedField {
   return { wire: new Set(wire), nullable, seen: 1 };

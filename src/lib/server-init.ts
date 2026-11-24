@@ -1,6 +1,6 @@
 import { enforceAuthConfig } from '@/lib/config/auth-config';
 import { statsPollService } from '@/lib/database/subscription-service';
-import { settingsBroadcastService } from '@/lib/settings/settings-broadcast-service';
+import { settingsBroadcastService, userSettingsBroadcastService } from '@/lib/settings/settings-broadcast-service';
 import { stackStatusBroadcastService } from '@/lib/stacks/stack-status-broadcast-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployWatchdog } from '@/lib/deploy/deploy-watchdog';
@@ -139,6 +139,7 @@ export function initServer(): void {
       imageUpdateRefresher?.stop();
       await statsPollService.stop();
       await settingsBroadcastService.stop();
+      await userSettingsBroadcastService.stop();
       await stackStatusBroadcastService.stop();
       await databaseConnectionManager.closeAll();
 

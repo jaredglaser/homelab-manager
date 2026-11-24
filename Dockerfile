@@ -2,7 +2,7 @@
 # Multi-stage build: deps (dev), base (worker/cleanup), production (web)
 
 # Must match .bun-version; scripts/__tests__/bun-version.test.ts fails CI on drift.
-ARG BUN_VERSION=1.4.2
+ARG BUN_VERSION=1.4.4
 
 # Dependencies only - used for dev containers (source mounted via volume)
 FROM oven/bun:${BUN_VERSION} AS deps
