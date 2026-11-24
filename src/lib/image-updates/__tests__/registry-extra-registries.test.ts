@@ -3,7 +3,7 @@ import { jsonResponse, withFetch } from '@/lib/test/fetch-mock';
 
 process.env.IMAGE_UPDATE_EXTRA_REGISTRIES = 'nas.lan:5000,registry.home.arpa';
 
-const { checkImageUpdate } = await import('../registry-client');
+const { checkImageUpdate } = await import('@/lib/image-updates/registry-client');
 
 afterAll(() => {
   delete process.env.IMAGE_UPDATE_EXTRA_REGISTRIES;

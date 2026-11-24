@@ -4,7 +4,7 @@ import { provisionHostTls, isRestartConnectionLoss, isServedCertUnverifiable, is
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { tlsFailureMessage } from '@/lib/errors/tls-failure-copy';
 import { agentResponse } from '@/lib/test/agent-response';
-import { enrollmentPayload } from '../../crypto/agent-jwt';
+import { enrollmentPayload } from '@/lib/crypto/agent-jwt';
 import type { TlsFailureCode } from '@homelab-manager/agent/types';
 
 const CERT_PEM = '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----\n';

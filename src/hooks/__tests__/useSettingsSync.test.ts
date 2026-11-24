@@ -12,7 +12,7 @@ mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection'
 }));
 
 const { useSettingsSync } = await import('../useSettingsSync');
-const { rawSettingsAtom } = await import('../settingsAtom');
+const { rawSettingsAtom } = await import('@/hooks/settingsAtom');
 const { createStore, Provider: JotaiProvider, useAtomValue } = await import('jotai');
 
 const SETTINGS_TOPIC = 'settings';

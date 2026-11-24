@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { useRef } from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { useTimeSeriesBuffer } from '../../timeSeriesStream/useTimeSeriesBuffer';
-import type { RowAccessors } from '../../timeSeriesStream/types';
+import type { RowAccessors } from '@/hooks/timeSeriesStream/types';
 import { mockSetTimeout, mockSetInterval, type TimerMock } from '@/lib/test/mock-timers';
 
 interface Row {

@@ -14,11 +14,11 @@ mockModule<typeof import('@/data/settings/functions')>('@/data/settings/function
   updateUserSetting: mockUpdateUserSetting,
 }));
 
-const { useDockerSettings } = await import('../useDockerSettings');
-const { useGeneralSettings } = await import('../useGeneralSettings');
-const { useProxmoxSettings } = await import('../useProxmoxSettings');
-const { useZfsSettings } = await import('../useZfsSettings');
-const { rawSettingsAtom } = await import('../settingsAtom');
+const { useDockerSettings } = await import('@/hooks/useDockerSettings');
+const { useGeneralSettings } = await import('@/hooks/useGeneralSettings');
+const { useProxmoxSettings } = await import('@/hooks/useProxmoxSettings');
+const { useZfsSettings } = await import('@/hooks/useZfsSettings');
+const { rawSettingsAtom } = await import('@/hooks/settingsAtom');
 const { createStore, Provider } = await import('jotai');
 
 function createWrapper(initialRaw: Record<string, string> = {}) {
