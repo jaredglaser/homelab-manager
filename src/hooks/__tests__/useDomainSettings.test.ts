@@ -7,9 +7,11 @@ const { createElement } = await import('react');
 type ReactNode = import('react').ReactNode;
 
 const mockUpdateSetting = mock(() => Promise.resolve());
+const mockUpdateUserSetting = mock(() => Promise.resolve());
 
 mockModule<typeof import('@/data/settings/functions')>('@/data/settings/functions', (real) => ({ ...real, 
   updateSetting: mockUpdateSetting,
+  updateUserSetting: mockUpdateUserSetting,
 }));
 
 const { useDockerSettings } = await import('../useDockerSettings');

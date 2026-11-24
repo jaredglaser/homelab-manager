@@ -16,6 +16,7 @@ const { rawSettingsAtom } = await import('../settingsAtom');
 const { createStore, Provider: JotaiProvider, useAtomValue } = await import('jotai');
 
 const SETTINGS_TOPIC = 'settings';
+const USER_SETTINGS_TOPIC = 'user-settings';
 
 let queryClient: QueryClient;
 let store: ReturnType<typeof createStore>;
@@ -53,9 +54,38 @@ function sendChange(key: string, value: string) {
 }
 
 describe('useSettingsSync', () => {
-  it('subscribes to the settings mux topic on mount', () => {
+  it('subscribes to the shared and the per-user settings mux topics on mount', () => {
     mountSettings();
-    expect(fakeMux.subscribedTopics()).toEqual([SETTINGS_TOPIC]);
+    expect(fakeMux.subscribedTopics().sort()).toEqual([SETTINGS_TOPIC, USER_SETTINGS_TOPIC]);
+  });
+
+  it("takes display preferences only from the user's own stream and shared settings only from the shared one", () => {
+    const { result } = mountSettings();
+
+    act(() => {
+      fakeMux.setStatus({ connected: true, error: null });
+      sendSettings({ 'general/updateIntervalMs': '2000', 'general/use12HourTime': 'false' });
+      fakeMux.emitWire(USER_SETTINGS_TOPIC, 'data', {
+        type: 'init',
+        settings: { 'general/use12HourTime': 'true', 'general/updateIntervalMs': '9' },
+      });
+    });
+    expect(result.current).toEqual({ 'general/updateIntervalMs': '2000', 'general/use12HourTime': 'true' });
+
+    act(() => {
+      fakeMux.emitWire(USER_SETTINGS_TOPIC, 'data', { type: 'change', key: 'docker/chartWindowSeconds', value: '600' });
+      sendChange('docker/chartWindowSeconds', '60');
+    });
+    expect(result.current['docker/chartWindowSeconds']).toBe('600');
+
+    act(() => { sendSettings({ 'general/updateIntervalMs': '5000' }); });
+    expect(result.current).toEqual({
+      'general/updateIntervalMs': '5000',
+      'general/use12HourTime': 'true',
+      'docker/chartWindowSeconds': '600',
+    });
+    act(() => { fakeMux.emitWire(USER_SETTINGS_TOPIC, 'data', { type: 'init', settings: {} }); });
+    expect(result.current).toEqual({ 'general/updateIntervalMs': '5000' });
   });
 
   it('replaces all settings on init and merges single keys on change', () => {
@@ -118,7 +148,9 @@ describe('useSettingsSync', () => {
   it('unsubscribes from the mux on unmount', () => {
     const { unmount } = mountSettings();
     expect(fakeMux.subscriptionCount(SETTINGS_TOPIC)).toBe(1);
+    expect(fakeMux.subscriptionCount(USER_SETTINGS_TOPIC)).toBe(1);
     unmount();
     expect(fakeMux.subscriptionCount(SETTINGS_TOPIC)).toBe(0);
+    expect(fakeMux.subscriptionCount(USER_SETTINGS_TOPIC)).toBe(0);
   });
 });

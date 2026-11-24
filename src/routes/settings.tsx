@@ -16,7 +16,7 @@ import {
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 import { AuthManagementCard, GitTokensSection } from '@/components/settings/AuthManagementCard'
-import { useAuth, useRoleAccess } from '@/hooks/useAuth'
+import { useAuth } from '@/hooks/useAuth'
 import {
   CHART_WINDOW_MARKS,
   UPDATE_INTERVAL_MARKS,
@@ -54,7 +54,6 @@ function SettingsContent() {
   const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
   const { zfs, setZfsDecimal } = useZfsSettings();
   const { user } = useAuth();
-  const settingsBlocked = useRoleAccess('write').kind !== 'allowed';
   const hash = useLocation({ select: (l) => l.hash });
 
   useEffect(() => {
@@ -77,24 +76,169 @@ function SettingsContent() {
       <PageTitle title="Settings" />
 
       <div className="flex flex-col gap-4 max-w-2xl px-4 pb-6">
-        <div id="general" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
-          <h6 className="text-xl font-medium mb-4">General</h6>
-          <div className="flex flex-col gap-6">
-            <div className="flex justify-between items-center">
-              <Label>Use 12-hour time format</Label>
-              <RoleGate requires="write">
-                {(blocked) => (
-                  <Switch
-                    readOnly={blocked}
-                    aria-disabled={blocked || undefined}
-                    aria-label="Use 12-hour time format"
-                    checked={general.use12HourTime}
-                    onCheckedChange={setUse12HourTime}
-                  />
-                )}
-              </RoleGate>
-            </div>
+        <section aria-labelledby="preferences-heading" className="flex flex-col gap-4">
+          <div>
+            <h2 id="preferences-heading" className="text-lg font-semibold">Your preferences</h2>
+            <p className="text-sm text-muted-foreground">
+              Saved to your account and applied on every device you sign in on. Other users keep their own.
+            </p>
+          </div>
 
+          <div id="general" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+            <h6 className="text-xl font-medium mb-4">General</h6>
+            <div className="flex flex-col gap-6">
+              <div className="flex justify-between items-center">
+                <Label>Use 12-hour time format</Label>
+                <Switch
+                  aria-label="Use 12-hour time format"
+                  checked={general.use12HourTime}
+                  onCheckedChange={setUse12HourTime}
+                />
+              </div>
+
+              <div className="flex justify-between items-center">
+                <Label>Show Sparklines</Label>
+                <Switch
+                  aria-label="Show Sparklines"
+                  checked={general.showSparklines}
+                  onCheckedChange={setShowSparklines}
+                />
+              </div>
+
+              <div className="flex justify-between items-center">
+                <Label>Use Abbreviated Units</Label>
+                <Switch
+                  aria-label="Use Abbreviated Units"
+                  checked={general.useAbbreviatedUnits}
+                  onCheckedChange={setUseAbbreviatedUnits}
+                />
+              </div>
+
+              <div className="flex flex-col">
+                <Label className="mb-1">Light Mode Palette</Label>
+                <span className="text-xs text-muted-foreground mb-2 block">
+                  Background color palette used in light mode
+                </span>
+                <Select
+                  value={general.lightPalette}
+                  onValueChange={(value) => { if (value) setLightPalette(value as LightPalette); }}
+                >
+                  <SelectTrigger aria-label="Light Mode Palette">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cool-blue">Cool Blue</SelectItem>
+                    <SelectItem value="dusty-rose">Dusty Rose</SelectItem>
+                    <SelectItem value="forest-mist">Forest Mist</SelectItem>
+                    <SelectItem value="soft-stone">Soft Stone</SelectItem>
+                    <SelectItem value="warm-slate">Warm Slate</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex justify-between items-center">
+                <div>
+                  <Label>Stream Debug Logging</Label>
+                  <span className="text-xs text-muted-foreground block">
+                    Log live stream preload and buffer refresh activity to the browser console
+                  </span>
+                </div>
+                <Switch
+                  aria-label="Stream Debug Logging"
+                  checked={developer.streamDebugLogging}
+                  onCheckedChange={setStreamDebugLogging}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div id="docker-dashboard" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+            <h6 className="text-xl font-medium mb-4">Docker Containers Dashboard</h6>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <Label>Memory Display</Label>
+                <Select
+                  value={docker.memoryDisplayMode}
+                  onValueChange={(value) => {
+                    if (value) setMemoryDisplayMode(value as MemoryDisplayMode);
+                  }}
+                >
+                  <SelectTrigger aria-label="Memory Display">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="percentage">Percentage (%)</SelectItem>
+                    <SelectItem value="bytes">Bytes (B, KiB, MiB, GiB)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <div className="flex justify-between items-baseline mb-1">
+                  <Label>Chart Window</Label>
+                  <p className="text-sm font-mono">
+                    {formatChartWindow(docker.chartWindowSeconds)}
+                  </p>
+                </div>
+                <span className="text-xs text-muted-foreground mb-3 block">
+                  Time range shown in the expanded container metric charts
+                </span>
+                <Slider
+                  value={docker.chartWindowSeconds}
+                  onValueChange={setChartWindowSeconds}
+                  min={60}
+                  max={1800}
+                  marks={CHART_WINDOW_MARKS}
+                  aria-label="Chart Window"
+                />
+              </div>
+
+              <div>
+                <p className="text-sm font-medium mb-2">Show Decimal Places</p>
+                <div className="flex flex-col gap-2">
+                  {(Object.keys(docker.decimals) as (keyof DecimalSettings)[]).map((key) => (
+                    <div key={key} className="flex justify-between items-center">
+                      <Label>{formatDecimalLabel(key)}</Label>
+                      <Switch
+                        aria-label={formatDecimalLabel(key)}
+                        checked={docker.decimals[key]}
+                        onCheckedChange={(checked) => setDockerDecimal(key, checked)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="zfs-dashboard" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+            <h6 className="text-xl font-medium mb-4">ZFS Dashboard</h6>
+            <div>
+              <p className="text-sm font-medium mb-2">Show Decimal Places</p>
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <Label>Disk Speed</Label>
+                  <Switch
+                    aria-label="Disk Speed"
+                    checked={zfs.decimals.diskSpeed}
+                    onCheckedChange={(checked) => setZfsDecimal('diskSpeed', checked)}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="server-settings-heading" className="flex flex-col gap-4">
+          <div>
+            <h2 id="server-settings-heading" className="text-lg font-semibold">Server settings</h2>
+            <p className="text-sm text-muted-foreground">
+              Shared by everyone who uses this dashboard. Admins and operators can change them.
+            </p>
+          </div>
+
+          <div id="data-collection" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+            <h6 className="text-xl font-medium mb-4">Data Collection</h6>
             <div>
               <div className="flex justify-between items-baseline mb-1">
                 <Label>Update Interval</Label>
@@ -117,290 +261,116 @@ function SettingsContent() {
                 )}
               </RoleGate>
             </div>
-            <div className="flex justify-between items-center">
-              <Label>Show Sparklines</Label>
-              <RoleGate requires="write">
-                {(blocked) => (
-                  <Switch
-                    readOnly={blocked}
-                    aria-disabled={blocked || undefined}
-                    aria-label="Show Sparklines"
-                    checked={general.showSparklines}
-                    onCheckedChange={setShowSparklines}
-                  />
-                )}
-              </RoleGate>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <Label>Use Abbreviated Units</Label>
-              <RoleGate requires="write">
-                {(blocked) => (
-                  <Switch
-                    readOnly={blocked}
-                    aria-disabled={blocked || undefined}
-                    aria-label="Use Abbreviated Units"
-                    checked={general.useAbbreviatedUnits}
-                    onCheckedChange={setUseAbbreviatedUnits}
-                  />
-                )}
-              </RoleGate>
-            </div>
-
-            <div className="flex flex-col">
-              <Label className="mb-1">Light Mode Palette</Label>
-              <span className="text-xs text-muted-foreground mb-2 block">
-                Background color palette used in light mode
-              </span>
-              <Select
-                readOnly={settingsBlocked}
-                value={general.lightPalette}
-                onValueChange={(value) => { if (value) setLightPalette(value as LightPalette); }}
-              >
-                <RoleGate requires="write">
-                  {(blocked) => (
-                    <SelectTrigger aria-disabled={blocked || undefined} aria-label="Light Mode Palette">
-                      <SelectValue />
-                    </SelectTrigger>
-                  )}
-                </RoleGate>
-                <SelectContent>
-                  <SelectItem value="cool-blue">Cool Blue</SelectItem>
-                  <SelectItem value="dusty-rose">Dusty Rose</SelectItem>
-                  <SelectItem value="forest-mist">Forest Mist</SelectItem>
-                  <SelectItem value="soft-stone">Soft Stone</SelectItem>
-                  <SelectItem value="warm-slate">Warm Slate</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
           </div>
-        </div>
 
-        <div id="docker-dashboard" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
-          <h6 className="text-xl font-medium mb-4">Docker Containers Dashboard</h6>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1">
-              <Label>Memory Display</Label>
-              <Select
-                readOnly={settingsBlocked}
-                value={docker.memoryDisplayMode}
-                onValueChange={(value) => {
-                  if (value) setMemoryDisplayMode(value as MemoryDisplayMode);
-                }}
-              >
-                <RoleGate requires="write">
-                  {(blocked) => (
-                    <SelectTrigger aria-disabled={blocked || undefined} aria-label="Memory Display">
-                      <SelectValue />
-                    </SelectTrigger>
-                  )}
-                </RoleGate>
-                <SelectContent>
-                  <SelectItem value="percentage">Percentage (%)</SelectItem>
-                  <SelectItem value="bytes">Bytes (B, KiB, MiB, GiB)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <div className="flex justify-between items-baseline mb-1">
-                <Label>Chart Window</Label>
-                <p className="text-sm font-mono">
-                  {formatChartWindow(docker.chartWindowSeconds)}
-                </p>
+          <div id="data-retention" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+            <h6 className="text-xl font-medium mb-4">Data Retention</h6>
+            <div className="flex flex-col gap-6">
+              <div>
+                <div className="flex justify-between items-baseline mb-1">
+                  <Label>Raw Data</Label>
+                  <p className="text-sm font-mono">{formatHours(RAW_RETENTION_HOURS)}</p>
+                </div>
+                <span className="text-xs text-muted-foreground mb-3 block">
+                  Second-level data is rolled up into minute averages, then dropped after this period
+                </span>
+                <Slider
+                  value={RAW_RETENTION_HOURS}
+                  onValueChange={noopRetentionChange}
+                  min={1}
+                  max={168}
+                  marks={RAW_DATA_MARKS}
+                  disabled
+                  aria-label="Raw Data retention"
+                />
               </div>
-              <span className="text-xs text-muted-foreground mb-3 block">
-                Time range shown in the expanded container metric charts
-              </span>
-              <RoleGate requires="write" wrapper={{ label: 'Chart Window', className: 'block' }}>
-                {(blocked) => (
-                  <Slider
-                    disabled={blocked}
-                    value={docker.chartWindowSeconds}
-                    onValueChange={setChartWindowSeconds}
-                    min={60}
-                    max={1800}
-                    marks={CHART_WINDOW_MARKS}
-                    aria-label="Chart Window"
-                  />
-                )}
-              </RoleGate>
-            </div>
 
-            <div>
-              <p className="text-sm font-medium mb-2">Show Decimal Places</p>
-              <div className="flex flex-col gap-2">
-                {(Object.keys(docker.decimals) as (keyof DecimalSettings)[]).map((key) => (
-                  <div key={key} className="flex justify-between items-center">
-                    <Label>{formatDecimalLabel(key)}</Label>
-                    <RoleGate requires="write">
-                      {(blocked) => (
-                        <Switch
-                          readOnly={blocked}
-                          aria-disabled={blocked || undefined}
-                          aria-label={formatDecimalLabel(key)}
-                          checked={docker.decimals[key]}
-                          onCheckedChange={(checked) => setDockerDecimal(key, checked)}
-                        />
-                      )}
-                    </RoleGate>
-                  </div>
-                ))}
+              <div>
+                <div className="flex justify-between items-baseline mb-1">
+                  <Label>Minute Aggregates</Label>
+                  <p className="text-sm font-mono">{formatDays(MINUTE_AGG_RETENTION_DAYS)}</p>
+                </div>
+                <span className="text-xs text-muted-foreground mb-3 block">
+                  Minute averages are rolled up into hourly averages, then dropped after this period
+                </span>
+                <Slider
+                  value={MINUTE_AGG_RETENTION_DAYS}
+                  onValueChange={noopRetentionChange}
+                  min={1}
+                  max={30}
+                  marks={MINUTE_AGG_MARKS}
+                  disabled
+                  aria-label="Minute Aggregates retention"
+                />
+              </div>
+
+              <div className="flex justify-between items-baseline">
+                <div>
+                  <Label>Hour Aggregates</Label>
+                  <span className="text-xs text-muted-foreground block">
+                    Hourly averages are the permanent tier and are never dropped
+                  </span>
+                </div>
+                <p className="text-sm font-mono">Kept forever</p>
               </div>
             </div>
           </div>
-        </div>
 
-        <div id="zfs-dashboard" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
-          <h6 className="text-xl font-medium mb-4">ZFS Dashboard</h6>
-          <div>
-            <p className="text-sm font-medium mb-2">Show Decimal Places</p>
-            <div className="flex flex-col gap-2">
+          <div id="managed-hosts" className="scroll-mt-20">
+            <ManagedHostsCard />
+          </div>
+
+          {user?.role === 'admin' && <AuthManagementCard />}
+          {user?.role === 'operator' && (
+            <div className="p-4 bg-card rounded-lg border border-border">
+              <GitTokensSection />
+            </div>
+          )}
+
+          <div id="developer" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+            <h6 className="text-xl font-medium mb-4">Developer</h6>
+            <div className="flex flex-col gap-4">
               <div className="flex justify-between items-center">
-                <Label>Disk Speed</Label>
+                <div>
+                  <Label>Docker Debug Logging</Label>
+                  <span className="text-xs text-muted-foreground block">
+                    Log connection lifecycle, stream events, and collection timing
+                  </span>
+                </div>
                 <RoleGate requires="write">
                   {(blocked) => (
                     <Switch
                       readOnly={blocked}
                       aria-disabled={blocked || undefined}
-                      aria-label="Disk Speed"
-                      checked={zfs.decimals.diskSpeed}
-                      onCheckedChange={(checked) => setZfsDecimal('diskSpeed', checked)}
+                      aria-label="Docker Debug Logging"
+                      checked={developer.dockerDebugLogging}
+                      onCheckedChange={setDockerDebugLogging}
+                    />
+                  )}
+                </RoleGate>
+              </div>
+              <div className="flex justify-between items-center">
+                <div>
+                  <Label>Database Flush Logging</Label>
+                  <span className="text-xs text-muted-foreground block">
+                    Log batch flush counts and database write timing
+                  </span>
+                </div>
+                <RoleGate requires="write">
+                  {(blocked) => (
+                    <Switch
+                      readOnly={blocked}
+                      aria-disabled={blocked || undefined}
+                      aria-label="Database Flush Logging"
+                      checked={developer.dbFlushDebugLogging}
+                      onCheckedChange={setDbFlushDebugLogging}
                     />
                   )}
                 </RoleGate>
               </div>
             </div>
           </div>
-        </div>
-
-        <div id="data-retention" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
-          <h6 className="text-xl font-medium mb-4">Data Retention</h6>
-          <div className="flex flex-col gap-6">
-            <div>
-              <div className="flex justify-between items-baseline mb-1">
-                <Label>Raw Data</Label>
-                <p className="text-sm font-mono">{formatHours(RAW_RETENTION_HOURS)}</p>
-              </div>
-              <span className="text-xs text-muted-foreground mb-3 block">
-                Second-level data is rolled up into minute averages, then dropped after this period
-              </span>
-              <Slider
-                value={RAW_RETENTION_HOURS}
-                onValueChange={noopRetentionChange}
-                min={1}
-                max={168}
-                marks={RAW_DATA_MARKS}
-                disabled
-                aria-label="Raw Data retention"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between items-baseline mb-1">
-                <Label>Minute Aggregates</Label>
-                <p className="text-sm font-mono">{formatDays(MINUTE_AGG_RETENTION_DAYS)}</p>
-              </div>
-              <span className="text-xs text-muted-foreground mb-3 block">
-                Minute averages are rolled up into hourly averages, then dropped after this period
-              </span>
-              <Slider
-                value={MINUTE_AGG_RETENTION_DAYS}
-                onValueChange={noopRetentionChange}
-                min={1}
-                max={30}
-                marks={MINUTE_AGG_MARKS}
-                disabled
-                aria-label="Minute Aggregates retention"
-              />
-            </div>
-
-            <div className="flex justify-between items-baseline">
-              <div>
-                <Label>Hour Aggregates</Label>
-                <span className="text-xs text-muted-foreground block">
-                  Hourly averages are the permanent tier and are never dropped
-                </span>
-              </div>
-              <p className="text-sm font-mono">Kept forever</p>
-            </div>
-          </div>
-        </div>
-
-        <div id="managed-hosts" className="scroll-mt-20">
-          <ManagedHostsCard />
-        </div>
-
-        {user?.role === 'admin' && <AuthManagementCard />}
-        {user?.role === 'operator' && (
-          <div className="p-4 bg-card rounded-lg border border-border">
-            <GitTokensSection />
-          </div>
-        )}
-
-        <div id="developer" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
-          <h6 className="text-xl font-medium mb-4">Developer</h6>
-          <div className="flex flex-col gap-4">
-            <div className="flex justify-between items-center">
-              <div>
-                <Label>Docker Debug Logging</Label>
-                <span className="text-xs text-muted-foreground block">
-                  Log connection lifecycle, stream events, and collection timing
-                </span>
-              </div>
-              <RoleGate requires="write">
-                {(blocked) => (
-                  <Switch
-                    readOnly={blocked}
-                    aria-disabled={blocked || undefined}
-                    aria-label="Docker Debug Logging"
-                    checked={developer.dockerDebugLogging}
-                    onCheckedChange={setDockerDebugLogging}
-                  />
-                )}
-              </RoleGate>
-            </div>
-            <div className="flex justify-between items-center">
-              <div>
-                <Label>Database Flush Logging</Label>
-                <span className="text-xs text-muted-foreground block">
-                  Log batch flush counts and database write timing
-                </span>
-              </div>
-              <RoleGate requires="write">
-                {(blocked) => (
-                  <Switch
-                    readOnly={blocked}
-                    aria-disabled={blocked || undefined}
-                    aria-label="Database Flush Logging"
-                    checked={developer.dbFlushDebugLogging}
-                    onCheckedChange={setDbFlushDebugLogging}
-                  />
-                )}
-              </RoleGate>
-            </div>
-            <div className="flex justify-between items-center">
-              <div>
-                <Label>Stream Debug Logging</Label>
-                <span className="text-xs text-muted-foreground block">
-                  Log live stream preload and buffer refresh activity
-                </span>
-              </div>
-              <RoleGate requires="write">
-                {(blocked) => (
-                  <Switch
-                    readOnly={blocked}
-                    aria-disabled={blocked || undefined}
-                    aria-label="Stream Debug Logging"
-                    checked={developer.streamDebugLogging}
-                    onCheckedChange={setStreamDebugLogging}
-                  />
-                )}
-              </RoleGate>
-            </div>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   )

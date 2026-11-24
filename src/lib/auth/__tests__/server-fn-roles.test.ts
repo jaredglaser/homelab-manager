@@ -33,6 +33,7 @@ const EXPECTED: Record<string, readonly Role[] | typeof SIGNED_OUT> = {
   'src/data/proxmox/functions.tsx:getHistoricalProxmoxStats': ['admin', 'operator', 'viewer'],
   'src/data/proxmox/functions.tsx:testProxmoxConnection': ['admin', 'operator', 'viewer'],
   'src/data/settings/functions.tsx:updateSetting': ['admin', 'operator'],
+  'src/data/settings/functions.tsx:updateUserSetting': ['admin', 'operator', 'viewer'],
   'src/data/stacks/functions.tsx:checkImageUpdates': ['admin', 'operator'],
   'src/data/stacks/functions.tsx:controlStack': ['admin', 'operator'],
   'src/data/stacks/functions.tsx:createStack': ['admin', 'operator'],
