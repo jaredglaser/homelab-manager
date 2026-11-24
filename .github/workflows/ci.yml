@@ -71,6 +71,7 @@ jobs:
           fi
 
       - name: Run tests with coverage check
+        timeout-minutes: 10
         run: bun run test
         env:
           NODE_ENV: test

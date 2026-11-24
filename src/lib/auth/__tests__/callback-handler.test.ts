@@ -569,3 +569,80 @@ describe('callbackGetHandler', () => {
     }
   });
 });
+
+describe('callbackGetHandler with OIDC configured', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('signs the user in through the configured OIDC client, user store and session manager', async () => {
+    delete process.env.AUTH_DISABLED;
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+    process.env.OIDC_CLIENT_ID = 'homelab-manager';
+    process.env.OIDC_REDIRECT_URI = 'https://homelab.example.com/api/auth/callback';
+
+    const oidcConfigs: unknown[] = [];
+    const oidc = makeOidcClient({ getUserGroups: mock(() => Promise.resolve(['homelab-operators'])) });
+    const pool = { tag: 'pool' };
+    const repoPools: unknown[] = [];
+    const upsertFromOidc = mock(() => Promise.resolve(makeUser({ id: 7, role: 'operator' })));
+    const createSession = mock(() => Promise.resolve('raw-session-token-xyz'));
+
+    void mock.module('@/lib/auth/oidc-client', () => ({
+      OidcClient: class {
+        constructor(config: unknown) {
+          oidcConfigs.push(config);
+          return oidc;
+        }
+      },
+    }));
+    void mock.module('@/lib/auth/oidc-secrets', () => ({ getOidcClientSecret: () => Promise.resolve('secret-from-store') }));
+    void mock.module('@/lib/clients/database-client', () => ({
+      databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => pool }) },
+    }));
+    void mock.module('@/lib/database/repositories/user-repository', () => ({
+      UserRepository: class {
+        constructor(p: unknown) {
+          repoPools.push(p);
+          return { upsertFromOidc };
+        }
+      },
+    }));
+    void mock.module('@/lib/auth/session-manager', () => ({ buildSessionManager: () => Promise.resolve({ createSession }) }));
+
+    const headers: Record<string, string> = {
+      cookie: validCookieHeader(),
+      'x-forwarded-for': '203.0.113.7, 10.0.0.1',
+      'user-agent': 'test-agent',
+    };
+    // Happy-DOM's Request and Headers drop the `cookie` header, so the handler gets a request object of its own.
+    const request = {
+      url: `https://homelab.example.com/api/auth/callback?code=auth-code&state=${validState}`,
+      headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
+    } as unknown as Request;
+    const response = await callbackGetHandler({ request });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe('/');
+    expect(oidcConfigs).toEqual([
+      {
+        issuerUrl: 'https://pocketid.example.com',
+        clientId: 'homelab-manager',
+        clientSecret: 'secret-from-store',
+        redirectUri: 'https://homelab.example.com/api/auth/callback',
+      },
+    ]);
+    expect(oidc.exchangeCode).toHaveBeenCalledWith('auth-code', validCodeVerifier);
+    expect(repoPools).toEqual([pool]);
+    expect(upsertFromOidc).toHaveBeenCalledWith({
+      oidcSubject: 'sub-123',
+      email: 'alice@example.com',
+      name: 'Alice',
+      role: 'operator',
+      groups: ['homelab-operators'],
+    });
+    expect(createSession).toHaveBeenCalledWith(7, makeTokens().idToken, '203.0.113.7', 'test-agent');
+  });
+});
