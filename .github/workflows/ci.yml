@@ -125,8 +125,6 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
-      # No --with-deps: the runner image already has Chromium's libraries, and the apt run fetched
-      # 22 MB of fonts from a mirror that throttled to ~130 kB/s, a 3 to 4 minute step in 1 run of 5.
       - name: Install Playwright browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: bunx playwright install chromium
