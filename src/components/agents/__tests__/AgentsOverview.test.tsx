@@ -69,12 +69,13 @@ mock.module('@/hooks/useAuth', () => ({
 
 let inventoryResponse: AgentInventoryEntry[] = []
 type OpResult = import('@/data/hosts/handlers').UpdateAgentResult
-let updateResult: Promise<OpResult | undefined | { hostId?: number; healthy?: boolean; code?: string; message: string }> = Promise.resolve({ hostId: 1, healthy: true })
+let updateResult: Promise<OpResult> = Promise.resolve({ hostId: 1, healthy: true })
+let offContractResult: Promise<unknown> | null = null
 let updateCalls: Array<{ data: { hostId: number } }> = []
 const listAgentsInventory = (): Promise<AgentInventoryEntry[]> => Promise.resolve(inventoryResponse)
 const updateAgent = (data: { data: { hostId: number } }) => {
   updateCalls.push(data)
-  return updateResult
+  return offContractResult ?? updateResult
 }
 
 let sseHandler: ((snapshot: { entries: AgentInventoryEntry[] }) => void) | null = null
@@ -350,6 +351,7 @@ describe('AgentsOverview (connected)', () => {
   beforeEach(() => {
     inventoryResponse = [makeAgent(), makeAgent({ id: 2, name: 'media-server' })]
     updateResult = Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' })
+    offContractResult = null
     updateCalls = []
     authState = { user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' }, loading: false, authEnabled: true }
     mockShowToast.mockClear()
@@ -446,7 +448,7 @@ describe('AgentsOverview (connected)', () => {
       ['a failure without a code', { healthy: false, message: 'Sign in to continue' }],
       ['a failure with a code this build does not know', { hostId: 1, healthy: false, code: 'code_from_a_newer_server', message: 'Sign in to continue' }],
     ])('shows the fallback copy when the call resolves to %s instead of an update result, and logs it once', async (_label, value) => {
-      updateResult = Promise.resolve(value)
+      offContractResult = Promise.resolve(value)
       await renderConnected()
       await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
       fireEvent.click(screen.getByLabelText('Update homeserver'))
