@@ -72,7 +72,7 @@ function inventoryStatus(host: ManagedHost, failure: HostProbeFailureCode | null
 /**
  * Derive one inventory entry from a stored host row alone, no probe. The sweep
  * persists status/agent info into managed_hosts, so the stored row already
- * reflects the last sweep; updatedAt doubles as the per-host checkedAt.
+ * reflects the last sweep. Its lastSweptAt doubles as the per-host checkedAt.
  */
 export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventoryEntry {
   return {

@@ -144,6 +144,10 @@ function shownDetail(copy: HostFailureCopy, detail?: string): string | null {
   return copy.includeDetail && detail ? detail : null;
 }
 
+export function isHostFailureCode(value: unknown): value is HostFailureCode {
+  return typeof value === 'string' && Object.hasOwn(HOST_FAILURE_COPY, value);
+}
+
 export function hostFailureDetail(code: HostFailureCode, detail?: string): string | null {
   return shownDetail(HOST_FAILURE_COPY[code], detail);
 }
