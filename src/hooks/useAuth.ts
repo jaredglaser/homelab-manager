@@ -106,7 +106,7 @@ export function useRoleAccess(requires: RoleRequirement): RoleAccess {
   return roleAccess(useSession(), requires);
 }
 
-/** True when the session may call server functions guarded by `requireRole('admin', 'operator')`. Refetches and redirects like `useAuth`. */
+/** True when the session may call server functions guarded by `roleMiddleware('admin', 'operator')`. Refetches and redirects like `useAuth`. */
 export function useCanWrite(): boolean {
   return roleAccess(usePageSession(), 'write').kind === 'allowed';
 }

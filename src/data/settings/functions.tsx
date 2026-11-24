@@ -1,14 +1,13 @@
 import { createServerFn } from '@tanstack/react-start';
 import { databaseMiddleware } from '@/middleware/database-middleware';
 import { authMiddleware } from '@/middleware/auth-middleware';
-import { requireRole } from '@/lib/auth/require-role';
+import { roleMiddleware } from '@/lib/auth/role-middleware';
 import { updateSettingSchema } from '@/data/settings/schemas';
 
 export const updateSetting = createServerFn()
-  .middleware([authMiddleware, databaseMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator'), databaseMiddleware])
   .validator(updateSettingSchema)
   .handler(async ({ context, data }): Promise<void> => {
-    requireRole('admin', 'operator')(context.user);
     const { SettingsRepository } = await import(
       '@/lib/database/repositories/settings-repository'
     );

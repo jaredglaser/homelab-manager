@@ -2,7 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 import { createMiddleware } from '@tanstack/react-start';
 import { z } from 'zod';
 import { authMiddleware } from '@/middleware/auth-middleware';
-import { requireRole } from '@/lib/auth/require-role';
+import { roleMiddleware } from '@/lib/auth/role-middleware';
 import type { AuthUser } from '@/lib/auth/types';
 
 /** Reads the session cookie and resolves the AuthUser (or null). Never throws: passes null when unauthenticated, unlike authMiddleware. */
@@ -33,10 +33,8 @@ export const getSession = createServerFn()
  * List all users (admin only).
  */
 export const listUsers = createServerFn()
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    requireRole('admin')(context.user);
-
+  .middleware([authMiddleware, roleMiddleware('admin')])
+  .handler(async () => {
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
     const { UserRepository } = await import('@/lib/database/repositories/user-repository');
@@ -52,10 +50,8 @@ export const listUsers = createServerFn()
  * List all active sessions with user info (admin only).
  */
 export const listSessions = createServerFn()
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    requireRole('admin')(context.user);
-
+  .middleware([authMiddleware, roleMiddleware('admin')])
+  .handler(async () => {
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
     const { SessionRepository } = await import('@/lib/database/repositories/session-repository');
@@ -71,11 +67,9 @@ export const listSessions = createServerFn()
  * Revoke a session by ID (admin only).
  */
 export const revokeSession = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(z.object({ sessionId: z.string() }))
-  .handler(async ({ data, context }): Promise<void> => {
-    requireRole('admin')(context.user);
-
+  .handler(async ({ data }): Promise<void> => {
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
     const { SessionRepository } = await import('@/lib/database/repositories/session-repository');
@@ -91,11 +85,9 @@ export const revokeSession = createServerFn()
  * Revoke all sessions for a user (admin only).
  */
 export const revokeAllUserSessions = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(z.object({ userId: z.number() }))
-  .handler(async ({ data, context }): Promise<void> => {
-    requireRole('admin')(context.user);
-
+  .handler(async ({ data }): Promise<void> => {
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
     const { SessionRepository } = await import('@/lib/database/repositories/session-repository');
@@ -112,10 +104,8 @@ export const revokeAllUserSessions = createServerFn()
  * Reads server-side OIDC_ROLE_* env vars so the UI shows the actual deployed values.
  */
 export const getRoleMapping = createServerFn()
-  .middleware([authMiddleware])
-  .handler(async ({ context }): Promise<{ admin: string; operator: string; viewer: string }> => {
-    requireRole('admin')(context.user);
-
+  .middleware([authMiddleware, roleMiddleware('admin')])
+  .handler(async (): Promise<{ admin: string; operator: string; viewer: string }> => {
     const { isAuthDisabled, loadAuthConfig } = await import('@/lib/config/auth-config');
     if (isAuthDisabled()) {
       return { admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' };

@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
 import { databaseMiddleware } from '@/middleware/database-middleware';
 import { authMiddleware } from '@/middleware/auth-middleware';
+import { roleMiddleware } from '@/lib/auth/role-middleware';
 import { getHistoricalProxmoxStatsSchema } from '@/data/proxmox/schemas';
 
 /**
@@ -9,7 +10,7 @@ import { getHistoricalProxmoxStatsSchema } from '@/data/proxmox/schemas';
  * Used by useTimeSeriesStream to preload data before live streaming begins.
  */
 export const getHistoricalProxmoxStats = createServerFn()
-  .middleware([authMiddleware, databaseMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer'), databaseMiddleware])
   .validator(getHistoricalProxmoxStatsSchema)
   .handler(async ({ context, data }): Promise<ProxmoxStatsRow[]> => {
     try {
@@ -29,7 +30,7 @@ export const getHistoricalProxmoxStats = createServerFn()
  * Test the Proxmox API connection.
  */
 export const testProxmoxConnection = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer')])
   .handler(async (): Promise<{ connected: boolean; error?: string }> => {
     try {
       const { isProxmoxConfigured, loadProxmoxConfig } = await import(
