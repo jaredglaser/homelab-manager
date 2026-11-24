@@ -21,7 +21,7 @@ async function runFixture(cwd: string) {
 describe('unit test network guard', () => {
   test.concurrent.each([
     ['homelab-manager', root, 0],
-    ['agent', join(root, 'agent'), 1],
+    ['agent', join(root, 'agent'), 2],
   ])(
     'blocks non-loopback calls in %s',
     async (_name, cwd, loopbackPasses) => {
@@ -30,6 +30,13 @@ describe('unit test network guard', () => {
       expect(output).toContain('node:dns/promises lookup tried to reach "guard-probe.invalid"');
       expect(output).toContain('fetch tried to reach "guard-probe.invalid"');
       expect(output).toContain('WebSocket tried to reach "guard-probe.invalid"');
+      expect(output).toContain('(fail) caught lookup');
+      expect(output).toContain(
+        'since the previous test ended, even if the code under test caught the error:\nUnit tests cannot use the network: node:dns/promises lookup tried to reach "caught.guard-probe.invalid"',
+      );
+      expect(output).toContain(
+        'since the last test ended, even if the code under test caught the error:\nUnit tests cannot use the network: node:dns/promises lookup tried to reach "after-all.guard-probe.invalid"',
+      );
       expect(output).toMatch(new RegExp(`^ ${loopbackPasses} pass$`, 'm'));
       expect(code).not.toBe(0);
     },

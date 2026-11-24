@@ -1,4 +1,4 @@
-import { afterEach, mock } from 'bun:test';
+import { afterAll, afterEach, mock } from 'bun:test';
 import dns from 'node:dns';
 import dnsPromises from 'node:dns/promises';
 import http from 'node:http';
@@ -12,14 +12,16 @@ export class NetworkGuardError extends Error {
 
 type BlockedHost = (args: unknown[]) => string | undefined;
 
-const blockedThisTest: string[] = [];
+const blockedCalls: string[] = [];
 
 export function drainBlockedNetworkCalls(): string[] {
-  return blockedThisTest.splice(0);
+  return blockedCalls.splice(0);
 }
 
+const ALLOWED = 'Only localhost, 127.0.0.0/8, 0.0.0.0, ::1, :: and unix sockets are allowed.';
+
 export function isLoopbackHost(host: string): boolean {
-  const bare = host.toLowerCase().replace(/^\[(.*)\]$/, '$1').replace(/\.$/, '');
+  const bare = host.toLowerCase().replace(/^\[(.*)\]$/, '$1').replace(/%.*$/, '').replace(/\.$/, '');
   if (bare === '' || bare === 'localhost') return true;
   if (net.isIPv4(bare)) return bare.startsWith('127.') || bare === '0.0.0.0';
   if (!net.isIPv6(bare)) return false;
@@ -27,16 +29,20 @@ export function isLoopbackHost(host: string): boolean {
   return normalized === '[::1]' || normalized === '[::]' || /^\[::ffff:7f[0-9a-f]{2}:/.test(normalized);
 }
 
-function remote(host: unknown): string | undefined {
-  if (typeof host !== 'string' || isLoopbackHost(host)) return undefined;
-  return host;
+function remote(...hosts: unknown[]): string | undefined {
+  return hosts.find((host): host is string => typeof host === 'string' && !isLoopbackHost(host));
+}
+
+function callSite(): string {
+  const frames = (new Error().stack ?? '').split('\n').slice(1);
+  return frames.filter((frame) => !frame.includes('network-guard.ts') && !frame.includes('at unknown')).join('\n');
 }
 
 function block(api: string, host: string, fix: string): NetworkGuardError {
   const error = new NetworkGuardError(
-    `Unit tests cannot use the network: ${api} tried to reach "${host}". ${fix} Only localhost, 127.0.0.0/8, ::1 and unix sockets are allowed.`,
+    `Unit tests cannot use the network: ${api} tried to reach "${host}". ${fix} ${ALLOWED}`,
   );
-  blockedThisTest.push(error.message);
+  blockedCalls.push(`${error.message}\n${callSite()}`);
   return error;
 }
 
@@ -88,9 +94,10 @@ const anyName: BlockedHost = (args) => String(args[0]);
 
 const fetchHost: BlockedHost = ([input, init]) => (objectArg(init)?.unix ? undefined : urlHost(input));
 
-const socketHost: BlockedHost = ([first, second]) => {
+const socketHost: BlockedHost = (args) => {
+  const [first, second] = Array.isArray(args[0]) ? (args[0] as unknown[]) : args;
   const options = objectArg(first);
-  if (options) return options.path !== undefined || options.socket !== undefined ? undefined : remote(options.host);
+  if (options) return options.path || options.socket ? undefined : remote(options.host, options.hostname);
   if (typeof first === 'string' && !/^\d+$/.test(first)) return undefined;
   return remote(typeof second === 'string' ? second : objectArg(second)?.host);
 };
@@ -103,13 +110,13 @@ const requestHost: BlockedHost = (args) => {
     else if (arg instanceof URL) url = arg;
     else options ??= objectArg(arg);
   }
-  if (options?.socketPath !== undefined) return undefined;
-  return remote(options?.hostname ?? options?.host ?? url?.hostname);
+  if (options?.socketPath) return undefined;
+  return remote(options?.hostname, options?.host, url?.hostname);
 };
 
 const bunConnectHost: BlockedHost = ([options]) => {
   const opts = objectArg(options);
-  return opts?.unix === undefined ? remote(opts?.hostname) : undefined;
+  return opts?.unix ? undefined : remote(opts?.hostname, opts?.host);
 };
 
 function guardResolver(owner: object, spec: string, async: boolean): void {
@@ -144,6 +151,14 @@ for (const [spec, module, keys] of [['node:net', net, ['connect', 'createConnect
   const fix = `Inject the socket into the code under test, or mock it with mock.module('${spec}', ...).`;
   for (const key of keys) guard(module, key, `${spec} ${key}`, fix, socketHost, false);
 }
+guard(
+  net.Socket.prototype,
+  'connect',
+  'node:net Socket.connect',
+  "Inject the client into the code under test, or mock the module that opens the socket (for example mock.module('pg', ...)).",
+  socketHost,
+  false,
+);
 
 guard(Bun, 'connect', 'Bun.connect', "Inject the socket into the code under test, or stub it with spyOn(Bun, 'connect').", bunConnectHost, true);
 
@@ -173,8 +188,13 @@ for (const [spec, module] of [
   void mock.module(spec, () => ({ ...module, default: module }));
 }
 
-afterEach(() => {
-  const messages = drainBlockedNetworkCalls();
-  if (messages.length === 0) return;
-  throw new NetworkGuardError(`This test made ${messages.length} blocked network call(s), even if the code under test caught the error:\n${messages.join('\n')}`);
-});
+function failOnBlockedCalls(since: string): void {
+  const calls = drainBlockedNetworkCalls();
+  if (calls.length === 0) return;
+  throw new NetworkGuardError(
+    `${calls.length} blocked network call(s) since ${since}, even if the code under test caught the error:\n${calls.join('\n\n')}`,
+  );
+}
+
+afterEach(() => failOnBlockedCalls('the previous test ended'));
+afterAll(() => failOnBlockedCalls('the last test ended'));

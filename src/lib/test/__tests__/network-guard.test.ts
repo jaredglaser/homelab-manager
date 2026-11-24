@@ -7,12 +7,14 @@ import http from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import net from 'node:net';
 import { connect as tlsConnect } from 'node:tls';
+import pg from 'pg';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { drainBlockedNetworkCalls, isLoopbackHost } from '../network-guard';
 import { getTestTmpDir } from '../tmp-dir';
 
-const HOST = 'guard-probe.example.com';
+const HOST = 'guard-probe.invalid';
+const IP = '192.0.2.1';
 
 async function blockedError(call: () => unknown): Promise<{ error: Error; elapsed: number }> {
   const started = performance.now();
@@ -24,13 +26,16 @@ async function blockedError(call: () => unknown): Promise<{ error: Error; elapse
   throw new Error('call was not blocked');
 }
 
-async function expectBlocked(api: string, call: () => unknown, fix: RegExp): Promise<void> {
+async function expectBlocked(api: string, call: () => unknown, fix: RegExp, host = HOST): Promise<void> {
   const { error, elapsed } = await blockedError(call);
   expect(error.name).toBe('NetworkGuardError');
-  expect(error.message).toContain(`${api} tried to reach "${HOST}"`);
+  expect(error.message).toContain(`${api} tried to reach "${host}"`);
   expect(error.message).toMatch(fix);
   expect(elapsed).toBeLessThan(100);
-  expect(drainBlockedNetworkCalls()).toEqual([error.message]);
+  const calls = drainBlockedNetworkCalls();
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toStartWith(`${error.message}\n`);
+  expect(calls[0]).toContain('network-guard.test.ts');
 }
 
 const INJECT_RESOLVER = /Inject the resolver into the code under test, or (mock|stub) it/;
@@ -56,6 +61,11 @@ describe('DNS from a unit test', () => {
     drainBlockedNetworkCalls();
   });
 
+  test('dns Resolver instances', async () => {
+    await expectBlocked('node:dns resolve4', () => new dns.Resolver().resolve4(HOST, () => undefined), INJECT_RESOLVER);
+    await expectBlocked('node:dns/promises resolve4', () => new dnsPromises.Resolver().resolve4(HOST), INJECT_RESOLVER);
+  });
+
   test('Bun.dns.lookup', async () => {
     await expectBlocked('Bun.dns.lookup', () => Bun.dns.lookup(HOST), INJECT_RESOLVER);
   });
@@ -74,8 +84,8 @@ describe('connections from a unit test', () => {
   });
 
   test('a host that only starts with a loopback address', async () => {
-    const { error } = await blockedError(() => fetch('http://127.0.0.1.evil.com/'));
-    expect(error.message).toContain('fetch tried to reach "127.0.0.1.evil.com"');
+    const { error } = await blockedError(() => fetch('http://127.0.0.1.guard.invalid/'));
+    expect(error.message).toContain('fetch tried to reach "127.0.0.1.guard.invalid"');
     drainBlockedNetworkCalls();
   });
 
@@ -103,6 +113,26 @@ describe('connections from a unit test', () => {
 
   test('Bun.connect', async () => {
     await expectBlocked('Bun.connect', () => Bun.connect({ hostname: HOST, port: 80, socket: { data: () => undefined } }), INJECT_CLIENT);
+  });
+
+  test('connections to an IP address', async () => {
+    await expectBlocked('node:net Socket.connect', () => new net.Socket().connect(9, IP), INJECT_CLIENT, IP);
+    await expectBlocked('node:http request', () => http.request(`http://${IP}:9/`), INJECT_CLIENT, IP);
+    await expectBlocked('node:net createConnection', () => new http.ClientRequest(`http://${IP}:9/`), INJECT_CLIENT, IP);
+    await expectBlocked('node:net Socket.connect', () => new pg.Client({ host: IP, port: 9 }).connect(), INJECT_CLIENT, IP);
+  });
+
+  test('empty and null options do not hide the host', async () => {
+    await expectBlocked('node:http request', () => http.request({ hostname: '', host: IP }), INJECT_CLIENT, IP);
+    await expectBlocked('node:http request', () => http.request({ socketPath: null, host: IP } as unknown as http.RequestOptions), INJECT_CLIENT, IP);
+    await expectBlocked('node:net connect', () => net.connect({ host: IP, port: 9, path: null } as unknown as net.NetConnectOpts), INJECT_CLIENT, IP);
+    const socket = { data: () => undefined };
+    await expectBlocked('Bun.connect', () => Bun.connect({ host: IP, port: 9, socket } as unknown as Parameters<typeof Bun.connect>[0]), INJECT_CLIENT, IP);
+    await expectBlocked('Bun.connect', () => Bun.connect({ hostname: IP, port: 9, unix: '', socket } as unknown as Parameters<typeof Bun.connect>[0]), INJECT_CLIENT, IP);
+  });
+
+  test('an IPv6 zone ID does not hide the host', async () => {
+    await expectBlocked('node:net connect', () => net.connect(9, 'fe80::1%eth0'), INJECT_CLIENT, 'fe80::1%eth0');
   });
 
   test('restoring a fetch spy brings back the guarded fetch', async () => {
@@ -139,14 +169,14 @@ describe('loopback and unix sockets', () => {
     rmSync(socketDir, { recursive: true, force: true });
   });
 
-  test.each(['localhost', 'LOCALHOST', '127.0.0.1', '127.0.0.2', '0.0.0.0', '::1', '[::1]', '0:0:0:0:0:0:0:1', '::ffff:127.0.0.1'])(
+  test.each(['localhost', 'LOCALHOST', '127.0.0.1', '127.0.0.2', '0.0.0.0', '::1', '[::1]', '0:0:0:0:0:0:0:1', '::ffff:127.0.0.1', '::1%lo'])(
     '%s counts as loopback',
     (host) => {
       expect(isLoopbackHost(host)).toBe(true);
     },
   );
 
-  test.each(['127.0.0.1.evil.com', 'localhost.evil.com', '10.0.0.1', '128.0.0.1', '::2', 'example.com'])(
+  test.each(['127.0.0.1.guard.invalid', 'localhost.guard.invalid', '192.0.2.1', '128.0.0.1', '::2', 'fe80::1%eth0', 'guard-probe.invalid'])(
     '%s does not count as loopback',
     (host) => {
       expect(isLoopbackHost(host)).toBe(false);
@@ -171,6 +201,19 @@ describe('loopback and unix sockets', () => {
     const body = await new Promise<string>((resolve, reject) => {
       http
         .get({ socketPath, path: '/' }, (res) => {
+          let data = '';
+          res.on('data', (chunk: Buffer) => (data += chunk.toString()));
+          res.on('end', () => resolve(data));
+        })
+        .on('error', reject);
+    });
+    expect(body).toBe('loopback');
+  });
+
+  test('node:http with a socketPath ignores the host beside it', async () => {
+    const body = await new Promise<string>((resolve, reject) => {
+      http
+        .get({ socketPath, host: HOST, path: '/' }, (res) => {
           let data = '';
           res.on('data', (chunk: Buffer) => (data += chunk.toString()));
           res.on('end', () => resolve(data));
