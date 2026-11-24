@@ -653,6 +653,30 @@ describe('logs adapter pipe', () => {
     h.close(peer as unknown as Peer);
   });
 
+  it('never calls the agent when the logs topic is aborted before its fetch', async () => {
+    const user: AuthUser = { id: 1, email: 'alice@example.com', name: 'Alice', role: 'viewer' };
+    const fetchMock = mock(() => Promise.resolve(new Response(sseBody(''))));
+    (globalThis as unknown as Record<string, unknown>).fetch = fetchMock;
+
+    let microtasksBeforeAbort = 0;
+    for (let fetchedFirst = false; !fetchedFirst; microtasksBeforeAbort++) {
+      fetchMock.mockClear();
+      const emitted: MuxFrameBody[] = [];
+      const controller = new AbortController();
+      const started = defaultTopicAdapter('logs:server1/abc', (frame) => emitted.push(frame), controller.signal, user);
+      for (let i = 0; i < microtasksBeforeAbort; i++) await Promise.resolve();
+      fetchedFirst = fetchMock.mock.calls.length > 0;
+      controller.abort();
+      await started;
+
+      if (!fetchedFirst) {
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(emitted).toEqual([]);
+      }
+    }
+    expect(microtasksBeforeAbort).toBeGreaterThan(1);
+  });
+
   it('emits a gone error for permanent failures', async () => {
     mockFindByName.mockImplementation(async () => null);
     (globalThis as unknown as Record<string, unknown>).fetch = mock(async () => {
@@ -1048,6 +1072,141 @@ describe('frame wire format', () => {
 
     expect(peer.sentRaw[1]).toBe('{"type":"event","topic":"stats:docker","kind":"dropped","count":3}');
 
+    h.close(peer as unknown as Peer);
+  });
+});
+
+describe('topic adapters and an abort before they subscribe', () => {
+  type TrackedService = { subscribe: (...args: unknown[]) => () => void };
+  const liveCallbacks = new Set<(event: unknown) => void>();
+  const restoreSpies: (() => void)[] = [];
+  const services = new Map<string, TrackedService>();
+  const user: AuthUser = { id: 1, email: 'alice@example.com', name: 'Alice', role: 'viewer' };
+  let peerCounter = 0;
+
+  beforeAll(async () => {
+    const settingsModule = await import('@/lib/settings/settings-broadcast-service');
+    const entries: [string, unknown][] = [
+      ['inventory', (await import('@/lib/docker/docker-inventory-broadcast-service')).dockerInventoryBroadcastService],
+      ['agent-inventory', (await import('@/lib/agents/agent-inventory-broadcast-service')).agentInventoryBroadcastService],
+      ['settings', settingsModule.settingsBroadcastService],
+      ['user-settings', settingsModule.userSettingsBroadcastService],
+      ['stack-status', (await import('@/lib/stacks/stack-status-broadcast-service')).stackStatusBroadcastService],
+      ['image-updates', (await import('@/lib/stacks/image-update-broadcast-service')).imageUpdateBroadcastService],
+      ['stats:docker', (await import('@/lib/database/subscription-service')).statsPollService],
+    ];
+    for (const [topic, service] of entries) services.set(topic, service as TrackedService);
+  });
+
+  beforeEach(() => {
+    liveCallbacks.clear();
+    for (const service of services.values()) {
+      const spy = spyOn(service, 'subscribe').mockImplementation((...args: unknown[]) => {
+        const callback = args.find((arg) => typeof arg === 'function') as (event: unknown) => void;
+        liveCallbacks.add(callback);
+        return () => {
+          liveCallbacks.delete(callback);
+        };
+      });
+      restoreSpies.push(() => spy.mockRestore());
+    }
+  });
+
+  afterEach(() => {
+    for (const restore of restoreSpies.splice(0)) restore();
+  });
+
+  async function openTracked(): Promise<{ peer: FakePeer; h: ReturnType<typeof createMuxWsHandlers>; started: Promise<void>[] }> {
+    mockAuthenticate.mockImplementation(() => Promise.resolve(user));
+    const started: Promise<void>[] = [];
+    const h = createMuxWsHandlers({
+      topicAdapter: (topic, emit, signal, sessionUser) => {
+        const result = defaultTopicAdapter(topic, emit, signal, sessionUser);
+        if (result) started.push(result);
+        return result;
+      },
+    });
+    const peer = makePeer(`abort-${++peerCounter}`);
+    await h.open(peer as unknown as Peer);
+    return { peer, h, started };
+  }
+
+  const eventFrames = (peer: FakePeer) => peer.sent.filter((f) => f.type === 'event');
+  const subscribingTopics = ['inventory', 'agent-inventory', 'settings', 'user-settings', 'stack-status', 'image-updates', 'stats:docker'];
+
+  it.each(subscribingTopics)('leaves no %s subscription and sends no event when unsubscribed in the same tick as the sub', async (topic) => {
+    const { peer, h, started } = await openTracked();
+    await Promise.all([
+      h.message(peer as unknown as Peer, command('sub', [topic], 1)),
+      h.message(peer as unknown as Peer, command('unsub', [topic], 2)),
+    ]);
+    await Promise.all(started);
+
+    expect(started).toHaveLength(1);
+    expect(liveCallbacks.size).toBe(0);
+    expect(eventFrames(peer)).toEqual([]);
+    h.close(peer as unknown as Peer);
+  });
+
+  it.each(subscribingTopics)('leaves no %s subscription and sends no event when the socket closes right after the sub', async (topic) => {
+    const { peer, h, started } = await openTracked();
+    await h.message(peer as unknown as Peer, command('sub', [topic], 1));
+    h.close(peer as unknown as Peer);
+    await Promise.all(started);
+
+    expect(started).toHaveLength(1);
+    expect(liveCallbacks.size).toBe(0);
+    expect(eventFrames(peer)).toEqual([]);
+  });
+
+  it.each(subscribingTopics)('leaves no %s subscription when the socket closes in the same tick as the sub', async (topic) => {
+    const { peer, h, started } = await openTracked();
+    const sub = h.message(peer as unknown as Peer, command('sub', [topic], 1));
+    h.close(peer as unknown as Peer);
+    await sub;
+    await Promise.all(started);
+
+    expect(liveCallbacks.size).toBe(0);
+    expect(eventFrames(peer)).toEqual([]);
+  });
+
+  it.each(subscribingTopics)('leaves no %s subscription wherever an abort lands before the subscribe', async (topic) => {
+    let microtasksBeforeAbort = 0;
+    for (let subscribedFirst = false; !subscribedFirst; microtasksBeforeAbort++) {
+      const controller = new AbortController();
+      const started = defaultTopicAdapter(topic, () => undefined, controller.signal, user);
+      for (let i = 0; i < microtasksBeforeAbort; i++) await Promise.resolve();
+      subscribedFirst = liveCallbacks.size > 0;
+      controller.abort();
+      await started;
+
+      expect(liveCallbacks.size).toBe(0);
+    }
+    expect(microtasksBeforeAbort).toBeGreaterThan(1);
+  });
+
+  it.each([
+    ['inventory', { type: 'init', containers: [] }, { type: 'init', containers: [] }],
+    ['agent-inventory', { hosts: [] }, { hosts: [] }],
+    ['stack-status', { type: 'deploy_changed', stack: 'plex', host: 'server1' }, { type: 'deploy_changed', stack: 'plex', host: 'server1' }],
+    [
+      'image-updates',
+      { stack: 'plex', host: 'server1', image: 'plexinc/pms-docker', updateAvailable: true, latestMatchingTag: '1.2' },
+      expect.objectContaining({ type: 'updates_changed', stack: 'plex', host: 'server1', image: 'plexinc/pms-docker', update_available: true, latest_matching_tag: '1.2' }),
+    ],
+    ['stats:docker', [{ time: 1000, host: 'server1' }], [{ time: 1000, host: 'server1' }]],
+  ] as const)('forwards %s events as data frames until unsubscribed', async (topic, event, payload) => {
+    const { peer, h, started } = await openTracked();
+    await h.message(peer as unknown as Peer, command('sub', [topic], 1));
+    await Promise.all(started);
+    expect(liveCallbacks.size).toBe(1);
+
+    for (const callback of liveCallbacks) callback(event);
+    await waitForCondition(() => dataFrames(peer, topic).length === 1);
+    expect(dataFrames(peer, topic)[0].payload).toEqual(payload);
+
+    await h.message(peer as unknown as Peer, command('unsub', [topic], 2));
+    expect(liveCallbacks.size).toBe(0);
     h.close(peer as unknown as Peer);
   });
 });

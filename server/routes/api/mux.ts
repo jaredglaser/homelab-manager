@@ -81,6 +81,7 @@ async function inventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSig
   const { dockerInventoryBroadcastService } = await import(
     '../../../src/lib/docker/docker-inventory-broadcast-service'
   );
+  if (signal.aborted) return;
   const unsubscribe = dockerInventoryBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: event });
   });
@@ -92,6 +93,7 @@ async function agentInventoryAdapter(topic: string, emit: EmitFrame, signal: Abo
   const { agentInventoryBroadcastService } = await import(
     '../../../src/lib/agents/agent-inventory-broadcast-service'
   );
+  if (signal.aborted) return;
   const unsubscribe = agentInventoryBroadcastService.subscribe((snapshot) => {
     emit({ topic, kind: 'data', payload: snapshot });
   });
@@ -129,6 +131,7 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
     '../../../src/lib/stacks/stack-status-broadcast-service'
   );
   const { toStackStatusWireMessage } = await import('../../../src/lib/channels/stack-status');
+  if (signal.aborted) return;
   const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
   });
@@ -137,11 +140,11 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
 
 async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
   await import('../../../src/lib/server-init');
-  if (signal.aborted) return;
   const { imageUpdateBroadcastService } = await import(
     '../../../src/lib/stacks/image-update-broadcast-service'
   );
   const { toImageUpdateWireMessage } = await import('../../../src/lib/channels/image-updates');
+  if (signal.aborted) return;
   const unsubscribe = imageUpdateBroadcastService.subscribe((event) => {
     emit({ topic, kind: 'data', payload: toImageUpdateWireMessage(event) });
   });
@@ -157,6 +160,7 @@ async function statsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal)
   }
   await import('../../../src/lib/server-init');
   const { statsPollService } = await import('../../../src/lib/database/subscription-service');
+  if (signal.aborted) return;
   const unsubscribe = statsPollService.subscribe(
     source,
     (rows) => emit({ topic, kind: 'data', payload: rows }),
@@ -325,6 +329,8 @@ export interface MuxWsDeps {
 export function createMuxWsHandlers(deps: MuxWsDeps) {
   async function handleCommand(peer: Peer, session: MuxSession, text: string): Promise<void> {
     const { parseCommandFrame, MAX_SESSION_TOPICS, TOPIC_LIMIT_ERROR_CODE } = await import('../../../src/lib/mux/protocol');
+    // A close during the import has already torn the session down, so a topic started now is never stopped.
+    if (sessions.get(peer.id) !== session) return;
     let raw: unknown;
     try {
       raw = JSON.parse(text);
