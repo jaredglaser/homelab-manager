@@ -78,16 +78,29 @@ function startTopic(session: MuxSession, topic: string, adapter: TopicAdapter): 
   }
 }
 
+interface Subscribable<Args extends unknown[]> {
+  subscribe(...args: Args): () => void;
+}
+
+// An abort fired before this call never reaches a listener added after it, so subscribing then would never end.
+export function subscribeUntilAborted<Args extends unknown[]>(
+  signal: AbortSignal,
+  service: Subscribable<Args>,
+  ...args: NoInfer<Args>
+): void {
+  if (signal.aborted) return;
+  const unsubscribe = service.subscribe(...args);
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
 async function inventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
   await import('../../../src/lib/server-init');
   const { dockerInventoryBroadcastService } = await import(
     '../../../src/lib/docker/docker-inventory-broadcast-service'
   );
-  if (signal.aborted) return;
-  const unsubscribe = dockerInventoryBroadcastService.subscribe((event) => {
+  subscribeUntilAborted(signal, dockerInventoryBroadcastService, (event) => {
     emit({ topic, kind: 'data', payload: event });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function agentInventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -95,11 +108,9 @@ async function agentInventoryAdapter(topic: string, emit: EmitFrame, signal: Abo
   const { agentInventoryBroadcastService } = await import(
     '../../../src/lib/agents/agent-inventory-broadcast-service'
   );
-  if (signal.aborted) return;
-  const unsubscribe = agentInventoryBroadcastService.subscribe((snapshot) => {
+  subscribeUntilAborted(signal, agentInventoryBroadcastService, (snapshot) => {
     emit({ topic, kind: 'data', payload: snapshot });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function settingsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -107,12 +118,9 @@ async function settingsAdapter(topic: string, emit: EmitFrame, signal: AbortSign
   const { settingsBroadcastService } = await import(
     '../../../src/lib/settings/settings-broadcast-service'
   );
-  // An abort fired during the imports never reaches a listener added after it, so the subscription would never end.
-  if (signal.aborted) return;
-  const unsubscribe = settingsBroadcastService.subscribe((message) => {
+  subscribeUntilAborted(signal, settingsBroadcastService, (message) => {
     emit({ topic, kind: 'data', payload: message });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function userSettingsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal, user: AuthUser): Promise<void> {
@@ -120,11 +128,9 @@ async function userSettingsAdapter(topic: string, emit: EmitFrame, signal: Abort
   const { userSettingsBroadcastService } = await import(
     '../../../src/lib/settings/settings-broadcast-service'
   );
-  if (signal.aborted) return;
-  const unsubscribe = userSettingsBroadcastService.subscribe((message) => {
+  subscribeUntilAborted(signal, userSettingsBroadcastService, (message) => {
     emit({ topic, kind: 'data', payload: message });
   }, user.id);
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -133,11 +139,9 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
     '../../../src/lib/stacks/stack-status-broadcast-service'
   );
   const { toStackStatusWireMessage } = await import('../../../src/lib/channels/stack-status');
-  if (signal.aborted) return;
-  const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
+  subscribeUntilAborted(signal, stackStatusBroadcastService, (event) => {
     emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -146,11 +150,9 @@ async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: Abort
     '../../../src/lib/stacks/image-update-broadcast-service'
   );
   const { toImageUpdateWireMessage } = await import('../../../src/lib/channels/image-updates');
-  if (signal.aborted) return;
-  const unsubscribe = imageUpdateBroadcastService.subscribe((event) => {
+  subscribeUntilAborted(signal, imageUpdateBroadcastService, (event) => {
     emit({ topic, kind: 'data', payload: toImageUpdateWireMessage(event) });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function statsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -162,13 +164,13 @@ async function statsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal)
   }
   await import('../../../src/lib/server-init');
   const { statsPollService } = await import('../../../src/lib/database/subscription-service');
-  if (signal.aborted) return;
-  const unsubscribe = statsPollService.subscribe(
+  subscribeUntilAborted(
+    signal,
+    statsPollService,
     source,
     (rows) => emit({ topic, kind: 'data', payload: rows }),
     () => emit({ topic, kind: 'error', payload: { message: 'Stats polling failed, retrying', gone: false } }),
   );
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 export function parseAgentSseBlock(block: string): { event: string; data: string } {
@@ -470,7 +472,7 @@ export const STATIC_TOPIC_ADAPTERS: Record<string, TopicAdapter> = {
   [IMAGE_UPDATES_TOPIC]: imageUpdatesAdapter,
 };
 
-const PREFIX_TOPIC_ADAPTERS = [
+export const PREFIX_TOPIC_ADAPTERS = [
   { prefix: LOGS_TOPIC_PREFIX, adapter: logsAdapter },
   { prefix: STATS_TOPIC_PREFIX, adapter: statsAdapter },
 ] as const;

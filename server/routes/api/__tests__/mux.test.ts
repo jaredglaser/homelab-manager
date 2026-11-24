@@ -156,10 +156,12 @@ mockModule<typeof import('@/lib/database/subscription-service')>('@/lib/database
 
 import {
   MAX_PENDING_FRAMES,
+  PREFIX_TOPIC_ADAPTERS,
   STATIC_TOPIC_ADAPTERS,
   createMuxWsHandlers,
   defaultTopicAdapter,
   parseAgentSseBlock,
+  subscribeUntilAborted,
 } from '../mux';
 import { MAX_SESSION_TOPICS, MAX_SUB_BATCH, isValidTopic, type MuxFrameBody } from '@/lib/mux/protocol';
 import type { Peer } from 'crossws';
@@ -1173,18 +1175,21 @@ describe('topic adapters and an abort before they subscribe', () => {
   const user: AuthUser = { id: 1, email: 'alice@example.com', name: 'Alice', role: 'viewer' };
   let peerCounter = 0;
 
+  const subscribingServices: [topic: string, load: () => Promise<unknown>][] = [
+    ['inventory', async () => (await import('@/lib/docker/docker-inventory-broadcast-service')).dockerInventoryBroadcastService],
+    ['agent-inventory', async () => (await import('@/lib/agents/agent-inventory-broadcast-service')).agentInventoryBroadcastService],
+    ['settings', async () => (await import('@/lib/settings/settings-broadcast-service')).settingsBroadcastService],
+    ['user-settings', async () => (await import('@/lib/settings/settings-broadcast-service')).userSettingsBroadcastService],
+    ['stack-status', async () => (await import('@/lib/stacks/stack-status-broadcast-service')).stackStatusBroadcastService],
+    ['image-updates', async () => (await import('@/lib/stacks/image-update-broadcast-service')).imageUpdateBroadcastService],
+    ['stats:docker', async () => (await import('@/lib/database/subscription-service')).statsPollService],
+  ];
+  const subscribingTopics = subscribingServices.map(([topic]) => topic);
+  const prefixesWithOwnAbortTest = ['logs:'];
+  const maxMicrotasksBeforeSubscribe = 200;
+
   beforeAll(async () => {
-    const settingsModule = await import('@/lib/settings/settings-broadcast-service');
-    const entries: [string, unknown][] = [
-      ['inventory', (await import('@/lib/docker/docker-inventory-broadcast-service')).dockerInventoryBroadcastService],
-      ['agent-inventory', (await import('@/lib/agents/agent-inventory-broadcast-service')).agentInventoryBroadcastService],
-      ['settings', settingsModule.settingsBroadcastService],
-      ['user-settings', settingsModule.userSettingsBroadcastService],
-      ['stack-status', (await import('@/lib/stacks/stack-status-broadcast-service')).stackStatusBroadcastService],
-      ['image-updates', (await import('@/lib/stacks/image-update-broadcast-service')).imageUpdateBroadcastService],
-      ['stats:docker', (await import('@/lib/database/subscription-service')).statsPollService],
-    ];
-    for (const [topic, service] of entries) services.set(topic, service as TrackedService);
+    for (const [topic, load] of subscribingServices) services.set(topic, (await load()) as TrackedService);
   });
 
   beforeEach(() => {
@@ -1221,7 +1226,18 @@ describe('topic adapters and an abort before they subscribe', () => {
   }
 
   const eventFrames = (peer: FakePeer) => peer.sent.filter((f) => f.type === 'event');
-  const subscribingTopics = ['inventory', 'agent-inventory', 'settings', 'user-settings', 'stack-status', 'image-updates', 'stats:docker'];
+
+  it('covers every registered topic adapter, or names the adapter that has its own abort test', () => {
+    const uncoveredStatic = Object.keys(STATIC_TOPIC_ADAPTERS).filter((topic) => !subscribingTopics.includes(topic));
+    const resolvedPrefixEntries = subscribingTopics
+      .filter((topic) => !(topic in STATIC_TOPIC_ADAPTERS))
+      .map((topic) => PREFIX_TOPIC_ADAPTERS.find(({ prefix }) => topic.startsWith(prefix)));
+    const uncoveredPrefixes = PREFIX_TOPIC_ADAPTERS.filter(
+      (entry) => !prefixesWithOwnAbortTest.includes(entry.prefix) && !resolvedPrefixEntries.includes(entry),
+    ).map(({ prefix }) => prefix);
+
+    expect([...uncoveredStatic, ...uncoveredPrefixes]).toEqual([]);
+  });
 
   it.each(subscribingTopics)('leaves no %s subscription and sends no event when unsubscribed in the same tick as the sub', async (topic) => {
     const { peer, h, started } = await openTracked();
@@ -1261,7 +1277,8 @@ describe('topic adapters and an abort before they subscribe', () => {
 
   it.each(subscribingTopics)('leaves no %s subscription wherever an abort lands before the subscribe', async (topic) => {
     let microtasksBeforeAbort = 0;
-    for (let subscribedFirst = false; !subscribedFirst; microtasksBeforeAbort++) {
+    let subscribedFirst = false;
+    for (; !subscribedFirst && microtasksBeforeAbort <= maxMicrotasksBeforeSubscribe; microtasksBeforeAbort++) {
       const controller = new AbortController();
       const started = defaultTopicAdapter(topic, () => undefined, controller.signal, user);
       for (let i = 0; i < microtasksBeforeAbort; i++) await Promise.resolve();
@@ -1270,6 +1287,9 @@ describe('topic adapters and an abort before they subscribe', () => {
       await started;
 
       expect(liveCallbacks.size).toBe(0);
+    }
+    if (!subscribedFirst) {
+      throw new Error(`${topic} never subscribed to its spied service within ${maxMicrotasksBeforeSubscribe} microtasks`);
     }
     expect(microtasksBeforeAbort).toBeGreaterThan(1);
   });
@@ -1297,5 +1317,55 @@ describe('topic adapters and an abort before they subscribe', () => {
     await h.message(peer as unknown as Peer, command('unsub', [topic], 2));
     expect(liveCallbacks.size).toBe(0);
     h.close(peer as unknown as Peer);
+  });
+});
+
+describe('subscribeUntilAborted', () => {
+  function makeService() {
+    const unsubscribe = mock(() => undefined);
+    const subscribe = mock<(callback: () => void, scope: number) => () => void>(() => unsubscribe);
+    return { service: { subscribe }, subscribe, unsubscribe };
+  }
+
+  it('never subscribes when the signal is already aborted', () => {
+    const { service, subscribe } = makeService();
+    const controller = new AbortController();
+    controller.abort();
+
+    subscribeUntilAborted(controller.signal, service, () => undefined, 7);
+
+    expect(subscribe).not.toHaveBeenCalled();
+  });
+
+  it('subscribes with the given arguments and keeps the subscription until the abort', () => {
+    const { service, subscribe, unsubscribe } = makeService();
+    const callback = () => undefined;
+
+    subscribeUntilAborted(new AbortController().signal, service, callback, 7);
+
+    expect(subscribe.mock.calls).toEqual([[callback, 7]]);
+    expect(unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribes once when the signal aborts after the subscribe', () => {
+    const { service, unsubscribe } = makeService();
+    const controller = new AbortController();
+    subscribeUntilAborted(controller.signal, service, () => undefined, 7);
+
+    controller.abort();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not unsubscribe again on a second abort event or a later abort call', () => {
+    const { service, unsubscribe } = makeService();
+    const controller = new AbortController();
+    subscribeUntilAborted(controller.signal, service, () => undefined, 7);
+    controller.abort();
+
+    controller.signal.dispatchEvent(new Event('abort'));
+    controller.abort();
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 });
