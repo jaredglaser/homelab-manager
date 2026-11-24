@@ -147,11 +147,16 @@ function StatusStrip({
 
         <div className="w-px h-4 mx-1 shrink-0 bg-border" />
 
-        <ActionStripButton
-          icon={<Image size={12} />}
-          label="Icon"
+        <Button
+          requires="write"
+          variant="ghost"
+          size="sm"
           onClick={onIconClick}
-        />
+          className="h-[28px] gap-1 rounded px-2 text-xs font-medium normal-case tracking-normal text-muted-foreground border border-border bg-transparent hover:bg-transparent"
+        >
+          <Image size={12} />
+          Icon
+        </Button>
 
         <div className="w-px h-4 mx-1 shrink-0 bg-border" />
 

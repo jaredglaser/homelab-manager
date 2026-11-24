@@ -1,5 +1,8 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import type { ComponentProps } from 'react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import { mockModule } from '@/lib/test/mock-module';
@@ -85,7 +88,32 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPan
   );
 }
 
+beforeEach(() => {
+  seedSession('admin');
+});
+
 describe('ContainerDetailPanel', () => {
+  it('disables the Icon control for a viewer with the role reason, and a click opens no picker', async () => {
+    seedSession('viewer');
+    renderPanel();
+    const user = setupUser();
+    const icon = screen.getByRole('button', { name: 'Icon' });
+    expect(icon.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(icon);
+    await user.hover(icon);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it.each(['admin', 'operator'] as const)('opens the icon picker for an %s', async (role) => {
+    seedSession(role);
+    renderPanel();
+    const icon = screen.getByRole('button', { name: 'Icon' });
+    expect(icon.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(icon);
+    expect(await screen.findByRole('dialog')).toBeDefined();
+  });
+
   it('renders a combined metrics chart', () => {
     renderPanel();
     // New design uses a single combined chart with 6 stackable series

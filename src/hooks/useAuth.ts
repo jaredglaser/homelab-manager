@@ -1,58 +1,112 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
+import { useQuery } from '@tanstack/react-query';
 import { getSession } from '@/data/auth.functions';
+import { queryClient } from '@/lib/query-client';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
 
+export const SESSION_QUERY_KEY = ['auth', 'session'] as const;
+
+export type SessionState =
+  | { status: 'loading' }
+  | { status: 'signed-in'; user: AuthUser }
+  | { status: 'auth-disabled' }
+  | { status: 'signed-out' }
+  | { status: 'failed' };
+
+async function fetchSession(): Promise<AuthUser | null> {
+  try {
+    return await getSession();
+  } catch (error) {
+    console.error('[useAuth] Session check failed:', error);
+    throw error;
+  }
+}
+
+// Long enough that the components a page mounts together, and the page AppShell reveals once the first check lands, share one request.
+const SESSION_STALE_MS = 5_000;
+
 /**
- * Checks the current session on mount and redirects to /login if unauthenticated.
+ * The session from the app's shared query. `page` consumers refetch it when they mount and when the
+ * window regains focus, so an expired session or a changed role shows up on the next page. Every
+ * other consumer, such as a role-gated button, only reads it.
+ */
+export function useSession({ page = false }: { page?: boolean } = {}): SessionState {
+  const { data, isPending, isLoadingError } = useQuery(
+    {
+      queryKey: SESSION_QUERY_KEY,
+      queryFn: fetchSession,
+      staleTime: SESSION_STALE_MS,
+      gcTime: Infinity,
+      retry: false,
+      refetchOnMount: page,
+      refetchOnWindowFocus: page,
+      refetchOnReconnect: false,
+    },
+    queryClient,
+  );
+  if (isPending) return { status: 'loading' };
+  // A refetch that fails keeps the last session: a restarting server or a network not yet up after sleep is not a logout.
+  if (isLoadingError) return { status: 'failed' };
+  if (!data) return { status: 'signed-out' };
+  if (data.id === SYNTHETIC_ADMIN.id) return { status: 'auth-disabled' };
+  return { status: 'signed-in', user: data };
+}
+
+function usePageSession(): SessionState {
+  const session = useSession({ page: true });
+  const navigate = useNavigate();
+  const mustLogIn = session.status === 'signed-out' || session.status === 'failed';
+
+  useEffect(() => {
+    if (mustLogIn) void navigate({ to: '/login' });
+  }, [mustLogIn, navigate]);
+
+  return session;
+}
+
+/**
+ * Reads the shared session, refetching it on mount, and redirects to /login when there is none or the check failed.
  *
  * @returns user - the authenticated user, or null when auth is disabled or not logged in
  * @returns loading - true until the session check resolves
  * @returns authEnabled - true when authentication is on (AUTH_DISABLED not truthy, i.e. not the synthetic-admin path)
  */
 export function useAuth(): { user: AuthUser | null; loading: boolean; authEnabled: boolean } {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authEnabled, setAuthEnabled] = useState(false);
-  const navigate = useNavigate();
-  const fetchSession = useServerFn(getSession);
-
-  useEffect(() => {
-    fetchSession()
-      .then((result) => {
-        if (!result) {
-          setAuthEnabled(true);
-          void navigate({ to: '/login' });
-        } else if (result.id === SYNTHETIC_ADMIN.id) {
-          // Auth disabled: synthetic admin is not a real user, don't surface it in the UI.
-          setAuthEnabled(false);
-          setUser(null);
-        } else {
-          setAuthEnabled(true);
-          setUser(result);
-        }
-      })
-      .catch((error) => {
-        console.error('[useAuth] Session check failed:', error);
-        void navigate({ to: '/login' });
-      })
-      .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return { user, loading, authEnabled };
+  const session = usePageSession();
+  return {
+    user: session.status === 'signed-in' ? session.user : null,
+    loading: session.status === 'loading',
+    authEnabled: session.status === 'signed-in' || session.status === 'signed-out',
+  };
 }
 
-/**
- * True when the session may call server functions guarded by `requireRole('admin', 'operator')`.
- * False while the check is in flight; true when auth is disabled, where every request runs
- * as the synthetic admin that `useAuth` reports as a null user.
- */
+export type RoleRequirement = 'write' | 'admin';
+
+export const VIEWER_DENIED_COPY = 'Your role can view but not change things. Ask an operator or admin.';
+export const OPERATOR_DENIED_COPY = 'Only an admin can do this.';
+
+export type RoleAccess =
+  | { kind: 'allowed' }
+  | { kind: 'unknown' }
+  | { kind: 'denied'; reason: string };
+
+/** `write` is admin or operator. A session still loading, or one whose check failed, is unknown and never allowed. */
+export function roleAccess(session: SessionState, requires: RoleRequirement): RoleAccess {
+  if (session.status === 'auth-disabled') return { kind: 'allowed' };
+  if (session.status !== 'signed-in') return { kind: 'unknown' };
+  const { role } = session.user;
+  if (role === 'admin') return { kind: 'allowed' };
+  if (role === 'operator' && requires === 'write') return { kind: 'allowed' };
+  return { kind: 'denied', reason: role === 'operator' ? OPERATOR_DENIED_COPY : VIEWER_DENIED_COPY };
+}
+
+export function useRoleAccess(requires: RoleRequirement): RoleAccess {
+  return roleAccess(useSession(), requires);
+}
+
+/** True when the session may call server functions guarded by `requireRole('admin', 'operator')`. Refetches and redirects like `useAuth`. */
 export function useCanWrite(): boolean {
-  const { user, loading, authEnabled } = useAuth();
-  if (loading) return false;
-  if (!authEnabled) return true;
-  return user?.role === 'admin' || user?.role === 'operator';
+  return roleAccess(usePageSession(), 'write').kind === 'allowed';
 }

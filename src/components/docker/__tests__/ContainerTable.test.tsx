@@ -1,4 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { seedSession } from '@/lib/test/session';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { DockerStatsRow } from '@/types/docker';
@@ -145,6 +146,10 @@ const defaultProps = {
   entityIcons: {} as Record<string, { iconSlug: string | null; serviceKeyEntity: string }>,
   onIconChange: async () => {},
 };
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('ContainerTable', () => {
   it('renders error state when error and no data', () => {

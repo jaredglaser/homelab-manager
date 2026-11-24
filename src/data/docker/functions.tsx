@@ -141,6 +141,7 @@ export const updateContainerIcon = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
   .validator(updateContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
+    requireRole('admin', 'operator')(context.user);
     const { EntityMetadataRepository } = await import(
       '@/lib/database/repositories/entity-metadata-repository'
     );
@@ -153,6 +154,7 @@ export const clearContainerIcon = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
   .validator(clearContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
+    requireRole('admin', 'operator')(context.user);
     const { EntityMetadataRepository } = await import(
       '@/lib/database/repositories/entity-metadata-repository'
     );

@@ -1,6 +1,7 @@
 import { RefreshCw, Trash2, Server, Pencil, KeyRound, ShieldCheck } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import type { RoleRequirement } from '@/hooks/useAuth'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { Spinner } from '@/components/ui/spinner';
@@ -63,10 +64,27 @@ interface HostActionProps {
   disabled: boolean
   onClick: () => void
   className?: string
+  requires?: RoleRequirement
   children: React.ReactNode
 }
 
-function HostAction({ label, ariaLabel, disabled, onClick, className, children }: HostActionProps) {
+function HostAction({ label, ariaLabel, disabled, onClick, className, requires, children }: HostActionProps) {
+  if (requires) {
+    return (
+      <Button
+        requires={requires}
+        tooltip={label}
+        variant="ghost"
+        size="icon-sm"
+        className={className ?? 'text-foreground'}
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={ariaLabel}
+      >
+        {children}
+      </Button>
+    )
+  }
   return (
     <Tooltip>
       <TooltipTrigger
@@ -117,7 +135,7 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <HostAction label="Check health" ariaLabel="check health" disabled={busy} onClick={onHealthCheck}>
+        <HostAction label="Check health" ariaLabel="check health" disabled={busy} onClick={onHealthCheck} requires="write">
           {isChecking ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
         </HostAction>
         <HostAction label="Edit host" ariaLabel="edit host" disabled={busy} onClick={onEdit}>

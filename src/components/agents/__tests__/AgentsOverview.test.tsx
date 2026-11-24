@@ -1,6 +1,8 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { mockModule } from '@/lib/test/mock-module'
+import type * as UseAuth from '@/hooks/useAuth'
 import type { AgentInventoryEntry, AgentInventoryFailure } from '@/lib/hosts/agent-inventory'
 import { AGENT_INVENTORY_STATUSES, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory'
 import type { ManagedHost } from '@/lib/database/repositories/host-repository'
@@ -63,7 +65,8 @@ let authState: { user: { id: number; email: string; name: string | null; role: '
   authEnabled: true,
 }
 
-mock.module('@/hooks/useAuth', () => ({
+mockModule<typeof UseAuth>('@/hooks/useAuth', (real) => ({
+  ...real,
   useAuth: () => authState,
 }))
 

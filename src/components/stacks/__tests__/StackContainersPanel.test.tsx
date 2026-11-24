@@ -1,10 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { seedSession } from '@/lib/test/session';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 import { mockModule } from '@/lib/test/mock-module';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 
 mock.module('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
@@ -106,6 +108,10 @@ function createWrapper() {
 function renderPanel(props = defaultProps) {
   return render(<StackContainersPanel {...props} />, { wrapper: createWrapper() });
 }
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('StackContainersPanel', () => {
   beforeEach(() => {
@@ -556,6 +562,41 @@ describe('StackContainersPanel', () => {
   it('renders the Check for updates button next to Recreate', () => {
     renderPanel();
     expect(screen.getByRole('button', { name: 'Check for updates' })).toBeDefined();
+  });
+
+  it('shows a viewer Check for updates and the dialog Re-check disabled with the role reason, and nothing runs the check', async () => {
+    seedSession('viewer');
+    renderPanel();
+    const check = screen.getByRole('button', { name: 'Check for updates' });
+    expect(check.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(check.getAttribute('aria-describedby') ?? '')?.textContent).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(check);
+
+    // Opening the dialog is an awaited render, so a check the click above started would have run by now.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Image versions' })[0]);
+    const recheck = await screen.findByRole('button', { name: 'Re-check' });
+    expect(mockCheckImageUpdates).not.toHaveBeenCalled();
+    expect(recheck.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(recheck);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Re-check' })).toBeNull());
+    expect(mockCheckImageUpdates).not.toHaveBeenCalled();
+  });
+
+  it('lets an operator run Check for updates and the dialog Re-check', async () => {
+    seedSession('operator');
+    renderPanel();
+    const check = screen.getByRole('button', { name: 'Check for updates' });
+    expect(check.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(check);
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Image versions' })[0]);
+    const recheck = await screen.findByRole('button', { name: 'Re-check' });
+    expect(recheck.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(recheck);
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(2));
   });
 
   it('disables the Check for updates button when the stack has no containers', () => {

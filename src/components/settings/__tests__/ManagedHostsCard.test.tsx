@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { describe, it, expect, mock, spyOn } from 'bun:test'
+import { describe, it, expect, mock, spyOn, beforeEach } from 'bun:test'
+import { seedSession } from '@/lib/test/session'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import { AgentChannelNotice, ManagedHostsCardView, bucketHostsByAgentChannel } from '@/components/settings/ManagedHostsCard'
@@ -60,6 +61,10 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
 async function enterHostName(user: TestUser, value = 'server1') {
   await user.type(screen.getByLabelText('Host Name'), value)
 }
+
+beforeEach(() => {
+  seedSession('admin')
+})
 
 describe('ManagedHostsCard', () => {
   describe('loading state', () => {

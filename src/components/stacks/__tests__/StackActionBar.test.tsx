@@ -1,6 +1,13 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
 import { render, screen, fireEvent } from '@testing-library/react';
 import StackActionBar from '../StackActionBar';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('StackActionBar', () => {
   const defaultProps = {
@@ -17,6 +24,29 @@ describe('StackActionBar', () => {
     expect(screen.getByText('Update images')).toBeDefined();
     expect(screen.getByText('Teardown')).toBeDefined();
     expect(screen.getByText('Delete Stack')).toBeDefined();
+  });
+
+  it('shows a viewer Update images disabled with the role reason, and a click calls nothing', async () => {
+    seedSession('viewer');
+    const onUpdate = mock(() => undefined);
+    render(<StackActionBar {...defaultProps} onUpdate={onUpdate} />);
+    const user = setupUser();
+    const update = screen.getByRole('button', { name: 'Update images' });
+    expect(update.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(update);
+    await user.hover(update);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it('lets an operator run Update images', () => {
+    seedSession('operator');
+    const onUpdate = mock(() => undefined);
+    render(<StackActionBar {...defaultProps} onUpdate={onUpdate} />);
+    const update = screen.getByRole('button', { name: 'Update images' });
+    expect(update.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(update);
+    expect(onUpdate).toHaveBeenCalledTimes(1);
   });
 
   it('buttons are enabled when not deploying', () => {

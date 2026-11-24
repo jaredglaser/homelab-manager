@@ -147,6 +147,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           Recreate
         </Button>
         <Button
+          requires="write"
           size="sm"
           variant="outline"
           disabled={checkMutation.isPending || containers.length === 0}

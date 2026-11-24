@@ -1,4 +1,6 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test'
+import { findOpenTooltip, seedSession } from '@/lib/test/session'
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth'
 import { render, screen, waitFor, act, within } from '@testing-library/react'
 import { setupUser, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
@@ -178,6 +180,10 @@ beforeEach(() => {
   healthCheckResult = Promise.resolve({ hostId: 1, healthy: true })
 })
 
+beforeEach(() => {
+  seedSession('admin')
+})
+
 describe('ManagedHostsCardConnected rotate TLS toasts', () => {
   it('shows the pinned success toast after a successful rotation', async () => {
     const user = setupUser()
@@ -233,6 +239,31 @@ describe('ManagedHostsCardConnected health check toasts', () => {
         },
       ])
     })
+  })
+})
+
+describe('ManagedHostsCardConnected health check role', () => {
+  it('shows a viewer the health check disabled with the role reason, and neither a load nor a click runs it', async () => {
+    seedSession('viewer')
+    const user = setupUser()
+    renderCard()
+    await screen.findByText('server1')
+    const check = screen.getByLabelText('check health')
+    expect(check.getAttribute('aria-disabled')).toBe('true')
+
+    await user.click(check)
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY)
+    expect(healthCheckCalls).toEqual([])
+    expect(toasts).toEqual([])
+  })
+
+  it.each(['admin', 'operator'] as const)('lets an %s run the health check', async (role) => {
+    seedSession(role)
+    const user = setupUser()
+    renderCard()
+    await screen.findByText('server1')
+    await user.click(screen.getByLabelText('check health'))
+    await waitFor(() => expect(healthCheckCalls).toEqual([1]))
   })
 })
 
