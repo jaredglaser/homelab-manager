@@ -15,10 +15,6 @@
  *   bun run test:all              # shard the full repo (root + agent)
  *   bun run test:all -- src/lib   # shard only files whose path contains "src/lib"
  *   bun run test:all --shards=4   # override the shard count
- *
- * Coverage runs (`bun run test`, `test:coverage:agent`) stay single-process:
- * Bun cannot merge V8 coverage across processes, and the coverage gate needs
- * one table.
  */
 import { $ } from "bun";
 import { mkdirSync, rmSync } from "node:fs";
