@@ -1185,3 +1185,29 @@ describe('default dependency implementations', () => {
     expect(received.some((e) => (e as { type: string }).type === 'status')).toBe(true);
   });
 });
+
+describe('StackStatusBroadcastService re-subscribe while connecting', () => {
+  it('ends with one LISTEN client when a re-subscribe lands while the first client is still being acquired', async () => {
+    const clients = [createMockPoolClient(), createMockPoolClient()];
+    const acquisitions: ((client: PoolClient) => void)[] = [];
+    const service = new StackStatusBroadcastService({
+      getPoolClient: () => new Promise<PoolClient>((resolve) => acquisitions.push(resolve)),
+      loadSnapshot: () => Promise.resolve([]),
+    });
+
+    service.subscribe(() => undefined)();
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    acquisitions.forEach((resolve, i) => resolve(clients[i] as unknown as PoolClient));
+    const handed = clients.slice(0, acquisitions.length);
+    await waitForCondition(() => received.length >= 1 && handed.every((c) => c.released || c.issuedQueries.includes('LISTEN deploy_change')));
+
+    const live = handed.filter((c) => c.issuedQueries.includes('LISTEN deploy_change') && !c.released);
+    expect(live).toHaveLength(1);
+    expect(received[0]).toEqual({ type: 'status', entries: [] });
+
+    live[0].emit('notification', { channel: 'deploy_change', payload: JSON.stringify({ stack: 'plex', host: 'server1' }) });
+    expect(received.at(-1)).toEqual({ type: 'deploy_changed', stack: 'plex', host: 'server1' });
+    await service.stop();
+  });
+});

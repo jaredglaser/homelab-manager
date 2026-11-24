@@ -51,6 +51,7 @@ export class SettingsBroadcastService<Scope = void> {
   private subscribers = new Map<SettingsCallback, Scope>();
   private listenerClient: PoolClient | null = null;
   private stopped = true;
+  private listenGeneration = 0;
   private reconnecting = false;
   private reconnectFailures = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -109,20 +110,22 @@ export class SettingsBroadcastService<Scope = void> {
   /** Attempt to establish the LISTEN connection. Returns true on success. */
   private startListening(): Promise<boolean> {
     if (this.startInFlight) return this.startInFlight;
-    this.startInFlight = this.doStartListening().finally(() => {
-      this.startInFlight = null;
+    const inFlight = this.doStartListening().finally(() => {
+      if (this.startInFlight === inFlight) this.startInFlight = null;
     });
-    return this.startInFlight;
+    this.startInFlight = inFlight;
+    return inFlight;
   }
 
   private async doStartListening(): Promise<boolean> {
     this.stopped = false;
+    const generation = this.listenGeneration;
     let poolClient: PoolClient | null = null;
 
     try {
       poolClient = await this.getPoolClient();
 
-      if (this.stopped) {
+      if (this.stopped || generation !== this.listenGeneration) {
         try { poolClient.release(); } catch { /* best-effort */ }
         return false;
       }
@@ -158,7 +161,7 @@ export class SettingsBroadcastService<Scope = void> {
       }
       // Schedule a retry so the service recovers from initial connect failures
       // (matching the runtime error handler's behavior).
-      if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
+      if (!this.stopped && generation === this.listenGeneration && this.subscribers.size > 0 && !this.reconnecting) {
         this.reconnecting = true;
         this.scheduleReconnect();
       }
@@ -204,7 +207,9 @@ export class SettingsBroadcastService<Scope = void> {
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       if (!this.stopped && this.subscribers.size > 0) {
+        const generation = this.listenGeneration;
         const ok = await this.startListening();
+        if (generation !== this.listenGeneration) return;
         if (ok) {
           this.reconnecting = false;
           // Settings may have changed during the disconnect window; push the
@@ -254,6 +259,8 @@ export class SettingsBroadcastService<Scope = void> {
 
   private stopListening(): void {
     this.stopped = true;
+    this.listenGeneration++;
+    this.startInFlight = null;
     this.reconnecting = false;
     this.reconnectFailures = 0;
     if (this.reconnectTimer !== null) {

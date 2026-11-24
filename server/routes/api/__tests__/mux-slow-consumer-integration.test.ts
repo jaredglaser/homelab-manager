@@ -146,7 +146,6 @@ describe('slow consumer end to end: server write queue to client hook', () => {
     intervals.fireNext();
     timeouts.fireNext();
     const wire = parseWire([...peer.sentRaw]);
-    h.close(peer as unknown as Peer);
     timeouts.restore();
     intervals.restore();
 
@@ -205,5 +204,6 @@ describe('slow consumer end to end: server write queue to client hook', () => {
 
     control.unmount();
     stats.unmount();
+    h.close(peer as unknown as Peer);
   });
 });
