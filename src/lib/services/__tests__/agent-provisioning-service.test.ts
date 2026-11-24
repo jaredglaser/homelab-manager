@@ -5,7 +5,18 @@ import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { tlsFailureMessage } from '@/lib/errors/tls-failure-copy';
 import { agentResponse } from '@/lib/test/agent-response';
 import { enrollmentPayload } from '../../crypto/agent-jwt';
+import { mockModule } from '@/lib/test/mock-module';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
+import type * as DnsPromises from 'node:dns/promises';
 import type { TlsFailureCode } from '@homelab-manager/agent/types';
+
+// A real lookup waits out a lost UDP reply (2s resolver retry), which is the whole test budget.
+const dnsLookup = mock((hostname: string): Promise<{ address: string; family: number }> =>
+  hostname === 'localhost'
+    ? Promise.resolve({ address: '127.0.0.1', family: 4 })
+    : Promise.reject(Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND' })),
+);
+mockModule<typeof DnsPromises>('node:dns/promises', (real) => ({ ...real, lookup: dnsLookup }));
 
 const CERT_PEM = '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----\n';
 const OLD_CERT_PEM = '-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n';
@@ -682,9 +693,8 @@ describe('provisionHostTls', () => {
     });
     await provisionHostTls('myhost', 'http://localhost:9090', deps);
     const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
-    const sans = JSON.parse(enrollInit.body ?? '{}').sans as string[];
-    expect(sans).toContain('localhost');
-    expect(sans.filter((san) => san === 'localhost')).toHaveLength(1);
+    expect(dnsLookup).toHaveBeenCalledWith('localhost');
+    expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual(['localhost', '127.0.0.1']);
   });
 
   it('the default IP resolver returns null for an unresolvable name', async () => {
@@ -698,7 +708,24 @@ describe('provisionHostTls', () => {
       'host-that-does-not-resolve.invalid',
       'localhost',
     ]);
-  }, 20000);
+  });
+
+  it('the default IP resolver gives up on a lookup that never answers', async () => {
+    dnsLookup.mockImplementationOnce(() => new Promise(() => undefined));
+    const timers = mockSetTimeout({ fireImmediately: true });
+    try {
+      const { deps, fetchCalls } = makeDeps({
+        fetchResponses: [challengeResponse(), enrollResponse()],
+        healthResults: [true],
+      });
+      await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+      expect(timers.delays).toEqual([3000]);
+      const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
+      expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual(['myhost.lan', 'localhost']);
+    } finally {
+      timers.restore();
+    }
+  });
 });
 
 describe('provisionHostTls enrollment handshake', () => {

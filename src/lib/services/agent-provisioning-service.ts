@@ -366,7 +366,7 @@ export function isTransientEnrollmentFailure(err: unknown): boolean {
  * The OpenSSL codes Bun reports when the pinned certificate does not verify for the host: the served
  * certificate is not the pinned one, or its SANs do not cover the address stored for the host. The
  * first is a re-enrolled agent, the second an address the certificate no longer covers. Measured on
- * Bun 1.4.2.
+ * Bun 1.4.4.
  */
 const UNVERIFIABLE_SERVED_CERT_CODES = new Set([
   'DEPTH_ZERO_SELF_SIGNED_CERT',

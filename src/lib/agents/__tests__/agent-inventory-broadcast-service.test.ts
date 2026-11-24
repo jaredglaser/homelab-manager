@@ -170,6 +170,41 @@ describe('AgentInventoryBroadcastService', () => {
   });
 });
 
+describe('AgentInventoryBroadcastService with its default database wiring', () => {
+  it('listens for sweeps and host changes on a pooled connection and builds the snapshot from the stored hosts', async () => {
+    const client = fakePoolClient();
+    const pool = { connect: mock(() => Promise.resolve(client)) };
+    const repoPools: unknown[] = [];
+    void mock.module('@/lib/clients/database-client', () => ({
+      databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => pool }) },
+    }));
+    void mock.module('@/lib/database/repositories/host-repository', () => ({
+      HOSTS_NOTIFY_CHANNEL: 'managed_hosts_change',
+      HostRepository: class {
+        constructor(p: unknown) {
+          repoPools.push(p);
+        }
+        findAll = () => Promise.resolve([]);
+      },
+    }));
+    const service = new AgentInventoryBroadcastService();
+    const received: AgentInventorySnapshot[] = [];
+    try {
+      service.subscribe((s) => received.push(s));
+      await waitForCondition(() => received.length > 0 && (client.query as ReturnType<typeof mock>).mock.calls.length === 2);
+
+      expect(received).toEqual([{ entries: [], sweptAt: null }]);
+      expect(repoPools).toEqual([pool]);
+      expect((client.query as ReturnType<typeof mock>).mock.calls.map((c) => c[0])).toEqual([
+        'LISTEN agent_inventory_change',
+        'LISTEN managed_hosts_change',
+      ]);
+    } finally {
+      await service.stop();
+    }
+  });
+});
+
 describe('AgentInventoryBroadcastService re-subscribe while connecting', () => {
   function listeningPoolClient() {
     const state = { listened: false, released: false, notify: null as null | ((msg: { channel: string }) => void) };
