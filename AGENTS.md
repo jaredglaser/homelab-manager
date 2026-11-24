@@ -52,7 +52,7 @@ bun run setup                 # Install homelab-manager and agent
 # Testing & Build (homelab-manager only)
 bun run typecheck             # TypeScript type checking
 bun test --isolate            # Run all tests sequentially (--isolate required: module mocks leak across files without it)
-bun run test                  # Same as above + coverage enforcement
+bun run test                  # All tests in --parallel workers + coverage enforcement
 bun test --isolate --watch    # Run tests in watch mode
 bun run build                 # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)

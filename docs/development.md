@@ -246,8 +246,9 @@ Files are discovered with `git ls-files --cached --others --exclude-standard` fi
 bun's test-name patterns, so untracked new test files are included and gitignored trees are not.
 Pass substring filters (`bun run test:all -- src/lib`) to shrink the set, or `--shards=N` to
 override the shard count (defaults to CPU count, capped at 12). Failing shards print the tail of
-their output; full per-shard logs land in `.tmp/test-parallel/`. Coverage runs stay
-single-process because Bun cannot merge V8 coverage tables across processes.
+their output. Full per-shard logs land in `.tmp/test-parallel/`. `bun run test` and
+`bun run test:coverage` use Bun's own `--parallel` workers instead, which report one merged
+coverage table for the gate to read.
 
 ### Coverage Requirements
 

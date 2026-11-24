@@ -4,6 +4,7 @@ import type { SettingsWireMessage } from '@/types/settings';
 import type { PoolClient } from 'pg';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
+import { mockModule } from '@/lib/test/mock-module';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -244,6 +245,44 @@ describe('SettingsBroadcastService', () => {
         timers.restore();
       }
     });
+  });
+});
+
+describe('SettingsBroadcastService with its default database wiring', () => {
+  it('listens on a pooled connection and reads settings through the settings repository', async () => {
+    const poolClient = createMockPoolClient();
+    const pool = { connect: mock(() => Promise.resolve(poolClient)) };
+    const repoPools: unknown[] = [];
+    void mock.module('@/lib/clients/database-client', () => ({
+      databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => pool }) },
+    }));
+    mockModule<typeof import('@/lib/database/repositories/settings-repository')>('@/lib/database/repositories/settings-repository', (real) => ({
+      ...real,
+      SettingsRepository: class {
+        constructor(p: unknown) {
+          repoPools.push(p);
+        }
+        getAll = () => Promise.resolve(new Map([['theme', 'dark']]));
+        get = (key: string) => Promise.resolve(key === 'theme' ? 'light' : null);
+      },
+    }));
+    const service = new SettingsBroadcastService();
+    const received: SettingsWireMessage[] = [];
+    try {
+      service.subscribe((m) => received.push(m), undefined);
+      await waitForCondition(() => poolClient.querySql !== null && received.length > 0);
+
+      expect(poolClient.querySql).toBe('LISTEN settings_change');
+      expect(received).toEqual([{ type: 'init', settings: { theme: 'dark' } }]);
+
+      poolClient.emit('notification', { channel: 'settings_change', payload: 'theme' });
+      await waitForCondition(() => received.length > 1);
+
+      expect(received[1]).toEqual({ type: 'change', key: 'theme', value: 'light' });
+      expect(repoPools).toEqual([pool, pool]);
+    } finally {
+      await service.stop();
+    }
   });
 });
 
