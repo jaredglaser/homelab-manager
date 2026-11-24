@@ -6,7 +6,7 @@
       "name": "@homelab-manager/agent",
       "dependencies": {
         "dockerode": "5.0.1",
-        "jose": "6.2.13",
+        "jose": "6.2.17",
         "zod": "4.6.7",
       },
       "devDependencies": {
@@ -145,7 +145,7 @@
 
     "is-fullwidth-code-point": ["is-fullwidth-code-point@3.0.0", "", {}, "sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg=="],
 
-    "jose": ["jose@6.2.13", "", {}, "sha512-7TIg10ZE1x82YediN+lcrPNvGMKge9yFHQD+Qho/b8y2adfugU3AsvvHfxV0fzyFllT6l9xCjf4RWY9g/Z9PJQ=="],
+    "jose": ["jose@6.2.17", "", {}, "sha512-wOuK9V1yujQFH5S0ZWmLcDZN7+IKh9bUCC2ZPCf2HDlol3WWHy+PPyNjEI75FXRLMp3vDKQcupP59xhVU95hcg=="],
 
     "lodash.camelcase": ["lodash.camelcase@4.3.0", "", {}, "sha512-TwuEnCnxbc3rAvhf/LbG7tJUDzhqXyFnv3dtzLOPgCG/hODL7WFnsbwktkD7yUV0RrreP/l1PALq/YSg6VvjlA=="],
 
