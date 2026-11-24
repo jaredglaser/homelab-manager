@@ -1,6 +1,24 @@
 import { describe, it, expect } from 'bun:test';
-import { generateDefaultSettings } from '../settings';
+import { generateDefaultSettings, seedDemoLayout } from '../settings';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+import { BROWSER_LAYOUT_KEYS, browserLayoutStorageKey } from '@/hooks/browserLayout';
+import { DOCKER_ENTITIES } from '@/lib/mock/entities';
+
+const EXPANDED_CONTAINERS_KEY = browserLayoutStorageKey(BROWSER_LAYOUT_KEYS.dockerExpandedContainers);
+
+describe('seedDemoLayout', () => {
+  it('opens the Home Assistant container on a first visit', () => {
+    seedDemoLayout();
+    const homeassistant = DOCKER_ENTITIES.find(e => e.serviceKey === 'homeassistant')!;
+    expect(JSON.parse(localStorage.getItem(EXPANDED_CONTAINERS_KEY)!)).toEqual([`${homeassistant.host}/${homeassistant.containerId}`]);
+  });
+
+  it('leaves a layout the visitor already has alone', () => {
+    localStorage.setItem(EXPANDED_CONTAINERS_KEY, '[]');
+    seedDemoLayout();
+    expect(localStorage.getItem(EXPANDED_CONTAINERS_KEY)).toBe('[]');
+  });
+});
 
 describe('generateDefaultSettings', () => {
   it('returns a non-empty object', () => {

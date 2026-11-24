@@ -2,6 +2,7 @@ import { Zap, Waves } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { RoleGate } from '@/components/ui/role-gate'
 import type { ProxmoxUpdateInterval } from '@/hooks/useSettings'
 
 export function IntervalToggle({
@@ -12,40 +13,45 @@ export function IntervalToggle({
   onIntervalChange: (interval: ProxmoxUpdateInterval) => void
 }) {
   return (
-    <ToggleGroup
-      value={[String(interval)]}
-      onValueChange={(groupValue) => {
-        const newValue = groupValue[0]
-        if (newValue !== undefined) onIntervalChange(Number(newValue) as ProxmoxUpdateInterval)
-      }}
-      aria-label="Update interval"
-    >
-      <Tooltip>
-        <TooltipTrigger
-          render={<ToggleGroupItem value="1000" aria-label="1 second (fast)" />}
+    <RoleGate requires="write" wrapper={{ label: 'Update interval', className: 'inline-flex rounded-lg' }}>
+      {(blocked) => (
+        <ToggleGroup
+          disabled={blocked}
+          value={[String(interval)]}
+          onValueChange={(groupValue) => {
+            const newValue = groupValue[0]
+            if (newValue !== undefined) onIntervalChange(Number(newValue) as ProxmoxUpdateInterval)
+          }}
+          aria-label="Update interval"
         >
-          <Zap size={16} />
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          <div className="flex flex-col gap-1">
-            <p className="text-sm">Fast updates (1 second)</p>
-            <Badge variant="warning">Increases API load on Proxmox</Badge>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={<ToggleGroupItem value="10000" aria-label="10 seconds (relaxed)" />}
-        >
-          <Waves size={16} />
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          <div className="flex flex-col gap-1">
-            <p className="text-sm">Relaxed updates (10 seconds)</p>
-            <Badge variant="success">Recommended for most users</Badge>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </ToggleGroup>
+          <Tooltip>
+            <TooltipTrigger
+              render={<ToggleGroupItem value="1000" aria-label="1 second (fast)" />}
+            >
+              <Zap size={16} />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <div className="flex flex-col gap-1">
+                <p className="text-sm">Fast updates (1 second)</p>
+                <Badge variant="warning">Increases API load on Proxmox</Badge>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={<ToggleGroupItem value="10000" aria-label="10 seconds (relaxed)" />}
+            >
+              <Waves size={16} />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <div className="flex flex-col gap-1">
+                <p className="text-sm">Relaxed updates (10 seconds)</p>
+                <Badge variant="success">Recommended for most users</Badge>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </ToggleGroup>
+      )}
+    </RoleGate>
   )
 }

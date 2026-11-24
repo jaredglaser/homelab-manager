@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react';
-import { useAtomValue } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import { zfsSettingsAtom, type Settings } from '@/hooks/settingsAtom';
-import { useOptimisticSetting, toggleInSet } from '@/hooks/useOptimisticSetting';
+import { toggledInSet, zfsExpandedHostsAtom, zfsExpandedPoolsAtom, zfsExpandedVdevsAtom } from '@/hooks/browserLayout';
+import { useOptimisticSetting } from '@/hooks/useOptimisticSetting';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 export interface ZfsSettingsValue {
@@ -15,49 +16,49 @@ export interface ZfsSettingsValue {
   isVdevExpanded: (vdevId: string) => boolean;
 }
 
-/**
- * ZFS-dashboard settings: disk-speed decimals and host / pool / vdev
- * expansion state. Subscribes only to the zfs slice.
- */
+/** ZFS-dashboard settings: disk-speed decimals are global, host / pool / vdev expansion is kept in this browser. */
 export function useZfsSettings(): ZfsSettingsValue {
   const zfs = useAtomValue(zfsSettingsAtom);
   const optimisticSet = useOptimisticSetting();
+  const [expandedHosts, setExpandedHosts] = useAtom(zfsExpandedHostsAtom);
+  const [expandedPools, setExpandedPools] = useAtom(zfsExpandedPoolsAtom);
+  const [expandedVdevs, setExpandedVdevs] = useAtom(zfsExpandedVdevsAtom);
 
   const setZfsDecimal = useCallback((key: 'diskSpeed', value: boolean) => {
     optimisticSet(SETTINGS_KEYS.zfs.decimals[key], () => String(value));
   }, [optimisticSet]);
 
   const toggleZfsHostExpanded = useCallback((hostName: string) => {
-    optimisticSet(SETTINGS_KEYS.zfs.expandedHosts, prev => toggleInSet(prev, hostName));
-  }, [optimisticSet]);
+    setExpandedHosts(prev => toggledInSet(prev, hostName));
+  }, [setExpandedHosts]);
 
   const isZfsHostExpanded = useCallback(
     (hostName: string, totalHosts: number): boolean => {
       if (totalHosts === 1) return true;
-      return zfs.expandedHosts.has(hostName);
+      return expandedHosts.has(hostName);
     },
-    [zfs.expandedHosts],
+    [expandedHosts],
   );
 
   const togglePoolExpanded = useCallback((poolId: string) => {
-    optimisticSet(SETTINGS_KEYS.zfs.expandedPools, prev => toggleInSet(prev, poolId));
-  }, [optimisticSet]);
+    setExpandedPools(prev => toggledInSet(prev, poolId));
+  }, [setExpandedPools]);
 
   const isPoolExpanded = useCallback(
     (poolId: string, totalPools: number): boolean => {
       if (totalPools === 1) return true;
-      return zfs.expandedPools.has(poolId);
+      return expandedPools.has(poolId);
     },
-    [zfs.expandedPools],
+    [expandedPools],
   );
 
   const toggleVdevExpanded = useCallback((vdevId: string) => {
-    optimisticSet(SETTINGS_KEYS.zfs.expandedVdevs, prev => toggleInSet(prev, vdevId));
-  }, [optimisticSet]);
+    setExpandedVdevs(prev => toggledInSet(prev, vdevId));
+  }, [setExpandedVdevs]);
 
   const isVdevExpanded = useCallback(
-    (vdevId: string): boolean => zfs.expandedVdevs.has(vdevId),
-    [zfs.expandedVdevs],
+    (vdevId: string): boolean => expandedVdevs.has(vdevId),
+    [expandedVdevs],
   );
 
   return useMemo<ZfsSettingsValue>(() => ({

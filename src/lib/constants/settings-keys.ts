@@ -14,9 +14,6 @@ export const SETTINGS_KEYS = {
   docker: {
     memoryDisplayMode: 'docker/memoryDisplayMode',
     chartWindowSeconds: 'docker/chartWindowSeconds',
-    expandedHosts: 'docker/expandedHosts',
-    expandedContainers: 'docker/expandedContainers',
-    containerShells: 'docker/containerShells',
     decimals: {
       cpu: 'docker/decimals/cpu',
       memory: 'docker/decimals/memory',
@@ -24,21 +21,13 @@ export const SETTINGS_KEYS = {
       networkSpeed: 'docker/decimals/networkSpeed',
     },
   },
-  stacks: {
-    expandedStacks: 'stacks/expandedStacks',
-  },
   zfs: {
-    expandedHosts: 'zfs/expandedHosts',
-    expandedPools: 'zfs/expandedPools',
-    expandedVdevs: 'zfs/expandedVdevs',
     decimals: {
       diskSpeed: 'zfs/decimals/diskSpeed',
     },
   },
   proxmox: {
     updateInterval: 'proxmox/updateInterval',
-    expandedHosts: 'proxmox/expandedHosts',
-    expandedSections: 'proxmox/expandedSections',
   },
   retention: {
     rawDataHours: 'retention/rawDataHours',
