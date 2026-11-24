@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, act } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -377,6 +377,38 @@ describe('AuthManagementCard', () => {
       expect(spinnerBtn.hasAttribute('disabled')).toBe(true)
       await user.click(spinnerBtn)
       expect(gitFns().createGitToken).toHaveBeenCalledTimes(1)
+    })
+
+    it('stays open on Escape while the token is being generated', async () => {
+      const user = setupUser()
+      gitFns().createGitToken.mockImplementation(() => new Promise<never>(() => undefined))
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.click(generateButton())
+      await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('Token label').disabled).toBe(true))
+
+      await user.keyboard('{Escape}')
+
+      expect(screen.queryAllByRole('dialog').length).toBe(1)
+      expect(screen.getByLabelText<HTMLInputElement>('Token label').value).toBe('My token')
+    })
+
+    it('closes with Escape again after the generation fails', async () => {
+      const user = setupUser()
+      let fail: () => void = () => undefined
+      gitFns().createGitToken.mockImplementation(() => new Promise<never>((_resolve, reject) => { fail = () => reject(new Error('token store down')) }))
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.click(generateButton())
+      await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('Token label').disabled).toBe(true))
+      await user.keyboard('{Escape}')
+      expect(screen.queryAllByRole('dialog').length).toBe(1)
+
+      act(() => fail())
+      await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('Token label').disabled).toBe(false))
+      await user.keyboard('{Escape}')
+
+      await waitFor(() => expect(screen.queryAllByRole('dialog').length).toBe(0))
     })
 
     it('copies the new token from the dialog', async () => {

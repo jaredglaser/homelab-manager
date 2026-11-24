@@ -505,17 +505,21 @@ describe('ManagedHostsCardConnected row actions', () => {
       }
     })
 
-    it('still shows the failure toast and opens nothing when the update fails after the dialog was dismissed', async () => {
+    it('ignores Escape while the update is pending and still shows the failure toast when it fails', async () => {
       const user = setupUser()
       let rejectUpdate: (reason: Error) => void = () => undefined
       updateHostGate = new Promise<HostListItem>((_res, rej) => { rejectUpdate = rej })
       updateHostGate.catch(() => null)
       await saveEdit(user)
       await user.keyboard('{Escape}')
-      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      expect(screen.getAllByRole('dialog')).toHaveLength(1)
+
       await act(() => Promise.resolve(rejectUpdate(new Error('Agent URL is not reachable'))))
       await waitFor(() => expect(toasts).toEqual([{ message: 'Agent URL is not reachable', severity: 'error' }]))
-      expect(screen.queryAllByRole('dialog')).toHaveLength(0)
+      await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').disabled).toBe(false))
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+
       updateHostGate = null
       await user.click(screen.getByLabelText('edit host'))
       await user.click(screen.getByRole('button', { name: 'Save' }))
@@ -527,22 +531,18 @@ describe('ManagedHostsCardConnected row actions', () => {
       ])
     })
 
-    it('leaves another host\'s edit dialog open when the first save succeeds after the switch', async () => {
+    it('ignores Escape while the update is pending and closes the dialog once it succeeds', async () => {
       const user = setupUser()
-      hostsRows = [makeHost({ id: 1, name: 'server1' }), makeHost({ id: 2, name: 'server2' })]
       let resolveUpdate: (host: HostListItem) => void = () => undefined
       updateHostGate = new Promise<HostListItem>((res) => { resolveUpdate = res })
-      renderCard()
-      await screen.findByText('server2')
-      await user.click(screen.getAllByLabelText('edit host')[0])
-      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await saveEdit(user)
       await user.keyboard('{Escape}')
-      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
-      await user.click(screen.getAllByLabelText('edit host')[1])
-      await act(() => Promise.resolve(resolveUpdate(makeHost())))
-      await waitFor(() => expect(toasts).toEqual([{ message: 'Host updated', severity: 'success' }]))
       expect(screen.getAllByRole('dialog')).toHaveLength(1)
-      expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
+
+      await act(() => Promise.resolve(resolveUpdate(makeHost())))
+
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      expect(toasts).toEqual([{ message: 'Host updated', severity: 'success' }])
     })
   })
 
