@@ -18,8 +18,8 @@ mockModule<typeof import('@tanstack/react-router')>('@tanstack/react-router', (r
     select({ pathname: '/docker' }),
 }))
 
-const prefetchQuery = mock(() => Promise.resolve())
-mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real,  queryClient: { prefetchQuery } }))
+const query = mock(() => Promise.resolve())
+mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real,  queryClient: { query } }))
 
 mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
   listStacks: mock(() => Promise.resolve([])),
@@ -118,12 +118,12 @@ describe('MobileNav', () => {
 
   it('closes the drawer and prefetches when a destination is tapped', async () => {
     await openDrawer()
-    prefetchQuery.mockClear()
+    query.mockClear()
 
     fireEvent.click(screen.getByRole('link', { name: /zfs/i }))
 
     await waitFor(() => expect(screen.queryByRole('link', { name: /zfs/i })).toBeNull())
-    expect(prefetchQuery).toHaveBeenCalled()
+    expect(query).toHaveBeenCalled()
   })
 
   it('closes the drawer when a submenu entry is tapped', async () => {
