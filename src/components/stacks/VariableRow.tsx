@@ -86,7 +86,7 @@ export default function VariableRow({ stackName, varName, isReferenced, revealed
         </div>
       </div>
 
-      <Dialog open={deleteOpen} onOpenChange={(isOpen) => { if (!isOpen) setDeleteOpen(false); }}>
+      <Dialog open={deleteOpen} busy={deleteMutation.isPending} onOpenChange={(isOpen) => { if (!isOpen) setDeleteOpen(false); }}>
         <DialogContent className="w-auto min-w-75">
           <DialogTitle>Delete variable</DialogTitle>
           <DialogBody>
@@ -105,7 +105,6 @@ export default function VariableRow({ stackName, varName, isReferenced, revealed
               variant="ghost"
               className="text-destructive"
               onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending}
             >
               Delete
             </Button>

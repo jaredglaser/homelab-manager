@@ -4,6 +4,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRoleAccess, type RoleRequirement } from '@/hooks/useAuth';
+import { useModalBusy } from '@/components/ui/modal-busy';
 
 /*
  * default = filled, outline = outlined, ghost = text. Uppercase + tracking
@@ -38,21 +39,26 @@ const buttonVariants = cva(
 
 type ButtonProps = ComponentProps<typeof ButtonPrimitive> &
   VariantProps<typeof buttonVariants> & {
+    /** Keeps the button usable inside a busy modal, where every other button disables. */
+    allowWhileBusy?: boolean;
     /** The role a click needs. Any other role gets the button disabled with the reason in a tooltip. */
     requires?: RoleRequirement;
     /** With `requires`: shown on hover while the role may use the button. The role reason replaces it otherwise. */
     tooltip?: ReactNode;
   };
 
-type RoleGatedButtonProps = Omit<ButtonProps, 'requires'> & { requires: RoleRequirement };
+type RoleGatedButtonProps = Omit<ButtonProps, 'requires' | 'allowWhileBusy'> & { requires: RoleRequirement };
 
-function Button({ requires, tooltip, ...props }: ButtonProps) {
-  if (requires !== undefined) return <RoleGatedButton requires={requires} tooltip={tooltip} {...props} />;
+function Button({ requires, tooltip, allowWhileBusy = false, disabled, ...props }: ButtonProps) {
+  const busy = useModalBusy();
+  const blocked = disabled || (busy && !allowWhileBusy);
+  if (requires !== undefined) return <RoleGatedButton requires={requires} tooltip={tooltip} disabled={blocked} {...props} />;
   const { className, variant, size, ...rest } = props;
   return (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size }), className)}
+      disabled={blocked}
       {...rest}
     />
   );

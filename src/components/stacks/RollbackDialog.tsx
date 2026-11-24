@@ -17,7 +17,7 @@ export default function RollbackDialog({
   commitSha,
 }: RollbackDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+    <Dialog open={open} busy={false} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent>
         <DialogTitle>Rollback {stackName}?</DialogTitle>
         <DialogBody>
