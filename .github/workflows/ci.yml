@@ -590,6 +590,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Hashes exactly what the agent image is built from (tests are dockerignored), so the
+      # manager can tell a changed agent from a rebuild of the same source.
+      - name: Hash the agent build inputs
+        id: agent-source
+        run: |
+          HASH=$(git ls-tree -r HEAD -- agent/Dockerfile agent/package.json agent/bun.lock agent/tsconfig.json agent/src \
+            | grep -v -e '/__tests__/' -e '\.test\.ts' | sha256sum | cut -d' ' -f1)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
       - name: Build and push agent image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -600,6 +609,7 @@ jobs:
           labels: ${{ steps.meta-agent.outputs.labels }}
           build-args: |
             AGENT_VERSION=${{ steps.meta-agent.outputs.version }}
+            AGENT_SOURCE_HASH=${{ steps.agent-source.outputs.hash }}
           cache-from: type=gha,scope=agent
           cache-to: type=gha,mode=max,scope=agent
 

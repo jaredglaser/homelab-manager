@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { getAgentImageTag } from '@/lib/hosts/host-utils';
+import { AGENT_SOURCE_HASH_LABEL } from '@homelab-manager/agent/types';
 
 const root = join(import.meta.dir, '..', '..');
 const CHANNEL = 'VITE_AGENT_IMAGE_TAG';
@@ -283,4 +284,16 @@ describe('agent image channel', () => {
       }
     },
   );
+});
+
+describe('agent source hash stamping', () => {
+  test('the agent image labels the hash under the name the manager reads, and exposes it to the agent', () => {
+    const agentDockerfile = read('agent/Dockerfile');
+    expect(agentDockerfile).toContain(`LABEL ${AGENT_SOURCE_HASH_LABEL}=\${AGENT_SOURCE_HASH}`);
+    expect(agentDockerfile).toContain('ENV AGENT_SOURCE_HASH=${AGENT_SOURCE_HASH}');
+  });
+
+  test('CI passes the hash to the agent build', () => {
+    expect(read(WORKFLOW)).toContain('AGENT_SOURCE_HASH=${{ steps.agent-source.outputs.hash }}');
+  });
 });

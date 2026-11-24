@@ -6,7 +6,7 @@ import { isAgentUpdateFailureCode, zAgentRouteErrorBodyFromAnyAgent, type TlsFai
 import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failure-copy';
 import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
-import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
+import { resolveAgentImageDigest, type AgentImageRelease } from '@/lib/hosts/agent-image-digest';
 import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
 import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agent-identity';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
@@ -532,16 +532,14 @@ export async function handleUpdateAgent(
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {
   checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
-  resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+  resolveAgentImageRelease?: (imageRef: string) => Promise<AgentImageRelease | null>;
 }
 
-function agentOutOfDateFor(outcome: HealthCheckOutcome, expected: string | null): boolean {
-  return !!(
-    outcome.healthy &&
-    outcome.agentImageDigest &&
-    expected &&
-    outcome.agentImageDigest !== expected
-  );
+// CI republishes the agent on every merge, so a digest alone flags rebuilds of unchanged source. The digest is the fallback for unstamped images.
+function agentOutOfDateFor(outcome: HealthCheckOutcome, expected: AgentImageRelease | null): boolean {
+  if (!outcome.healthy || !expected) return false;
+  if (expected.sourceHash && outcome.agentSourceHash) return outcome.agentSourceHash !== expected.sourceHash;
+  return !!outcome.agentImageDigest && outcome.agentImageDigest !== expected.digest;
 }
 
 /**
@@ -560,9 +558,9 @@ export async function handleSweepAgentInventory(
   const hosts = await deps.repo.findAll();
   // Absent resolver means no comparison this sweep: every host stays unflagged instead of guessing.
   // Resolved concurrently with the probes so a slow registry call cannot delay host health updates.
-  const [expectedAgentDigest, probeOutcomes] = await Promise.all([
-    deps.resolveAgentImageDigest
-      ? deps.resolveAgentImageDigest(getAgentImage()).catch(() => null)
+  const [expectedAgentRelease, probeOutcomes] = await Promise.all([
+    deps.resolveAgentImageRelease
+      ? deps.resolveAgentImageRelease(getAgentImage()).catch(() => null)
       : Promise.resolve(null),
     Promise.all(
       hosts.map(async (host): Promise<HealthCheckOutcome | undefined> => {
@@ -588,7 +586,7 @@ export async function handleSweepAgentInventory(
         // checkedAt answers "when did the sweep last look at this agent", not "when did its status last change".
         await deps.repo.updateLastSweptAt(host.id, now);
         await deps.repo.updateHealth(host.id, probeVerdict(host, outcome), host.agentUrl);
-        const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentDigest);
+        const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentRelease);
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
           await deps.repo.updateAgentInfo(host.id, {
             version: outcome.version,

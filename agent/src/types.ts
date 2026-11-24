@@ -13,6 +13,9 @@ export const AGENT_IDENTITY_HEADER = 'X-Homelab-Agent';
 /** The header's value: the agent wire protocol this agent speaks. Changes only on a breaking wire change, never with the release version, since unauthenticated responses carry it. */
 export const AGENT_PROTOCOL_VERSION = 1;
 
+/** Image label CI stamps with the hash of the agent's build inputs, read from the registry to tell a rebuild from a change. */
+export const AGENT_SOURCE_HASH_LABEL = 'io.github.jaredglaser.homelab-manager.agent-source';
+
 /** Successful or failed result from /stacks/deploy, /stacks/teardown, /stacks/restart. */
 export const zAgentStackResponse = z.object({
   status: z.enum(['success', 'failed']),
@@ -194,6 +197,8 @@ export interface AgentInfoResponse {
   agentImageTag?: string | null;
   // Absent on agents predating digest reporting. Null covers ZFS-only hosts and "could not tell".
   agentImageDigest?: string | null;
+  // Absent on agents predating source stamping. Null on an image built without AGENT_SOURCE_HASH (local builds).
+  agentSourceHash?: string | null;
   capabilities: {
     docker: AgentDockerCapability;
     zfs: AgentZfsCapability;
