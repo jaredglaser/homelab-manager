@@ -124,11 +124,26 @@ describe('connections from a unit test', () => {
 
   test('empty and null options do not hide the host', async () => {
     await expectBlocked('node:http request', () => http.request({ hostname: '', host: IP }), INJECT_CLIENT, IP);
+    await expectBlocked('node:http request', () => http.request({ hostname: IP, host: 'localhost' }), INJECT_CLIENT, IP);
     await expectBlocked('node:http request', () => http.request({ socketPath: null, host: IP } as unknown as http.RequestOptions), INJECT_CLIENT, IP);
     await expectBlocked('node:net connect', () => net.connect({ host: IP, port: 9, path: null } as unknown as net.NetConnectOpts), INJECT_CLIENT, IP);
     const socket = { data: () => undefined };
     await expectBlocked('Bun.connect', () => Bun.connect({ host: IP, port: 9, socket } as unknown as Parameters<typeof Bun.connect>[0]), INJECT_CLIENT, IP);
     await expectBlocked('Bun.connect', () => Bun.connect({ hostname: IP, port: 9, unix: '', socket } as unknown as Parameters<typeof Bun.connect>[0]), INJECT_CLIENT, IP);
+  });
+
+  test('a stack that is not a string still records the call', async () => {
+    const original = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+    Error.prepareStackTrace = (_error, callSites) => callSites;
+    try {
+      const { error } = await blockedError(() => dns.lookup(HOST, () => undefined));
+      expect(error.name).toBe('NetworkGuardError');
+    } finally {
+      // Bun keeps formatting stacks as CallSite arrays if the native formatter is put straight back.
+      Reflect.set(Error, 'prepareStackTrace', undefined);
+      if (original) Object.defineProperty(Error, 'prepareStackTrace', original);
+    }
+    expect(drainBlockedNetworkCalls()).toHaveLength(1);
   });
 
   test('an IPv6 zone ID does not hide the host', async () => {
@@ -176,7 +191,7 @@ describe('loopback and unix sockets', () => {
     },
   );
 
-  test.each(['127.0.0.1.guard.invalid', 'localhost.guard.invalid', '192.0.2.1', '128.0.0.1', '::2', 'fe80::1%eth0', 'guard-probe.invalid'])(
+  test.each(['127.0.0.1.guard.invalid', 'localhost.guard.invalid', '192.0.2.1', '128.0.0.1', '::2', 'fe80::1%eth0', 'guard-probe.invalid', 'localhost%x.invalid', '127.0.0.1%x.invalid'])(
     '%s does not count as loopback',
     (host) => {
       expect(isLoopbackHost(host)).toBe(false);
@@ -201,6 +216,19 @@ describe('loopback and unix sockets', () => {
     const body = await new Promise<string>((resolve, reject) => {
       http
         .get({ socketPath, path: '/' }, (res) => {
+          let data = '';
+          res.on('data', (chunk: Buffer) => (data += chunk.toString()));
+          res.on('end', () => resolve(data));
+        })
+        .on('error', reject);
+    });
+    expect(body).toBe('loopback');
+  });
+
+  test('node:http uses hostname over host', async () => {
+    const body = await new Promise<string>((resolve, reject) => {
+      http
+        .get({ hostname: '127.0.0.1', host: HOST, port: server.port, path: '/' }, (res) => {
           let data = '';
           res.on('data', (chunk: Buffer) => (data += chunk.toString()));
           res.on('end', () => resolve(data));

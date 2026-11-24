@@ -21,7 +21,9 @@ export function drainBlockedNetworkCalls(): string[] {
 const ALLOWED = 'Only localhost, 127.0.0.0/8, 0.0.0.0, ::1, :: and unix sockets are allowed.';
 
 export function isLoopbackHost(host: string): boolean {
-  const bare = host.toLowerCase().replace(/^\[(.*)\]$/, '$1').replace(/%.*$/, '').replace(/\.$/, '');
+  const unbracketed = host.toLowerCase().replace(/^\[(.*)\]$/, '$1').replace(/\.$/, '');
+  const unzoned = unbracketed.replace(/%.*$/, '');
+  const bare = net.isIPv6(unzoned) ? unzoned : unbracketed;
   if (bare === '' || bare === 'localhost') return true;
   if (net.isIPv4(bare)) return bare.startsWith('127.') || bare === '0.0.0.0';
   if (!net.isIPv6(bare)) return false;
@@ -34,7 +36,8 @@ function remote(...hosts: unknown[]): string | undefined {
 }
 
 function callSite(): string {
-  const frames = (new Error().stack ?? '').split('\n').slice(1);
+  const stack: unknown = new Error().stack;
+  const frames = (typeof stack === 'string' ? stack : '').split('\n').slice(1);
   return frames.filter((frame) => !frame.includes('network-guard.ts') && !frame.includes('at unknown')).join('\n');
 }
 
@@ -111,7 +114,7 @@ const requestHost: BlockedHost = (args) => {
     else options ??= objectArg(arg);
   }
   if (options?.socketPath) return undefined;
-  return remote(options?.hostname, options?.host, url?.hostname);
+  return remote(options?.hostname || options?.host || url?.hostname);
 };
 
 const bunConnectHost: BlockedHost = ([options]) => {
@@ -188,13 +191,13 @@ for (const [spec, module] of [
   void mock.module(spec, () => ({ ...module, default: module }));
 }
 
-function failOnBlockedCalls(since: string): void {
+function failOnBlockedCalls(when: string): void {
   const calls = drainBlockedNetworkCalls();
   if (calls.length === 0) return;
   throw new NetworkGuardError(
-    `${calls.length} blocked network call(s) since ${since}, even if the code under test caught the error:\n${calls.join('\n\n')}`,
+    `${calls.length} blocked network call(s) ${when}, even if the code under test caught the error:\n${calls.join('\n\n')}`,
   );
 }
 
-afterEach(() => failOnBlockedCalls('the previous test ended'));
-afterAll(() => failOnBlockedCalls('the last test ended'));
+afterEach(() => failOnBlockedCalls('since the previous check'));
+afterAll(() => failOnBlockedCalls('after the last check'));
