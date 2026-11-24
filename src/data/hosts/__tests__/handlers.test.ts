@@ -776,12 +776,14 @@ describe('handleUpdateAgent', () => {
     }
   });
 
-  it('reports success without polling when no update is available', async () => {
+  it('reports already current without polling when no update is available', async () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
     try {
-      const deps = updateDeps();
+      const repo = mockRepo();
+      const deps = updateDeps(repo);
       const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(true);
+      expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'already_current' });
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith('http://192.168.1.10:9090/agent/update', expect.objectContaining({ method: 'POST' }));
     } finally {
@@ -799,8 +801,7 @@ describe('handleUpdateAgent', () => {
         return Promise.resolve({ healthy: true as const, version: polls === 1 ? '1.0.0' : '2.0.0' });
       }));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(true);
-      if (result.healthy) expect(result.version).toBe('2.0.0');
+      expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'updated', version: '2.0.0' });
       expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0', imageDigest: TEST_DIGEST, outOfDate: false });
     } finally {
@@ -898,21 +899,23 @@ describe('handleUpdateAgent', () => {
         );
       }));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(true);
-      if (result.healthy) expect(result.version).toBe('9.9.9');
+      expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'updated', version: '9.9.9' });
     } finally {
       timers.restore();
       restore();
     }
   });
 
-  it('reports success when the version is unchanged after the trigger', async () => {
+  it('refuses to claim success when the version is unchanged and the agent reports no image', async () => {
     const timers = mockSetTimeout({ fireImmediately: true });
+    const repo = mockRepo();
     const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
     try {
-      const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })));
+      const deps = updateDeps(repo, mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(true);
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('image_unconfirmed');
+      expect(repo.updateAgentInfo).not.toHaveBeenCalled();
     } finally {
       timers.restore();
       restore();
@@ -947,7 +950,7 @@ describe('handleUpdateAgent', () => {
         Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: TEST_DIGEST }),
       ));
       const result = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(result.healthy).toBe(true);
+      expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'updated' });
       expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
     } finally {

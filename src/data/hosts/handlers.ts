@@ -43,7 +43,10 @@ export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode
   | { hostId: number; healthy: false; code: Code; message: string };
 
 export type HealthCheckResult = HostOperationResult;
-export type UpdateAgentResult = HostOperationResult<UpdateFailureCode>;
+export type UpdateAgentResult =
+  | { hostId: number; healthy: true; outcome: 'updated'; version?: string }
+  | { hostId: number; healthy: true; outcome: 'already_current' }
+  | { hostId: number; healthy: false; code: UpdateFailureCode; message: string };
 
 function readUpdateRefusal(response: Response, body: string): { code: UpdateFailureCode; message: string } {
   let parsed: unknown;
@@ -432,8 +435,8 @@ export async function handleUpdateAgent(
   }
 
   if (triggerResponse.status === 200) {
-    // The agent checked its own image and found nothing newer.
-    return { hostId: host.id, healthy: true };
+    await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
+    return { hostId: host.id, healthy: true, outcome: 'already_current' };
   }
 
   if (triggerResponse.status !== 202) {
@@ -489,9 +492,14 @@ export async function handleUpdateAgent(
         }
         await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
         await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
-        return { hostId: host.id, healthy: true };
+        return { hostId: host.id, healthy: true, outcome: 'updated' };
       }
-      return { hostId: host.id, healthy: true };
+      return {
+        hostId: host.id,
+        healthy: false,
+        code: 'image_unconfirmed',
+        message: 'The agent reports the same version as before and does not report its image, so the update could not be confirmed',
+      };
     }
     if (lastResult.healthy && preInfoUnsupported && !sawRestart) {
       return {
@@ -519,7 +527,7 @@ export async function handleUpdateAgent(
 
   await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
   await deps.repo.updateAgentInfo(host.id, { version: newVersion, imageDigest: digest, outOfDate: false });
-  return { hostId: host.id, healthy: true, version: newVersion };
+  return { hostId: host.id, healthy: true, outcome: 'updated', version: newVersion };
 }
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {

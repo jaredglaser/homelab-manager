@@ -59,7 +59,7 @@ function makeProps(overrides?: Partial<import('@/components/agents/AgentsOvervie
 
 let inventoryResponse: AgentInventoryEntry[] = []
 type OpResult = import('@/data/hosts/handlers').UpdateAgentResult
-let updateResult: Promise<OpResult> = Promise.resolve({ hostId: 1, healthy: true })
+let updateResult: Promise<OpResult> = Promise.resolve({ hostId: 1, healthy: true, outcome: 'updated' })
 let offContractResult: Promise<unknown> | null = null
 let updateCalls: Array<{ data: { hostId: number } }> = []
 const listAgentsInventory = (): Promise<AgentInventoryEntry[]> => Promise.resolve(inventoryResponse)
@@ -350,7 +350,7 @@ describe('AgentsOverview (connected)', () => {
 
   beforeEach(() => {
     inventoryResponse = [makeAgent(), makeAgent({ id: 2, name: 'media-server' })]
-    updateResult = Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' })
+    updateResult = Promise.resolve({ hostId: 1, healthy: true, outcome: 'updated', version: '0.3.0' })
     offContractResult = null
     updateCalls = []
     mockShowToast.mockClear()
@@ -554,13 +554,32 @@ describe('AgentsOverview (connected)', () => {
     expect(screen.queryAllByText(/the guard rejected a second update/)).toHaveLength(0)
   })
 
-  it('pins the success copy when the update reports health without a version', async () => {
-    updateResult = Promise.resolve({ hostId: 1, healthy: true })
+  it('pins the success copy when the update is confirmed by image digest without a new version', async () => {
+    updateResult = Promise.resolve({ hostId: 1, healthy: true, outcome: 'updated' })
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update homeserver'))
-    await waitFor(() => expect(screen.getByText('Update succeeded, agent is healthy')).toBeDefined())
+    await waitFor(() => expect(screen.getByText('Update confirmed, agent restarted on the new image')).toBeDefined())
     expect(mockShowToast).not.toHaveBeenCalled()
+  })
+
+  it('says nothing was changed when the agent already runs the latest image', async () => {
+    updateResult = Promise.resolve({ hostId: 1, healthy: true, outcome: 'already_current' })
+    renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    await waitFor(() => expect(screen.getByText('Already up to date. The agent runs the latest image, so nothing was changed.')).toBeDefined())
+    expect(screen.queryByText(/Update (succeeded|confirmed)/)).toBeNull()
+    expect(mockShowToast).not.toHaveBeenCalled()
+  })
+
+  it('treats a healthy result without an outcome as off contract', async () => {
+    offContractResult = Promise.resolve({ hostId: 1, healthy: true })
+    renderConnected()
+    await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
+    expect(screen.queryByText(/Update (succeeded|confirmed)/)).toBeNull()
   })
 
   it('blocks updates for an operator, and a click sends nothing', async () => {
