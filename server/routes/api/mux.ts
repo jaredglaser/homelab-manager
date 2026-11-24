@@ -103,6 +103,8 @@ async function settingsAdapter(topic: string, emit: EmitFrame, signal: AbortSign
   const { settingsBroadcastService } = await import(
     '../../../src/lib/settings/settings-broadcast-service'
   );
+  // An abort fired during the imports never reaches a listener added after it, so the subscription would never end.
+  if (signal.aborted) return;
   const unsubscribe = settingsBroadcastService.subscribe((message) => {
     emit({ topic, kind: 'data', payload: message });
   });
@@ -114,6 +116,7 @@ async function userSettingsAdapter(topic: string, emit: EmitFrame, signal: Abort
   const { userSettingsBroadcastService } = await import(
     '../../../src/lib/settings/settings-broadcast-service'
   );
+  if (signal.aborted) return;
   const unsubscribe = userSettingsBroadcastService.subscribe((message) => {
     emit({ topic, kind: 'data', payload: message });
   }, user.id);

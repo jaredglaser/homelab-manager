@@ -4,6 +4,8 @@ import type { PoolClient } from 'pg';
 import { mockModule } from '@/lib/test/mock-module';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { AuthUser } from '@/lib/auth/types';
+import { parseUserSettingsNotifyPayload } from '@/lib/database/repositories/settings-repository';
+import { waitForCondition } from '@/lib/test/wait-for-condition';
 
 const mockAuthenticate = mock(async () => ({ id: 'test-user' } as unknown));
 const mockFindByName = mock(async (_: string) => null as null | { name: string; agentUrl: string });
@@ -55,10 +57,7 @@ mockModule<typeof import('@/lib/settings/settings-broadcast-service')>(
     userSettingsBroadcastService: new real.SettingsBroadcastService<number>({
       getPoolClient: () => userSettingsHarness.getPoolClient(),
       channel: 'user_settings_change',
-      parseNotification: (payload) => {
-        const [userId, key] = payload.split(':');
-        return { scope: Number(userId), key };
-      },
+      parseNotification: parseUserSettingsNotifyPayload,
       loadAllSettings: (userId) => Promise.resolve(new Map(userSettingsState.get(userId))),
       loadSingleSetting: (key, userId) => Promise.resolve(userSettingsState.get(userId)?.get(key) ?? null),
     }),
@@ -851,10 +850,6 @@ describe('control topics (settings, stack-status)', () => {
 });
 
 describe('user-settings topic', () => {
-  const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
-  async function until(predicate: () => boolean, maxRounds = 50): Promise<void> {
-    for (let i = 0; i < maxRounds && !predicate(); i++) await settle();
-  }
   let peerCounter = 0;
   const alice: AuthUser = { id: 1, email: 'alice@example.com', name: 'Alice', role: 'viewer' };
   const bob: AuthUser = { id: 2, email: 'bob@example.com', name: 'Bob', role: 'admin' };
@@ -876,7 +871,7 @@ describe('user-settings topic', () => {
     const peer = makePeer(`user-${++peerCounter}`);
     await h.open(peer as unknown as Peer);
     await h.message(peer as unknown as Peer, command('sub', ['user-settings'], 1));
-    await until(() => dataFrames(peer, 'user-settings').length >= 1);
+    await waitForCondition(() => dataFrames(peer, 'user-settings').length >= 1);
     return { peer, h };
   }
 
@@ -900,7 +895,7 @@ describe('user-settings topic', () => {
       channel: 'user_settings_change',
       payload: `${alice.id}:docker/chartWindowSeconds`,
     });
-    await until(() => dataFrames(a1.peer, 'user-settings').length >= 2 && dataFrames(a2.peer, 'user-settings').length >= 2);
+    await waitForCondition(() => dataFrames(a1.peer, 'user-settings').length >= 2 && dataFrames(a2.peer, 'user-settings').length >= 2);
 
     const change = { type: 'change', key: 'docker/chartWindowSeconds', value: '600' };
     expect(dataFrames(a1.peer, 'user-settings')[1].payload).toEqual(change);
@@ -919,6 +914,21 @@ describe('user-settings topic', () => {
     expect(peer.sent.filter((f) => f.type === 'ack')).toEqual([{ type: 'ack', ref: 0, ok: false, error: 'Invalid command' }]);
     expect(userSettingsHarness.clients).toHaveLength(0);
     h.close(peer as unknown as Peer);
+  });
+
+  it.each([
+    ['user-settings', () => userSettingsHarness.clients],
+    ['settings', () => settingsHarness.clients],
+  ] as const)('leaves no %s subscription and sends nothing when unsubscribed before it starts', async (topic, listenerClients) => {
+    settingsHarness.clients.length = 0;
+    const emitted: MuxFrameBody[] = [];
+    const controller = new AbortController();
+    const started = defaultTopicAdapter(topic, (frame) => emitted.push(frame), controller.signal, alice);
+    controller.abort();
+    await started;
+
+    expect(listenerClients()).toHaveLength(0);
+    expect(emitted).toEqual([]);
   });
 });
 

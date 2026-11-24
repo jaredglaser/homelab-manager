@@ -26,29 +26,41 @@ async function openSettings(page: Page) {
   return page.getByRole('switch', { name: 'Use Abbreviated Units' });
 }
 
-test("a viewer's display setting survives a reload and leaves the admin's value alone", async ({ browser }) => {
+test("a viewer's display setting reaches their other tab live, survives a reload and leaves the admin's value alone", async ({
+  browser,
+}) => {
   const admin = await loginInNewContext(browser, BASE, 'admin');
   const viewer = await loginInNewContext(browser, BASE, 'viewer');
-  await clearUserSettings(emailOf('admin'));
-  await clearUserSettings(emailOf('viewer'));
+  try {
+    await clearUserSettings(emailOf('admin'));
+    await clearUserSettings(emailOf('viewer'));
 
-  const viewerSwitch = await openSettings(viewer.page);
-  await expect(viewerSwitch).toHaveAttribute('aria-checked', 'false');
-  await expect(viewerSwitch).not.toHaveAttribute('aria-disabled', 'true');
-  await viewerSwitch.click();
-  await expect(viewerSwitch).toHaveAttribute('aria-checked', 'true');
-  await expect.poll(() => userSettingValue(emailOf('viewer'), KEY)).toBe('true');
-  await expect(viewer.page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
+    const adminSwitch = await openSettings(admin.page);
+    await expect(adminSwitch).toHaveAttribute('aria-checked', 'false');
+    const viewerOtherTab = await viewer.context.newPage();
+    const viewerOtherSwitch = await openSettings(viewerOtherTab);
 
-  const reloaded = userSettingsInit(viewer.page);
-  await viewer.page.reload();
-  await reloaded;
-  await expect(viewerSwitch).toHaveAttribute('aria-checked', 'true');
+    const viewerSwitch = await openSettings(viewer.page);
+    await expect(viewerSwitch).toHaveAttribute('aria-checked', 'false');
+    await expect(viewerSwitch).not.toHaveAttribute('aria-disabled', 'true');
+    await viewerSwitch.click();
+    await expect(viewerSwitch).toHaveAttribute('aria-checked', 'true');
+    await expect.poll(() => userSettingValue(emailOf('viewer'), KEY)).toBe('true');
+    await expect(viewer.page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0);
 
-  const adminSwitch = await openSettings(admin.page);
-  await expect(adminSwitch).toHaveAttribute('aria-checked', 'false');
-  expect(await userSettingValue(emailOf('admin'), KEY)).toBeNull();
+    // The viewer's other tab getting the change proves the broadcast went out before the admin is checked.
+    await expect(viewerOtherSwitch).toHaveAttribute('aria-checked', 'true');
+    await expect(adminSwitch).toHaveAttribute('aria-checked', 'false');
+    expect(await userSettingValue(emailOf('admin'), KEY)).toBeNull();
 
-  await admin.context.close();
-  await viewer.context.close();
+    const reloaded = userSettingsInit(viewer.page);
+    await viewer.page.reload();
+    await reloaded;
+    await expect(viewerSwitch).toHaveAttribute('aria-checked', 'true');
+  } finally {
+    await clearUserSettings(emailOf('admin'));
+    await clearUserSettings(emailOf('viewer'));
+    await admin.context.close();
+    await viewer.context.close();
+  }
 });

@@ -300,4 +300,28 @@ describe('SettingsBroadcastService scoped by user', () => {
     expect(two[1]).toEqual({ type: 'change', key: 'general/use12HourTime', value: 'false' });
     expect(one).toHaveLength(1);
   });
+
+  it('skips the database read for a change to a user with no open client', async () => {
+    const reads: string[] = [];
+    const counting = new SettingsBroadcastService<number>({
+      getPoolClient: () => Promise.resolve(poolClient as unknown as PoolClient),
+      channel: 'user_settings_change',
+      parseNotification: (payload) => ({ scope: Number(payload.split(':')[0]), key: payload.split(':')[1] }),
+      loadAllSettings: (userId) => Promise.resolve(new Map(stored.get(userId))),
+      loadSingleSetting: (key, userId) => {
+        reads.push(`${userId}:${key}`);
+        return Promise.resolve(stored.get(userId)?.get(key) ?? null);
+      },
+    });
+    const one: SettingsWireMessage[] = [];
+    counting.subscribe((m) => one.push(m), 1);
+    await waitForCondition(() => one.length > 0 && poolClient.notificationHandlers.length > 0);
+
+    poolClient.emit('notification', { channel: 'user_settings_change', payload: '2:general/use12HourTime' });
+    poolClient.emit('notification', { channel: 'user_settings_change', payload: '1:general/use12HourTime' });
+    await waitForCondition(() => one.length > 1);
+
+    expect(reads).toEqual(['1:general/use12HourTime']);
+    await counting.stop();
+  });
 });

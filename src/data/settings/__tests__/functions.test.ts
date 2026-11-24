@@ -93,12 +93,12 @@ mockModule<typeof DatabaseMiddleware>('@/middleware/database-middleware', (real)
       client: ({ next, sendContext }: { next: (opts: { sendContext: unknown }) => unknown; sendContext: unknown }) =>
         next({ sendContext: { ...(sendContext as Record<string, unknown>), pool: db.pool } }),
     },
-  } as never,
+  },
 }));
 
 mockModule<typeof DatabaseClient>('@/lib/clients/database-client', (real) => ({
   ...real,
-  databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => db.pool }) } as never,
+  databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => db.pool }) },
 }));
 mockModule<typeof DatabaseConfig>('@/lib/config/database-config', (real) => ({
   ...real,
@@ -106,7 +106,7 @@ mockModule<typeof DatabaseConfig>('@/lib/config/database-config', (real) => ({
 }));
 
 const { updateSetting, updateUserSetting } = await import('@/data/settings/functions');
-const { SettingsBroadcastService } = await import('@/lib/settings/settings-broadcast-service');
+const { SettingsBroadcastService, userSettingsBroadcastService } = await import('@/lib/settings/settings-broadcast-service');
 const { USER_SETTINGS_CHANNEL, UserSettingsRepository, parseUserSettingsNotifyPayload } = await import(
   '@/lib/database/repositories/settings-repository'
 );
@@ -191,7 +191,29 @@ describe('updateUserSetting', () => {
     for (const client of [viewerTab, viewerPhone, admin]) client.close();
   });
 
-  // A direct call skips the validator (schemas.test.ts pins that it rejects these bodies), so this proves the handler ignores them.
+  it('the exported user broadcast service loads and pushes only the subscribed user\'s values from the database', async () => {
+    await save(VIEWER, 'docker/decimals/cpu', 'true');
+    await save(ADMIN, 'docker/decimals/cpu', 'false');
+    const viewerFrames: SettingsWireMessage[] = [];
+    const adminFrames: SettingsWireMessage[] = [];
+    const stopViewer = userSettingsBroadcastService.subscribe((m) => viewerFrames.push(m), VIEWER.id);
+    const stopAdmin = userSettingsBroadcastService.subscribe((m) => adminFrames.push(m), ADMIN.id);
+    try {
+      await waitForCondition(() => viewerFrames.length > 0 && adminFrames.length > 0 && db.listeners.size === 1);
+      expect(viewerFrames[0]).toEqual({ type: 'init', settings: { 'docker/decimals/cpu': 'true' } });
+
+      await save(VIEWER, 'docker/decimals/cpu', 'false');
+      await waitForCondition(() => viewerFrames.length > 1);
+      expect(viewerFrames[1]).toEqual({ type: 'change', key: 'docker/decimals/cpu', value: 'false' });
+      expect(adminFrames).toEqual([{ type: 'init', settings: { 'docker/decimals/cpu': 'false' } }]);
+    } finally {
+      stopViewer();
+      stopAdmin();
+      await userSettingsBroadcastService.stop();
+    }
+  });
+
+  // A direct call skips the validator, so this reaches the handler with the extra field.
   it.each([
     ['userId', ADMIN.id],
     ['user_id', ADMIN.id],

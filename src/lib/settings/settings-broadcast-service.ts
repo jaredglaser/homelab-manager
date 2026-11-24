@@ -179,6 +179,13 @@ export class SettingsBroadcastService<Scope = void> {
     }
   }
 
+  private hasSubscriberFor(scope: Scope): boolean {
+    for (const subscribedScope of this.subscribers.values()) {
+      if (subscribedScope === scope) return true;
+    }
+    return false;
+  }
+
   private deliver(scope: Scope, message: SettingsWireMessage, phase: 'change' | 'resync'): void {
     for (const [cb, subscribedScope] of this.subscribers) {
       if (subscribedScope !== scope) continue;
@@ -218,7 +225,7 @@ export class SettingsBroadcastService<Scope = void> {
 
   private async handleChange(payload: string): Promise<void> {
     const target = this.parseNotification(payload);
-    if (target === null) return;
+    if (target === null || !this.hasSubscriberFor(target.scope)) return;
     try {
       const value = await this.loadSingleSetting(target.key, target.scope);
 

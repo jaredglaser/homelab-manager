@@ -12,7 +12,7 @@ import type * as Sonner from 'sonner';
 
 const mockUpdateSetting = mock(() => Promise.resolve());
 const mockUpdateUserSetting = mock(() => Promise.resolve());
-const mockToastError = mock((_message: string) => undefined);
+const mockToastError = mock(() => 0);
 
 mockModule<typeof Router>('@tanstack/react-router', (real) => ({
   ...real,
