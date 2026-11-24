@@ -4,7 +4,9 @@ import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
 import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy'
-import { hostFailureDetail, hostFailureMessage } from '@/lib/errors/host-failure-copy'
+import { isAgentUpdateFailureCode } from '@homelab-manager/agent/types'
+import { hostFailureDetail, hostFailureMessage, isHostFailureCode } from '@/lib/errors/host-failure-copy'
+import { serverFnErrorMessage } from '@/lib/errors/server-fn-error-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
 import { useToast } from '@/hooks/toastAtom'
@@ -229,6 +231,12 @@ export function AgentsOverviewView({
   )
 }
 
+function isUpdateResult(value: unknown): value is Awaited<ReturnType<typeof updateAgent>> {
+  if (typeof value !== 'object' || value === null || !('healthy' in value)) return false
+  if (value.healthy === true) return true
+  return value.healthy === false && 'code' in value && (isAgentUpdateFailureCode(value.code) || isHostFailureCode(value.code))
+}
+
 function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): AgentRowFeedback {
   if (result.healthy && result.version) {
     return { severity: 'success', message: `Update confirmed, agent now on v${result.version}` }
@@ -241,6 +249,8 @@ function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): 
     message: updateFailureMessage(result.code, result.message),
   }
 }
+
+const UPDATE_CALL_FAILED_MESSAGE = "Couldn't start the update. Reload the page and try again."
 
 export default function AgentsOverview() {
   const queryClient = useQueryClient()
@@ -265,7 +275,12 @@ export default function AgentsOverview() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (hostId: number) => updateAgent({ data: { hostId } }),
+    mutationFn: async (hostId: number) => {
+      const result = await updateAgent({ data: { hostId } })
+      // The fetcher resolves a non-Start response (a proxy or login page) as the result instead of rejecting.
+      if (!isUpdateResult(result)) throw new Error('The update call answered with something other than an update result', { cause: result })
+      return result
+    },
     onMutate: (hostId) => {
       setBusyByHost((prev) => ({ ...prev, [hostId]: 'update' }))
       setFeedbackByHost((prev) => {
@@ -284,7 +299,7 @@ export default function AgentsOverview() {
     },
     onError: (err: unknown, hostId) => {
       setBusyByHost(({ [hostId]: _done, ...rest }) => rest)
-      const message = err instanceof Error ? err.message : 'Update failed'
+      const message = serverFnErrorMessage(err, UPDATE_CALL_FAILED_MESSAGE)
       setFeedbackByHost((prev) => ({ ...prev, [hostId]: { severity: 'error', message } }))
       showToast(message, 'error')
     },

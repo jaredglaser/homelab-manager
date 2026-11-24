@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { describe, it, expect, mock, spyOn, beforeEach } from 'bun:test'
 import { seedSession } from '@/lib/test/session'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
@@ -756,6 +757,74 @@ describe('ManagedHostsCard host actions', () => {
         expect(onUpdate).toHaveBeenCalledTimes(1)
       })
 
+      function PendingFlagCard({ onUpdate, hostList = [makeHost()] }: Readonly<{ onUpdate: ManagedHostsCardProps['onUpdate']; hostList?: HostListItem[] }>) {
+        const [isUpdating, setIsUpdating] = useState(false)
+        const trackedUpdate: ManagedHostsCardProps['onUpdate'] = async (hostId, name, agentUrl) => {
+          setIsUpdating(true)
+          try {
+            return await onUpdate(hostId, name, agentUrl)
+          } finally {
+            setIsUpdating(false)
+          }
+        }
+        return <ManagedHostsCardView {...makeProps({ hosts: hostList, onUpdate: trackedUpdate, isUpdating })} />
+      }
+
+      it('ignores Escape and a backdrop click while the save is pending, then closes once it succeeds', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<PendingFlagCard onUpdate={onUpdate} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').disabled).toBe(true)
+
+        await user.keyboard('{Escape}')
+        const backdrops = document.querySelectorAll('[data-slot="dialog-backdrop"]')
+        expect(backdrops).toHaveLength(1)
+        await user.click(backdrops[0])
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+
+        await finish(true)
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+      })
+
+      it('lets Escape close the dialog again once a failed save clears the pending flag', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<PendingFlagCard onUpdate={onUpdate} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await user.keyboard('{Escape}')
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+
+        await finish(false)
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').disabled).toBe(false)
+        await user.keyboard('{Escape}')
+        await dialogGone()
+
+        onUpdate.mockImplementation(() => Promise.resolve(true))
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(2)
+      })
+
+      it('closes on success even while the pending flag is still set for that render', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        const view = render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        await user.click(screen.getByLabelText('edit host'))
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+        view.rerender(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate, isUpdating: true })} />)
+        await user.keyboard('{Escape}')
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+
+        await finish(true)
+
+        await dialogGone()
+      })
+
       it('calls onUpdate once when Save is double-clicked before the update settles', async () => {
         const user = setupUser()
         const { onUpdate, finish } = pendingUpdate()
@@ -788,7 +857,7 @@ describe('ManagedHostsCard host actions', () => {
       it('leaves the dialog of another host open when the first host\'s save finishes after the switch', async () => {
         const user = setupUser()
         const { onUpdate, finish } = pendingUpdate()
-        render(<ManagedHostsCardView {...makeProps({ hosts, onUpdate })} />)
+        render(<ManagedHostsCardView {...makeProps({ hosts, onUpdate, isUpdating: false })} />)
         await user.click(screen.getAllByLabelText('edit host')[0])
         await user.click(screen.getByRole('button', { name: 'Save' }))
         await user.keyboard('{Escape}')
@@ -803,7 +872,7 @@ describe('ManagedHostsCard host actions', () => {
       it('does not reopen or break anything when a save fails after the dialog was dismissed', async () => {
         const user = setupUser()
         const { onUpdate, finish } = pendingUpdate()
-        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+        render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate, isUpdating: false })} />)
         await user.click(screen.getByLabelText('edit host'))
         await user.click(screen.getByRole('button', { name: 'Save' }))
         await user.keyboard('{Escape}')
@@ -815,6 +884,26 @@ describe('ManagedHostsCard host actions', () => {
         await user.click(screen.getByRole('button', { name: 'Save' }))
         await dialogGone()
         expect(onUpdate).toHaveBeenCalledTimes(2)
+      })
+
+      it('offers no way out of the dialog mid-save, so no other host\'s dialog can be reached', async () => {
+        const user = setupUser()
+        const { onUpdate, finish } = pendingUpdate()
+        render(<PendingFlagCard onUpdate={onUpdate} hostList={hosts} />)
+        await user.click(screen.getAllByLabelText('edit host')[0])
+        await user.click(screen.getByRole('button', { name: 'Save' }))
+
+        await user.keyboard('{Escape}')
+        await user.click(document.querySelectorAll('[data-slot="dialog-backdrop"]')[0])
+        const cancel = screen.getByRole('button', { name: 'Cancel' })
+        expect(cancel.hasAttribute('disabled')).toBe(true)
+        await user.click(cancel)
+
+        expect(screen.getAllByRole('dialog')).toHaveLength(1)
+        expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server1')
+        await finish(true)
+        await dialogGone()
+        expect(onUpdate).toHaveBeenCalledTimes(1)
       })
 
       it('treats a rejected onUpdate as a failed save: the dialog stays open and a retry calls onUpdate again', async () => {

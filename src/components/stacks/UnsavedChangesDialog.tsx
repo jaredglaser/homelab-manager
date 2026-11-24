@@ -37,7 +37,7 @@ export default function UnsavedChangesDialog({
   cancelLabel = 'Keep editing',
 }: Readonly<UnsavedChangesDialogProps>) {
   return (
-    <AlertDialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onCancel(); }}>
+    <AlertDialog open={open} busy={false} onOpenChange={(isOpen) => { if (!isOpen) onCancel(); }}>
       <AlertDialogContent>
         <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>

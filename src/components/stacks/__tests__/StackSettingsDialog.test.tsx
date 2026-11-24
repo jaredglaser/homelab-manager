@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
+import { setupUser } from '@/lib/test/user-event';
 import StackSettingsDialog from '../StackSettingsDialog';
 import type { StackSettingsDialogProps } from '../StackSettingsDialog';
 
@@ -109,5 +110,17 @@ describe('StackSettingsDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSave).toHaveBeenCalledWith('server2', true);
+  });
+
+  it('stays open on Escape while the save is in flight', async () => {
+    const user = setupUser();
+    const onClose = mock(() => undefined);
+    render(<StackSettingsDialog {...defaultProps} isLoading={true} onClose={onClose} />);
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(0);
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.queryAllByRole('button', { name: 'Save' })).toHaveLength(0);
+    expect(within(screen.getByRole('dialog')).getAllByRole('button').every((button) => button.hasAttribute('disabled'))).toBe(true);
   });
 });
