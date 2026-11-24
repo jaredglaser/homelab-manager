@@ -47,8 +47,7 @@ interface HandlerContext {
   pool: never;
 }
 
-// Under Happy-DOM, and without the Start compiler, createServerFn has no server path, so this runs the chain updateUserSetting declares
-// (pinned by server-fn-roles.test.ts) through TanStack's server-side middleware runner.
+// Under Happy-DOM without the Start compiler createServerFn has no server path, so this copies updateUserSetting's chain.
 const handler = {
   options: {
     validator: updateUserSettingSchema,
