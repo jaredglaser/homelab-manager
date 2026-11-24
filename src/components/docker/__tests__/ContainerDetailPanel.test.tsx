@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { findOpenTooltip, seedSession } from '@/lib/test/session';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
 import { setupUser } from '@/lib/test/user-event';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
@@ -22,7 +22,8 @@ mock.module('@/components/docker/ContainerLogViewer', () => ({
 }));
 
 mock.module('@/components/docker/ContainerModal', () => ({
-  default: () => null,
+  default: ({ open, initialTab }: { open: boolean; initialTab: string }) =>
+    open ? <div data-testid="container-modal">{initialTab}</div> : null,
 }));
 
 mock.module('@/components/docker/ContainerActionButtons', () => ({
@@ -103,6 +104,28 @@ describe('ContainerDetailPanel', () => {
     await user.hover(icon);
     expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('disables Terminal for a viewer with the role reason, and a click opens no terminal', async () => {
+    seedSession('viewer');
+    renderPanel();
+    const user = setupUser();
+    const terminal = screen.getByRole('button', { name: 'Terminal' });
+    expect(terminal.getAttribute('aria-disabled')).toBe('true');
+    expect(roleReasonOf(terminal)).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(terminal);
+    await user.hover(terminal);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(screen.queryByTestId('container-modal')).toBeNull();
+  });
+
+  it.each(['admin', 'operator'] as const)('opens the terminal for an %s', async (role) => {
+    seedSession(role);
+    renderPanel();
+    const terminal = screen.getByRole('button', { name: 'Terminal' });
+    expect(terminal.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(terminal);
+    expect((await screen.findByTestId('container-modal')).textContent).toBe('terminal');
   });
 
   it.each(['admin', 'operator'] as const)('opens the icon picker for an %s', async (role) => {

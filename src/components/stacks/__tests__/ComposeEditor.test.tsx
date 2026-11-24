@@ -1,4 +1,7 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FormProvider, useForm } from 'react-hook-form';
@@ -81,6 +84,10 @@ async function renderComposeEditor(props?: Partial<{ stackName: string; content:
   await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
   return result;
 }
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('parseVariables (compose variable detection)', () => {
   it('detects simple variable references', () => {
@@ -178,6 +185,34 @@ describe('ComposeEditor component', () => {
 
     act(() => { mockEditorOnChange?.('image: redis'); });
     await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeDefined());
+  });
+
+  it('shows a viewer Save & Commit disabled with the role reason on a dirty draft, and a click saves nothing', async () => {
+    seedSession('viewer');
+    mockSaveCompose.mockClear();
+    const { act } = await import('@testing-library/react');
+    await renderComposeEditor({ content: 'image: nginx' });
+    act(() => { mockEditorOnChange?.('image: redis'); });
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeDefined());
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
+    expect(saveButton.getAttribute('aria-disabled')).toBe('true');
+    expect(roleReasonOf(saveButton)).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(saveButton);
+    await setupUser().hover(saveButton);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(mockSaveCompose).not.toHaveBeenCalled();
+  });
+
+  it('lets an operator save a dirty draft', async () => {
+    seedSession('operator');
+    mockSaveCompose.mockClear();
+    const { act } = await import('@testing-library/react');
+    await renderComposeEditor({ content: 'image: nginx' });
+    act(() => { mockEditorOnChange?.('image: redis'); });
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
+    await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(mockSaveCompose).toHaveBeenCalledTimes(1));
   });
 
   it('enables save button when content is dirty', async () => {

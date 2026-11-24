@@ -1,8 +1,9 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { mockModule } from '@/lib/test/mock-module'
-import type * as UseAuth from '@/hooks/useAuth'
+import { OPERATOR_DENIED_COPY, VIEWER_DENIED_COPY } from '@/hooks/useAuth'
+import { findOpenTooltip, seedSession } from '@/lib/test/session'
+import { setupUser } from '@/lib/test/user-event'
 import type { AgentInventoryEntry, AgentInventoryFailure } from '@/lib/hosts/agent-inventory'
 import { AGENT_INVENTORY_STATUSES, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory'
 import type { ManagedHost } from '@/lib/database/repositories/host-repository'
@@ -48,7 +49,6 @@ function makeProps(overrides?: Partial<import('@/components/agents/AgentsOvervie
     agents: [makeAgent()],
     isLoading: false,
     isError: false,
-    isAdmin: true,
     busyByHost: {},
     feedbackByHost: {},
     onUpdate: mock(noop),
@@ -56,19 +56,6 @@ function makeProps(overrides?: Partial<import('@/components/agents/AgentsOvervie
     ...overrides,
   }
 }
-
-// Register module mocks before any component import: a mock.module call made
-// after the module graph has loaded leaves it wired to the real server fns.
-let authState: { user: { id: number; email: string; name: string | null; role: 'admin' | 'operator' | 'viewer' } | null; loading: boolean; authEnabled: boolean } = {
-  user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' },
-  loading: false,
-  authEnabled: true,
-}
-
-mockModule<typeof UseAuth>('@/hooks/useAuth', (real) => ({
-  ...real,
-  useAuth: () => authState,
-}))
 
 let inventoryResponse: AgentInventoryEntry[] = []
 type OpResult = import('@/data/hosts/handlers').UpdateAgentResult
@@ -99,6 +86,10 @@ mock.module('@/data/hosts/functions', () => ({
   listAgentsInventory: () => listAgentsInventory(),
   updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
 }))
+
+beforeEach(() => {
+  seedSession('admin')
+})
 
 describe('AgentsOverviewView', () => {
   it('shows a loading state', async () => {
@@ -284,13 +275,19 @@ describe('AgentsOverviewView', () => {
     expect(onUpdate).toHaveBeenCalledWith(2)
   })
 
-  it('disables update controls for non-admins', async () => {
+  it.each([
+    ['operator', OPERATOR_DENIED_COPY],
+    ['viewer', VIEWER_DENIED_COPY],
+  ] as const)('disables Update for the %s role with its reason, and a click calls nothing', async (role, copy) => {
+    seedSession(role)
     const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     const onUpdate = mock(noop)
-    render(<AgentsOverviewView {...makeProps({ isAdmin: false, onUpdate })} />)
+    render(<AgentsOverviewView {...makeProps({ onUpdate })} />)
+    const user = setupUser()
     const updateButton = screen.getByLabelText('Update homeserver')
-    expect(updateButton.hasAttribute('disabled')).toBe(true)
-    fireEvent.click(updateButton)
+    expect(updateButton.getAttribute('aria-disabled')).toBe('true')
+    await user.click(updateButton)
+    expect(await findOpenTooltip()).toBe(copy)
     expect(onUpdate).not.toHaveBeenCalled()
   })
 
@@ -356,7 +353,6 @@ describe('AgentsOverview (connected)', () => {
     updateResult = Promise.resolve({ hostId: 1, healthy: true, version: '0.3.0' })
     offContractResult = null
     updateCalls = []
-    authState = { user: { id: 1, email: 'a@b.c', name: 'Admin', role: 'admin' }, loading: false, authEnabled: true }
     mockShowToast.mockClear()
   })
 
@@ -567,11 +563,15 @@ describe('AgentsOverview (connected)', () => {
     expect(mockShowToast).not.toHaveBeenCalled()
   })
 
-  it('blocks updates for non-admins', async () => {
-    authState = { user: { id: 2, email: 'a@b.c', name: 'Viewer', role: 'viewer' }, loading: false, authEnabled: true }
+  it('blocks updates for an operator, and a click sends nothing', async () => {
+    seedSession('operator')
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+    const user = setupUser()
     const updateButton = screen.getByLabelText('Update homeserver')
-    expect(updateButton.hasAttribute('disabled')).toBe(true)
+    expect(updateButton.getAttribute('aria-disabled')).toBe('true')
+    await user.click(updateButton)
+    expect(await findOpenTooltip()).toBe(OPERATOR_DENIED_COPY)
+    expect(updateCalls).toEqual([])
   })
 })

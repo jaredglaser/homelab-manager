@@ -223,6 +223,7 @@ export default function AddHostWizard({
           </Button>
           {currentStepName !== 'Verify Connection' && (
             <Button
+              requires="admin"
               size="sm"
               onClick={handleNext}
               disabled={

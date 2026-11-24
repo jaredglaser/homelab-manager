@@ -107,6 +107,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
       <div className="flex items-center gap-2">
         <span className="text-xs opacity-50 mr-1">Stack</span>
         <Button
+          requires="write"
           size="sm"
           variant="outline"
           disabled={controlMutation.isPending || isDeploying || containers.length === 0}
@@ -117,6 +118,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           Start
         </Button>
         <Button
+          requires="write"
           size="sm"
           variant="outline"
           disabled={controlMutation.isPending || isDeploying || containers.length === 0}
@@ -127,6 +129,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           Stop
         </Button>
         <Button
+          requires="write"
           size="sm"
           variant="outline"
           disabled={controlMutation.isPending || isDeploying || containers.length === 0}
@@ -137,6 +140,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
           Restart
         </Button>
         <Button
+          requires="write"
           size="sm"
           variant="outline"
           disabled={controlMutation.isPending || isDeploying}
@@ -386,54 +390,39 @@ function ServiceControls({
   return (
     <TooltipProvider>
       <div className="flex items-center gap-0.5">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled={isPending}
-                onClick={() => trigger('start', { scope: 'service', service })}
-                aria-label={`Start ${service}`}
-              />
-            }
-          >
-            <Play size={13} />
-          </TooltipTrigger>
-          <TooltipContent>Start {service}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled={isPending}
-                onClick={() => trigger('stop', { scope: 'service', service })}
-                aria-label={`Stop ${service}`}
-              />
-            }
-          >
-            <Square size={13} />
-          </TooltipTrigger>
-          <TooltipContent>Stop {service}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled={isPending}
-                onClick={() => trigger('restart', { scope: 'service', service })}
-                aria-label={`Restart ${service}`}
-              />
-            }
-          >
-            <RotateCcw size={13} />
-          </TooltipTrigger>
-          <TooltipContent>Restart {service}</TooltipContent>
-        </Tooltip>
+        <Button
+          requires="write"
+          tooltip={`Start ${service}`}
+          variant="ghost"
+          size="icon-sm"
+          disabled={isPending}
+          onClick={() => trigger('start', { scope: 'service', service })}
+          aria-label={`Start ${service}`}
+        >
+          <Play size={13} />
+        </Button>
+        <Button
+          requires="write"
+          tooltip={`Stop ${service}`}
+          variant="ghost"
+          size="icon-sm"
+          disabled={isPending}
+          onClick={() => trigger('stop', { scope: 'service', service })}
+          aria-label={`Stop ${service}`}
+        >
+          <Square size={13} />
+        </Button>
+        <Button
+          requires="write"
+          tooltip={`Restart ${service}`}
+          variant="ghost"
+          size="icon-sm"
+          disabled={isPending}
+          onClick={() => trigger('restart', { scope: 'service', service })}
+          aria-label={`Restart ${service}`}
+        >
+          <RotateCcw size={13} />
+        </Button>
         <Tooltip>
           <TooltipTrigger
             render={<Button variant="ghost" size="icon-sm" onClick={onOpenLogs} aria-label="Logs" />}
@@ -442,14 +431,9 @@ function ServiceControls({
           </TooltipTrigger>
           <TooltipContent>Logs</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={<Button variant="ghost" size="icon-sm" onClick={onOpenTerminal} aria-label="Terminal" />}
-          >
-            <Terminal size={13} />
-          </TooltipTrigger>
-          <TooltipContent>Terminal</TooltipContent>
-        </Tooltip>
+        <Button requires="write" tooltip="Terminal" variant="ghost" size="icon-sm" onClick={onOpenTerminal} aria-label="Terminal">
+          <Terminal size={13} />
+        </Button>
       </div>
     </TooltipProvider>
   );

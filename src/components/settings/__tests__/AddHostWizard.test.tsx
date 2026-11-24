@@ -1,4 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test'
+import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { seedSession } from '@/lib/test/session'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
@@ -45,6 +46,10 @@ function makeProps(overrides?: Partial<WizardProps>): WizardProps {
 async function enterHostName(user: TestUser, value = 'dev-machine') {
   await user.type(screen.getByLabelText('Host Name'), value)
 }
+
+beforeEach(() => {
+  seedSession('admin')
+})
 
 describe('AddHostWizard', () => {
   describe('initial render', () => {

@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import { RoleGate } from '@/components/ui/role-gate'
 import {
   useDockerSettings,
   useGeneralSettings,
@@ -15,7 +16,7 @@ import {
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 import { AuthManagementCard, GitTokensSection } from '@/components/settings/AuthManagementCard'
-import { useAuth } from '@/hooks/useAuth'
+import { useAuth, useRoleAccess } from '@/hooks/useAuth'
 import {
   CHART_WINDOW_MARKS,
   UPDATE_INTERVAL_MARKS,
@@ -53,6 +54,7 @@ function SettingsContent() {
   const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
   const { zfs, setZfsDecimal } = useZfsSettings();
   const { user } = useAuth();
+  const settingsBlocked = useRoleAccess('write').kind !== 'allowed';
   const hash = useLocation({ select: (l) => l.hash });
 
   useEffect(() => {
@@ -80,10 +82,17 @@ function SettingsContent() {
           <div className="flex flex-col gap-6">
             <div className="flex justify-between items-center">
               <Label>Use 12-hour time format</Label>
-              <Switch
-                checked={general.use12HourTime}
-                onCheckedChange={setUse12HourTime}
-              />
+              <RoleGate requires="write">
+                {(blocked) => (
+                  <Switch
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Use 12-hour time format"
+                    checked={general.use12HourTime}
+                    onCheckedChange={setUse12HourTime}
+                  />
+                )}
+              </RoleGate>
             </div>
 
             <div>
@@ -94,29 +103,48 @@ function SettingsContent() {
               <span className="text-xs text-muted-foreground mb-3 block">
                 Controls how frequently stats are collected and displayed (requires worker restart)
               </span>
-              <Slider
-                value={general.updateIntervalMs}
-                onValueChange={setUpdateInterval}
-                min={100}
-                max={60000}
-                marks={UPDATE_INTERVAL_MARKS}
-                aria-label="Update Interval"
-              />
+              <RoleGate requires="write" wrapper={{ label: 'Update Interval', className: 'block' }}>
+                {(blocked) => (
+                  <Slider
+                    disabled={blocked}
+                    value={general.updateIntervalMs}
+                    onValueChange={setUpdateInterval}
+                    min={100}
+                    max={60000}
+                    marks={UPDATE_INTERVAL_MARKS}
+                    aria-label="Update Interval"
+                  />
+                )}
+              </RoleGate>
             </div>
             <div className="flex justify-between items-center">
               <Label>Show Sparklines</Label>
-              <Switch
-                checked={general.showSparklines}
-                onCheckedChange={setShowSparklines}
-              />
+              <RoleGate requires="write">
+                {(blocked) => (
+                  <Switch
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Show Sparklines"
+                    checked={general.showSparklines}
+                    onCheckedChange={setShowSparklines}
+                  />
+                )}
+              </RoleGate>
             </div>
 
             <div className="flex justify-between items-center">
               <Label>Use Abbreviated Units</Label>
-              <Switch
-                checked={general.useAbbreviatedUnits}
-                onCheckedChange={setUseAbbreviatedUnits}
-              />
+              <RoleGate requires="write">
+                {(blocked) => (
+                  <Switch
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Use Abbreviated Units"
+                    checked={general.useAbbreviatedUnits}
+                    onCheckedChange={setUseAbbreviatedUnits}
+                  />
+                )}
+              </RoleGate>
             </div>
 
             <div className="flex flex-col">
@@ -125,12 +153,17 @@ function SettingsContent() {
                 Background color palette used in light mode
               </span>
               <Select
+                readOnly={settingsBlocked}
                 value={general.lightPalette}
                 onValueChange={(value) => { if (value) setLightPalette(value as LightPalette); }}
               >
-                <SelectTrigger aria-label="Light Mode Palette">
-                  <SelectValue />
-                </SelectTrigger>
+                <RoleGate requires="write">
+                  {(blocked) => (
+                    <SelectTrigger aria-disabled={blocked || undefined} aria-label="Light Mode Palette">
+                      <SelectValue />
+                    </SelectTrigger>
+                  )}
+                </RoleGate>
                 <SelectContent>
                   <SelectItem value="cool-blue">Cool Blue</SelectItem>
                   <SelectItem value="dusty-rose">Dusty Rose</SelectItem>
@@ -150,14 +183,19 @@ function SettingsContent() {
             <div className="flex flex-col gap-1">
               <Label>Memory Display</Label>
               <Select
+                readOnly={settingsBlocked}
                 value={docker.memoryDisplayMode}
                 onValueChange={(value) => {
                   if (value) setMemoryDisplayMode(value as MemoryDisplayMode);
                 }}
               >
-                <SelectTrigger aria-label="Memory Display">
-                  <SelectValue />
-                </SelectTrigger>
+                <RoleGate requires="write">
+                  {(blocked) => (
+                    <SelectTrigger aria-disabled={blocked || undefined} aria-label="Memory Display">
+                      <SelectValue />
+                    </SelectTrigger>
+                  )}
+                </RoleGate>
                 <SelectContent>
                   <SelectItem value="percentage">Percentage (%)</SelectItem>
                   <SelectItem value="bytes">Bytes (B, KiB, MiB, GiB)</SelectItem>
@@ -175,14 +213,19 @@ function SettingsContent() {
               <span className="text-xs text-muted-foreground mb-3 block">
                 Time range shown in the expanded container metric charts
               </span>
-              <Slider
-                value={docker.chartWindowSeconds}
-                onValueChange={setChartWindowSeconds}
-                min={60}
-                max={1800}
-                marks={CHART_WINDOW_MARKS}
-                aria-label="Chart Window"
-              />
+              <RoleGate requires="write" wrapper={{ label: 'Chart Window', className: 'block' }}>
+                {(blocked) => (
+                  <Slider
+                    disabled={blocked}
+                    value={docker.chartWindowSeconds}
+                    onValueChange={setChartWindowSeconds}
+                    min={60}
+                    max={1800}
+                    marks={CHART_WINDOW_MARKS}
+                    aria-label="Chart Window"
+                  />
+                )}
+              </RoleGate>
             </div>
 
             <div>
@@ -191,10 +234,17 @@ function SettingsContent() {
                 {(Object.keys(docker.decimals) as (keyof DecimalSettings)[]).map((key) => (
                   <div key={key} className="flex justify-between items-center">
                     <Label>{formatDecimalLabel(key)}</Label>
-                    <Switch
-                      checked={docker.decimals[key]}
-                      onCheckedChange={(checked) => setDockerDecimal(key, checked)}
-                    />
+                    <RoleGate requires="write">
+                      {(blocked) => (
+                        <Switch
+                          readOnly={blocked}
+                          aria-disabled={blocked || undefined}
+                          aria-label={formatDecimalLabel(key)}
+                          checked={docker.decimals[key]}
+                          onCheckedChange={(checked) => setDockerDecimal(key, checked)}
+                        />
+                      )}
+                    </RoleGate>
                   </div>
                 ))}
               </div>
@@ -209,10 +259,17 @@ function SettingsContent() {
             <div className="flex flex-col gap-2">
               <div className="flex justify-between items-center">
                 <Label>Disk Speed</Label>
-                <Switch
-                  checked={zfs.decimals.diskSpeed}
-                  onCheckedChange={(checked) => setZfsDecimal('diskSpeed', checked)}
-                />
+                <RoleGate requires="write">
+                  {(blocked) => (
+                    <Switch
+                      readOnly={blocked}
+                      aria-disabled={blocked || undefined}
+                      aria-label="Disk Speed"
+                      checked={zfs.decimals.diskSpeed}
+                      onCheckedChange={(checked) => setZfsDecimal('diskSpeed', checked)}
+                    />
+                  )}
+                </RoleGate>
               </div>
             </div>
           </div>
@@ -292,10 +349,17 @@ function SettingsContent() {
                   Log connection lifecycle, stream events, and collection timing
                 </span>
               </div>
-              <Switch
-                checked={developer.dockerDebugLogging}
-                onCheckedChange={setDockerDebugLogging}
-              />
+              <RoleGate requires="write">
+                {(blocked) => (
+                  <Switch
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Docker Debug Logging"
+                    checked={developer.dockerDebugLogging}
+                    onCheckedChange={setDockerDebugLogging}
+                  />
+                )}
+              </RoleGate>
             </div>
             <div className="flex justify-between items-center">
               <div>
@@ -304,10 +368,17 @@ function SettingsContent() {
                   Log batch flush counts and database write timing
                 </span>
               </div>
-              <Switch
-                checked={developer.dbFlushDebugLogging}
-                onCheckedChange={setDbFlushDebugLogging}
-              />
+              <RoleGate requires="write">
+                {(blocked) => (
+                  <Switch
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Database Flush Logging"
+                    checked={developer.dbFlushDebugLogging}
+                    onCheckedChange={setDbFlushDebugLogging}
+                  />
+                )}
+              </RoleGate>
             </div>
             <div className="flex justify-between items-center">
               <div>
@@ -316,10 +387,17 @@ function SettingsContent() {
                   Log live stream preload and buffer refresh activity
                 </span>
               </div>
-              <Switch
-                checked={developer.streamDebugLogging}
-                onCheckedChange={setStreamDebugLogging}
-              />
+              <RoleGate requires="write">
+                {(blocked) => (
+                  <Switch
+                    readOnly={blocked}
+                    aria-disabled={blocked || undefined}
+                    aria-label="Stream Debug Logging"
+                    checked={developer.streamDebugLogging}
+                    onCheckedChange={setStreamDebugLogging}
+                  />
+                )}
+              </RoleGate>
             </div>
           </div>
         </div>

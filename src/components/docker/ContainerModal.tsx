@@ -11,6 +11,7 @@ import ContainerHistoryPage from '@/components/docker/ContainerHistoryPage';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import ContainerActionButtons from '@/components/docker/ContainerActionButtons';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
+import { useRoleAccess } from '@/hooks/useAuth';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 export type ModalTab = 'logs' | 'terminal' | 'history';
@@ -46,6 +47,24 @@ function TabSwitch({
       {TABS.map(({ key, label, Icon }) => {
         const active = value === key;
         const disabled = key === 'terminal' && !isRunning;
+        if (key === 'terminal') {
+          return (
+            <Button
+              key={key}
+              requires="write"
+              variant="ghost"
+              disabled={disabled}
+              onClick={() => onChange(key)}
+              className={[
+                'h-auto gap-1.5 px-3 py-1 rounded-full text-xs font-medium normal-case tracking-normal transition-all hover:bg-transparent',
+                active ? 'bg-popover shadow-(--shadow-1) text-foreground' : 'text-muted-foreground',
+              ].join(' ')}
+            >
+              <Icon size={12} />
+              {label}
+            </Button>
+          );
+        }
         return (
           <button
             key={key}
@@ -190,16 +209,18 @@ export default memo(function ContainerModal({
     savedShell === undefined || savedShell === '' || savedShell === 'auto' ? 'auto' : savedShell;
 
   const isRunning = inventory.state === 'running';
+  const canOpenTerminal = useRoleAccess('write').kind === 'allowed';
 
   // initialTab prop changes are ignored by useState after first mount because ContainerModal
   // stays mounted in ContainerDetailPanel (not conditionally rendered). Sync on each open.
   useEffect(() => {
     if (open) {
-      setActiveTab(initialTab);
-      if (initialTab === 'terminal') setTerminalMounted(true);
+      const tab = initialTab === 'terminal' && !canOpenTerminal ? 'logs' : initialTab;
+      setActiveTab(tab);
+      if (tab === 'terminal') setTerminalMounted(true);
       setClosing(false);
     }
-  }, [open, initialTab]);
+  }, [open, initialTab, canOpenTerminal]);
 
   // setClosing must land in the same commit as the exit transition starting,
   // or the heavy content keeps rendering inside the 150ms ending-style window.
@@ -210,12 +231,13 @@ export default memo(function ContainerModal({
 
   const handleTabChange = useCallback(
     (tab: ModalTab) => {
+      if (tab === 'terminal' && !canOpenTerminal) return;
       setActiveTab(tab);
       if (tab === 'terminal' && !terminalMounted) {
         setTerminalMounted(true);
       }
     },
-    [terminalMounted],
+    [terminalMounted, canOpenTerminal],
   );
 
   const handleShellChange = useCallback(

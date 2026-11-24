@@ -80,16 +80,14 @@ interface ActionStripButtonProps {
   icon: React.ReactNode;
   label: string;
   onClick?: () => void;
-  disabled?: boolean;
 }
 
-function ActionStripButton({ icon, label, onClick, disabled }: ActionStripButtonProps) {
+function ActionStripButton({ icon, label, onClick }: ActionStripButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-muted-foreground border border-border bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-muted-foreground border border-border bg-transparent transition-colors cursor-pointer"
     >
       {icon}
       {label}
@@ -165,12 +163,17 @@ function StatusStrip({
           label="Logs"
           onClick={() => onAction('logs')}
         />
-        <ActionStripButton
-          icon={<Terminal size={12} />}
-          label="Terminal"
+        <Button
+          requires="write"
+          variant="ghost"
+          size="sm"
           disabled={!isRunning}
           onClick={() => onAction('terminal')}
-        />
+          className="h-[28px] gap-1 rounded px-2 text-xs font-medium normal-case tracking-normal text-muted-foreground border border-border bg-transparent hover:bg-transparent"
+        >
+          <Terminal size={12} />
+          Terminal
+        </Button>
         <ActionStripButton
           icon={<History size={12} />}
           label="History"

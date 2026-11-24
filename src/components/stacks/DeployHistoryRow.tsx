@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type SyntheticEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,11 @@ function getActionLabel(record: StackDeployRecord): string {
 
 const ROLLBACK_ELIGIBLE: Set<DeployStatus> = new Set(['succeeded', 'no_change']);
 
+// A role-blocked action button never runs its onClick, and its reason popup is portaled but still bubbles through React, so neither can stop the click from toggling the row.
+function isFromRowAction(event: SyntheticEvent): boolean {
+  return event.target instanceof Element && event.target.closest('button, [data-slot="tooltip-content"]') !== null;
+}
+
 interface DeployHistoryRowProps {
   record: StackDeployRecord;
   stackName?: string;
@@ -84,8 +89,8 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
         <div
           role={record.logs ? 'button' : undefined}
           tabIndex={record.logs ? 0 : undefined}
-          onClick={() => record.logs && setExpanded(!expanded)}
-          onKeyDown={record.logs ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } } : undefined}
+          onClick={(e) => { if (record.logs && !isFromRowAction(e)) setExpanded(!expanded); }}
+          onKeyDown={record.logs ? (e) => { if ((e.key === 'Enter' || e.key === ' ') && !isFromRowAction(e)) { e.preventDefault(); setExpanded(!expanded); } } : undefined}
           className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-accent' : ''}`}
         >
           {record.logs && (
@@ -121,6 +126,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
           {showApprovalActions && onApprove !== undefined && (
             <Button
+              requires="write"
               size="sm"
               className="text-xs h-6 px-2 ml-1"
               onClick={(e) => {
@@ -135,6 +141,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
           )}
           {showApprovalActions && onReject !== undefined && (
             <Button
+              requires="write"
               size="sm"
               variant="outline"
               className="text-xs h-6 px-2 ml-1 text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5"
@@ -151,6 +158,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
           {canRollback && (
             <Button
+              requires="write"
               size="sm"
               variant="outline"
               className="text-xs h-6 px-2 ml-1 border-destructive text-destructive hover:bg-destructive/10"

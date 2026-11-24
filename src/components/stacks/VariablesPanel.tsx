@@ -153,6 +153,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
           {revealed ? 'Hide' : 'Reveal'}
         </Button>
         <Button
+          requires="write"
           size="sm"
           onClick={() => saveAll.mutate()}
           disabled={!secretsDirty || saveAll.isPending}
