@@ -257,7 +257,7 @@ export default memo(function ContainerModal({
   }, [iconUrl]);
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) requestClose(); }}>
+    <Dialog open={open} busy={false} onOpenChange={(isOpen) => { if (!isOpen) requestClose(); }}>
       <DialogContent className="flex flex-col min-h-0 overflow-hidden rounded-lg bg-popover w-[calc(100%-64px)] max-w-[1200px] h-[calc(100vh-80px)] p-0">
       <ModalHeader
         inventory={inventory}

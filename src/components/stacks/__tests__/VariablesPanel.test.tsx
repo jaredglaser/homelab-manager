@@ -1,12 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
-import { setupUser } from '@/lib/test/user-event';
 import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FormProvider, useForm } from 'react-hook-form';
 import type { StackFormValues } from '@/components/stacks/stack-form';
 import { mockModule } from '@/lib/test/mock-module';
+import { setupUser } from '@/lib/test/user-event';
 
 const mockGetValues = mock((): Promise<Record<string, string>> =>
   Promise.resolve({ DB_URL: 'super-secret', SECRET_KEY: 'super-secret' }));
@@ -292,6 +292,45 @@ describe('VariablesPanel', () => {
 
     await waitFor(() => expect(screen.getByText('Failed to delete variable.')).toBeDefined());
     expect(screen.getByRole('dialog')).toBeDefined();
+  });
+
+  it('stays open on Escape while the delete is in flight, then closes once it succeeds', async () => {
+    const user = setupUser();
+    let settle: () => void = () => undefined;
+    mockGetValues.mockImplementation(() => Promise.resolve({ OLD_VAR: '' }));
+    mockDeleteSecret.mockImplementationOnce(() => new Promise<undefined>((resolve) => { settle = () => resolve(undefined); }));
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText('Delete variable'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(mockDeleteSecret).toHaveBeenCalledTimes(1));
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Delete' }).hasAttribute('disabled')).toBe(true);
+
+    act(() => settle());
+    await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
+  });
+
+  it('closes on Escape again after a failed delete', async () => {
+    const user = setupUser();
+    mockGetValues.mockImplementation(() => Promise.resolve({ OLD_VAR: '' }));
+    mockDeleteSecret.mockImplementationOnce(() => Promise.reject(new Error('delete failed')));
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText('Delete variable'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(screen.getByText('Failed to delete variable.')).toBeDefined());
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
   });
 
   it('calls ensureVariablesExist when compose variables are missing from the secrets store', async () => {

@@ -203,7 +203,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         </div>
       )}
 
-      <Dialog open={modalState !== null} onOpenChange={(o) => { if (!o) setModalState(null); }}>
+      <Dialog open={modalState !== null} busy={false} onOpenChange={(o) => { if (!o) setModalState(null); }}>
         <DialogContent className="w-[calc(100%-64px)] max-w-300 h-[70vh] flex flex-col min-h-0 p-2">
           <DialogTitle className="flex items-center justify-between px-1 py-2 text-sm font-medium">
             <span>{modalState?.container.name}</span>

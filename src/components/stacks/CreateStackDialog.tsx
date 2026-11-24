@@ -79,7 +79,7 @@ export default function CreateStackDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+    <Dialog open={open} busy={isLoading} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
       <DialogContent>
         <DialogTitle>Create Stack</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">
@@ -149,10 +149,10 @@ export default function CreateStackDialog({
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" className="text-foreground" onClick={handleClose} disabled={isLoading}>
+          <Button variant="ghost" className="text-foreground" onClick={handleClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!isValid || isLoading}>
+          <Button onClick={handleSubmit} disabled={!isValid}>
             Create Stack
           </Button>
         </DialogFooter>
