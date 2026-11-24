@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test'
 import { findOpenTooltip, seedSession } from '@/lib/test/session'
 import { VIEWER_DENIED_COPY } from '@/hooks/useAuth'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, within } from '@testing-library/react'
 import { setupUser, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
@@ -136,17 +136,23 @@ mock.module('@/data/hosts/functions', () => ({
 
 let lastQueryClient: QueryClient | null = null
 
-function renderCard(props: { filterHostName?: string } = {}): void {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  })
-  lastQueryClient = queryClient
+const newQueryClient = () => new QueryClient({
+  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+})
+
+function mountCard(queryClient: QueryClient, props: { filterHostName?: string } = {}) {
   const { ManagedHostsCard } = require('@/components/settings/ManagedHostsCardConnected') as typeof import('@/components/settings/ManagedHostsCardConnected')
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <ManagedHostsCard {...props} />
     </QueryClientProvider>,
   )
+}
+
+function renderCard(props: { filterHostName?: string } = {}): void {
+  const queryClient = newQueryClient()
+  lastQueryClient = queryClient
+  mountCard(queryClient, props)
 }
 
 beforeEach(() => {
@@ -536,17 +542,21 @@ describe('ManagedHostsCardConnected row actions', () => {
       }
     })
 
-    it('still shows the failure toast and opens nothing when the update fails after the dialog was dismissed', async () => {
+    it('ignores Escape while the update is pending and still shows the failure toast when it fails', async () => {
       const user = setupUser()
       let rejectUpdate: (reason: Error) => void = () => undefined
       updateHostGate = new Promise<HostListItem>((_res, rej) => { rejectUpdate = rej })
       updateHostGate.catch(() => null)
       await saveEdit(user)
       await user.keyboard('{Escape}')
-      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      expect(screen.getAllByRole('dialog')).toHaveLength(1)
+
       await act(() => Promise.resolve(rejectUpdate(new Error('Agent URL is not reachable'))))
       await waitFor(() => expect(toasts).toEqual([{ message: 'Agent URL is not reachable', severity: 'error' }]))
-      expect(screen.queryAllByRole('dialog')).toHaveLength(0)
+      await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('Edit Agent URL').disabled).toBe(false))
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+
       updateHostGate = null
       await user.click(screen.getByLabelText('edit host'))
       await user.click(screen.getByRole('button', { name: 'Save' }))
@@ -558,22 +568,18 @@ describe('ManagedHostsCardConnected row actions', () => {
       ])
     })
 
-    it('leaves another host\'s edit dialog open when the first save succeeds after the switch', async () => {
+    it('ignores Escape while the update is pending and closes the dialog once it succeeds', async () => {
       const user = setupUser()
-      hostsRows = [makeHost({ id: 1, name: 'server1' }), makeHost({ id: 2, name: 'server2' })]
       let resolveUpdate: (host: HostListItem) => void = () => undefined
       updateHostGate = new Promise<HostListItem>((res) => { resolveUpdate = res })
-      renderCard()
-      await screen.findByText('server2')
-      await user.click(screen.getAllByLabelText('edit host')[0])
-      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await saveEdit(user)
       await user.keyboard('{Escape}')
-      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
-      await user.click(screen.getAllByLabelText('edit host')[1])
-      await act(() => Promise.resolve(resolveUpdate(makeHost())))
-      await waitFor(() => expect(toasts).toEqual([{ message: 'Host updated', severity: 'success' }]))
       expect(screen.getAllByRole('dialog')).toHaveLength(1)
-      expect(screen.getByLabelText<HTMLInputElement>('Edit Host Name').value).toBe('server2')
+
+      await act(() => Promise.resolve(resolveUpdate(makeHost())))
+
+      await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0))
+      expect(toasts).toEqual([{ message: 'Host updated', severity: 'success' }])
     })
   })
 
@@ -726,6 +732,136 @@ describe('ManagedHostsCardConnected row actions', () => {
       await user.click(screen.getByRole('button', { name: 'Save' }))
       await screen.findByText('renamed')
     })
+  })
+})
+
+describe('ManagedHostsCardConnected host updates across card instances', () => {
+  const firstUrl = 'http://10.0.0.9:9090'
+  const secondUrl = 'http://10.0.0.10:9090'
+
+  async function saveFrom(user: TestUser, card: HTMLElement, agentUrl: string) {
+    await user.click(await within(card).findByLabelText('edit host'))
+    const dialog = screen.getByRole('button', { name: 'Save' }).closest<HTMLElement>('[role="dialog"]')!
+    await user.clear(within(dialog).getByLabelText('Edit Agent URL'))
+    await user.type(within(dialog).getByLabelText('Edit Agent URL'), agentUrl)
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    return dialog
+  }
+
+  function gateUpdate() {
+    let settle: (outcome: { ok: true } | { ok: false; error: Error }) => void = () => undefined
+    updateHostGate = new Promise<HostListItem>((res, rej) => {
+      settle = (outcome) => {
+        updateHostGate = null
+        if (outcome.ok) res(makeHost({ agentUrl: firstUrl }))
+        else rej(outcome.error)
+      }
+    })
+    updateHostGate.catch(() => null)
+    return (outcome: { ok: true } | { ok: false; error: Error }) => act(() => Promise.resolve(settle(outcome)))
+  }
+
+  async function expectSecondQueued(queryClient: QueryClient) {
+    await waitFor(() => {
+      const second = queryClient.getMutationCache().getAll().at(1)
+      expect(second?.state.isPaused === true || updateHostCalls.length > 1).toBe(true)
+    })
+    expect(updateHostCalls).toEqual([{ hostId: 1, agentUrl: firstUrl }])
+  }
+
+  function silenceTwoModalReport() {
+    const spy = spyOn(console, 'error').mockImplementation(() => undefined)
+    return () => {
+      for (const [message] of spy.mock.calls) expect(String(message)).toStartWith('Two modals are open at once')
+      spy.mockRestore()
+    }
+  }
+
+  it('holds a second card\'s save of the same host until the first card\'s update succeeds, then sends it', async () => {
+    const restoreConsole = silenceTwoModalReport()
+    try {
+      const user = setupUser()
+      const queryClient = newQueryClient()
+      const settleFirst = gateUpdate()
+      const first = mountCard(queryClient)
+      const second = mountCard(queryClient)
+
+      const firstDialog = await saveFrom(user, first.container, firstUrl)
+      const secondDialog = await saveFrom(user, second.container, secondUrl)
+      await expectSecondQueued(queryClient)
+
+      await settleFirst({ ok: true })
+      await waitFor(() => expect(updateHostCalls).toEqual([
+        { hostId: 1, agentUrl: firstUrl },
+        { hostId: 1, agentUrl: secondUrl },
+      ]))
+      await waitFor(() => {
+        expect(firstDialog.isConnected).toBe(false)
+        expect(secondDialog.isConnected).toBe(false)
+      })
+      expect(toasts).toEqual([
+        { message: 'Host updated', severity: 'success' },
+        { message: 'Host updated', severity: 'success' },
+      ])
+    } finally {
+      restoreConsole()
+    }
+  })
+
+  it('sends the second card\'s held save after the first card\'s update fails, and keeps the failed dialog open', async () => {
+    const restoreConsole = silenceTwoModalReport()
+    try {
+      const user = setupUser()
+      const queryClient = newQueryClient()
+      const settleFirst = gateUpdate()
+      const first = mountCard(queryClient)
+      const second = mountCard(queryClient)
+
+      const firstDialog = await saveFrom(user, first.container, firstUrl)
+      const secondDialog = await saveFrom(user, second.container, secondUrl)
+      await expectSecondQueued(queryClient)
+
+      await settleFirst({ ok: false, error: new Error('Agent URL is not reachable') })
+      await waitFor(() => expect(updateHostCalls).toEqual([
+        { hostId: 1, agentUrl: firstUrl },
+        { hostId: 1, agentUrl: secondUrl },
+      ]))
+      await waitFor(() => expect(secondDialog.isConnected).toBe(false))
+      expect(firstDialog.isConnected).toBe(true)
+      expect(within(firstDialog).getByLabelText<HTMLInputElement>('Edit Agent URL').value).toBe(firstUrl)
+      expect(toasts).toEqual([
+        { message: 'Agent URL is not reachable', severity: 'error' },
+        { message: 'Host updated', severity: 'success' },
+      ])
+    } finally {
+      restoreConsole()
+    }
+  })
+
+  it('holds a save from a newly mounted card until the update the unmounted card started settles', async () => {
+    const user = setupUser()
+    const queryClient = newQueryClient()
+    const settleFirst = gateUpdate()
+    const first = mountCard(queryClient)
+    await saveFrom(user, first.container, firstUrl)
+    first.unmount()
+
+    const second = mountCard(queryClient, { filterHostName: 'server1' })
+    const secondDialog = await saveFrom(user, second.container, secondUrl)
+    await expectSecondQueued(queryClient)
+    await user.keyboard('{Escape}')
+    expect(secondDialog.isConnected).toBe(true)
+
+    await settleFirst({ ok: true })
+    await waitFor(() => expect(updateHostCalls).toEqual([
+      { hostId: 1, agentUrl: firstUrl },
+      { hostId: 1, agentUrl: secondUrl },
+    ]))
+    await waitFor(() => expect(secondDialog.isConnected).toBe(false))
+    expect(toasts).toEqual([
+      { message: 'Host updated', severity: 'success' },
+      { message: 'Host updated', severity: 'success' },
+    ])
   })
 })
 

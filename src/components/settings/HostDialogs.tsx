@@ -23,7 +23,7 @@ interface RemoveDialogProps {
 
 export function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }: RemoveDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+    <Dialog open={open} busy={isRemoving} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent className="w-auto min-w-75">
         <DialogTitle>Remove Host</DialogTitle>
         <DialogBody>
@@ -32,8 +32,8 @@ export function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }:
           </DialogDescription>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={isRemoving}>Cancel</Button>
-          <Button variant="ghost" className="text-destructive" onClick={onConfirm} disabled={isRemoving}>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" className="text-destructive" onClick={onConfirm}>
             {isRemoving ? <Spinner className="size-4" /> : 'Remove'}
           </Button>
         </DialogFooter>
@@ -69,7 +69,7 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+    <Dialog open={open} busy={isUpdating} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent>
         <DialogTitle>Edit Host</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">
@@ -97,8 +97,8 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={isUpdating}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!isValid || isUpdating}>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSave} disabled={!isValid}>
             {isUpdating ? <Spinner className="size-4" /> : 'Save'}
           </Button>
         </DialogFooter>

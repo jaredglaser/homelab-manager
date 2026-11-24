@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { setupUser } from '@/lib/test/user-event';
 import CreateStackDialog from '../CreateStackDialog';
 
 const defaultHosts = ['server1', 'server2'];
@@ -150,5 +151,16 @@ describe('CreateStackDialog', () => {
   it('does not display error alert when error prop is null', () => {
     render(<CreateStackDialog {...defaultProps} error={null} />);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('stays open on Escape while the stack is being created', async () => {
+    const user = setupUser();
+    const onClose = mock(() => undefined);
+    render(<CreateStackDialog {...defaultProps} isLoading={true} onClose={onClose} />);
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(0);
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(true);
   });
 });

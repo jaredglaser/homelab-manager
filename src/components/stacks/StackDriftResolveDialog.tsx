@@ -86,7 +86,7 @@ export default function StackDriftResolveDialog({
   const label = getStackDriftResolutionLabel(item.kind, resolution);
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+    <Dialog open={open} busy={isLoading} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent>
         <DialogTitle>
           {label}: {item.host}/{item.stack}?
@@ -99,13 +99,12 @@ export default function StackDriftResolveDialog({
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" className="text-foreground" onClick={onClose} disabled={isLoading}>
+          <Button variant="ghost" className="text-foreground" onClick={onClose}>
             Cancel
           </Button>
           <Button
             variant={isDestructiveStackDriftResolution(item.kind, resolution) ? 'destructive' : 'default'}
             onClick={onConfirm}
-            disabled={isLoading}
           >
             {label}
           </Button>

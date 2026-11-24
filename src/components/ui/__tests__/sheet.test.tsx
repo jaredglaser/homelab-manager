@@ -14,7 +14,7 @@ import {
 
 function Example({ side }: Readonly<{ side?: 'left' | 'right' | 'bottom' }>) {
   return (
-    <Sheet>
+    <Sheet busy={false}>
       <SheetTrigger>Open</SheetTrigger>
       <SheetContent side={side} data-testid="content">
         <SheetHeader data-testid="header">
@@ -91,7 +91,7 @@ describe('Sheet', () => {
 
   it('merges caller classes onto the popup', async () => {
     render(
-      <Sheet defaultOpen>
+      <Sheet busy={false} defaultOpen>
         <SheetContent className="w-[500px]" data-testid="content">
           <SheetTitle>Wide</SheetTitle>
         </SheetContent>
