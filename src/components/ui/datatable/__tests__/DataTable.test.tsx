@@ -469,14 +469,12 @@ describe('DataTable', () => {
     beforeEach(() => {
       settingsSpy = spyOn(useSettingsModule, 'useGeneralSettings').mockImplementation(() => ({
         general: { showSparklines: sparklines, useAbbreviatedUnits: false } as never,
-        retention: {} as never,
         developer: {} as never,
         setUse12HourTime: () => {},
         setUpdateInterval: () => {},
         setShowSparklines: () => {},
         setUseAbbreviatedUnits: () => {},
         setLightPalette: () => {},
-        setRetention: () => {},
         setDockerDebugLogging: () => {},
         setDbFlushDebugLogging: () => {},
         setStreamDebugLogging: () => {},

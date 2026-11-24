@@ -29,11 +29,6 @@ export const SETTINGS_KEYS = {
   proxmox: {
     updateInterval: 'proxmox/updateInterval',
   },
-  retention: {
-    rawDataHours: 'retention/rawDataHours',
-    minuteAggDays: 'retention/minuteAggDays',
-    hourAggDays: 'retention/hourAggDays',
-  },
   developer: {
     dockerDebugLogging: 'developer/dockerDebugLogging',
     dbFlushDebugLogging: 'developer/dbFlushDebugLogging',

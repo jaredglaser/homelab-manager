@@ -111,14 +111,12 @@ beforeEach(() => {
   echartsCaptures.instance.dispose = mock(() => {});
   settingsSpy = spyOn(useSettingsModule, 'useGeneralSettings').mockImplementation(() => ({
     general: { use12HourTime: false } as never,
-    retention: {} as never,
     developer: {} as never,
     setUse12HourTime: () => {},
     setUpdateInterval: () => {},
     setShowSparklines: () => {},
     setUseAbbreviatedUnits: () => {},
     setLightPalette: () => {},
-    setRetention: () => {},
     setDockerDebugLogging: () => {},
     setDbFlushDebugLogging: () => {},
     setStreamDebugLogging: () => {},
