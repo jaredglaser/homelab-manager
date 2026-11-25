@@ -32,8 +32,8 @@ export interface DockerSettingsValue {
 }
 
 /**
- * Docker-dashboard settings: memory display, decimals and chart window are global. Host / container / stack
- * expansion and the per-container shell are kept in this browser only.
+ * Docker-dashboard settings: memory display, decimals and chart window are stored per user (see
+ * `USER_SETTINGS_KEYS`). Host / container / stack expansion and the per-container shell are kept in this browser only.
  */
 export function useDockerSettings(): DockerSettingsValue {
   const docker = useAtomValue(dockerSettingsAtom);
