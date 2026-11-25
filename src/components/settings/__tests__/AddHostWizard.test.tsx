@@ -1031,5 +1031,17 @@ describe('AddHostWizard', () => {
       const preElements = envStep.querySelectorAll('pre')
       expect(preElements.length).toBe(1)
     })
+
+    it('tells the operator the .env carries the trusted key, in one paragraph', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      const notice = screen.getByTestId('step-env').querySelector('[data-slot="alert-description"] > p')
+      expect(notice?.textContent.replaceAll(/\s+/g, ' ').trim()).toBe(
+        "This .env carries the host's AGENT_TRUSTED_PUBKEY and the compose file reads it from there, so the agent trusts the manager as soon as it starts. After deploying both files, verify the connection to provision TLS.",
+      )
+    })
   })
 })

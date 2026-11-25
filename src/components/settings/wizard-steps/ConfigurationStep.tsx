@@ -24,9 +24,11 @@ export default function ConfigurationStep({ envFile }: ConfigurationStepProps) {
 
       <Alert variant="info">
         <AlertDescription>
-          The compose file embeds this host's <code>AGENT_TRUSTED_PUBKEY</code>, so the agent
-          trusts the manager as soon as it starts. After deploying both files, verify the
-          connection to provision TLS.
+          <p>
+            This .env carries the host's <code>AGENT_TRUSTED_PUBKEY</code> and the compose file
+            reads it from there, so the agent trusts the manager as soon as it starts. After
+            deploying both files, verify the connection to provision TLS.
+          </p>
         </AlertDescription>
       </Alert>
     </div>
