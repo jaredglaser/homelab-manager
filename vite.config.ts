@@ -48,6 +48,7 @@ export default defineConfig(({ mode }) => {
     base: env.VITE_BASE_PATH || '/',
     resolve: {
       alias: buildAliases(),
+      tsconfigPaths: true,
     },
     plugins: [
       // Ahead of nitro: its dev middleware answers /mockServiceWorker.js with a 404 first.
