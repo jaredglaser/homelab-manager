@@ -14,6 +14,7 @@ const USER_SETTINGS_TOPIC = 'user-settings';
 const STACK_STATUS_TOPIC = 'stack-status';
 const AGENT_INVENTORY_TOPIC = 'agent-inventory';
 const IMAGE_UPDATES_TOPIC = 'image-updates';
+const TLS_PROVISIONING_TOPIC = 'tls-provisioning';
 export const MAX_PENDING_FRAMES = 64;
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
@@ -152,6 +153,14 @@ async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: Abort
   const { toImageUpdateWireMessage } = await import('../../../src/lib/channels/image-updates');
   subscribeUntilAborted(signal, imageUpdateBroadcastService, (event) => {
     emit({ topic, kind: 'data', payload: toImageUpdateWireMessage(event) });
+  });
+}
+
+async function tlsProvisioningAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  const { tlsProvisioningJobs } = await import('../../../src/lib/hosts/tls-provisioning-jobs');
+  subscribeUntilAborted(signal, tlsProvisioningJobs, (snapshot) => {
+    emit({ topic, kind: 'data', payload: snapshot });
   });
 }
 
@@ -470,6 +479,7 @@ export const STATIC_TOPIC_ADAPTERS: Record<string, TopicAdapter> = {
   [STACK_STATUS_TOPIC]: stackStatusAdapter,
   [AGENT_INVENTORY_TOPIC]: agentInventoryAdapter,
   [IMAGE_UPDATES_TOPIC]: imageUpdatesAdapter,
+  [TLS_PROVISIONING_TOPIC]: tlsProvisioningAdapter,
 };
 
 export const PREFIX_TOPIC_ADAPTERS = [

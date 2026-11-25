@@ -363,6 +363,9 @@ over plain HTTP, where a token would be readable and replayable by any observer.
 `TLS_KEY_PATH` to the certificate files under the stacks mount, and the agent
 serves HTTPS with them. Re-run TLS provisioning from the Managed Hosts card to
 rotate a certificate.
+Provisioning runs as a background job on the web server: Verify Connection and
+Rotate TLS return at once, and the outcome reaches the page over the
+`tls-provisioning` mux topic, so a run longer than a request timeout is not cut off.
 
 Without a readable certificate the agent serves plain HTTP with a warning in its
 logs, so the manager can reach it to enroll one. In that state the plain-HTTP

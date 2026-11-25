@@ -3,7 +3,9 @@ import type {
   HealthCheckResult,
   UpdateAgentResult,
   AgentInventoryEntry,
+  StartHostTlsResult,
 } from '@/data/hosts/functions';
+import { tlsProvisioningJobs } from '@/lib/mock/live-updates';
 
 /**
  * Build a plausible managed host from partial enrollment input. Pass `id` to
@@ -119,14 +121,20 @@ export async function rotateHostKeypair(_data: {
   return { hostId: _data.hostId, publicJwk: { ...MOCK_PUBLIC_JWK, x: 'rotated-key-x' } };
 }
 
-/** Intentionally stateless: mirrors handleRotateHostTls (https-flipped override or the stored URL). */
+/** Mirrors handleStartHostTlsProvisioning: the outcome arrives on the tls-provisioning topic, with the https-flipped override or the stored URL. */
 export async function rotateHostTls(data: {
   hostId: number;
   agentUrl?: string;
-}): Promise<{ hostId: number; agentUrl: string }> {
-  if (data.agentUrl) return { hostId: data.hostId, agentUrl: data.agentUrl.replace(/^http:/, 'https:') };
+}): Promise<StartHostTlsResult> {
   const host = mockHosts.find((h) => h.id === data.hostId);
-  return { hostId: data.hostId, agentUrl: host ? host.agentUrl.replace(/^http:/, 'https:') : 'https://mock-host:9090' };
+  const source = data.agentUrl ?? host?.agentUrl ?? 'http://mock-host:9090';
+  const { jobId, joined } = tlsProvisioningJobs.start(data.hostId, () => Promise.resolve({
+    ok: true,
+    agentUrl: source.replace(/^http:/, 'https:'),
+    enrolledOverPlainHttp: false,
+    fingerprint: 'SHA256:mock-fingerprint',
+  }));
+  return { hostId: data.hostId, jobId, joined };
 }
 
 /** Demo inventory: a mixed-status set so the overview shows online, offline, and unknown rows. */

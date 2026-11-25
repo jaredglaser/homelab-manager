@@ -7,11 +7,11 @@ import { authMiddleware } from '@/middleware/auth-middleware';
 import { roleMiddleware } from '@/lib/auth/role-middleware';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateHost, handleCreatePendingHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair, handleRotateHostTls,
+  handleUpdateHost, handleCreatePendingHost, handleUpdateAgent, handleListAgentsInventorySnapshot, handleGetHostPublicJwk, handleRotateHostKeypair, handleStartHostTlsProvisioning,
   type HostOperationResult, type UpdateAgentResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
-export type { HostListItem, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
+export type { HostListItem, HostOperationResult, HealthCheckResult, UpdateAgentResult, StartHostTlsResult } from '@/data/hosts/handlers';
 export type { AgentInventoryEntry, AgentInventoryStatus } from '@/lib/hosts/agent-inventory';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
@@ -232,17 +232,19 @@ export const rotateHostKeypair = createServerFn()
     return handleRotateHostKeypair({ ...baseDeps, keypairs: makeKeypairsDep(keypairs) }, data);
   });
 
-export const rotateHostTls = createServerFn()
+export const rotateHostTls = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(rotateHostTlsSchema)
-  .handler(async ({ data }): Promise<import('@/data/hosts/handlers').RotateHostTlsResult> => {
+  .handler(async ({ data }): Promise<import('@/data/hosts/handlers').StartHostTlsResult> => {
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     const tlsCerts = await loadTlsCertsRepo();
-    return handleRotateHostTls({
+    const { tlsProvisioningJobs } = await import('@/lib/hosts/tls-provisioning-jobs');
+    return handleStartHostTlsProvisioning({
       ...baseDeps,
       checkHealth: await buildProbeCheckHealth(),
       provisionTls: makeProvisionTls(keypairs, tlsCerts),
+      jobs: tlsProvisioningJobs,
     }, data);
   });
 

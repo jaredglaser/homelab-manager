@@ -14,8 +14,10 @@ import {
   handleGetHostPublicJwk,
   handleRotateHostKeypair,
   handleRotateHostTls,
+  handleStartHostTlsProvisioning,
   handleUpdateAgent,
 } from '../handlers';
+import { TlsProvisioningJobs, type TlsProvisioningSnapshot } from '@/lib/hosts/tls-provisioning-jobs';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
 import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy';
@@ -358,6 +360,66 @@ describe('handleCreatePendingHost', () => {
     expect(message).toMatch(/Failed to generate agent keypair/);
     expect(message).not.toContain('cleaned up');
     expect(repo.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleStartHostTlsProvisioning', () => {
+  function finishedSnapshot(jobs: TlsProvisioningJobs): Promise<TlsProvisioningSnapshot> {
+    return new Promise((resolve) => {
+      jobs.subscribe((snapshot) => {
+        if (snapshot.jobs[0]?.state === 'finished') resolve(snapshot);
+      });
+    });
+  }
+
+  it('returns the job id before provisioning finishes, then publishes the stored https URL as the outcome', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: '', status: 'pending' }))),
+      update: mock(() => Promise.resolve(mockRow({ id: 7, agentUrl: 'https://10.0.0.5:9090' }))),
+    });
+    let finishProvisioning!: (value: { agentUrl: string; enrolledOverPlainHttp: boolean; fingerprint: string }) => void;
+    const provisionTls = mock(() => new Promise<{ agentUrl: string; enrolledOverPlainHttp: boolean; fingerprint: string }>((resolve) => {
+      finishProvisioning = resolve;
+    }));
+    const jobs = new TlsProvisioningJobs({ newJobId: () => 'job-a' });
+
+    const started = await handleStartHostTlsProvisioning(
+      { repo, provisionTls, checkHealth: healthyProbe(), jobs },
+      { hostId: 7, agentUrl: 'http://10.0.0.5:9090' },
+    );
+    expect(started).toEqual({ hostId: 7, jobId: 'job-a', joined: false });
+    expect(repo.update).not.toHaveBeenCalled();
+
+    const finished = finishedSnapshot(jobs);
+    finishProvisioning({ agentUrl: 'https://10.0.0.5:9090', enrolledOverPlainHttp: false, fingerprint: 'SHA256:abc' });
+    expect((await finished).jobs[0].outcome).toEqual({
+      ok: true, agentUrl: 'https://10.0.0.5:9090', enrolledOverPlainHttp: false, fingerprint: 'SHA256:abc',
+    });
+    expect(provisionTls).toHaveBeenCalledWith('rot-host', 'http://10.0.0.5:9090', { allowPlaintextEnrollment: true });
+    expect(repo.update).toHaveBeenCalledWith(7, { agentUrl: 'https://10.0.0.5:9090' });
+  });
+
+  it('publishes a coded provisioning failure as the outcome and leaves the host record alone', async () => {
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ id: 7, name: 'rot-host', agentUrl: '', status: 'pending' }))),
+    });
+    const provisionTls = mock(() => Promise.reject(new TlsProvisionFailure('poll_timeout', 'TLS provisioning failed: timed out')));
+    const jobs = new TlsProvisioningJobs();
+    const finished = finishedSnapshot(jobs);
+
+    await handleStartHostTlsProvisioning({ repo, provisionTls, checkHealth: healthyProbe(), jobs }, { hostId: 7, agentUrl: 'http://10.0.0.5:9090' });
+    expect((await finished).jobs[0].outcome).toEqual({ ok: false, code: 'poll_timeout', message: 'TLS provisioning failed: timed out' });
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('throws for an unknown host without starting a job', async () => {
+    const repo = mockRepo({ findById: mock(() => Promise.resolve(null)) });
+    const jobs = new TlsProvisioningJobs();
+    const provisionTls = mock(() => Promise.resolve({ agentUrl: 'https://x:9090' }));
+    await expect(handleStartHostTlsProvisioning({ repo, provisionTls, checkHealth: healthyProbe(), jobs }, { hostId: 99 }))
+      .rejects.toThrow('Host with id 99 not found');
+    expect(jobs.snapshot().jobs).toEqual([]);
+    expect(provisionTls).not.toHaveBeenCalled();
   });
 });
 

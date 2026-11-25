@@ -1,5 +1,6 @@
 import type { SettingsWireMessage } from '@/types/settings';
 import type { StackStatusWireMessage } from '@/lib/channels/stack-status';
+import { TlsProvisioningJobs } from '@/lib/hosts/tls-provisioning-jobs';
 
 // Demo stand-in for the pg NOTIFY broadcast services that feed the real `/api/mux` route.
 
@@ -21,3 +22,4 @@ function createBus<T>() {
 export const settingsUpdates = createBus<SettingsWireMessage>();
 export const userSettingsUpdates = createBus<SettingsWireMessage>();
 export const stackStatusUpdates = createBus<StackStatusWireMessage>();
+export const tlsProvisioningJobs = new TlsProvisioningJobs();

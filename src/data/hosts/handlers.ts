@@ -12,6 +12,7 @@ import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agen
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { TlsProvisioningOutcome } from '@/lib/hosts/tls-provisioning-jobs';
 import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
@@ -336,6 +337,31 @@ export async function handleRotateHostTls(
     enrolledOverPlainHttp: provisioned.enrolledOverPlainHttp === true,
     fingerprint: provisioned.fingerprint ?? '',
   };
+}
+
+export interface StartHostTlsResult {
+  hostId: number;
+  jobId: string;
+  /** True when a run for this host was already going and the caller now watches it. */
+  joined: boolean;
+}
+
+/** The outcome reaches clients over the tls-provisioning mux topic, keyed by jobId. */
+export async function handleStartHostTlsProvisioning(
+  deps: Parameters<typeof handleRotateHostTls>[0] & {
+    jobs: { start: (hostId: number, run: () => Promise<TlsProvisioningOutcome>) => { jobId: string; joined: boolean } };
+  },
+  data: Parameters<typeof handleRotateHostTls>[1],
+): Promise<StartHostTlsResult> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+  const { jobId, joined } = deps.jobs.start(host.id, async () => {
+    const result = await handleRotateHostTls(deps, data);
+    return result.ok
+      ? { ok: true, agentUrl: result.agentUrl, enrolledOverPlainHttp: result.enrolledOverPlainHttp, fingerprint: result.fingerprint }
+      : { ok: false, code: result.code, message: result.message };
+  });
+  return { hostId: host.id, jobId, joined };
 }
 
 // Scoped to this host's agentUrl. Never touches any other host.

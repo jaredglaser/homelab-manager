@@ -9,7 +9,7 @@ import {
 import { generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
 import { loadDemoSettings } from '@/lib/mock/generators/settings';
 import { isUserSettingsKey } from '@/lib/constants/settings-keys';
-import { settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/mock/live-updates';
+import { settingsUpdates, stackStatusUpdates, tlsProvisioningJobs, userSettingsUpdates } from '@/lib/mock/live-updates';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
@@ -116,6 +116,12 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
           client.send(eventFrame(topic, 'data', { entries, sweptAt: new Date().toISOString() }));
         }),
       );
+      return;
+    }
+    if (topic === 'tls-provisioning') {
+      topicCleanups.set(topic, tlsProvisioningJobs.subscribe((snapshot) => {
+        client.send(eventFrame(topic, 'data', snapshot));
+      }));
       return;
     }
     if (topic === 'stack-status') {

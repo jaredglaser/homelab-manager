@@ -1182,6 +1182,7 @@ describe('topic adapters and an abort before they subscribe', () => {
     ['user-settings', async () => (await import('@/lib/settings/settings-broadcast-service')).userSettingsBroadcastService],
     ['stack-status', async () => (await import('@/lib/stacks/stack-status-broadcast-service')).stackStatusBroadcastService],
     ['image-updates', async () => (await import('@/lib/stacks/image-update-broadcast-service')).imageUpdateBroadcastService],
+    ['tls-provisioning', async () => (await import('@/lib/hosts/tls-provisioning-jobs')).tlsProvisioningJobs],
     ['stats:docker', async () => (await import('@/lib/database/subscription-service')).statsPollService],
   ];
   const subscribingTopics = subscribingServices.map(([topic]) => topic);
@@ -1303,6 +1304,7 @@ describe('topic adapters and an abort before they subscribe', () => {
       { stack: 'plex', host: 'server1', image: 'plexinc/pms-docker', updateAvailable: true, latestMatchingTag: '1.2' },
       expect.objectContaining({ type: 'updates_changed', stack: 'plex', host: 'server1', image: 'plexinc/pms-docker', update_available: true, latest_matching_tag: '1.2' }),
     ],
+    ['tls-provisioning', { jobs: [] }, { jobs: [] }],
     ['stats:docker', [{ time: 1000, host: 'server1' }], [{ time: 1000, host: 'server1' }]],
   ] as const)('forwards %s events as data frames until unsubscribed', async (topic, event, payload) => {
     const { peer, h, started } = await openTracked();

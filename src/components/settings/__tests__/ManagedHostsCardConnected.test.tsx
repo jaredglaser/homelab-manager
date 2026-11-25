@@ -5,12 +5,14 @@ import { render, screen, waitFor, act, fireEvent, within } from '@testing-librar
 import { setupUser, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
+import { useEffect, useRef } from 'react'
 // Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
 // screen.* queries and clicks leak into whichever wizard was mounted first.
 import '@/lib/test/testing-library'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import type { HealthCheckResult } from '@/data/hosts/handlers'
 import type { TlsFailureCode } from '@homelab-manager/agent/types'
+import type { TlsProvisioningJob, TlsProvisioningOutcome } from '@/lib/hosts/tls-provisioning-jobs'
 
 // Register module mocks before any component import: a mock.module call made
 // after the module graph has loaded leaves it wired to the real server fns.
@@ -39,20 +41,50 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   ...overrides,
 })
 
-// The rotate flow returns its failures as data now, so a failure is a resolved result, not a throw.
+// What the run produces. The mock publishes it as the job's outcome on the tls-provisioning topic,
+// and a rejection stands for a start the server refused (the call throws, no job runs).
 type RotateTlsResult =
   | { ok: true; hostId: number; agentUrl: string; enrolledOverPlainHttp?: boolean }
-  | { ok: false; code: TlsFailureCode; message: string }
+  | { ok: false; code: TlsFailureCode | null; message: string }
 let rotateTlsResult: Promise<RotateTlsResult> = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
 let rotateTlsCalls: Array<{ data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean } }> = []
-// When set, rotateHostTls returns this manually-settled promise instead.
+// When set, the run settles with this manually-settled promise instead.
 let rotateTlsGate: Promise<RotateTlsResult> | null = null
+// When true, the start call returns as soon as the job is running and the outcome arrives later on the topic.
+let rotateTlsReturnsBeforeOutcome = false
+
+let tlsJobs: TlsProvisioningJob[] = []
+let tlsJobCounter = 0
+const tlsChannelListeners = new Set<(snapshot: { jobs: TlsProvisioningJob[] }) => void>()
+const publishTlsJobs = (jobs: TlsProvisioningJob[]) => {
+  tlsJobs = jobs
+  act(() => {
+    for (const listener of tlsChannelListeners) listener({ jobs })
+  })
+}
 
 const rotateHostTls = (data: {
   data: { hostId: number; agentUrl?: string; acceptPlaintextEnrollment?: boolean }
-}): Promise<RotateTlsResult> => {
+}): Promise<{ hostId: number; jobId: string; joined: boolean }> => {
   rotateTlsCalls.push(data)
-  return rotateTlsGate ?? rotateTlsResult
+  const { hostId } = data.data
+  const jobId = `job-${++tlsJobCounter}`
+  const started = { jobId, hostId, startedAt: '2026-01-01T00:00:00.000Z' }
+  const run = rotateTlsGate ?? rotateTlsResult
+  const settled = run.then((result) => {
+    const outcome: TlsProvisioningOutcome = result.ok
+      ? { ok: true, agentUrl: result.agentUrl, enrolledOverPlainHttp: result.enrolledOverPlainHttp === true, fingerprint: 'AB:CD' }
+      : { ok: false, code: result.code, message: result.message }
+    publishTlsJobs([
+      ...tlsJobs.filter((j) => j.hostId !== hostId),
+      { ...started, state: 'finished', finishedAt: '2026-01-01T00:00:16.000Z', outcome },
+    ])
+    return { hostId, jobId, joined: false }
+  })
+  if (!rotateTlsReturnsBeforeOutcome) return settled
+  publishTlsJobs([...tlsJobs.filter((j) => j.hostId !== hostId), { ...started, state: 'running', finishedAt: null, outcome: null }])
+  void settled.catch(() => undefined)
+  return Promise.resolve({ hostId, jobId, joined: false })
 }
 
 type CreatePendingHostResult = { host: HostListItem; publicJwk: Record<string, string> }
@@ -119,6 +151,24 @@ const rotateHostKeypair = (data: { data: { hostId: number } }): Promise<{ hostId
   return Promise.resolve({ hostId: data.data.hostId, publicJwk: { kty: 'OKP', x: 'rotated-key' } })
 }
 
+mockModule<typeof import('@/lib/mux/use-mux-channel')>('@/lib/mux/use-mux-channel', (real) => ({
+  ...real,
+  useMuxChannel: (channel: { topic: string }, options: { onData: (snapshot: { jobs: TlsProvisioningJob[] }) => void }) => {
+    const onDataRef = useRef(options.onData)
+    onDataRef.current = options.onData
+    useEffect(() => {
+      if (channel.topic !== 'tls-provisioning') return undefined
+      const listener = (snapshot: { jobs: TlsProvisioningJob[] }) => onDataRef.current(snapshot)
+      tlsChannelListeners.add(listener)
+      listener({ jobs: tlsJobs })
+      return () => {
+        tlsChannelListeners.delete(listener)
+      }
+    }, [channel.topic])
+    return { isConnected: true, error: null }
+  },
+}))
+
 mock.module('@/data/hosts/functions', () => ({
   listHosts,
   createPendingHost,
@@ -157,6 +207,9 @@ function renderCard(props: { filterHostName?: string } = {}): void {
 
 beforeEach(() => {
   rotateTlsGate = null
+  rotateTlsReturnsBeforeOutcome = false
+  tlsJobs = []
+  tlsChannelListeners.clear()
   rotateTlsCalls.length = 0
   removeHostCalls.length = 0
   removeHostData.length = 0
@@ -454,6 +507,40 @@ describe('ManagedHostsCardConnected row actions', () => {
           },
         ])
       })
+    })
+  })
+
+  describe('rotate TLS in the background', () => {
+    it('shows a run another tab or an earlier page load started as busy, and stays quiet when it ends', async () => {
+      tlsJobs = [{ jobId: 'other-tab', hostId: 1, state: 'running', startedAt: '2026-01-01T00:00:00.000Z', finishedAt: null, outcome: null }]
+      renderCard()
+      await screen.findByText('server1')
+      await waitFor(() => expect(rotateButton().disabled).toBe(true))
+
+      publishTlsJobs([{
+        jobId: 'other-tab', hostId: 1, state: 'finished', startedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:16.000Z',
+        outcome: { ok: true, agentUrl: 'https://server1:9090', enrolledOverPlainHttp: false, fingerprint: 'AB:CD' },
+      }])
+      await waitFor(() => expect(rotateButton().disabled).toBe(false))
+      expect(toasts).toEqual([])
+    })
+
+    it('stays busy after the start call returns, until the outcome arrives', async () => {
+      const user = setupUser()
+      rotateTlsReturnsBeforeOutcome = true
+      let finish!: (result: RotateTlsResult) => void
+      rotateTlsGate = new Promise<RotateTlsResult>((resolve) => { finish = resolve })
+      renderCard()
+      await screen.findByText('server1')
+      await user.click(rotateButton())
+      await waitFor(() => expect(tlsJobs[0]?.state).toBe('running'))
+      expect(rotateButton().disabled).toBe(true)
+
+      finish({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
+      await waitFor(() => expect(rotateButton().disabled).toBe(false))
+      expect(toasts).toEqual([
+        { message: 'TLS certificate rotated for https://server1:9090. The agent is now serving the new certificate.', severity: 'success' },
+      ])
     })
   })
 
@@ -1314,6 +1401,49 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       expect(screen.getByRole('button', { name: 'Verify Connection' }).hasAttribute('disabled')).toBe(false)
     })
   }
+
+  it('keeps verifying until the outcome arrives on the topic after the start call has returned', async () => {
+    const user = setupUser()
+    await startVerify(user)
+    rotateTlsReturnsBeforeOutcome = true
+    let finish!: (result: RotateTlsResult) => void
+    rotateTlsGate = new Promise<RotateTlsResult>((resolve) => { finish = resolve })
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => expect(screen.getByTestId('cancel-provisioning')).toBeDefined())
+    expect(toasts).toEqual([])
+
+    finish({ ok: true, hostId: 1, agentUrl: 'https://10.1.1.99:9090' })
+    await waitFor(() => expect(screen.queryAllByTestId('cancel-provisioning').length).toBe(0))
+    expect(toasts).toEqual([{ message: 'Host verified. The agent is served over https://10.1.1.99:9090.', severity: 'success' }])
+  })
+
+  it('shows plain copy, not a code, when the run failed on an unexpected error', async () => {
+    const user = setupUser()
+    await startVerify(user)
+    rotateTlsResult = Promise.resolve({ ok: false, code: null, message: 'Verification stopped on an unexpected error in the dashboard.' })
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => {
+      expect(screen.getByText('Verification stopped on an unexpected error in the dashboard.')).toBeDefined()
+    })
+    expect(screen.getByTestId('rerun-provisioning')).toBeDefined()
+  })
+
+  it('ignores an outcome that arrives after the operator cancelled', async () => {
+    const user = setupUser()
+    await startVerify(user)
+    rotateTlsReturnsBeforeOutcome = true
+    let finish!: (result: RotateTlsResult) => void
+    rotateTlsGate = new Promise<RotateTlsResult>((resolve) => { finish = resolve })
+    await user.click(screen.getByRole('button', { name: 'Verify Connection' }))
+    await waitFor(() => expect(screen.getByTestId('cancel-provisioning')).toBeDefined())
+    await user.click(screen.getByTestId('cancel-provisioning'))
+    await waitFor(() => expect(screen.queryAllByTestId('cancel-provisioning').length).toBe(0))
+
+    finish({ ok: false, code: 'poll_timeout', message: 'timed out' })
+    await waitFor(() => expect(tlsJobs[0]?.state).toBe('finished'))
+    expect(screen.queryAllByRole('alert').length).toBe(0)
+    expect(toasts).toEqual([])
+  })
 
   it('asks for confirmation before enrolling over plain HTTP, then sends the consent and clears it on success', async () => {
     const user = setupUser()

@@ -7,8 +7,20 @@ import type { HostListItem } from '@/lib/hosts/host-utils'
 import { useToast } from '@/hooks/toastAtom'
 import { tlsFailureGuidance, type TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
+import { useMuxChannel } from '@/lib/mux/use-mux-channel'
+import { tlsProvisioningChannel, type TlsProvisioningJob } from '@/lib/channels/tls-provisioning'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
+
+type WatchedTlsJob = { kind: 'verify'; generation: number } | { kind: 'rotate' }
+type TlsOutcome = NonNullable<TlsProvisioningJob['outcome']>
+
+const withoutId = (ids: Set<number>, id: number) => {
+  if (!ids.has(id)) return ids
+  const next = new Set(ids)
+  next.delete(id)
+  return next
+}
 
 // A not-found or no-longer-pending removal is an idempotent no-op: the record is already gone or survived on the server, so discard and stale-removal treat it as success. The matcher matches the exact server message shapes.
 const isRemovalNoOp = (err: unknown) => err instanceof Error && (/^Host with id \d+ not found$/.test(err.message) || /^Host .+ is no longer pending$/.test(err.message))
@@ -22,7 +34,12 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const [provisionError, setProvisionError] = useState<TlsFailureGuidance | null>(null)
   const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
   const [keypairFingerprint, setKeypairFingerprint] = useState<string | null>(null)
-  const [rotatingTlsHostIds, setRotatingTlsHostIds] = useState<Set<number>>(new Set())
+  const [startingTlsHostIds, setStartingTlsHostIds] = useState<Set<number>>(new Set())
+  const [tlsJobs, setTlsJobs] = useState<TlsProvisioningJob[]>([])
+  const tlsJobsRef = useRef<TlsProvisioningJob[]>([])
+  // Jobs this tab started (or joined) and still owes the operator an outcome for, by job id.
+  const watchedTlsJobsRef = useRef(new Map<string, WatchedTlsJob>())
+  const [activeVerifyJobId, setActiveVerifyJobId] = useState<string | null>(null)
 
   const { data: hosts = [], isLoading } = useQuery({
     queryKey: HOSTS_QUERY_KEY,
@@ -82,46 +99,87 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const provisionGenerationRef = useRef(0)
   // A host whose agent serves plain HTTP is enrolled on trust, so it takes a second deliberate click.
   const [plaintextConfirmHostIds, setPlaintextConfirmHostIds] = useState<Set<number>>(new Set())
+  const settleVerifyOutcome = (hostId: number, outcome: TlsOutcome) => {
+    setActiveVerifyJobId(null)
+    if (!outcome.ok) {
+      // A plaintext enrollment needs the operator's explicit consent before anything changes.
+      if (outcome.code === 'plaintext_confirmation_required') {
+        setPlaintextConfirmHostIds((prev) => new Set(prev).add(hostId))
+      }
+      setProvisionError(outcome.code ? tlsFailureGuidance(outcome.code, outcome.message) : { message: outcome.message, retryUseless: false })
+      return
+    }
+    void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    setProvisionError(null)
+    setPlaintextConfirmHostIds((prev) => withoutId(prev, hostId))
+    showToast(
+      outcome.enrolledOverPlainHttp
+        ? `Host verified. The agent is served over ${outcome.agentUrl}. It had no certificate, so the new one was accepted on first use over plain HTTP. Compare the fingerprint in this host's keypair dialog with the one the agent prints at startup (docker logs hlm-agent).`
+        : `Host verified. The agent is served over ${outcome.agentUrl}.`,
+      outcome.enrolledOverPlainHttp ? 'warning' : 'success',
+    )
+  }
+
+  const settleRotateOutcome = (outcome: TlsOutcome) => {
+    if (!outcome.ok) {
+      const guidance = outcome.code ? tlsFailureGuidance(outcome.code, outcome.message) : { message: outcome.message, retryUseless: false }
+      showToast(
+        guidance.retryUseless ? guidance.message : `${guidance.message} Use Rotate TLS on this host's row to try again.`,
+        'error',
+      )
+      return
+    }
+    void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+    showToast(`TLS certificate rotated for ${outcome.agentUrl}. The agent is now serving the new certificate.`, 'success')
+  }
+
+  const settleWatchedTlsJobs = (jobs: TlsProvisioningJob[]) => {
+    for (const job of jobs) {
+      const watched = watchedTlsJobsRef.current.get(job.jobId)
+      if (!watched || job.state !== 'finished' || !job.outcome) continue
+      watchedTlsJobsRef.current.delete(job.jobId)
+      if (watched.kind === 'rotate') {
+        settleRotateOutcome(job.outcome)
+      } else if (watched.generation === provisionGenerationRef.current) {
+        // A stale completion (the operator cancelled or re-ran) must not act.
+        settleVerifyOutcome(job.hostId, job.outcome)
+      }
+    }
+  }
+
+  // A job can finish before the start call returns, so registering a watch also settles against the last snapshot.
+  const watchTlsJob = (jobId: string, watched: WatchedTlsJob) => {
+    watchedTlsJobsRef.current.set(jobId, watched)
+    settleWatchedTlsJobs(tlsJobsRef.current)
+  }
+
+  useMuxChannel(tlsProvisioningChannel, {
+    onData: (snapshot) => {
+      tlsJobsRef.current = snapshot.jobs
+      setTlsJobs(snapshot.jobs)
+      settleWatchedTlsJobs(snapshot.jobs)
+    },
+  })
+
   const provisionMutation = useMutation({
     mutationFn: async ({ hostId, agentUrl, generation }: { hostId: number; agentUrl: string; generation: number }) => {
       try {
-        const result = await rotateHostTls({
+        const started = await rotateHostTls({
           data: { hostId, agentUrl, acceptPlaintextEnrollment: plaintextConfirmHostIds.has(hostId) },
         })
-        return { result, generation, hostId }
+        return { started, generation }
       } catch (err) {
         // A throw carries the generation too, so a late one after cancel cannot resurface either.
         throw Object.assign(err instanceof Error ? err : new Error(String(err)), { provisionGeneration: generation })
       }
     },
-    onSuccess: ({ result, generation, hostId }) => {
-      // A stale completion (the operator cancelled or re-ran) must not act.
+    onSuccess: ({ started, generation }) => {
       if (generation !== provisionGenerationRef.current) return
-      if (!result.ok) {
-        // A plaintext enrollment needs the operator's explicit consent before anything changes.
-        if (result.code === 'plaintext_confirmation_required') {
-          setPlaintextConfirmHostIds((prev) => new Set(prev).add(hostId))
-        }
-        setProvisionError(tlsFailureGuidance(result.code, result.message))
-        return
-      }
-      void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      setProvisionError(null)
-      setPlaintextConfirmHostIds((prev) => {
-        if (!prev.has(result.hostId)) return prev
-        const next = new Set(prev)
-        next.delete(result.hostId)
-        return next
-      })
-      showToast(
-        result.enrolledOverPlainHttp
-          ? `Host verified. The agent is served over ${result.agentUrl}. It had no certificate, so the new one was accepted on first use over plain HTTP. Compare the fingerprint in this host's keypair dialog with the one the agent prints at startup (docker logs hlm-agent).`
-          : `Host verified. The agent is served over ${result.agentUrl}.`,
-        result.enrolledOverPlainHttp ? 'warning' : 'success',
-      )
+      setActiveVerifyJobId(started.jobId)
+      watchTlsJob(started.jobId, { kind: 'verify', generation })
     },
     onError: (err: unknown) => {
-      // Only a genuine throw lands here: a rejected session, a transport failure, or a bug.
+      // Only a failure to start lands here: a rejected session, a transport failure, or a bug.
       const generation = (err as { provisionGeneration?: number }).provisionGeneration ?? 0
       if (generation !== provisionGenerationRef.current) return
       setProvisionError({ message: err instanceof Error ? err.message : String(err), retryUseless: false })
@@ -132,6 +190,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     // Supersede the in-flight run so its late completion cannot act.
     provisionGenerationRef.current += 1
     provisionMutation.reset()
+    setActiveVerifyJobId(null)
     setProvisionError(null)
   }
 
@@ -215,28 +274,24 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
 
   const rotateTlsMutation = useMutation({
     mutationFn: (hostId: number) => {
-      setRotatingTlsHostIds((prev) => new Set(prev).add(hostId))
+      setStartingTlsHostIds((prev) => new Set(prev).add(hostId))
       return rotateHostTls({ data: { hostId } })
     },
-    onSuccess: (result, hostId) => {
-      setRotatingTlsHostIds((prev) => { const next = new Set(prev); next.delete(hostId); return next })
-      if (!result.ok) {
-        const guidance = tlsFailureGuidance(result.code, result.message)
-        showToast(
-          guidance.retryUseless ? guidance.message : `${guidance.message} Use Rotate TLS on this host's row to try again.`,
-          'error',
-        )
-        return
-      }
-      void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      showToast(`TLS certificate rotated for ${result.agentUrl}. The agent is now serving the new certificate.`, 'success')
+    onSuccess: (started, hostId) => {
+      setStartingTlsHostIds((prev) => withoutId(prev, hostId))
+      watchTlsJob(started.jobId, { kind: 'rotate' })
     },
     onError: (err: unknown, hostId: number) => {
-      setRotatingTlsHostIds((prev) => { const next = new Set(prev); next.delete(hostId); return next })
+      setStartingTlsHostIds((prev) => withoutId(prev, hostId))
       const message = err instanceof Error ? err.message : 'Failed to rotate the TLS certificate'
       showToast(message, 'error')
     },
   })
+
+  const rotatingTlsHostIds = new Set(startingTlsHostIds)
+  for (const job of tlsJobs) {
+    if (job.state === 'running') rotatingTlsHostIds.add(job.hostId)
+  }
 
   const healthMutation = useMutation({
     mutationFn: (hostId: number) => {
@@ -272,7 +327,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
         createHostMutation.mutate({ name, capabilities, staleHostId: stale?.id ?? null })
       }}
       isCreating={createHostMutation.isPending}
-      isProvisioning={provisionMutation.isPending}
+      isProvisioning={provisionMutation.isPending || activeVerifyJobId !== null}
       createError={createError}
       provisionError={provisionError}
       pendingHost={pendingHost}
