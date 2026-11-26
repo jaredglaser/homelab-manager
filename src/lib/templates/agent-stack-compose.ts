@@ -148,23 +148,25 @@ function buildStacksDirInit(config: AgentStackConfig): Record<string, unknown> {
   const owner = `${uid}:${gid}`;
   // Same uid, gid and supplementary groups as the agent service, so the test matches what the agent can do.
   const groups = config.capabilities.docker && config.capabilities.zfs ? '--groups=${DOCKER_GID}' : '--clear-groups';
-  const asAgent = `setpriv --reuid=${uid} --regid=${gid} ${groups}`;
-  const canUse = (dir: string) => `${asAgent} test -r ${dir} -a -w ${dir} -a -x ${dir}`;
-  const warn = (dir: string) =>
-    `echo "Could not give the agent (${owner}) read and write access to ${dir}. Fix its ownership on the host." >&2`;
-  const stacksDir = AGENT_STACKS_DIR;
-  const tlsDir = hostTlsDir();
+  // $$ is compose's escape for a literal $, so these reach sh as $1.
+  // Never recursive on ".": deployed stacks keep their own data there under other owners.
   // Exits 0 even when chown fails: blocking the agent would also hide its own not-writable warning.
-  const script = [
-    `${canUse(stacksDir)} || { chown ${owner} ${stacksDir} && chmod u+rwx ${stacksDir}; } || ${warn(stacksDir)}`,
-    `if [ -d ${tlsDir} ] && ! ${canUse(tlsDir)}; then { chown -R ${owner} ${tlsDir} && chmod u+rwx ${tlsDir}; } || ${warn(tlsDir)}; fi`,
-    'exit 0',
-  ].join('; ');
+  const script = `can_use() { setpriv --reuid=${uid} --regid=${gid} ${groups} test -r "$$1" -a -w "$$1" -a -x "$$1"; }
+warn() { echo "Could not give the agent (${owner}) read and write access to $$1. Fix its ownership on the host." >&2; }
+
+if ! can_use .; then
+  chown ${owner} . && chmod u+rwx . || warn "${AGENT_STACKS_DIR}"
+fi
+if [ -d ${TLS_DIR_NAME} ] && ! can_use ${TLS_DIR_NAME}; then
+  chown -R ${owner} ${TLS_DIR_NAME} && chmod u+rwx ${TLS_DIR_NAME} || warn "${hostTlsDir()}"
+fi
+exit 0
+`;
   return {
     image: '${AGENT_IMAGE}',
     user: '0:0',
     restart: 'no',
-    // Never recursive on the stacks dir: deployed stacks keep their own data there under other owners.
+    working_dir: AGENT_STACKS_DIR,
     entrypoint: ['sh', '-c', script],
     volumes: [STACKS_MOUNT],
     network_mode: 'none',

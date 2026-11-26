@@ -104,8 +104,6 @@ describe('generateAgentStackCompose', () => {
   });
 
   it('gives the agent access to the stacks dir only when it lacks it, before the agent starts', () => {
-    const stacks = '/opt/homelab-manager/stacks';
-    const tls = `${stacks}/hlm-agent-tls`;
     const cases: [AgentStackConfig, string, string][] = [
       [dockerOnlyConfig, 'agent:agent', 'setpriv --reuid=agent --regid=agent --clear-groups'],
       [zfsOnlyConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}', 'setpriv --reuid=${HLM_ZFS_UID} --regid=${HLM_ZFS_GID} --clear-groups'],
@@ -117,16 +115,16 @@ describe('generateAgentStackCompose', () => {
       expect(init.image).toBe('${AGENT_IMAGE}');
       expect(init.user).toBe('0:0');
       expect(init.network_mode).toBe('none');
+      expect(init.working_dir).toBe('/opt/homelab-manager/stacks');
       expect(init.volumes).toEqual([stacksMount]);
       const script: string = init.entrypoint[2];
-      expect(script).toStartWith(
-        `${asAgent} test -r ${stacks} -a -w ${stacks} -a -x ${stacks} || { chown ${owner} ${stacks} && chmod u+rwx ${stacks}; } || echo `,
-      );
+      expect(script).toStartWith(`can_use() { ${asAgent} test -r "$$1" -a -w "$$1" -a -x "$$1"; }\n`);
+      expect(script).toContain(`if ! can_use .; then\n  chown ${owner} . && chmod u+rwx . || warn `);
       expect(script).toContain(
-        `if [ -d ${tls} ] && ! ${asAgent} test -r ${tls} -a -w ${tls} -a -x ${tls}; then { chown -R ${owner} ${tls} && chmod u+rwx ${tls}; }`,
+        `if [ -d hlm-agent-tls ] && ! can_use hlm-agent-tls; then\n  chown -R ${owner} hlm-agent-tls && chmod u+rwx hlm-agent-tls || warn `,
       );
-      expect(script).not.toContain(`chown -R ${owner} ${stacks} `);
-      expect(script).toEndWith('; exit 0');
+      expect(script).not.toContain(`chown -R ${owner} . `);
+      expect(script).toEndWith('\nexit 0\n');
       expect(parsed.services.agent.depends_on['stacks-dir-init']).toEqual({
         condition: 'service_completed_successfully',
       });
