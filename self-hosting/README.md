@@ -256,7 +256,7 @@ Two separate credentials are involved, neither of which is an env var:
 >
 > **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard creates the host record and keypair when you enter the Compose File step. The generated .env carries the real `AGENT_TRUSTED_PUBKEY`, which the compose references, so the agent boots already trusting the manager. The Verify step then provisions TLS for the agent and moves the connection to HTTPS.
 >
-> **Stacks directory:** the agent writes stack files to `${HLM_STACKS_DIR}` on the host and runs as a non-root user. The generated compose includes a one-shot `stacks-dir-init` service that creates the directory and hands it to that user before the agent starts, so there is nothing to chown by hand. Deploy both generated files from the same wizard session. A compose from one run with an .env from another points the agent at a key no manager will sign with.
+> **Stacks directory:** the agent writes stack files to `${HLM_STACKS_DIR}` on the host and runs as a non-root user. Before the agent starts, the generated compose runs a one-shot `stacks-dir-init` service. If the agent user can't read and write the directory, it takes ownership. A directory the agent can already use is left as is. If the agent logs "Stacks directory is not writable" (for example on NFS with root_squash), run `chown "$(docker exec hlm-agent id -u):$(docker exec hlm-agent id -g)" /opt/homelab-manager/stacks` on the host. Deploy both generated files from the same wizard session. A compose from one run with an .env from another points the agent at a key no manager will sign with.
 >
 ### Rotating a host keypair
 

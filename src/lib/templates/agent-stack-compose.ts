@@ -131,24 +131,41 @@ const HEALTH_CHECK_RETRIES = 3;
 const STACKS_MOUNT = '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks';
 const STACKS_DIR_INIT_SERVICE = 'stacks-dir-init';
 
+function agentIds(config: AgentStackConfig): { uid: string; gid: string } {
+  return config.capabilities.zfs
+    ? { uid: '${HLM_ZFS_UID}', gid: '${HLM_ZFS_GID}' }
+    : { uid: 'agent', gid: 'agent' };
+}
+
 function agentRunAs(config: AgentStackConfig): string {
-  return config.capabilities.zfs ? '${HLM_ZFS_UID}:${HLM_ZFS_GID}' : 'agent:agent';
+  const { uid, gid } = agentIds(config);
+  return `${uid}:${gid}`;
 }
 
 // Docker creates a missing bind-mount source as root, and the agent runs unprivileged.
 function buildStacksDirInit(config: AgentStackConfig): Record<string, unknown> {
-  const owner = agentRunAs(config);
+  const { uid, gid } = agentIds(config);
+  const owner = `${uid}:${gid}`;
+  // Same uid, gid and supplementary groups as the agent service, so the test matches what the agent can do.
+  const groups = config.capabilities.docker && config.capabilities.zfs ? '--groups=${DOCKER_GID}' : '--clear-groups';
+  const asAgent = `setpriv --reuid=${uid} --regid=${gid} ${groups}`;
+  const canUse = (dir: string) => `${asAgent} test -r ${dir} -a -w ${dir} -a -x ${dir}`;
+  const warn = (dir: string) =>
+    `echo "Could not give the agent (${owner}) read and write access to ${dir}. Fix its ownership on the host." >&2`;
+  const stacksDir = AGENT_STACKS_DIR;
   const tlsDir = hostTlsDir();
+  // Exits 0 even when chown fails: blocking the agent would also hide its own not-writable warning.
+  const script = [
+    `${canUse(stacksDir)} || { chown ${owner} ${stacksDir} && chmod u+rwx ${stacksDir}; } || ${warn(stacksDir)}`,
+    `if [ -d ${tlsDir} ] && ! ${canUse(tlsDir)}; then { chown -R ${owner} ${tlsDir} && chmod u+rwx ${tlsDir}; } || ${warn(tlsDir)}; fi`,
+    'exit 0',
+  ].join('; ');
   return {
     image: '${AGENT_IMAGE}',
     user: '0:0',
     restart: 'no',
     // Never recursive on the stacks dir: deployed stacks keep their own data there under other owners.
-    entrypoint: [
-      'sh',
-      '-c',
-      `chown ${owner} ${AGENT_STACKS_DIR} && if [ -d ${tlsDir} ]; then chown -R ${owner} ${tlsDir}; fi`,
-    ],
+    entrypoint: ['sh', '-c', script],
     volumes: [STACKS_MOUNT],
     network_mode: 'none',
   };

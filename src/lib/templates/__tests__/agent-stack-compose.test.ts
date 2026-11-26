@@ -103,22 +103,30 @@ describe('generateAgentStackCompose', () => {
     }
   });
 
-  it('hands the stacks dir to the agent user before the agent starts', () => {
-    const cases: [AgentStackConfig, string][] = [
-      [dockerOnlyConfig, 'agent:agent'],
-      [zfsOnlyConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}'],
-      [dockerZfsConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}'],
+  it('gives the agent access to the stacks dir only when it lacks it, before the agent starts', () => {
+    const stacks = '/opt/homelab-manager/stacks';
+    const tls = `${stacks}/hlm-agent-tls`;
+    const cases: [AgentStackConfig, string, string][] = [
+      [dockerOnlyConfig, 'agent:agent', 'setpriv --reuid=agent --regid=agent --clear-groups'],
+      [zfsOnlyConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}', 'setpriv --reuid=${HLM_ZFS_UID} --regid=${HLM_ZFS_GID} --clear-groups'],
+      [dockerZfsConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}', 'setpriv --reuid=${HLM_ZFS_UID} --regid=${HLM_ZFS_GID} --groups=${DOCKER_GID}'],
     ];
-    for (const [config, owner] of cases) {
+    for (const [config, owner, asAgent] of cases) {
       const parsed = parseYaml(generateAgentStackCompose(config));
       const init = parsed.services['stacks-dir-init'];
       expect(init.image).toBe('${AGENT_IMAGE}');
       expect(init.user).toBe('0:0');
+      expect(init.network_mode).toBe('none');
       expect(init.volumes).toEqual([stacksMount]);
       const script: string = init.entrypoint[2];
-      expect(script).toStartWith(`chown ${owner} /opt/homelab-manager/stacks &&`);
-      expect(script).toContain(`chown -R ${owner} /opt/homelab-manager/stacks/hlm-agent-tls`);
-      expect(script).not.toContain('chown -R ' + owner + ' /opt/homelab-manager/stacks ');
+      expect(script).toStartWith(
+        `${asAgent} test -r ${stacks} -a -w ${stacks} -a -x ${stacks} || { chown ${owner} ${stacks} && chmod u+rwx ${stacks}; } || echo `,
+      );
+      expect(script).toContain(
+        `if [ -d ${tls} ] && ! ${asAgent} test -r ${tls} -a -w ${tls} -a -x ${tls}; then { chown -R ${owner} ${tls} && chmod u+rwx ${tls}; }`,
+      );
+      expect(script).not.toContain(`chown -R ${owner} ${stacks} `);
+      expect(script).toEndWith('; exit 0');
       expect(parsed.services.agent.depends_on['stacks-dir-init']).toEqual({
         condition: 'service_completed_successfully',
       });

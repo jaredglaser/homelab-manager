@@ -35,7 +35,7 @@ services:
     entrypoint:
       - sh
       - -c
-      - chown agent:agent /opt/homelab-manager/stacks && if [ -d /opt/homelab-manager/stacks/hlm-agent-tls ]; then chown -R agent:agent /opt/homelab-manager/stacks/hlm-agent-tls; fi
+      - setpriv --reuid=agent --regid=agent --clear-groups test -r /opt/homelab-manager/stacks -a -w /opt/homelab-manager/stacks -a -x /opt/homelab-manager/stacks || { chown agent:agent /opt/homelab-manager/stacks && chmod u+rwx /opt/homelab-manager/stacks; } || echo "Could not give the agent (agent:agent) read and write access to /opt/homelab-manager/stacks. Fix its ownership on the host." >&2; if [ -d /opt/homelab-manager/stacks/hlm-agent-tls ] && ! setpriv --reuid=agent --regid=agent --clear-groups test -r /opt/homelab-manager/stacks/hlm-agent-tls -a -w /opt/homelab-manager/stacks/hlm-agent-tls -a -x /opt/homelab-manager/stacks/hlm-agent-tls; then { chown -R agent:agent /opt/homelab-manager/stacks/hlm-agent-tls && chmod u+rwx /opt/homelab-manager/stacks/hlm-agent-tls; } || echo "Could not give the agent (agent:agent) read and write access to /opt/homelab-manager/stacks/hlm-agent-tls. Fix its ownership on the host." >&2; fi; exit 0
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
     network_mode: none
@@ -95,7 +95,7 @@ services:
     entrypoint:
       - sh
       - -c
-      - chown \${HLM_ZFS_UID}:\${HLM_ZFS_GID} /opt/homelab-manager/stacks && if [ -d /opt/homelab-manager/stacks/hlm-agent-tls ]; then chown -R \${HLM_ZFS_UID}:\${HLM_ZFS_GID} /opt/homelab-manager/stacks/hlm-agent-tls; fi
+      - setpriv --reuid=\${HLM_ZFS_UID} --regid=\${HLM_ZFS_GID} --clear-groups test -r /opt/homelab-manager/stacks -a -w /opt/homelab-manager/stacks -a -x /opt/homelab-manager/stacks || { chown \${HLM_ZFS_UID}:\${HLM_ZFS_GID} /opt/homelab-manager/stacks && chmod u+rwx /opt/homelab-manager/stacks; } || echo "Could not give the agent (\${HLM_ZFS_UID}:\${HLM_ZFS_GID}) read and write access to /opt/homelab-manager/stacks. Fix its ownership on the host." >&2; if [ -d /opt/homelab-manager/stacks/hlm-agent-tls ] && ! setpriv --reuid=\${HLM_ZFS_UID} --regid=\${HLM_ZFS_GID} --clear-groups test -r /opt/homelab-manager/stacks/hlm-agent-tls -a -w /opt/homelab-manager/stacks/hlm-agent-tls -a -x /opt/homelab-manager/stacks/hlm-agent-tls; then { chown -R \${HLM_ZFS_UID}:\${HLM_ZFS_GID} /opt/homelab-manager/stacks/hlm-agent-tls && chmod u+rwx /opt/homelab-manager/stacks/hlm-agent-tls; } || echo "Could not give the agent (\${HLM_ZFS_UID}:\${HLM_ZFS_GID}) read and write access to /opt/homelab-manager/stacks/hlm-agent-tls. Fix its ownership on the host." >&2; fi; exit 0
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
     network_mode: none
@@ -171,7 +171,7 @@ services:
     entrypoint:
       - sh
       - -c
-      - chown \${HLM_ZFS_UID}:\${HLM_ZFS_GID} /opt/homelab-manager/stacks && if [ -d /opt/homelab-manager/stacks/hlm-agent-tls ]; then chown -R \${HLM_ZFS_UID}:\${HLM_ZFS_GID} /opt/homelab-manager/stacks/hlm-agent-tls; fi
+      - setpriv --reuid=\${HLM_ZFS_UID} --regid=\${HLM_ZFS_GID} --groups=\${DOCKER_GID} test -r /opt/homelab-manager/stacks -a -w /opt/homelab-manager/stacks -a -x /opt/homelab-manager/stacks || { chown \${HLM_ZFS_UID}:\${HLM_ZFS_GID} /opt/homelab-manager/stacks && chmod u+rwx /opt/homelab-manager/stacks; } || echo "Could not give the agent (\${HLM_ZFS_UID}:\${HLM_ZFS_GID}) read and write access to /opt/homelab-manager/stacks. Fix its ownership on the host." >&2; if [ -d /opt/homelab-manager/stacks/hlm-agent-tls ] && ! setpriv --reuid=\${HLM_ZFS_UID} --regid=\${HLM_ZFS_GID} --groups=\${DOCKER_GID} test -r /opt/homelab-manager/stacks/hlm-agent-tls -a -w /opt/homelab-manager/stacks/hlm-agent-tls -a -x /opt/homelab-manager/stacks/hlm-agent-tls; then { chown -R \${HLM_ZFS_UID}:\${HLM_ZFS_GID} /opt/homelab-manager/stacks/hlm-agent-tls && chmod u+rwx /opt/homelab-manager/stacks/hlm-agent-tls; } || echo "Could not give the agent (\${HLM_ZFS_UID}:\${HLM_ZFS_GID}) read and write access to /opt/homelab-manager/stacks/hlm-agent-tls. Fix its ownership on the host." >&2; fi; exit 0
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
     network_mode: none
