@@ -135,7 +135,7 @@ export function isAgentRouteFailureCode(value: unknown): value is AgentRouteFail
   return typeof value === 'string' && (AGENT_ROUTE_FAILURE_CODES as readonly string[]).includes(value);
 }
 
-/** The codes POST /agent/update refuses with. The Agents page branches on this set, so a code from another route stays generic there. */
+/** The codes POST /agent/update refuses with. The Hosts page branches on this set, so a code from another route stays generic there. */
 export const AGENT_UPDATE_FAILURE_CODES = [
   'update_docker_unavailable',
   'update_request_invalid',
