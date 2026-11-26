@@ -170,6 +170,8 @@ exit 0
     entrypoint: ['sh', '-c', script],
     volumes: [STACKS_MOUNT],
     network_mode: 'none',
+    // The agent leaves this role out of its container inventory (AGENT_INIT_ROLE).
+    labels: ['hlm.managed=true', 'hlm.role=agent-init'],
   };
 }
 

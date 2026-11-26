@@ -116,6 +116,7 @@ describe('generateAgentStackCompose', () => {
       expect(init.user).toBe('0:0');
       expect(init.network_mode).toBe('none');
       expect(init.working_dir).toBe('/opt/homelab-manager/stacks');
+      expect(init.labels).toEqual(['hlm.managed=true', 'hlm.role=agent-init']);
       expect(init.volumes).toEqual([stacksMount]);
       const script: string = init.entrypoint[2];
       expect(script).toStartWith(`can_use() { ${asAgent} test -r "$$1" -a -w "$$1" -a -x "$$1"; }\n`);

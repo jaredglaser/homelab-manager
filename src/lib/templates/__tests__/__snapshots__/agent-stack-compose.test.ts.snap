@@ -50,6 +50,9 @@ services:
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
     network_mode: none
+    labels:
+      - hlm.managed=true
+      - hlm.role=agent-init
   agent:
     image: \${AGENT_IMAGE}
     container_name: hlm-agent
@@ -121,6 +124,9 @@ services:
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
     network_mode: none
+    labels:
+      - hlm.managed=true
+      - hlm.role=agent-init
   agent:
     image: \${AGENT_IMAGE}
     container_name: hlm-agent
@@ -208,6 +214,9 @@ services:
     volumes:
       - \${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks
     network_mode: none
+    labels:
+      - hlm.managed=true
+      - hlm.role=agent-init
   agent:
     image: \${AGENT_IMAGE}
     container_name: hlm-agent

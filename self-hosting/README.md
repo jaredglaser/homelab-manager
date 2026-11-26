@@ -13,7 +13,7 @@ A real-time monitoring dashboard for Docker containers, ZFS pools, and Proxmox V
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) 24+
-- [Docker Compose](https://docs.docker.com/compose/install/) v2.20+
+- [Docker Compose](https://docs.docker.com/compose/install/) v2.20+, on the dashboard host and on every agent host. The legacy `docker-compose` v1 cannot run the generated agent stack.
 
 ## Quick Start
 
