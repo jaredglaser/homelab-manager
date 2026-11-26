@@ -326,7 +326,7 @@ describe('AgentsOverviewView', () => {
     expect(screen.getByTestId('agent-update-available-callout')).toBeDefined()
     expect(screen.getByText('Agent update available on 1 host')).toBeDefined()
     expect(screen.getByText(AGENT_UPDATE_AVAILABLE_MESSAGE)).toBeDefined()
-    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('agent update available')
+    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('update available')
   })
 
   it('renders no update warning when every agent is current', async () => {

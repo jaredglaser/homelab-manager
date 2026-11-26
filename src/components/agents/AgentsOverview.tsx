@@ -73,7 +73,7 @@ function VersionCell({ agent }: { agent: AgentInventoryEntry }) {
   }
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="text-xs font-mono">Agent v{agent.version}</span>
+      <span className="text-xs font-mono whitespace-nowrap">Agent v{agent.version}</span>
       {agent.status !== 'online' && (
         <Tooltip>
           <TooltipTrigger
@@ -115,10 +115,10 @@ function AgentRow({
 }) {
   return (
     <div className="px-4 py-3 border-b border-border last:border-0" data-testid={`agent-row-${agent.name}`}>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Server size={16} className="text-muted-foreground shrink-0" aria-hidden />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-48">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <p className="text-sm font-semibold truncate">{agent.name}</p>
             <StatusBadge status={agent.status} />
             <VersionCell agent={agent} />
@@ -127,7 +127,7 @@ function AgentRow({
           <span className="text-xs font-mono text-muted-foreground block truncate">{agent.agentUrl}</span>
           {agent.status !== 'online' && agent.failure && <AgentFailure failure={agent.failure} />}
         </div>
-        <div className="flex items-center gap-4 shrink-0">
+        <div className="flex items-center gap-4 shrink-0 ml-auto">
           <Button
             requires="admin"
             size="sm"
