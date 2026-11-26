@@ -22,6 +22,7 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
     services['socket-proxy'] = buildSocketProxy();
   }
 
+  services[STACKS_DIR_INIT_SERVICE] = buildStacksDirInit(config);
   services['agent'] = buildAgent(config);
 
   const doc: Record<string, unknown> = { services };
@@ -127,6 +128,31 @@ export function hostTlsKeyPath(): string {
 }
 
 const HEALTH_CHECK_RETRIES = 3;
+const STACKS_MOUNT = '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks';
+const STACKS_DIR_INIT_SERVICE = 'stacks-dir-init';
+
+function agentRunAs(config: AgentStackConfig): string {
+  return config.capabilities.zfs ? '${HLM_ZFS_UID}:${HLM_ZFS_GID}' : 'agent:agent';
+}
+
+// Docker creates a missing bind-mount source as root, and the agent runs unprivileged.
+function buildStacksDirInit(config: AgentStackConfig): Record<string, unknown> {
+  const owner = agentRunAs(config);
+  const tlsDir = hostTlsDir();
+  return {
+    image: '${AGENT_IMAGE}',
+    user: '0:0',
+    restart: 'no',
+    // Never recursive on the stacks dir: deployed stacks keep their own data there under other owners.
+    entrypoint: [
+      'sh',
+      '-c',
+      `chown ${owner} ${AGENT_STACKS_DIR} && if [ -d ${tlsDir} ]; then chown -R ${owner} ${tlsDir}; fi`,
+    ],
+    volumes: [STACKS_MOUNT],
+    network_mode: 'none',
+  };
+}
 
 function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const { docker, zfs } = config.capabilities;
@@ -162,11 +188,9 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     volumes: [] as string[],
   };
 
-  const volumes: string[] = [
-    // An agent update replaces this container, so stack files in the container's
-    // writable layer would be lost.
-    '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks',
-  ];
+  // An agent update replaces this container, so stack files in the container's
+  // writable layer would be lost.
+  const volumes: string[] = [STACKS_MOUNT];
 
   if (zfs) {
     volumes.push(
@@ -174,7 +198,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
       '/dev/zfs:/dev/zfs'
     );
-    agent['user'] = '${HLM_ZFS_UID}:${HLM_ZFS_GID}';
+    agent['user'] = agentRunAs(config);
   }
 
   agent['volumes'] = volumes;
@@ -194,10 +218,14 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     agent['group_add'] = ['${DOCKER_GID}'];
   }
 
+  const dependsOn: Record<string, { condition: string }> = {
+    [STACKS_DIR_INIT_SERVICE]: { condition: 'service_completed_successfully' },
+  };
   if (docker) {
     agent['networks'] = ['agent-internal', 'agent-public'];
-    agent['depends_on'] = ['socket-proxy'];
+    dependsOn['socket-proxy'] = { condition: 'service_started' };
   }
+  agent['depends_on'] = dependsOn;
 
   agent['labels'] = ['hlm.managed=true', 'hlm.role=agent'];
 
