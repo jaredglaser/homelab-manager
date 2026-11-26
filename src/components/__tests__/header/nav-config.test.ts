@@ -116,7 +116,7 @@ describe('handlePrefetch', () => {
   it('does not throw or produce an unhandled rejection when prefetchQuery rejects', async () => {
     // First call: resolved mock so the .not.toThrow() check doesn't consume the rejection.
     mockPrefetchQuery.mockResolvedValueOnce(undefined)
-    // Second call: rejects — this is the one tested for unhandled rejection.
+    // Second call: rejects. This is the one tested for unhandled rejection.
     mockPrefetchQuery.mockImplementationOnce(() => Promise.reject(new Error('network error')))
     expect(() => handlePrefetch('/docker')).not.toThrow()
     let unhandledRejection = false
