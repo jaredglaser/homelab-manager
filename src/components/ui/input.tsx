@@ -8,7 +8,7 @@ function Input({ className, ...props }: ComponentProps<typeof InputPrimitive>) {
     <InputPrimitive
       data-slot="input"
       className={cn(
-        'h-10 w-full min-w-0 rounded-lg border border-foreground/25 bg-transparent px-3 py-1 text-sm transition-colors outline-none placeholder:text-muted-foreground hover:border-foreground focus:border-primary focus:ring-1 focus:ring-primary disabled:pointer-events-none disabled:opacity-50',
+        'h-10 w-full min-w-0 rounded-lg border border-foreground/25 bg-transparent px-3 py-1 text-sm transition-colors outline-none placeholder:text-muted-foreground hover:border-foreground focus:border-primary focus:ring-1 focus:ring-primary disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:hover:border-destructive aria-invalid:focus:border-destructive aria-invalid:focus:ring-destructive',
         className,
       )}
       {...props}

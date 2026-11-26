@@ -17,6 +17,7 @@ import {
   triggerDeploySchema,
   getDeployHistorySchema,
   saveComposeFileSchema,
+  createStackSchema,
   resumeDeploySchema,
   rejectDeploySchema,
   controlStackSchema,
@@ -215,12 +216,6 @@ export const listManagedHostNames = createServerFn({ method: 'GET' })
     const { getManagedHostNames } = await import('@/lib/stacks/stack-service');
     return getManagedHostNames();
   });
-
-const createStackSchema = z.object({
-  stackName: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/),
-  host: z.string().min(1),
-  autoDeploy: z.boolean(),
-});
 
 /**
  * Create a new stack: adds an empty compose file and updates the manifest in one commit.

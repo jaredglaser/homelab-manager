@@ -50,7 +50,7 @@ function AlertDescription({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div
       data-slot="alert-description"
-      className={cn('col-start-2 grid justify-items-start gap-1 [&_p]:leading-relaxed', className)}
+      className={cn('col-start-2 space-y-1 [&_p]:leading-relaxed', className)}
       {...props}
     />
   );

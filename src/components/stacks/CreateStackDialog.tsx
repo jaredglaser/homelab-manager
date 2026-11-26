@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import type { z } from 'zod';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -8,18 +11,14 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { createStackSchema } from '@/data/stacks/schemas';
 
-const STACK_NAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-
-interface CreateStackInput {
-  stackName: string;
-  host: string;
-  autoDeploy: boolean;
-}
+type CreateStackInput = z.infer<typeof createStackSchema>;
 
 interface CreateStackDialogProps {
   open: boolean;
@@ -38,45 +37,34 @@ export default function CreateStackDialog({
   isLoading,
   error,
 }: CreateStackDialogProps) {
-  const [stackName, setStackName] = useState('');
-  const [host, setHost] = useState(hosts[0] ?? '');
-  const [autoDeploy, setAutoDeploy] = useState(false);
+  const form = useForm<CreateStackInput>({
+    mode: 'all',
+    defaultValues: { stackName: '', host: hosts[0] ?? '', autoDeploy: false },
+    resolver: zodResolver(createStackSchema),
+  });
+  const { reset, setValue, getValues } = form;
+  const values = form.watch();
+  const isValid = createStackSchema.safeParse(values).success;
 
   useEffect(() => {
-    if (open) {
-      setStackName('');
-      setHost(hosts[0] ?? '');
-      setAutoDeploy(false);
-    }
+    if (open) reset({ stackName: '', host: hosts[0] ?? '', autoDeploy: false });
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reconcile host selection when the available hosts list changes (e.g., background refresh)
   useEffect(() => {
     if (!open) return;
-    if (hosts.length === 0) {
-      setHost('');
-    } else {
-      setHost((current) => hosts.includes(current) ? current : hosts[0]);
-    }
-  }, [open, hosts]);
-
-  const nameError =
-    stackName.length > 0 && !STACK_NAME_REGEX.test(stackName)
-      ? 'Must start with a letter and contain only letters, numbers, hyphens, and underscores.'
-      : '';
-  const isValid = stackName.length > 0 && STACK_NAME_REGEX.test(stackName) && host.length > 0;
+    if (!hosts.includes(getValues('host'))) setValue('host', hosts[0] ?? '');
+  }, [open, hosts, getValues, setValue]);
 
   function handleClose() {
-    setStackName('');
-    setHost(hosts[0] ?? '');
-    setAutoDeploy(false);
+    reset({ stackName: '', host: hosts[0] ?? '', autoDeploy: false });
     onClose();
   }
 
-  function handleSubmit() {
-    if (!isValid || isLoading) return;
-    onSubmit({ stackName, host, autoDeploy });
-  }
+  const handleSubmit = form.handleSubmit((input) => {
+    if (isLoading) return;
+    onSubmit(input);
+  });
 
   return (
     <Dialog open={open} busy={isLoading} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
@@ -88,27 +76,15 @@ export default function CreateStackDialog({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="stack-name">Stack Name</Label>
-            <Input
-              id="stack-name"
-              value={stackName}
-              onChange={(e) => setStackName(e.target.value)}
-              aria-invalid={!!nameError}
-              className={nameError ? 'border-destructive focus:border-destructive focus:ring-destructive' : ''}
-              autoFocus
-              disabled={isLoading}
-            />
-            <p className={`text-xs ${nameError ? 'text-destructive' : 'text-muted-foreground'}`}>
-              {nameError || 'e.g. my-app or my_stack'}
-            </p>
-          </div>
+          <Field id="stack-name" label="Stack Name" error={form.formState.errors.stackName?.message} hint="e.g. my-app or my_stack">
+            {(control) => <Input {...control} autoFocus autoComplete="off" disabled={isLoading} {...form.register('stackName')} />}
+          </Field>
           {hosts.length > 1 && (
             <div className="flex flex-col gap-1">
               <Label htmlFor="target-host" className="text-sm mb-1">Target Host</Label>
               <Select
-                value={host}
-                onValueChange={(value) => { if (value) setHost(value); }}
+                value={values.host}
+                onValueChange={(value) => { if (value) setValue('host', value, { shouldDirty: true }); }}
                 disabled={isLoading}
               >
                 <SelectTrigger id="target-host">
@@ -127,8 +103,8 @@ export default function CreateStackDialog({
           <div className="flex flex-col gap-1">
             <Label className="text-sm mb-1">Deploy Mode</Label>
             <RadioGroup
-              value={autoDeploy ? 'auto' : 'manual'}
-              onValueChange={(value) => setAutoDeploy(value === 'auto')}
+              value={values.autoDeploy ? 'auto' : 'manual'}
+              onValueChange={(value) => setValue('autoDeploy', value === 'auto', { shouldDirty: true })}
               disabled={isLoading}
             >
               <Label className="flex items-center gap-3 cursor-pointer" htmlFor="deploy-auto">
@@ -152,7 +128,7 @@ export default function CreateStackDialog({
           <Button variant="ghost" className="text-foreground" onClick={handleClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!isValid}>
+          <Button onClick={() => { void handleSubmit(); }} disabled={!isValid}>
             Create Stack
           </Button>
         </DialogFooter>

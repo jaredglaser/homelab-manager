@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { setupUser } from '@/lib/test/user-event';
 import CreateStackDialog from '../CreateStackDialog';
 
@@ -42,22 +42,26 @@ describe('CreateStackDialog', () => {
     expect(btn.hasAttribute('disabled')).toBe(true);
   });
 
-  it('shows error for invalid stack name starting with number', () => {
+  it('shows error for invalid stack name starting with number', async () => {
     render(<CreateStackDialog {...defaultProps} />);
     const input = screen.getByLabelText('Stack Name');
     fireEvent.change(input, { target: { value: '1invalid' } });
-    expect(
-      screen.getByText((t) => t.includes('Must start with a letter')),
-    ).toBeDefined();
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Must start with a letter and contain only letters, numbers, hyphens, and underscores.',
+    );
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(true);
   });
 
-  it('shows error for invalid stack name with spaces', () => {
+  it('shows error for invalid stack name with spaces', async () => {
     render(<CreateStackDialog {...defaultProps} />);
     const input = screen.getByLabelText('Stack Name');
     fireEvent.change(input, { target: { value: 'bad name' } });
-    expect(
-      screen.getByText((t) => t.includes('Must start with a letter')),
-    ).toBeDefined();
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Must start with a letter and contain only letters, numbers, hyphens, and underscores.',
+    );
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(true);
   });
 
   it('does not show error for valid stack name', () => {
@@ -83,13 +87,13 @@ describe('CreateStackDialog', () => {
     expect(btn.hasAttribute('disabled')).toBe(true);
   });
 
-  it('calls onSubmit with correct data when submitted', () => {
+  it('calls onSubmit with correct data when submitted', async () => {
     const onSubmit = mock(() => {});
     render(<CreateStackDialog {...defaultProps} onSubmit={onSubmit} />);
     const input = screen.getByLabelText('Stack Name');
     fireEvent.change(input, { target: { value: 'mystack' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Stack' }));
-    expect(onSubmit).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith({
       stackName: 'mystack',
       host: 'server1',
@@ -97,7 +101,7 @@ describe('CreateStackDialog', () => {
     });
   });
 
-  it('calls onSubmit with autoDeploy true when Auto is selected', () => {
+  it('calls onSubmit with autoDeploy true when Auto is selected', async () => {
     const onSubmit = mock(() => {});
     render(<CreateStackDialog {...defaultProps} onSubmit={onSubmit} />);
     const input = screen.getByLabelText('Stack Name');
@@ -106,11 +110,11 @@ describe('CreateStackDialog', () => {
     const autoRadio = screen.getByDisplayValue('auto');
     fireEvent.click(autoRadio);
     fireEvent.click(screen.getByRole('button', { name: 'Create Stack' }));
-    expect(onSubmit).toHaveBeenCalledWith({
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
       stackName: 'mystack',
       host: 'server1',
       autoDeploy: true,
-    });
+    }));
   });
 
   it('calls onSubmit with the newly selected host', async () => {
@@ -128,7 +132,25 @@ describe('CreateStackDialog', () => {
     fireEvent.click(option);
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Stack' }));
-    expect(onSubmit).toHaveBeenCalledWith({ stackName: 'myapp', host: 'server2', autoDeploy: false });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ stackName: 'myapp', host: 'server2', autoDeploy: false }));
+  });
+
+  it('asks for a name when the field is left empty', async () => {
+    const user = setupUser();
+    render(<CreateStackDialog {...defaultProps} />);
+    await user.click(screen.getByLabelText('Stack Name'));
+    await user.tab();
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter a name for this stack.');
+  });
+
+  it('sends nothing for an invalid name', async () => {
+    const user = setupUser();
+    const onSubmit = mock(() => {});
+    render(<CreateStackDialog {...defaultProps} onSubmit={onSubmit} />);
+    await user.type(screen.getByLabelText('Stack Name'), 'bad name');
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('button', { name: 'Create Stack' }));
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('calls onClose when Cancel is clicked', () => {

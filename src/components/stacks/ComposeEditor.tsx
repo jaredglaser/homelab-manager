@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Controller, useFormContext, useFormState } from 'react-hook-form';
+import { Controller, useFormContext, useFormState, useWatch } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks/functions';
+import { composeContentSchema } from '@/data/stacks/schemas';
+import { useToast } from '@/hooks/toastAtom';
 import { Spinner } from '@/components/ui/spinner';
 import type { StackFormValues } from '@/components/stacks/stack-form';
 
@@ -29,6 +31,9 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
   const { control, getValues, resetField } = useFormContext<StackFormValues>();
   const { dirtyFields } = useFormState({ control, name: 'compose' });
   const isDirty = !!dirtyFields.compose;
+  const contentCheck = composeContentSchema.safeParse(useWatch({ control, name: 'compose' }));
+  const contentError = contentCheck.success ? null : contentCheck.error.issues[0].message;
+  const { showToast } = useToast();
 
   // Monaco setup (local workers + YAML support) is in a separate file that uses
   // Vite's ?worker imports. Must complete before Editor mounts to avoid
@@ -56,6 +61,9 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
       }
       await queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
     },
+    onError: (err) => {
+      showToast(err instanceof Error ? err.message : String(err), 'error');
+    },
   });
 
   const handleEditorMount = useCallback((editorInstance: editor.IStandaloneCodeEditor) => {
@@ -74,7 +82,12 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
         <p className="text-sm font-medium flex-1">
           docker-compose.yml
         </p>
-        {isDirty && (
+        {isDirty && contentError && (
+          <span role="alert" className="text-xs text-destructive">
+            {contentError}
+          </span>
+        )}
+        {isDirty && !contentError && (
           <span className="text-xs opacity-60">
             Unsaved changes
           </span>
@@ -83,7 +96,7 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
           requires="write"
           size="sm"
           onClick={() => saveMutation.mutate(getValues('compose'))}
-          disabled={!isDirty || saveMutation.isPending}
+          disabled={!isDirty || contentError !== null || saveMutation.isPending}
           className="normal-case"
         >
           {saveMutation.isPending ? <Spinner className="size-3.5" /> : <Save size={14} />}

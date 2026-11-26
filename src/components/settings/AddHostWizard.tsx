@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react'
+import { FormProvider, useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import { Spinner } from '@/components/ui/spinner'
@@ -11,6 +13,13 @@ import ZfsSetupStep from '@/components/settings/wizard-steps/ZfsSetupStep'
 import ComposeFileStep from '@/components/settings/wizard-steps/ComposeFileStep'
 import ConfigurationStep from '@/components/settings/wizard-steps/ConfigurationStep'
 import VerifyConnectionStep from '@/components/settings/wizard-steps/VerifyConnectionStep'
+import {
+  ADD_HOST_FORM_DEFAULTS,
+  addHostFormSchema,
+  firstContactAgentUrl,
+  isAddHostStepValid,
+  type AddHostFormValues,
+} from '@/components/settings/add-host-form'
 
 const WIZARD_STEPS = ['Capabilities', 'ZFS Setup', 'Compose File', 'Configuration', 'Verify Connection'] as const
 
@@ -50,14 +59,14 @@ export default function AddHostWizard({
   onDiscard,
 }: AddHostWizardProps) {
   const [activeStep, setActiveStep] = useState(0)
-  const [docker, setDocker] = useState(true)
-  const [zfs, setZfs] = useState(false)
-  const [hlmZfsUid, setHlmZfsUid] = useState('')
-  const [hlmZfsGid, setHlmZfsGid] = useState('')
-  const [dockerGid, setDockerGid] = useState('')
-  const [name, setName] = useState('')
-  const [agentHost, setAgentHost] = useState('')
-  const [agentPort, setAgentPort] = useState('9090')
+  const form = useForm<AddHostFormValues>({
+    mode: 'all',
+    defaultValues: ADD_HOST_FORM_DEFAULTS,
+    resolver: zodResolver(addHostFormSchema),
+  })
+  const values = form.watch()
+  const { docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid } = values
+  const name = values.name.trim()
 
   const visibleSteps = useMemo(() => {
     if (zfs) return [...WIZARD_STEPS]
@@ -67,7 +76,7 @@ export default function AddHostWizard({
   const currentStepName = visibleSteps[activeStep]
 
   const agentStackConfig = useMemo(() => ({
-    hostName: name.trim(),
+    hostName: name,
     agentTrustedPubkey: pendingHost ? JSON.stringify(pendingHost.publicJwk) : '',
     agentImage: getAgentImage(),
     capabilities: { docker, zfs },
@@ -94,10 +103,14 @@ export default function AddHostWizard({
     }
   }, [agentStackConfig, pendingHost])
 
+  const isCurrentStepValid = isAddHostStepValid(currentStepName, values)
+  const canVerify = !!pendingHost && isAddHostStepValid('Verify Connection', values)
+
   function handleNext() {
+    if (!isCurrentStepValid) return
     const targetStep = visibleSteps[activeStep + 1]
     if (targetStep === 'Compose File') {
-      onCreateHost(name.trim(), { docker, zfs })
+      onCreateHost(name, { docker, zfs })
     }
     setActiveStep((prev) => Math.min(prev + 1, visibleSteps.length - 1))
   }
@@ -108,136 +121,95 @@ export default function AddHostWizard({
 
   function handleVerify() {
     if (!pendingHost || !canVerify || isProvisioning) return
-    onVerify(pendingHost.id, `http://${agentHost.trim()}:${portNumber}`)
+    onVerify(pendingHost.id, firstContactAgentUrl(values))
   }
 
   function handleReset() {
     onDiscard()
     setActiveStep(0)
-    setDocker(true)
-    setZfs(false)
-    setHlmZfsUid('')
-    setHlmZfsGid('')
-    setDockerGid('')
-    setName('')
-    setAgentHost('')
-    setAgentPort('9090')
+    form.reset(ADD_HOST_FORM_DEFAULTS)
   }
 
-  const canProceedFromCapabilities = (docker || zfs) && name.trim().length > 0
-  const isNonNegativeInt = (v: string) => /^\d+$/.test(v.trim())
-  const canProceedFromZfs = isNonNegativeInt(hlmZfsUid) && isNonNegativeInt(hlmZfsGid)
-    && (!docker || isNonNegativeInt(dockerGid))
-
-  // First contact is always plain HTTP: the scheme is not an operator choice, so the URL is composed here.
-  // Bracketed IPv6 literals are accepted and stay bracketed in the URL so new URL() parses the host.
-  const AGENT_HOST_PATTERN = /^[a-zA-Z0-9._-]+$/
-  const AGENT_HOST_IPV6_PATTERN = /^\[[0-9a-fA-F:.]+\]$/
-  const isValidAgentHost = (host: string) => AGENT_HOST_PATTERN.test(host) || AGENT_HOST_IPV6_PATTERN.test(host)
-  const portNumber = Number(agentPort.trim())
-  const canVerify = !!pendingHost
-    && agentHost.trim().length > 0
-    && isValidAgentHost(agentHost.trim())
-    && Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535
-
   return (
-    <div className="flex flex-col gap-4 pt-4 border-t border-border">
-      <p className="text-sm font-medium">Add Host</p>
+    <FormProvider {...form}>
+      <div className="flex flex-col gap-4 pt-4 border-t border-border">
+        <p className="text-sm font-medium">Add Host</p>
 
-      <Stepper steps={visibleSteps} activeStep={activeStep} />
+        <Stepper steps={visibleSteps} activeStep={activeStep} />
 
-      <div className="min-h-[200px]">
-        {currentStepName === 'Capabilities' && (
-          <CapabilitiesStep
-            name={name}
-            docker={docker}
-            zfs={zfs}
-            onNameChange={setName}
-            onDockerChange={setDocker}
-            onZfsChange={setZfs}
-          />
-        )}
+        <div className="min-h-[200px]">
+          {currentStepName === 'Capabilities' && (
+            <CapabilitiesStep />
+          )}
 
-        {currentStepName === 'ZFS Setup' && (
-          <ZfsSetupStep
-            docker={docker}
-            hlmZfsUid={hlmZfsUid}
-            hlmZfsGid={hlmZfsGid}
-            dockerGid={dockerGid}
-            onHlmZfsUidChange={setHlmZfsUid}
-            onHlmZfsGidChange={setHlmZfsGid}
-            onDockerGidChange={setDockerGid}
-          />
-        )}
+          {currentStepName === 'ZFS Setup' && (
+            <ZfsSetupStep docker={docker} />
+          )}
 
-        {currentStepName === 'Compose File' && (
-          <div className="flex flex-col gap-2">
-            {createError && (
-              <Alert variant="error">
-                <AlertDescription>{createError}</AlertDescription>
-              </Alert>
+          {currentStepName === 'Compose File' && (
+            <div className="flex flex-col gap-2">
+              {createError && (
+                <Alert variant="error">
+                  <AlertDescription>{createError}</AlertDescription>
+                </Alert>
+              )}
+              {isCreating ? (
+                <div data-testid="step-compose-loading" className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Spinner className="size-3.5" />
+                  Generating this host's keypair…
+                </div>
+              ) : composeYaml ? (
+                <ComposeFileStep composeYaml={composeYaml} />
+              ) : !createError ? (
+                <p className="text-sm text-muted-foreground">The keypair is generated when you reach this step.</p>
+              ) : null}
+            </div>
+          )}
+
+          {currentStepName === 'Configuration' && (
+            <ConfigurationStep envFile={envFile ?? ''} />
+          )}
+
+          {currentStepName === 'Verify Connection' && (
+            <VerifyConnectionStep
+              isProvisioning={isProvisioning}
+              canVerify={canVerify}
+              error={provisionError}
+              onVerify={handleVerify}
+              onCancel={onCancelVerify}
+            />
+          )}
+        </div>
+
+        <div className="flex justify-between">
+          <div>
+            {activeStep > 0 && (
+              <Button size="sm" variant="ghost" className="text-foreground" onClick={handleBack} disabled={isCreating || isProvisioning}>
+                Back
+              </Button>
             )}
-            {isCreating ? (
-              <div data-testid="step-compose-loading" className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Spinner className="size-3.5" />
-                Generating this host's keypair…
-              </div>
-            ) : composeYaml ? (
-              <ComposeFileStep composeYaml={composeYaml} />
-            ) : !createError ? (
-              <p className="text-sm text-muted-foreground">The keypair is generated when you reach this step.</p>
-            ) : null}
           </div>
-        )}
-
-        {currentStepName === 'Configuration' && (
-          <ConfigurationStep envFile={envFile ?? ''} />
-        )}
-
-        {currentStepName === 'Verify Connection' && (
-          <VerifyConnectionStep
-            agentHost={agentHost}
-            agentPort={agentPort}
-            isProvisioning={isProvisioning}
-            canVerify={canVerify}
-            error={provisionError}
-            onAgentHostChange={setAgentHost}
-            onAgentPortChange={setAgentPort}
-            onVerify={handleVerify}
-            onCancel={onCancelVerify}
-          />
-        )}
-      </div>
-
-      <div className="flex justify-between">
-        <div>
-          {activeStep > 0 && (
-            <Button size="sm" variant="ghost" className="text-foreground" onClick={handleBack} disabled={isCreating || isProvisioning}>
-              Back
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" className="text-foreground" onClick={handleReset} disabled={isCreating || isProvisioning}>
+              Reset
             </Button>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="ghost" className="text-foreground" onClick={handleReset} disabled={isCreating || isProvisioning}>
-            Reset
-          </Button>
-          {currentStepName !== 'Verify Connection' && (
-            <Button
-              requires="admin"
-              size="sm"
-              onClick={handleNext}
-              disabled={
-                isCreating
-                || (currentStepName === 'Capabilities' && !canProceedFromCapabilities)
-                || (currentStepName === 'ZFS Setup' && !canProceedFromZfs)
-                || (currentStepName === 'Compose File' && !pendingHost)
-              }
-            >
-              Next
-            </Button>
-          )}
+            {currentStepName !== 'Verify Connection' && (
+              <Button
+                requires="admin"
+                size="sm"
+                onClick={handleNext}
+                disabled={
+                  isCreating
+                  || !isCurrentStepValid
+                  || (currentStepName === 'Compose File' && !pendingHost)
+                }
+              >
+                Next
+              </Button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </FormProvider>
   )
 }

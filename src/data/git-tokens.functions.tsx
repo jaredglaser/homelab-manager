@@ -9,11 +9,12 @@ import { loadMasterKeyring } from '@/lib/crypto/master-key';
 import { encryptValue } from '@/lib/crypto/encrypted-value';
 import { GitTokenRepository } from '@/lib/database/repositories/git-token-repository';
 import { hashGitToken } from '@/lib/git/git-token-auth';
+import { createGitTokenSchema } from '@/data/git-tokens.schemas';
 
 /** Creates a git token. The raw token is returned once and never stored in plaintext. */
 export const createGitToken = createServerFn()
   .middleware([authMiddleware, roleMiddleware('admin', 'operator')])
-  .validator(z.object({ label: z.string().min(1).max(100) }))
+  .validator(createGitTokenSchema)
   .handler(async ({ data, context }): Promise<{ token: string }> => {
     const rawToken = randomBytes(32).toString('hex');
 

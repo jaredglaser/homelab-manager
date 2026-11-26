@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { seedSession } from '@/lib/test/session'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import '@/lib/test/testing-library'
@@ -703,6 +703,98 @@ describe('AddHostWizard', () => {
       render(<AddHostWizard {...makeProps()} />)
       await user.type(screen.getByLabelText('Host Name'), '   ')
       expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    const HOST_NAME_CHARACTERS_MESSAGE = 'Use only letters, numbers, hyphens and underscores. Spaces are not allowed.'
+
+    it.each(['my host', 'nas.local'])('explains what is wrong with the host name %p and blocks Next', async (value) => {
+      const onCreateHost = mock(() => undefined)
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps({ onCreateHost })} />)
+      await user.type(screen.getByLabelText('Host Name'), value)
+      expect((await screen.findByRole('alert')).textContent).toBe(HOST_NAME_CHARACTERS_MESSAGE)
+      expect(screen.getByLabelText('Host Name').getAttribute('aria-invalid')).toBe('true')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+      await user.click(nextButton())
+      expect(onCreateHost).not.toHaveBeenCalled()
+      expect(screen.getByTestId('step-capabilities')).toBeDefined()
+    })
+
+    it('clears the host name message once the name is valid', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      const input = screen.getByLabelText('Host Name')
+      await user.type(input, 'my host')
+      await screen.findByText(HOST_NAME_CHARACTERS_MESSAGE)
+      await user.clear(input)
+      await user.type(input, 'my-host')
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+      expect(input.getAttribute('aria-invalid')).toBe('false')
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+    })
+
+    it('rejects a host name longer than the server allows', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await user.click(screen.getByLabelText('Host Name'))
+      await user.paste('x'.repeat(101))
+      expect((await screen.findByRole('alert')).textContent).toBe('Use 100 characters or fewer.')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it('asks for a host name when the field is left empty', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await user.click(screen.getByLabelText('Host Name'))
+      await user.tab()
+      expect((await screen.findByRole('alert')).textContent).toBe('Enter a name for this host.')
+    })
+
+    it('says a capability is needed when both are cleared', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await user.click(screen.getByLabelText('Docker capability'))
+      expect((await screen.findByRole('alert')).textContent).toBe('Select at least one capability.')
+      await user.click(screen.getByLabelText('ZFS capability'))
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    })
+
+    it('explains a ZFS id that is not a whole number', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1.5')
+      expect((await screen.findByRole('alert')).textContent).toBe('Enter the number after uid= in the command output.')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it.each([
+      ['http://nas.local', 'Enter only a host name or IP address, without http:// or a port.'],
+      ['256.256.256.256', 'This is not a valid host name or IP address.'],
+    ])('explains what is wrong with the agent host %p and blocks Verify', async (value, message) => {
+      const onVerify = mock(() => undefined)
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps({ onVerify })} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      await user.type(screen.getByLabelText('Agent host or IP'), value)
+      expect((await screen.findByRole('alert')).textContent).toBe(message)
+      expect(verifyButton().hasAttribute('disabled')).toBe(true)
+      await user.click(verifyButton())
+      expect(onVerify).not.toHaveBeenCalled()
+    })
+
+    it('explains an agent port that is out of range', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await enterHostName(user)
+      await advanceToVerify(user)
+      await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
+      await user.clear(screen.getByLabelText('Agent port'))
+      await user.type(screen.getByLabelText('Agent port'), '70000')
+      expect((await screen.findByRole('alert')).textContent).toBe('Enter a port from 1 to 65535.')
+      expect(verifyButton().hasAttribute('disabled')).toBe(true)
     })
 
     it('keeps Next disabled when neither Docker nor ZFS is selected', async () => {

@@ -10,7 +10,7 @@
 | **Build** | [Vite](https://vite.dev) | Dev server and production bundler |
 | **UI** | [Base UI](https://base-ui.com) + [TailwindCSS](https://tailwindcss.com) v4 | shadcn-style components on `@base-ui/react` (vendored in `src/components/ui/`) and utility-first styling |
 | **Tables** | [TanStack Table](https://tanstack.com/table) | Headless table engine behind the shared DataTable (CSS Grid rows) |
-| **Forms** | [react-hook-form](https://react-hook-form.com) | Stack editor draft state and dirty tracking |
+| **Forms** | [react-hook-form](https://react-hook-form.com) + [zod](https://zod.dev) | Form state, with input checked against the same schemas the server uses |
 | **Toasts** | [sonner](https://sonner.emilkowal.ski) | Toast notifications |
 | **Docker** | [Dockerode](https://github.com/apocas/dockerode) | Docker Engine API client |
 | **Git** | [isomorphic-git](https://isomorphic-git.org/) | Server-side git operations for stack repository management |
