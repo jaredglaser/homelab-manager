@@ -95,22 +95,24 @@ describe('AgentsOverviewView', () => {
   it('shows a loading state', async () => {
     const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     render(<AgentsOverviewView {...makeProps({ isLoading: true, agents: [] })} />)
-    expect(screen.getByText('Loading agents…')).toBeDefined()
+    expect(screen.getByText('Loading hosts…')).toBeDefined()
   })
 
   it('shows an error state with a retry button', async () => {
     const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     const onRetry = mock(noop)
     render(<AgentsOverviewView {...makeProps({ isError: true, agents: [], onRetry })} />)
-    expect(screen.getByText('Failed to load agents')).toBeDefined()
-    fireEvent.click(screen.getByLabelText('Retry loading agents'))
+    expect(screen.getByText('Failed to load hosts')).toBeDefined()
+    expect(screen.getByText('The host list could not be fetched. Check the server logs and try again.')).toBeDefined()
+    fireEvent.click(screen.getByLabelText('Retry loading hosts'))
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
 
-  it('shows an empty state when no agents are registered', async () => {
+  it('shows an empty state when no hosts are registered', async () => {
     const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
     render(<AgentsOverviewView {...makeProps({ agents: [] })} />)
-    expect(screen.getByText('No agents registered')).toBeDefined()
+    expect(screen.getByText('No hosts registered')).toBeDefined()
+    expect(screen.getByText('Add a host under Settings, then Managed Hosts, and it will appear here.')).toBeDefined()
   })
 
   it('renders name, status, version, and URL per agent', async () => {
@@ -129,8 +131,11 @@ describe('AgentsOverviewView', () => {
     expect(screen.getByText('media-server')).toBeDefined()
     expect(screen.getByText('Online')).toBeDefined()
     expect(screen.getByText('Offline')).toBeDefined()
-    expect(screen.getByText('v0.2.0')).toBeDefined()
-    expect(screen.getByText('v0.1.0')).toBeDefined()
+    expect(screen.getByText('Agent v0.2.0')).toBeDefined()
+    expect(screen.getByText('Agent v0.1.0')).toBeDefined()
+    expect(screen.getAllByText('Update agent')).toHaveLength(2)
+    expect(screen.getByTestId('agent-row-homeserver').querySelector('.lucide-server')).not.toBeNull()
+    expect(screen.getByTestId('agent-row-homeserver').querySelector('.lucide-bot')).toBeNull()
     expect(screen.getByText('http://192.168.1.10:9090')).toBeDefined()
     expect(screen.getByText('The host did not answer the health check. Check that the agent container is running and reachable at the URL stored for this host, then check again.')).toBeDefined()
     expect(screen.getByText('timed out')).toBeDefined()
@@ -230,7 +235,7 @@ describe('AgentsOverviewView', () => {
     expect(entry.status).toBe('online')
     render(<AgentsOverviewView {...makeProps({ agents: [entry] })} />)
     const row = screen.getByTestId('agent-row-homeserver')
-    expect(within(row).getByText('v0.2.0')).toBeDefined()
+    expect(within(row).getByText('Agent v0.2.0')).toBeDefined()
     expect(within(row).queryByLabelText('stored version')).toBeNull()
   })
 
@@ -244,7 +249,7 @@ describe('AgentsOverviewView', () => {
     render(<AgentsOverviewView {...makeProps({ agents })} />)
     for (const name of ['enrolling', 'broken']) {
       const row = screen.getByTestId(`agent-row-${name}`)
-      expect(within(row).getByText('unknown')).toBeDefined()
+      expect(within(row).getByText('Agent version unknown')).toBeDefined()
       expect(within(row).queryByLabelText('stored version')).toBeNull()
     }
   })
@@ -270,7 +275,7 @@ describe('AgentsOverviewView', () => {
         })}
       />,
     )
-    fireEvent.click(screen.getByLabelText('Update media-server'))
+    fireEvent.click(screen.getByLabelText('Update agent on media-server'))
     expect(onUpdate).toHaveBeenCalledTimes(1)
     expect(onUpdate).toHaveBeenCalledWith(2)
   })
@@ -284,7 +289,7 @@ describe('AgentsOverviewView', () => {
     const onUpdate = mock(noop)
     render(<AgentsOverviewView {...makeProps({ onUpdate })} />)
     const user = setupUser()
-    const updateButton = screen.getByLabelText('Update homeserver')
+    const updateButton = screen.getByLabelText('Update agent on homeserver')
     expect(updateButton.getAttribute('aria-disabled')).toBe('true')
     await user.click(updateButton)
     expect(await findOpenTooltip()).toBe(copy)
@@ -302,8 +307,8 @@ describe('AgentsOverviewView', () => {
         })}
       />,
     )
-    expect(screen.getByLabelText('Update homeserver').hasAttribute('disabled')).toBe(true)
-    expect(screen.getByLabelText('Update media-server').hasAttribute('disabled')).toBe(false)
+    expect(screen.getByLabelText('Update agent on homeserver').hasAttribute('disabled')).toBe(true)
+    expect(screen.getByLabelText('Update agent on media-server').hasAttribute('disabled')).toBe(false)
     expect(screen.getByText('Update confirmed, agent now on v0.3.0')).toBeDefined()
   })
 
@@ -317,10 +322,11 @@ describe('AgentsOverviewView', () => {
       />,
     )
     expect(screen.getByLabelText('agent update available')).toBeDefined()
+    expect(screen.getByText('agent update available')).toBeDefined()
     expect(screen.getByTestId('agent-update-available-callout')).toBeDefined()
     expect(screen.getByText('Agent update available on 1 host')).toBeDefined()
     expect(screen.getByText(AGENT_UPDATE_AVAILABLE_MESSAGE)).toBeDefined()
-    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('update available')
+    expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain('agent update available')
   })
 
   it('renders no update warning when every agent is current', async () => {
@@ -339,7 +345,7 @@ describe('AgentsOverviewView', () => {
   it('renders the pinned update copy verbatim', async () => {
     const { AgentsOverviewView, AGENT_UPDATE_AVAILABLE_MESSAGE } = await import('@/components/agents/AgentsOverview')
     expect(AGENT_UPDATE_AVAILABLE_MESSAGE).toBe(
-      'A newer agent image is available for this host. Select Update to apply it.',
+      'A newer agent image is available for this host. Select Update agent to apply it.',
     )
     render(<AgentsOverviewView {...makeProps({ agents: [makeAgent({ agentOutOfDate: true })] })} />)
     expect(screen.getByText(AGENT_UPDATE_AVAILABLE_MESSAGE)).toBeDefined()
@@ -373,13 +379,13 @@ describe('AgentsOverview (connected)', () => {
 
     sseHandler!({ entries: [makeAgent({ version: '9.9.9' })] })
 
-    await waitFor(() => expect(screen.getByText('v9.9.9')).toBeDefined())
+    await waitFor(() => expect(screen.getByText('Agent v9.9.9')).toBeDefined())
   })
 
   it('updates only the clicked agent and surfaces the result on that row', async () => {
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
     await waitFor(() => expect(screen.getByText('Update confirmed, agent now on v0.3.0')).toBeDefined())
     expect(updateCalls).toHaveLength(1)
     expect(updateCalls[0]).toEqual({ data: { hostId: 1 } })
@@ -405,7 +411,7 @@ describe('AgentsOverview (connected)', () => {
       updateResult = rejection
       await renderConnected()
       await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-      fireEvent.click(screen.getByLabelText('Update homeserver'))
+      fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
     }
 
     function expectCopyOnRowAndToast(copy: string, rawText: string) {
@@ -450,7 +456,7 @@ describe('AgentsOverview (connected)', () => {
       offContractResult = Promise.resolve(value)
       await renderConnected()
       await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-      fireEvent.click(screen.getByLabelText('Update homeserver'))
+      fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
       await waitFor(() => expect(mockShowToast).toHaveBeenCalled())
       expectCopyOnRowAndToast(FALLBACK_COPY, 'Sign in to continue')
       expect(document.body.textContent).not.toContain(NETWORK_COPY)
@@ -478,7 +484,7 @@ describe('AgentsOverview (connected)', () => {
     })
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
     await waitFor(() =>
       expect(screen.getByText(/The host did not answer the health check\./)).toBeDefined(),
     )
@@ -497,7 +503,7 @@ describe('AgentsOverview (connected)', () => {
     })
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
     await waitFor(() =>
       expect(screen.getByText(/The agent started an update recently and is not accepting another yet\./)).toBeDefined(),
     )
@@ -515,7 +521,7 @@ describe('AgentsOverview (connected)', () => {
     })
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -541,7 +547,7 @@ describe('AgentsOverview (connected)', () => {
     })
     await renderConnected()
     await waitFor(() => expect(screen.getByText('Unreachable')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
     await waitFor(() =>
       expect(screen.getAllByText(/The agent started an update recently and is not accepting another yet\./)).toHaveLength(1),
     )
@@ -558,7 +564,7 @@ describe('AgentsOverview (connected)', () => {
     updateResult = Promise.resolve({ hostId: 1, healthy: true })
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
-    fireEvent.click(screen.getByLabelText('Update homeserver'))
+    fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
     await waitFor(() => expect(screen.getByText('Update succeeded, agent is healthy')).toBeDefined())
     expect(mockShowToast).not.toHaveBeenCalled()
   })
@@ -568,7 +574,7 @@ describe('AgentsOverview (connected)', () => {
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     const user = setupUser()
-    const updateButton = screen.getByLabelText('Update homeserver')
+    const updateButton = screen.getByLabelText('Update agent on homeserver')
     expect(updateButton.getAttribute('aria-disabled')).toBe('true')
     await user.click(updateButton)
     expect(await findOpenTooltip()).toBe(OPERATOR_DENIED_COPY)

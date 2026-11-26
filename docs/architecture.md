@@ -201,7 +201,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 
 ### Agent Updates (`agent/src/handover.ts`)
 
-Agent updates are manager-driven and manual only: the manager resolves the registry digest of its own agent image, the agents overview flags hosts whose running digest differs, and an admin applies the update per host.
+Agent updates are manager-driven and manual only: the manager resolves the registry digest of its own agent image, the Hosts page flags hosts whose running digest differs, and an admin applies the update per host.
 
 **Mechanism:** a container cannot replace itself in-process (stopping it kills the process driving the recreate, and the replacement cannot bind the published port while the old container still runs). On `POST /agent/update` the agent spawns a one-shot helper container from its own current image through the Docker socket proxy; the helper outlives the agent container and performs the swap from outside.
 
@@ -213,7 +213,7 @@ Agent updates are manager-driven and manual only: the manager resolves the regis
 5. Start the new container
 6. Poll the Docker healthcheck, then verify the agent's HTTP `/health` endpoint, rolling back to the previous digest on failure
 
-**Detection:** the agent reports its running image digest on `/info`; the worker's inventory sweep compares it against the registry digest of the manager's agent image and persists the verdict the agents overview displays.
+**Detection:** the agent reports its running image digest on `/info`; the worker's inventory sweep compares it against the registry digest of the manager's agent image and persists the verdict the Hosts page displays.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 

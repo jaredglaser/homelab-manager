@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, RefreshCw, TriangleAlert } from 'lucide-react'
+import { RefreshCw, Server, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry } from '@/data/hosts/functions'
 import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy'
@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 export const AGENTS_INVENTORY_QUERY_KEY = ['agents-inventory'] as const
 
 export const AGENT_UPDATE_AVAILABLE_MESSAGE =
-  'A newer agent image is available for this host. Select Update to apply it.'
+  'A newer agent image is available for this host. Select Update agent to apply it.'
 
 export const AGENT_STORED_VERSION_MESSAGE =
   'Last version the agent reported. It is not online right now, so this may be out of date.'
@@ -53,7 +53,7 @@ function UpdateAvailableBadge() {
       <TooltipTrigger
         render={
           <Badge variant="warning" className="h-4 text-[10px]" aria-label="agent update available">
-            update available
+            agent update available
           </Badge>
         }
       />
@@ -69,11 +69,11 @@ function StatusBadge({ status }: { status: AgentInventoryEntry['status'] }) {
 
 function VersionCell({ agent }: { agent: AgentInventoryEntry }) {
   if (!agent.version) {
-    return <span className="text-xs text-muted-foreground">unknown</span>
+    return <span className="text-xs text-muted-foreground">Agent version unknown</span>
   }
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="text-xs font-mono">v{agent.version}</span>
+      <span className="text-xs font-mono">Agent v{agent.version}</span>
       {agent.status !== 'online' && (
         <Tooltip>
           <TooltipTrigger
@@ -116,7 +116,7 @@ function AgentRow({
   return (
     <div className="px-4 py-3 border-b border-border last:border-0" data-testid={`agent-row-${agent.name}`}>
       <div className="flex items-center gap-3">
-        <Bot size={16} className="text-muted-foreground shrink-0" aria-hidden />
+        <Server size={16} className="text-muted-foreground shrink-0" aria-hidden />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-sm font-semibold truncate">{agent.name}</p>
@@ -134,10 +134,10 @@ function AgentRow({
             variant="outline"
             disabled={busy !== undefined}
             onClick={onUpdate}
-            aria-label={`Update ${agent.name}`}
+            aria-label={`Update agent on ${agent.name}`}
           >
             {busy === 'update' ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
-            <span className="ml-1">Update</span>
+            <span className="ml-1">Update agent</span>
           </Button>
         </div>
       </div>
@@ -173,7 +173,7 @@ export function AgentsOverviewView({
     return (
       <div className="p-4 bg-card rounded-lg border border-border flex items-center gap-2 text-sm text-muted-foreground">
         <Spinner className="size-4" />
-        Loading agents…
+        Loading hosts…
       </div>
     )
   }
@@ -182,10 +182,10 @@ export function AgentsOverviewView({
     return (
       <Alert variant="error">
         <TriangleAlert />
-        <AlertTitle>Failed to load agents</AlertTitle>
+        <AlertTitle>Failed to load hosts</AlertTitle>
         <AlertDescription className="flex items-center gap-3">
-          The agents inventory could not be fetched. Check the server logs and try again.
-          <Button size="sm" variant="outline" onClick={onRetry} aria-label="Retry loading agents">
+          The host list could not be fetched. Check the server logs and try again.
+          <Button size="sm" variant="outline" onClick={onRetry} aria-label="Retry loading hosts">
             <RefreshCw size={14} />
             Retry
           </Button>
@@ -197,9 +197,9 @@ export function AgentsOverviewView({
   if (!agents.length) {
     return (
       <div className="p-4 bg-card rounded-lg border border-border">
-        <p className="text-sm font-medium">No agents registered</p>
+        <p className="text-sm font-medium">No hosts registered</p>
         <p className="text-xs text-muted-foreground mt-1">
-          Add a host under Settings, then Manage Hosts to register its agent here.
+          Add a host under Settings, then Managed Hosts, and it will appear here.
         </p>
       </div>
     )

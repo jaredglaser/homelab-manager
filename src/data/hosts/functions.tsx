@@ -185,7 +185,7 @@ export const listHosts = createServerFn()
  * never probes agents, so request latency is flat and client count cannot
  * fan out probes. Live data arrives over the `agent-inventory` WebSocket topic, which
  * pushes a fresh snapshot after each worker sweep. This server function
- * is the initial data source for the admin agents overview.
+ * is the initial data source for the Hosts page.
  */
 export const listAgentsInventory = createServerFn()
   .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer')])
