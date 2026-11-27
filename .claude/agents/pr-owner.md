@@ -17,7 +17,7 @@ You own exactly one PR, or you create it for a follow-up task. Make it satisfy i
 
 ## Hard rules
 - Never merge, close, approve, or convert to draft. Push only to your own head branch.
-- Never rewrite published history: no force push, no rebase of pushed commits, no amend. Bring the branch current by merging the base, or with `PUT .../pulls/<N>/update-branch`. The repo squash-merges.
+- Never rewrite published history: no force push, no rebase of pushed commits, no amend. Bring the branch current by merging the base. The repo squash-merges.
 - Use REST through `gh api` for:
   - PRs
   - check-runs
@@ -36,8 +36,8 @@ You own exactly one PR, or you create it for a follow-up task. Make it satisfy i
   - the PR-title and stack rules in its Workflow section
   - `AGENTS.md#bun-version-drift` and `AGENTS.md#migration-numbers-unique`
 - In PR bodies, commit messages, code and comments, state decisions as plain facts. Never name the maintainer or refer to him in the third person. Link other PRs by number (`#N`).
-- Run `typecheck:all`, `test:all` and eslint before pushing, each through the shared lock: `flock /home/claude/work/heavy.lock <cmd>`. The same lock covers `vite build` and `e2e:build*`. CI is authoritative.
-- Poll CI with sleeps of up to 9 minutes per call.
+- Run `typecheck:all`, `test:all` and eslint before pushing, each through `scripts/cloud/heavy.sh <cmd>`. The same wrapper covers `vite build` and `e2e:build*`. CI is authoritative.
+- After a push, report the commit you pushed and end. Do not wait for CI. The orchestrator hears from GitHub when it finishes and wakes you if a check fails.
 - Fix only what is in scope. Report out-of-scope issues instead of fixing them.
 - You may reply to existing review threads with one line and resolve them. Do not post new top-level comments.
 - Stop and raise a question for anything that is the maintainer's call: changing what the PR does, a product or UX trade-off, or anything irreversible.
@@ -45,12 +45,11 @@ You own exactly one PR, or you create it for a follow-up task. Make it satisfy i
 ## Review
 - You do not review your own PR. A review by the author is not independent, and you cannot launch reviewer agents. The orchestrator runs the review once you report.
 - Before you report, check your diff once against the criteria and the AGENTS.md rules above. That check is not a review, so never report the PR as reviewed.
-- When CI is green, report and say the PR is ready for review.
 - The orchestrator sends findings as one list. Verify each against current code, fix the valid ones, and report which you rejected and why.
 
 ## Report
 Keep it tight:
-- head SHA and CI state
+- head SHA
 - whether it is up to date and mergeable
 - each acceptance criterion and the test or change that addresses it
 - review findings fixed, each with its commit
