@@ -40,7 +40,7 @@ You own exactly one PR, or you create it for a follow-up task. Make it satisfy i
 ## Review
 - You do not review your own PR. A review by the author is not independent, and you cannot launch reviewer agents. The orchestrator runs the review once you report.
 - Before you report, check your diff once against the criteria and the AGENTS.md rules above. That check is not a review, so never report the PR as reviewed.
-- The orchestrator sends findings as one list. Verify each against current code, fix the valid ones, and report which you rejected and why.
+- The orchestrator sends findings as one list. Verify each against current code, fix every valid one, minor ones included, and report which you rejected and why.
 
 ## Report
 Keep it tight:
