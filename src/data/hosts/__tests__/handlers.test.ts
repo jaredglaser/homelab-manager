@@ -1592,18 +1592,22 @@ describe('handleUpdateAgent in the background', () => {
     return { deps, tasks };
   }
 
-  it('answers once the agent accepts, before the confirmation polls, and records the outcome on the row when it ends', async () => {
+  const STARTED_ANSWER = { hostId: 1, at: STARTED.toISOString(), healthy: true, outcome: 'started' } as const;
+
+  it('answers as soon as it holds the row, before it reaches the agent, and records the outcome on the row when it ends', async () => {
     const { restore, fetchMock } = withAgent(202);
     try {
       const { deps, tasks } = backgroundDeps();
       const answer = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(answer).toEqual({ hostId: 1, at: STARTED.toISOString(), healthy: true, outcome: 'started' });
+      expect(answer).toEqual(STARTED_ANSWER);
       expect(deps.repo.claimAgentUpdate).toHaveBeenCalledWith(1, STARTED);
-      expect(deps.checkHealth).toHaveBeenCalledTimes(1);
+      expect(deps.checkHealth).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
       expect(deps.repo.settleAgentUpdate).not.toHaveBeenCalled();
       expect(tasks).toHaveLength(1);
 
       await tasks[0]();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(deps.repo.settleAgentUpdate).toHaveBeenCalledTimes(1);
       expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(
         1,
@@ -1611,7 +1615,6 @@ describe('handleUpdateAgent in the background', () => {
         { state: 'done', result: { healthy: true, outcome: 'updated', version: '2.0.0' } },
         ENDED,
       );
-      expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       restore();
     }
@@ -1648,19 +1651,20 @@ describe('handleUpdateAgent in the background', () => {
           return Promise.resolve(free);
         }),
       });
-      const { deps } = backgroundDeps({ repo });
+      const { deps, tasks } = backgroundDeps({ repo });
       const [first, second] = await Promise.all([handleUpdateAgent(deps, { hostId: 1 }), handleUpdateAgent(deps, { hostId: 1 })]);
       expect([first, second].map((answer) => (answer.healthy ? answer.outcome : answer.code)).sort()).toEqual([
         'started',
         'update_already_running',
       ]);
+      await Promise.all(tasks.map((task) => task()));
       expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       restore();
     }
   });
 
-  it('answers already current at once, without calling the agent, and records it on the row', async () => {
+  it('records already current on the row without calling the agent when the source hashes match', async () => {
     const { restore, fetchMock } = withAgent(202);
     try {
       const hash = 'e'.repeat(64);
@@ -1668,25 +1672,23 @@ describe('handleUpdateAgent in the background', () => {
         checkHealth: mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0', agentSourceHash: hash })),
         resolveAgentImageRelease: async () => ({ digest: DIGEST, sourceHash: hash }),
       });
-      const answer = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(answer).toEqual({ hostId: 1, at: ENDED.toISOString(), healthy: true, outcome: 'already_current' });
+      expect(await handleUpdateAgent(deps, { hostId: 1 })).toEqual(STARTED_ANSWER);
+      await tasks[0]();
       expect(fetchMock).not.toHaveBeenCalled();
-      expect(tasks).toHaveLength(0);
       expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(1, STARTED, { state: 'done', result: { healthy: true, outcome: 'already_current' } }, ENDED);
     } finally {
       restore();
     }
   });
 
-  it('answers a refusal before the swap directly and records it on the row', async () => {
+  it('records a refusal before the swap on the row', async () => {
     const { restore } = withAgent(202);
     try {
       const { deps, tasks } = backgroundDeps({
         checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'connection refused' })),
       });
-      const answer = await handleUpdateAgent(deps, { hostId: 1 });
-      expect(answer).toMatchObject({ healthy: false, code: 'offline', message: 'connection refused' });
-      expect(tasks).toHaveLength(0);
+      await handleUpdateAgent(deps, { hostId: 1 });
+      await tasks[0]();
       expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(
         1,
         STARTED,
@@ -1724,7 +1726,10 @@ describe('handleUpdateAgent in the background', () => {
     }
   });
 
-  it('marks the row interrupted when the confirmation crashes, so it never stays running', async () => {
+  it.each([
+    ['before it reaches the agent', 1],
+    ['while it confirms the swap', 2],
+  ])('marks the row interrupted when the update crashes %s, so it never stays running', async (_label, crashOnPoll) => {
     const { restore } = withAgent(202);
     const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
     try {
@@ -1732,8 +1737,8 @@ describe('handleUpdateAgent in the background', () => {
       const { deps, tasks } = backgroundDeps({
         checkHealth: mock(() => {
           polls += 1;
-          if (polls === 1) return Promise.resolve({ healthy: true as const, version: '1.0.0' });
-          return Promise.reject(new Error('pool exhausted'));
+          if (polls === crashOnPoll) return Promise.reject(new Error('pool exhausted'));
+          return Promise.resolve({ healthy: true as const, version: '1.0.0' });
         }),
       });
       await handleUpdateAgent(deps, { hostId: 1 });
@@ -1743,12 +1748,6 @@ describe('handleUpdateAgent in the background', () => {
       errorSpy.mockRestore();
       restore();
     }
-  });
-
-  it('clears the row and rethrows when the request fails before it reaches the agent', async () => {
-    const { deps } = backgroundDeps({ resolveAgentImageRelease: () => Promise.reject(new Error('registry client bug')) });
-    await expect(handleUpdateAgent(deps, { hostId: 1 })).rejects.toThrow('registry client bug');
-    expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(1, STARTED, null, ENDED);
   });
 });
 

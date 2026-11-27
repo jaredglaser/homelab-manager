@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { OPERATOR_DENIED_COPY, VIEWER_DENIED_COPY } from '@/hooks/useAuth'
 import { findOpenTooltip, seedSession } from '@/lib/test/session'
 import { setupUser } from '@/lib/test/user-event'
-import type { AgentInventoryEntry, AgentInventoryFailure } from '@/lib/hosts/agent-inventory'
+import type { AgentInventoryEntry, AgentInventoryFailure, AgentUpdateResult } from '@/lib/hosts/agent-inventory'
 import { AGENT_INVENTORY_STATUSES, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory'
 import type { ManagedHost } from '@/lib/database/repositories/host-repository'
 
@@ -62,7 +62,9 @@ function makeProps(overrides?: Partial<import('@/components/agents/AgentsOvervie
 const ANSWERED_AT = '2026-11-27T10:00:00.000Z'
 let inventoryResponse: AgentInventoryEntry[] = []
 type OpResult = import('@/data/hosts/handlers').UpdateAgentResult
-let updateResult: Promise<OpResult> = Promise.resolve({ hostId: 1, at: ANSWERED_AT, healthy: true, outcome: 'updated' })
+const STARTED: Promise<OpResult> = Promise.resolve({ hostId: 1, at: ANSWERED_AT, healthy: true, outcome: 'started' })
+let updateResult: Promise<OpResult> = STARTED
+let rowResult: AgentUpdateResult = { healthy: true, outcome: 'updated' }
 let offContractResult: Promise<unknown> | null = null
 let updateCalls: Array<{ data: { hostId: number } }> = []
 const listAgentsInventory = (): Promise<AgentInventoryEntry[]> => Promise.resolve(inventoryResponse)
@@ -359,7 +361,8 @@ describe('AgentsOverview (connected)', () => {
 
   beforeEach(() => {
     inventoryResponse = [makeAgent(), makeAgent({ id: 2, name: 'media-server' })]
-    updateResult = Promise.resolve({ hostId: 1, at: ANSWERED_AT, healthy: true, outcome: 'updated', version: '0.3.0' })
+    updateResult = STARTED
+    rowResult = { healthy: true, outcome: 'updated', version: '0.3.0' }
     offContractResult = null
     updateCalls = []
     mockShowToast.mockClear()
@@ -376,6 +379,12 @@ describe('AgentsOverview (connected)', () => {
     )
   }
 
+  async function finishUpdate() {
+    await waitFor(() => expect(within(screen.getByTestId('agent-row-homeserver')).getByText('Updating the agent. This takes up to a minute.')).toBeDefined())
+    const [first, ...rest] = inventoryResponse
+    act(() => sseHandler!({ entries: [{ ...first, update: { state: 'done', at: '2026-11-27T10:00:40.000Z', result: rowResult } }, ...rest] }))
+  }
+
   it('applies a live snapshot to the rendered rows', async () => {
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
@@ -389,6 +398,7 @@ describe('AgentsOverview (connected)', () => {
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() => expect(screen.getByText('Update confirmed, agent now on v0.3.0')).toBeDefined())
     expect(updateCalls).toHaveLength(1)
     expect(updateCalls[0]).toEqual({ data: { hostId: 1 } })
@@ -479,16 +489,15 @@ describe('AgentsOverview (connected)', () => {
   })
 
   it('maps a failed update result to its code copy', async () => {
-    updateResult = Promise.resolve({
-      hostId: 1,
-      at: ANSWERED_AT,
+    rowResult = {
       healthy: false,
       code: 'offline',
       message: 'Health check timed out after 5000ms',
-    })
+    }
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() =>
       expect(screen.getByText(/The host did not answer the health check\./)).toBeDefined(),
     )
@@ -499,16 +508,15 @@ describe('AgentsOverview (connected)', () => {
   })
 
   it('renders an agent route refusal by its own code where the generic sentence used to stand', async () => {
-    updateResult = Promise.resolve({
-      hostId: 1,
-      at: ANSWERED_AT,
+    rowResult = {
       healthy: false,
       code: 'update_in_progress',
       message: 'the guard rejected a second update',
-    })
+    }
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() =>
       expect(screen.getByText(/The agent started an update recently and is not accepting another yet\./)).toBeDefined(),
     )
@@ -518,16 +526,15 @@ describe('AgentsOverview (connected)', () => {
   })
 
   it('keeps the generic refusal sentence and the agent detail when the refusal carries no route code', async () => {
-    updateResult = Promise.resolve({
-      hostId: 1,
-      at: ANSWERED_AT,
+    rowResult = {
       healthy: false,
       code: 'agent_reported_error',
       message: 'a refusal from an older agent',
-    })
+    }
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -545,16 +552,15 @@ describe('AgentsOverview (connected)', () => {
         failure: { code: 'unreachable', message: 'stored cause 6120' },
       }),
     ]
-    updateResult = Promise.resolve({
-      hostId: 1,
-      at: ANSWERED_AT,
+    rowResult = {
       healthy: false,
       code: 'update_in_progress',
       message: 'the guard rejected a second update',
-    })
+    }
     await renderConnected()
     await waitFor(() => expect(screen.getByText('Unreachable')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() =>
       expect(screen.getAllByText(/The agent started an update recently and is not accepting another yet\./)).toHaveLength(1),
     )
@@ -568,19 +574,21 @@ describe('AgentsOverview (connected)', () => {
   })
 
   it('pins the success copy when the update is confirmed by image digest without a new version', async () => {
-    updateResult = Promise.resolve({ hostId: 1, at: ANSWERED_AT, healthy: true, outcome: 'updated' })
+    rowResult = { healthy: true, outcome: 'updated' }
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() => expect(screen.getByText('Update confirmed, agent restarted on the new image')).toBeDefined())
     expect(mockShowToast).not.toHaveBeenCalled()
   })
 
   it('says nothing was changed when the agent already runs the latest image', async () => {
-    updateResult = Promise.resolve({ hostId: 1, at: ANSWERED_AT, healthy: true, outcome: 'already_current' })
+    rowResult = { healthy: true, outcome: 'already_current' }
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() => expect(screen.getByText('Already up to date. The agent runs the latest image, so nothing was changed.')).toBeDefined())
     expect(screen.queryByText(/Update (succeeded|confirmed)/)).toBeNull()
     expect(mockShowToast).not.toHaveBeenCalled()

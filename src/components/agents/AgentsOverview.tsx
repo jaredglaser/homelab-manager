@@ -5,8 +5,7 @@ import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
 import type { AgentInventoryEntry, UpdateAgentResult } from '@/data/hosts/functions'
 import type { AgentUpdateResult } from '@/lib/hosts/agent-inventory'
 import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy'
-import { isAgentUpdateFailureCode } from '@homelab-manager/agent/types'
-import { hostFailureDetail, hostFailureMessage, isHostFailureCode } from '@/lib/errors/host-failure-copy'
+import { hostFailureDetail, hostFailureMessage } from '@/lib/errors/host-failure-copy'
 import { serverFnErrorMessage } from '@/lib/errors/server-fn-error-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
@@ -240,10 +239,8 @@ export function AgentsOverviewView({
 function isUpdateResult(value: unknown): value is UpdateAgentResult {
   if (typeof value !== 'object' || value === null || !('healthy' in value)) return false
   if (!('at' in value) || typeof value.at !== 'string') return false
-  if (value.healthy === true) {
-    return 'outcome' in value && (value.outcome === 'started' || value.outcome === 'updated' || value.outcome === 'already_current')
-  }
-  return value.healthy === false && 'code' in value && (isAgentUpdateFailureCode(value.code) || isHostFailureCode(value.code))
+  if (value.healthy === true) return 'outcome' in value && value.outcome === 'started'
+  return value.healthy === false && 'code' in value && value.code === 'update_already_running'
 }
 
 function describeUpdateResult(result: AgentUpdateResult): AgentRowFeedback {
@@ -346,15 +343,15 @@ export default function AgentsOverview() {
     },
     onSuccess: (result, hostId) => {
       setPendingByHost(({ [hostId]: _done, ...rest }) => rest)
-      if (result.healthy && result.outcome === 'started') {
+      if (result.healthy) {
         queryClient.setQueryData<AgentInventoryEntry[]>(AGENTS_INVENTORY_QUERY_KEY, (entries) => withRunningUpdate(entries, hostId, result.at))
         startedHereRef.current[hostId] = result.at
         return
       }
       void queryClient.invalidateQueries({ queryKey: AGENTS_INVENTORY_QUERY_KEY })
-      const feedback = describeUpdateResult(result)
-      setLocal(hostId, { ...feedback, at: result.at })
-      if (feedback.severity === 'error') showToast(feedback.message, 'error')
+      const message = updateFailureMessage(result.code, result.message)
+      setLocal(hostId, { severity: 'error', message, at: result.at })
+      showToast(message, 'error')
     },
     onError: (err: unknown, hostId) => {
       setPendingByHost(({ [hostId]: _done, ...rest }) => rest)

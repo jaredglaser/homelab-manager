@@ -519,12 +519,6 @@ describe('HostRepository', () => {
       expect(notifies()).toHaveLength(1);
     });
 
-    it('clears the row for an update that failed before it reached the agent', async () => {
-      mock.pushResult([{ id: 1 }]);
-      await repo.settleAgentUpdate(1, STARTED, null, ENDED);
-      expect(mock.queries[0].params).toEqual([1, STARTED, null, null, null]);
-    });
-
     it('does not announce a settle that matched no running update', async () => {
       mock.pushResult([]);
       await repo.settleAgentUpdate(1, STARTED, { state: 'interrupted' }, ENDED);

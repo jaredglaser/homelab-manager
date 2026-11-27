@@ -43,8 +43,11 @@ export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode
   | { hostId: number; healthy: false; code: Code; message: string };
 
 export type HealthCheckResult = HostOperationResult;
-/** `at` orders the answer against the host row's update state: the row's own `at` wins once it is later. */
-export type UpdateAgentResult = { hostId: number; at: string } & (AgentUpdateResult | { healthy: true; outcome: 'started' });
+/** The update itself reports on the host row. `at` orders this answer against the row's own `at`. */
+export type UpdateAgentResult = { hostId: number; at: string } & (
+  | { healthy: true; outcome: 'started' }
+  | { healthy: false; code: 'update_already_running'; message: string }
+);
 
 function readUpdateRefusal(response: Response, body: string): { code: UpdateFailureCode; message: string } {
   let parsed: unknown;
@@ -88,7 +91,7 @@ export interface HostRepo {
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null; imageDigest?: string | null; outOfDate?: boolean }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
   claimAgentUpdate(id: number, startedAt: Date): Promise<boolean>;
-  settleAgentUpdate(id: number, startedAt: Date, settled: SettledAgentUpdate | null, at: Date): Promise<void>;
+  settleAgentUpdate(id: number, startedAt: Date, settled: SettledAgentUpdate, at: Date): Promise<void>;
 }
 
 export interface HostHandlerDeps {
@@ -358,15 +361,11 @@ export type UpdateAgentDeps = HostHandlerDeps & {
   runDetached?: (task: () => Promise<void>) => void;
 };
 
-type UpdateAttempt =
-  | { kind: 'settled'; result: AgentUpdateResult }
-  | { kind: 'accepted'; confirm: () => Promise<AgentUpdateResult> };
-
 async function settleUpdate(
   repo: HostRepo,
   host: ManagedHost,
   startedAt: Date,
-  settled: SettledAgentUpdate | null,
+  settled: SettledAgentUpdate,
   at: Date,
 ): Promise<void> {
   try {
@@ -387,27 +386,13 @@ export async function handleUpdateAgent(deps: UpdateAgentDeps, data: { hostId: n
     return { hostId: host.id, at: startedAt.toISOString(), healthy: false, code: 'update_already_running', message: '' };
   }
 
-  let attempt: UpdateAttempt;
-  try {
-    attempt = await attemptAgentUpdate(deps, host);
-  } catch (err) {
-    await settleUpdate(deps.repo, host, startedAt, null, now());
-    throw err;
-  }
-  if (attempt.kind === 'settled') {
-    const at = now();
-    await settleUpdate(deps.repo, host, startedAt, { state: 'done', result: attempt.result }, at);
-    return { hostId: host.id, at: at.toISOString(), ...attempt.result };
-  }
-
-  const { confirm } = attempt;
   const runDetached = deps.runDetached ?? ((task) => void task());
   runDetached(async () => {
     let settled: SettledAgentUpdate;
     try {
-      settled = { state: 'done', result: await confirm() };
+      settled = { state: 'done', result: await runAgentUpdate(deps, host) };
     } catch (err) {
-      console.error(`[hosts] Confirming the agent update on ${host.name} crashed:`, err);
+      console.error(`[hosts] The agent update on ${host.name} crashed:`, err);
       settled = { state: 'interrupted' };
     }
     await settleUpdate(deps.repo, host, startedAt, settled, now());
@@ -415,27 +400,26 @@ export async function handleUpdateAgent(deps: UpdateAgentDeps, data: { hostId: n
   return { hostId: host.id, at: startedAt.toISOString(), healthy: true, outcome: 'started' };
 }
 
-async function attemptAgentUpdate(deps: UpdateAgentDeps, host: ManagedHost): Promise<UpdateAttempt> {
-  const settled = (result: AgentUpdateResult): UpdateAttempt => ({ kind: 'settled', result });
+async function runAgentUpdate(deps: UpdateAgentDeps, host: ManagedHost): Promise<AgentUpdateResult> {
   const preCheck = await deps.checkHealth(host.agentUrl, host.name);
   if (!preCheck.healthy) {
-    return settled({ healthy: false, code: probeFailureCode(preCheck), message: preCheck.error });
+    return { healthy: false, code: probeFailureCode(preCheck), message: preCheck.error };
   }
 
   const resolveRelease = deps.resolveAgentImageRelease ?? resolveAgentImageRelease;
   const imageRef = getAgentImage();
   const release = await resolveRelease(imageRef);
   if (!release) {
-    return settled({
+    return {
       healthy: false,
       code: 'image_digest_unresolved',
       message: 'Could not resolve the agent image digest from the registry',
-    });
+    };
   }
   // The agent decides by digest alone, so without this a rebuild of unchanged source swaps the container for nothing.
   if (release.sourceHash && preCheck.agentSourceHash === release.sourceHash) {
     await deps.repo.updateAgentInfo(host.id, { outOfDate: false });
-    return settled({ healthy: true, outcome: 'already_current' });
+    return { healthy: true, outcome: 'already_current' };
   }
   const digest = release.digest;
   const targetImage = digestPinnedImageRef(imageRef, digest);
@@ -444,14 +428,14 @@ async function attemptAgentUpdate(deps: UpdateAgentDeps, host: ManagedHost): Pro
   try {
     signer = await deps.getSigner(host.name);
   } catch {
-    return settled({ healthy: false, code: 'keypair_unavailable', message: 'Could not retrieve agent keypair' });
+    return { healthy: false, code: 'keypair_unavailable', message: 'Could not retrieve agent keypair' };
   }
 
   let jwt: string;
   try {
     jwt = await signer();
   } catch {
-    return settled({ healthy: false, code: 'token_signing_failed', message: 'Could not sign the agent request token' });
+    return { healthy: false, code: 'token_signing_failed', message: 'Could not sign the agent request token' };
   }
 
   let triggerResponse: Response;
@@ -465,40 +449,37 @@ async function attemptAgentUpdate(deps: UpdateAgentDeps, host: ManagedHost): Pro
       signal: AbortSignal.timeout(UPDATE_TRIGGER_TIMEOUT_MS),
     }, { caCertPem: deps.getCaCert ? await deps.getCaCert(host.name) : null });
   } catch (err) {
-    return settled({ healthy: false, code: 'agent_unreachable', message: err instanceof Error ? err.message : String(err) });
+    return { healthy: false, code: 'agent_unreachable', message: err instanceof Error ? err.message : String(err) };
   }
 
   if (triggerResponse.type === 'opaqueredirect' || (triggerResponse.status >= 300 && triggerResponse.status < 400)) {
-    return settled({ healthy: false, code: 'unexpected_redirect', message: 'Agent URL returned an unexpected redirect' });
+    return { healthy: false, code: 'unexpected_redirect', message: 'Agent URL returned an unexpected redirect' };
   }
 
   if (triggerResponse.status === 200) {
     await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
-    return settled({ healthy: true, outcome: 'already_current' });
+    return { healthy: true, outcome: 'already_current' };
   }
 
   if (triggerResponse.status !== 202) {
     const notAnswering = await readNotAnsweringFailure(triggerResponse);
     if (notAnswering) {
       console.error(`[hosts] ${notAnsweringLogLine(notAnswering, `the update request for ${host.name}`)}`);
-      return settled({ healthy: false, code: notAnswering.code, message: notAnswering.detail });
+      return { healthy: false, code: notAnswering.code, message: notAnswering.detail };
     }
     const body = await readBoundedBody(triggerResponse, MAX_AGENT_FAILURE_BODY_BYTES);
     const { code, message } = readUpdateRefusal(triggerResponse, body);
     console.error(`[hosts] Agent update refused for ${host.name}: HTTP ${triggerResponse.status} ${code}: ${message}`);
-    return settled({ healthy: false, code, message });
+    return { healthy: false, code, message };
   }
 
-  return {
-    kind: 'accepted',
-    confirm: () => confirmAgentUpdate(deps, host, {
-      currentVersion: preCheck.version,
-      // A missing pre-update version only implies an upgrade when /info 404s. Any
-      // other cause would make a later version read look like a change that never happened.
-      preInfoUnsupported: preCheck.infoSupported === false,
-      digest,
-    }),
-  };
+  return confirmAgentUpdate(deps, host, {
+    currentVersion: preCheck.version,
+    // A missing pre-update version only implies an upgrade when /info 404s. Any
+    // other cause would make a later version read look like a change that never happened.
+    preInfoUnsupported: preCheck.infoSupported === false,
+    digest,
+  });
 }
 
 async function confirmAgentUpdate(

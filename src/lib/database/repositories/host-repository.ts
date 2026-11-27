@@ -202,8 +202,8 @@ export class HostRepository {
     return true;
   }
 
-  /** Ends only the update that started at `startedAt`. Null clears the row, for a request that failed before it reached the agent. */
-  async settleAgentUpdate(id: number, startedAt: Date, settled: SettledAgentUpdate | null, at: Date): Promise<void> {
+  /** Ends only the update that started at `startedAt`, so a late write never ends a newer update. */
+  async settleAgentUpdate(id: number, startedAt: Date, settled: SettledAgentUpdate, at: Date): Promise<void> {
     const result = await this.pool.query<HostIdRow>(
       `UPDATE managed_hosts SET agent_update_state = $3, agent_update_result = $4::jsonb, agent_update_at = $5
        WHERE id = $1 AND agent_update_state = 'running' AND agent_update_at = $2
@@ -211,9 +211,9 @@ export class HostRepository {
       [
         id,
         startedAt,
-        settled?.state ?? null,
-        settled?.state === 'done' ? JSON.stringify(settled.result) : null,
-        settled === null ? null : at,
+        settled.state,
+        settled.state === 'done' ? JSON.stringify(settled.result) : null,
+        at,
       ],
     );
     if (result.rows.length > 0) await this.notifyInventoryChange([id]);
