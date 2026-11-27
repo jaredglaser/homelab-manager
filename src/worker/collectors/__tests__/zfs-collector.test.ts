@@ -1,14 +1,37 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { ZFSCollector } from '../zfs-collector';
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import type { ZfsPool, ZfsStatsFrame } from '@homelab-manager/agent/types/protocol';
+import { AgentZfsFrameError, ZFSCollector } from '../zfs-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
 import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 
-/** Wrap a list of ZFS iostat lines as `{ line }` frames (optionally with an agent timestamp). */
-function lineFrames(lines: string[], timestamp?: number): unknown[] {
-  return lines.map((line) => (timestamp === undefined ? { line } : { line, timestamp }));
+const IO = { readOps: 10, writeOps: 20, readBytes: 102400, writeBytes: 204800 };
+
+/** A frame as the agent builds it, so a drift between the agent's builder and this test fails typecheck. */
+function frame(pools: ZfsPool[], time = 1700000000000): ZfsStatsFrame {
+  return { v: 1, time, pools };
 }
+
+const TANK: ZfsPool = {
+  name: 'tank',
+  capacity: { allocBytes: '1990116046274', freeBytes: '2407908633477' },
+  io: IO,
+  children: [
+    {
+      kind: 'vdev',
+      name: 'mirror-0',
+      capacity: { allocBytes: '1990116046274', freeBytes: '2407908633477' },
+      io: IO,
+      children: [
+        { kind: 'disk', name: 'sda', capacity: null, io: IO },
+        { kind: 'disk', name: 'sdb', capacity: null, io: IO },
+      ],
+    },
+    { kind: 'group', group: 'logs', children: [{ kind: 'disk', name: 'nvme0n1', capacity: { allocBytes: '0', freeBytes: '17179869184' }, io: IO }] },
+    { kind: 'group', group: 'spares', children: [{ kind: 'disk', name: 'sdz', capacity: null, io: null }] },
+  ],
+};
 
 /** Create a mock DatabaseClient that captures insertZFSStats calls */
 function createMockDb() {
@@ -67,18 +90,6 @@ const sampleHost: ManagedHost = {
   lastSweptAt: null,
 };
 
-// Simulate zpool iostat -vvv output lines sent as SSE events
-const IOSTAT_LINES = [
-  '              capacity     operations     bandwidth',
-  'pool        alloc   free   read  write   read  write',
-  '----------  -----  -----  -----  -----  -----  -----',
-  'tank        1.81T  2.19T     10     20   100K   200K',
-  '  mirror-0      -      -      5     10    50K   100K',
-  '    sda         -      -      3      5    25K    50K',
-  '    sdb         -      -      2      5    25K    50K',
-  '              capacity     operations     bandwidth',
-];
-
 describe('ZFSCollector', () => {
   let mockDb: ReturnType<typeof createMockDb>;
   let abortController: AbortController;
@@ -121,68 +132,101 @@ describe('ZFSCollector', () => {
   });
 
   describe('collect()', () => {
-    it('should parse iostat output and write rows with correct hierarchy', async () => {
-      const streamConnector = fixedStream(lineFrames(IOSTAT_LINES));
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
-      );
-      mockDb.patchRepository(collector);
-
+    async function collectFrames(frames: unknown[], host: ManagedHost = sampleHost): Promise<NewZFSStat[][]> {
+      const db = createMockDb();
+      const collector = new ZFSCollector(db.db, defaultConfig, host, async () => 'test-token', abortController, fixedStream(frames));
+      db.patchRepository(collector);
       await (collector as any).collect();
+      return db.insertedRows;
+    }
 
-      // The second header line triggers a flush of the first cycle
-      expect(mockDb.insertedRows.length).toBe(1);
-      const rows = mockDb.insertedRows[0];
+    it('writes one row per node with pool-relative entities, node types and the agent sample time', async () => {
+      const [rows, ...rest] = await collectFrames([frame([TANK])]);
 
-      // Should have 4 rows: pool + vdev + 2 disks
-      expect(rows.length).toBe(4);
-
-      // Pool row (entity prefixed with host identifier from agentUrl)
-      expect(rows[0].entity).toBe('192.168.1.50:9090/tank');
-      expect(rows[0].entityType).toBe('pool');
-      expect(rows[0].pool).toBe('tank');
-      expect(rows[0].host).toBe('test-zfs');
-      expect(rows[0].indent).toBe(0);
-
-      // Vdev row
-      expect(rows[1].entity).toBe('192.168.1.50:9090/tank/mirror-0');
-      expect(rows[1].entityType).toBe('vdev');
-      expect(rows[1].pool).toBe('tank');
-      expect(rows[1].indent).toBe(2);
-
-      // Disk rows
-      expect(rows[2].entity).toBe('192.168.1.50:9090/tank/mirror-0/sda');
-      expect(rows[2].entityType).toBe('disk');
-      expect(rows[2].pool).toBe('tank');
-      expect(rows[2].indent).toBe(4);
-
-      expect(rows[3].entity).toBe('192.168.1.50:9090/tank/mirror-0/sdb');
-      expect(rows[3].entityType).toBe('disk');
+      expect(rest).toEqual([]);
+      expect(rows.map((r) => [r.entity, r.entityType, r.indent])).toEqual([
+        ['tank', 'pool', 0],
+        ['tank/mirror-0', 'vdev', 2],
+        ['tank/mirror-0/sda', 'disk', 4],
+        ['tank/mirror-0/sdb', 'disk', 4],
+        ['tank/@logs', 'group', 2],
+        ['tank/@logs/nvme0n1', 'disk', 4],
+        ['tank/@spares', 'group', 2],
+        ['tank/@spares/sdz', 'disk', 4],
+      ]);
+      for (const row of rows) {
+        expect(row.host).toBe('test-zfs');
+        expect(row.pool).toBe('tank');
+        expect(row.time).toEqual(new Date(1700000000000));
+      }
+      expect(rows[0]).toMatchObject({ capacityAllocBytes: '1990116046274', capacityFreeBytes: '2407908633477', readOpsPerSec: 10, writeBytesPerSec: 204800 });
     });
 
-    it('should write final cycle when stream ends without trailing header', async () => {
-      const lines = [
-        '              capacity     operations     bandwidth',
-        'pool        alloc   free   read  write   read  write',
-        '----------  -----  -----  -----  -----  -----  -----',
-        'rpool       100G   900G      1      2    10K    20K',
-      ];
+    it('stores no capacity and no I/O for groups and spares', async () => {
+      const [rows] = await collectFrames([frame([TANK])]);
+      const blank = { capacityAllocBytes: null, capacityFreeBytes: null, readOpsPerSec: null, writeOpsPerSec: null, readBytesPerSec: null, writeBytesPerSec: null };
 
-      const streamConnector = fixedStream(lineFrames(lines));
+      expect(rows.find((r) => r.entity === 'tank/@spares')).toMatchObject(blank);
+      expect(rows.find((r) => r.entity === 'tank/@spares/sdz')).toMatchObject(blank);
+    });
 
+    it('writes the same entities whatever address the agent is reached at', async () => {
+      const entities = async (agentUrl: string) => (await collectFrames([frame([TANK])], { ...sampleHost, agentUrl }))[0].map((r) => `${r.host}|${r.entity}`);
+
+      const plain = await entities('http://192.168.1.50:9090');
+      expect(await entities('http://10.0.0.7:9090')).toEqual(plain);
+      expect(await entities('https://nas.lan:9443')).toEqual(plain);
+      expect(plain[0]).toBe('test-zfs|tank');
+    });
+
+    it('keeps byte counts past 2^53 exact', async () => {
+      const huge: ZfsPool = { ...TANK, capacity: { allocBytes: '9007199254740993', freeBytes: '18446744073709551615' }, children: [] };
+      const [[row]] = await collectFrames([frame([huge])]);
+
+      expect(row.capacityAllocBytes).toBe('9007199254740993');
+      expect(row.capacityFreeBytes).toBe('18446744073709551615');
+    });
+
+    it('escapes names that would split the entity path', async () => {
+      const files: ZfsPool = { ...TANK, children: [{ kind: 'disk', name: '/var/lib/zfs/a.img', capacity: null, io: IO }] };
+      const [rows] = await collectFrames([frame([files])]);
+
+      expect(rows[1].entity).toBe('tank/%2Fvar%2Flib%2Fzfs%2Fa.img');
+    });
+
+    it('writes each sample with every pool, and nothing for a sample with none', async () => {
+      const backup: ZfsPool = { ...TANK, name: 'backup', children: [] };
+      const inserted = await collectFrames([frame([TANK, backup], 1), frame([], 2), frame([backup], 3)]);
+
+      expect(inserted.map((rows) => [...new Set(rows.map((r) => r.pool))])).toEqual([['tank', 'backup'], ['backup']]);
+    });
+
+    it('marks the host and takes the error path when the agent sends the old text-line frames', async () => {
+      const db = createMockDb();
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
+        db.db, defaultConfig, sampleHost, async () => 'test-token', abortController,
+        fixedStream([{ line: 'tank  1.81T  2.19T  10  20  100K  200K', timestamp: 1 }, frame([TANK])]),
       );
-      mockDb.patchRepository(collector);
+      db.patchRepository(collector);
 
-      await (collector as any).collect();
+      await expect((collector as any).collect()).rejects.toBeInstanceOf(AgentZfsFrameError);
 
-      // Final cycle should be written in the finally block
-      expect(mockDb.insertedRows.length).toBe(1);
-      expect(mockDb.insertedRows[0].length).toBe(1);
-      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/rpool');
-      expect(mockDb.insertedRows[0][0].entityType).toBe('pool');
+      expect(db.insertedRows).toHaveLength(1);
+      expect(db.insertedRows[0]).toEqual([expect.objectContaining({ host: 'test-zfs', pool: '', entity: '', entityType: 'agent_outdated', capacityAllocBytes: null })]);
+    });
+
+    it.each([
+      ['a non-object', 42],
+      ['an agent error event', { error: 'connection lost' }],
+      ['a frame from another protocol version', { v: 2, time: 1, pools: [] }],
+      ['a frame with a rounded byte count', frame([{ ...TANK, capacity: { allocBytes: '1.81T', freeBytes: '0' } }])],
+    ])('takes the error path without marking the host on %s', async (_label, bad) => {
+      const db = createMockDb();
+      const collector = new ZFSCollector(db.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fixedStream([bad]));
+      db.patchRepository(collector);
+
+      await expect((collector as any).collect()).rejects.toBeInstanceOf(AgentZfsFrameError);
+      expect(db.insertedRows).toEqual([]);
     });
 
     it('should connect with the configured agent URL, path, and signer', async () => {
@@ -215,124 +259,28 @@ describe('ZFSCollector', () => {
       await expect((collector as any).collect()).rejects.toThrow('Agent returned 401');
     });
 
-    it('should skip empty lines', async () => {
-      const lines = [
-        '              capacity     operations     bandwidth',
-        '',
-        '   ',
-        'tank        1.81T  2.19T     10     20   100K   200K',
-        '              capacity     operations     bandwidth',
-      ];
-
-      const streamConnector = fixedStream(lineFrames(lines));
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
-      );
-      mockDb.patchRepository(collector);
-
-      await (collector as any).collect();
-
-      expect(mockDb.insertedRows.length).toBe(1);
-      expect(mockDb.insertedRows[0].length).toBe(1);
-      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/tank');
-    });
-
-    it('should skip non-object frame values', async () => {
-      const streamConnector = fixedStream([null, 42, 'just a string']);
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
-      );
-      mockDb.patchRepository(collector);
-
-      await (collector as any).collect();
-
-      // No rows should be written
-      expect(mockDb.insertedRows.length).toBe(0);
-    });
-
-    it('should skip agent error events', async () => {
-      const streamConnector = fixedStream([{ error: 'connection lost' }]);
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
-      );
-      mockDb.patchRepository(collector);
-
-      await (collector as any).collect();
-
-      expect(mockDb.insertedRows.length).toBe(0);
-    });
-
-    it('should use agent-provided timestamp for the written row time field', async () => {
-      const FIXED_TIMESTAMP = 1700000000000;
-
-      // A minimal single-cycle stream: header line triggers a new cycle, then the pool
-      // data line is written when the stream closes (final-cycle flush).
-      const lines = [
-        '              capacity     operations     bandwidth',
-        'tank        1.81T  2.19T     10     20   100K   200K',
-      ];
-
-      const streamConnector = fixedStream(lineFrames(lines, FIXED_TIMESTAMP));
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
-      );
-      mockDb.patchRepository(collector);
-
-      await (collector as any).collect();
-
-      // Exactly one cycle should have been flushed via the final-cycle path
-      expect(mockDb.insertedRows.length).toBe(1);
-      const row = mockDb.insertedRows[0][0];
-
-      // The row's time must reflect the agent timestamp, not Date.now()
-      expect(row.time).toEqual(new Date(FIXED_TIMESTAMP));
-      // Confirm the entity is correct so we know this is the right row
-      expect(row.entity).toBe('192.168.1.50:9090/tank');
-    });
-
     it('should stop processing when abort signal fires', async () => {
-      const headerLine = { line: '              capacity     operations     bandwidth' };
-      const dataLine = { line: 'tank        1.81T  2.19T     10     20   100K   200K' };
-
-      // Gates are pre-created so releasing one is safe even before the generator awaits it.
-      const gates = Array.from({ length: 10 }, () => {
-        let release: () => void = () => {};
-        const promise = new Promise<void>(resolve => { release = resolve; });
-        return { promise, release };
-      });
-
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => { release = resolve; });
       const streamConnector: StreamConnector = async function* () {
-        for (let i = 0; i < 10; i++) {
-          yield headerLine;
-          yield dataLine;
-          await gates[i].promise;
-        }
+        yield frame([TANK], 1);
+        await gate;
+        yield frame([TANK], 2);
       } as unknown as StreamConnector;
 
       const collector = new ZFSCollector(
         mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
-
-      const firstCycleWritten = watchFirstInsert(mockDb.insertedRows);
+      const firstWritten = watchFirstInsert(mockDb.insertedRows);
 
       const collectPromise = (collector as any).collect();
-
-      // Release the first cycle's header+data so the second header line triggers the flush.
-      gates[0].release();
-      await firstCycleWritten;
-
-      // for-await loop checks signal.aborted before processing the next frame.
+      await firstWritten;
       abortController.abort(new DOMException('Shutdown', 'AbortError'));
-
+      release();
       await collectPromise;
 
-      // At least one cycle should have been written before abort
-      expect(mockDb.insertedRows.length).toBeGreaterThanOrEqual(1);
+      expect(mockDb.insertedRows).toHaveLength(1);
     });
   });
 
@@ -341,27 +289,22 @@ describe('ZFSCollector', () => {
 
     beforeEach(() => {
       timers = mockSetTimeout({ fireImmediately: true });
+      spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => {
       timers.restore();
+      mock.restore();
     });
 
-    it('run() reconnects after stream error with backoff', async () => {
+    it('backs off further on each reconnect to an agent too old to read, instead of reconnecting every second', async () => {
       let callCount = 0;
-
       const streamConnector: StreamConnector = async () => {
         callCount++;
-        if (callCount === 1) {
-          // First cycle errors mid-stream.
-          return (async function* () {
-            yield { line: 'tank        1.81T  2.19T     10     20   100K   200K' };
-            throw new Error('Connection reset');
-          })();
-        }
-        // Second call: abort to end the test
-        abortController.abort(new DOMException('Shutdown', 'AbortError'));
-        return (async function* () {})();
+        if (callCount === 3) abortController.abort(new DOMException('Shutdown', 'AbortError'));
+        return (async function* () {
+          yield { line: 'tank  1.81T  2.19T  10  20  100K  200K', timestamp: 1 };
+        })();
       };
 
       const collector = new ZFSCollector(
@@ -371,9 +314,32 @@ describe('ZFSCollector', () => {
 
       await collector.run();
 
-      expect(callCount).toBeGreaterThanOrEqual(2);
-      // error #1 backoff: baseMs 500 * 2^1
-      expect(timers.delays).toEqual([1000]);
+      expect(timers.delays).toEqual([1000, 2000]);
+      expect(mockDb.insertedRows.flat().map((r) => r.entityType)).toEqual(['agent_outdated', 'agent_outdated']);
+    });
+
+    it('resets the backoff once a readable frame arrives', async () => {
+      let callCount = 0;
+      const streamConnector: StreamConnector = async () => {
+        callCount++;
+        if (callCount === 3) {
+          abortController.abort(new DOMException('Shutdown', 'AbortError'));
+          return (async function* () {})();
+        }
+        return (async function* () {
+          yield frame([TANK]);
+          throw new Error('Connection reset');
+        })();
+      };
+
+      const collector = new ZFSCollector(
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
+      );
+      mockDb.patchRepository(collector);
+
+      await collector.run();
+
+      expect(timers.delays).toEqual([1000, 1000]);
     });
 
     it('run() reconnects after a connect failure with backoff', async () => {
@@ -396,7 +362,6 @@ describe('ZFSCollector', () => {
       await collector.run();
 
       expect(callCount).toBeGreaterThanOrEqual(3);
-      // two error backoffs: baseMs 500 * 2^1 then 2^2
       expect(timers.delays).toEqual([1000, 2000]);
     });
   });

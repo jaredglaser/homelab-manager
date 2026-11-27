@@ -1,58 +1,8 @@
-/**
- * ZFS pool statistics types
- */
+import type { ZfsGroupKind } from '@homelab-manager/agent/types/protocol';
 
-/**
- * Raw ZFS iostat data (one line of output from zpool iostat)
- */
-export interface ZFSIOStatRaw {
-  /** Pool or device name */
-  name: string;
-
-  /** Indentation level from zpool iostat output (0=pool, 2=vdev, 4+=disk) */
-  indent: number;
-
-  /** Capacity metrics */
-  capacity: {
-    alloc: number; // bytes allocated
-    free: number;  // bytes free
-  };
-
-  /** Operations per second */
-  operations: {
-    read: number;  // read ops/s
-    write: number; // write ops/s
-  };
-
-  /** Bandwidth (bytes/sec) */
-  bandwidth: {
-    read: number;  // bytes/s
-    write: number; // bytes/s
-  };
-
-  /** Total operations and bytes (cumulative counters) */
-  total: {
-    readOps: number;
-    writeOps: number;
-    readBytes: number;
-    writeBytes: number;
-  };
-}
-
-/**
- * ZFS iostat with calculated rates
- */
-export interface ZFSIOStatWithRates extends ZFSIOStatRaw {
-  id: string;
-  timestamp: number;
-  rates: {
-    readOpsPerSec: number;
-    writeOpsPerSec: number;
-    readBytesPerSec: number;
-    writeBytesPerSec: number;
-    utilizationPercent: number;
-  };
-}
+/** `agent_outdated` is a host-level marker row with no pool, written while the host's agent is too old to send pool trees. */
+export const ZFS_ENTITY_TYPE_VALUES = ['pool', 'group', 'vdev', 'disk', 'agent_outdated'] as const;
+export type ZFSEntityType = (typeof ZFS_ENTITY_TYPE_VALUES)[number];
 
 /** Wide row from zfs_stats hypertable */
 export interface ZFSStatsRow {
@@ -61,7 +11,7 @@ export interface ZFSStatsRow {
   host: string;
   pool: string;
   entity: string;
-  entity_type: string; // 'pool', 'vdev', 'disk'
+  entity_type: ZFSEntityType;
   indent: number;
   capacity_alloc: number | null;
   capacity_free: number | null;
@@ -72,34 +22,27 @@ export interface ZFSStatsRow {
   utilization_percent: number | null;
 }
 
-/**
- * Hierarchical data structures for ZFS dashboard
- */
-
-/** Individual disk stats */
-export interface DiskStats {
-  data: ZFSIOStatWithRates;
+/** A device or device group below a pool. `id` is host-prefixed, so it is unique across hosts. */
+export interface ZFSTreeNode {
+  id: string;
+  name: string;
+  type: 'group' | 'vdev' | 'disk';
+  /** Set on group nodes only. */
+  group?: ZfsGroupKind;
+  row: ZFSStatsRow;
+  children: ZFSTreeNode[];
 }
 
-/** Vdev with its disks */
-export interface VdevStats {
-  data: ZFSIOStatWithRates;
-  disks: Map<string, DiskStats>;
+export interface ZFSPoolNode {
+  id: string;
+  name: string;
+  row: ZFSStatsRow;
+  /** Data devices sorted by name, then device groups in `ZFS_GROUP_KINDS` order. */
+  children: ZFSTreeNode[];
 }
 
-/** Pool with its vdevs and individual disks (for single-disk pools) */
-export interface PoolStats {
-  data: ZFSIOStatWithRates;
-  vdevs: Map<string, VdevStats>;
-  individualDisks: Map<string, DiskStats>;
-}
-
-/** Complete ZFS hierarchy: pools -> vdevs -> disks */
-export type ZFSHierarchy = Map<string, PoolStats>;
-
-/**
- * Multi-host ZFS hierarchy types
- */
+/** Pools by pool name, sorted by name. */
+export type ZFSHierarchy = Map<string, ZFSPoolNode>;
 
 /** Aggregated stats for a ZFS host (summed from pools) */
 export interface ZFSHostAggregatedStats {
@@ -115,9 +58,11 @@ export interface ZFSHostAggregatedStats {
 /** ZFS host with its pool hierarchy */
 export interface ZFSHostStats {
   hostName: string;
+  /** The host's agent is too old to send pool trees, so it reports no pools. */
+  agentOutdated: boolean;
   aggregated: ZFSHostAggregatedStats;
   pools: ZFSHierarchy;
 }
 
-/** Complete multi-host ZFS hierarchy: hosts -> pools -> vdevs -> disks */
+/** Complete multi-host ZFS hierarchy: hosts -> pools -> devices */
 export type ZFSHostHierarchy = Map<string, ZFSHostStats>;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { statsTopic } from '@/lib/mux/protocol';
 import type { MuxChannel } from '@/lib/mux/use-mux-channel';
+import { ZFS_ENTITY_TYPE_VALUES } from '@/types/zfs';
 
 // time is epoch ms end to end: repository read path converts pg's timestamptz Date, so
 // this schema matches ZFSStatsRow exactly and no revive step is needed.
@@ -9,7 +10,7 @@ const zZFSStatsWireRow = z.object({
   host: z.string(),
   pool: z.string(),
   entity: z.string(),
-  entity_type: z.string(),
+  entity_type: z.enum(ZFS_ENTITY_TYPE_VALUES),
   indent: z.number(),
   capacity_alloc: z.number().nullable(),
   capacity_free: z.number().nullable(),

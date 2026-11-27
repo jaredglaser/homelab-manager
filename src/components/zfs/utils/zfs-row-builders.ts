@@ -1,14 +1,31 @@
-import type { ZFSHostStats, PoolStats, VdevStats } from '@/types/zfs';
+import type { ZfsGroupKind } from '@homelab-manager/agent/types/protocol';
+import type { ZFSHostStats, ZFSPoolNode, ZFSStatsRow, ZFSTreeNode } from '@/types/zfs';
 import type { ZFSTableRow } from '@/components/zfs/ZFSPoolsTable';
+
+export const ZFS_GROUP_LABELS: Readonly<Record<ZfsGroupKind, string>> = {
+  special: 'Special devices',
+  dedup: 'Dedup devices',
+  logs: 'Log devices',
+  cache: 'Cache devices',
+  spares: 'Spares',
+};
+
+export const AGENT_TOO_OLD_FOR_ZFS = "This host's agent is too old to report ZFS stats. Update the agent from the Hosts page.";
+
+function metrics(row: ZFSStatsRow): Pick<ZFSTableRow, 'readOpsPerSec' | 'writeOpsPerSec' | 'readBytesPerSec' | 'writeBytesPerSec' | 'utilizationPercent'> {
+  return {
+    readOpsPerSec: row.read_ops_per_sec ?? undefined,
+    writeOpsPerSec: row.write_ops_per_sec ?? undefined,
+    readBytesPerSec: row.read_bytes_per_sec ?? undefined,
+    writeBytesPerSec: row.write_bytes_per_sec ?? undefined,
+    utilizationPercent: row.utilization_percent ?? undefined,
+  };
+}
 
 export function buildHostRow(host: ZFSHostStats, totalHosts: number): ZFSTableRow {
   const a = host.aggregated;
   const totalPools = host.pools.size;
-  const sortedPools = Array.from(host.pools.values()).sort((a, b) =>
-    a.data.name.localeCompare(b.data.name),
-  );
-
-  const children = sortedPools.map((pool) => buildPoolRow(pool, totalPools));
+  const children = Array.from(host.pools.values()).map((pool) => buildPoolRow(pool, totalPools));
 
   return {
     type: 'host',
@@ -22,122 +39,78 @@ export function buildHostRow(host: ZFSHostStats, totalHosts: number): ZFSTableRo
     readBytesPerSec: a.readBytesPerSec,
     writeBytesPerSec: a.writeBytesPerSec,
     badge: { label: `${a.poolCount} pool${a.poolCount === 1 ? '' : 's'}` },
+    notice: host.agentOutdated ? AGENT_TOO_OLD_FOR_ZFS : undefined,
     canExpand: totalHosts > 1 && totalPools > 0,
     totalHosts,
     children,
   };
 }
 
+function isSingleDisk(devices: ZFSTreeNode[]): boolean {
+  if (devices.length !== 1) return false;
+  const [device] = devices;
+  return device.type === 'disk' || device.children.length <= 1;
+}
+
 /**
- * Build a pool-level tree row with vdev/disk children.
- * When a pool has exactly one vdev with multiple disks, skips the vdev level and
- * shows disks directly under the pool to avoid a redundant expansion step.
+ * A pool row with its device rows. A pool with one vdev of several disks shows the disks directly,
+ * with the vdev as its badge, to save an expansion step. Device groups always follow as their own rows.
  */
-export function buildPoolRow(pool: PoolStats, totalPools: number): ZFSTableRow {
-  const vdevs = Array.from(pool.vdevs.values()).sort((a, b) =>
-    a.data.name.localeCompare(b.data.name),
-  );
-  const individualDisks = Array.from(pool.individualDisks.values()).sort((a, b) =>
-    a.data.name.localeCompare(b.data.name),
-  );
+export function buildPoolRow(pool: ZFSPoolNode, totalPools: number): ZFSTableRow {
+  const devices = pool.children.filter((child) => child.type !== 'group');
+  const groups = pool.children.filter((child) => child.type === 'group');
 
-  const singleVdev = vdevs.length === 1 && individualDisks.length === 0;
-  const isSingleDiskPool =
-    (singleVdev && vdevs[0].disks.size <= 1) ||
-    (vdevs.length === 0 && individualDisks.length === 1);
-  const isSingleVdevMultiDisk = singleVdev && vdevs[0].disks.size > 1;
-
-  let badge: { label: string; tooltip?: string } | undefined;
-  if (isSingleDiskPool) {
-    const tooltipName = singleVdev
-      ? Array.from(vdevs[0].disks.values())[0]?.data.name ?? vdevs[0].data.name
-      : individualDisks[0]?.data.name;
-    badge = { label: 'single disk', tooltip: tooltipName };
-  } else if (singleVdev) {
-    badge = { label: vdevs[0].data.name };
+  let badge: ZFSTableRow['badge'];
+  let deviceRows: ZFSTableRow[];
+  if (isSingleDisk(devices)) {
+    const [device] = devices;
+    badge = { label: 'single disk', tooltip: device.children[0]?.name ?? device.name };
+    deviceRows = [];
+  } else if (devices.length === 1 && devices[0].type === 'vdev') {
+    badge = { label: devices[0].name };
+    deviceRows = devices[0].children.map(buildDeviceRow);
+  } else {
+    deviceRows = devices.map(buildDeviceRow);
   }
 
-  const expandable = !isSingleDiskPool;
-  let children: ZFSTableRow[] | undefined;
-
-  if (expandable) {
-    if (isSingleVdevMultiDisk) {
-      // Skip the vdev level, show disks directly under pool
-      const vdevDisks = Array.from(vdevs[0].disks.values()).sort((a, b) =>
-        a.data.name.localeCompare(b.data.name),
-      );
-      children = vdevDisks.map((disk) => buildDiskRow(disk.data.id, disk.data.name, disk.data, 0));
-    } else {
-      const vdevChildren = vdevs.map((vdev) => buildVdevRow(vdev));
-      const diskChildren = individualDisks.map((disk) =>
-        buildDiskRow(disk.data.id, disk.data.name, disk.data, 0),
-      );
-      children = [...vdevChildren, ...diskChildren];
-    }
-  }
+  const children = [...deviceRows, ...groups.map(buildDeviceRow)];
+  const canExpand = children.length > 0;
 
   return {
     type: 'pool',
-    id: pool.data.id,
-    name: pool.data.name,
+    id: pool.id,
+    name: pool.name,
     indent: 0,
-    capacityAlloc: pool.data.capacity.alloc,
-    capacityFree: pool.data.capacity.free,
-    readOpsPerSec: pool.data.rates.readOpsPerSec,
-    writeOpsPerSec: pool.data.rates.writeOpsPerSec,
-    readBytesPerSec: pool.data.rates.readBytesPerSec,
-    writeBytesPerSec: pool.data.rates.writeBytesPerSec,
-    utilizationPercent: pool.data.rates.utilizationPercent,
+    capacityAlloc: pool.row.capacity_alloc ?? undefined,
+    capacityFree: pool.row.capacity_free ?? undefined,
+    ...metrics(pool.row),
     badge,
-    canExpand: expandable,
+    canExpand,
     totalPools,
-    children,
+    children: canExpand ? children : undefined,
   };
 }
 
-export function buildVdevRow(vdev: VdevStats): ZFSTableRow {
-  const sortedDisks = Array.from(vdev.disks.values()).sort((a, b) =>
-    a.data.name.localeCompare(b.data.name),
-  );
-
-  const hasDisks = sortedDisks.length > 0;
-  const children = hasDisks
-    ? sortedDisks.map((disk) => buildDiskRow(disk.data.id, disk.data.name, disk.data, 0))
-    : undefined;
-
-  return {
-    type: 'vdev',
-    id: `vdev:${vdev.data.id}`,
-    name: vdev.data.name,
+export function buildDeviceRow(node: ZFSTreeNode): ZFSTableRow {
+  const children = node.children.map(buildDeviceRow);
+  const canExpand = children.length > 0;
+  const base = {
     indent: 0,
-    capacityAlloc: vdev.data.capacity.alloc > 0 ? vdev.data.capacity.alloc : undefined,
-    capacityFree: vdev.data.capacity.alloc > 0 ? vdev.data.capacity.free : undefined,
-    readOpsPerSec: vdev.data.rates.readOpsPerSec,
-    writeOpsPerSec: vdev.data.rates.writeOpsPerSec,
-    readBytesPerSec: vdev.data.rates.readBytesPerSec,
-    writeBytesPerSec: vdev.data.rates.writeBytesPerSec,
-    utilizationPercent: vdev.data.rates.utilizationPercent,
-    canExpand: hasDisks,
-    children,
+    canExpand,
+    children: canExpand ? children : undefined,
   };
-}
 
-export function buildDiskRow(
-  id: string,
-  name: string,
-  data: { rates: { readOpsPerSec: number; writeOpsPerSec: number; readBytesPerSec: number; writeBytesPerSec: number; utilizationPercent: number } },
-  indent: number,
-): ZFSTableRow {
+  if (node.type === 'group' && node.group) {
+    return { ...base, type: 'group', id: `group:${node.id}`, name: ZFS_GROUP_LABELS[node.group] };
+  }
+
   return {
-    type: 'disk',
-    id: `disk:${id}`,
-    name,
-    indent,
-    readOpsPerSec: data.rates.readOpsPerSec,
-    writeOpsPerSec: data.rates.writeOpsPerSec,
-    readBytesPerSec: data.rates.readBytesPerSec,
-    writeBytesPerSec: data.rates.writeBytesPerSec,
-    utilizationPercent: data.rates.utilizationPercent,
-    canExpand: false,
+    ...base,
+    type: node.type === 'vdev' ? 'vdev' : 'disk',
+    id: `${node.type}:${node.id}`,
+    name: node.name,
+    capacityAlloc: node.row.capacity_alloc ?? undefined,
+    capacityFree: node.row.capacity_free ?? undefined,
+    ...metrics(node.row),
   };
 }

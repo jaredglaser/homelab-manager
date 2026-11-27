@@ -2,6 +2,15 @@ import { createSseStream, type SseEmitter } from '../lib/sse-stream';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 import { routeErrorBody } from '../lib/error-body';
 import type { AgentRouteErrorBody } from '../types';
+import type { ZfsStatsFrame } from '../types/protocol';
+import {
+  IostatSampleReader,
+  parseZpoolStatus,
+  withSpares,
+  ZPOOL_IOSTAT_ARGS,
+  ZPOOL_STATUS_ARGS,
+  type ZpoolStatusSummary,
+} from '../lib/zfs-iostat';
 
 async function readLines(
   stream: ReadableStream<Uint8Array>,
@@ -27,36 +36,36 @@ async function readLines(
   }
 }
 
-async function pumpZpoolOutput(
-  emit: SseEmitter,
-  stdout: ReadableStream<Uint8Array>,
-  isStopped: () => boolean,
-): Promise<void> {
-  try {
-    await readLines(stdout, isStopped, (line) => {
-      emit.data({ line, timestamp: Date.now() });
-    });
-  } catch (err) {
-    if (!isStopped()) {
-      console.error('ZFS stats stream error:', err);
-    }
-  } finally {
-    emit.close();
-  }
+interface IostatRun {
+  proc: ReturnType<typeof Bun.spawn>;
+  startedAt: number;
+  replaced: boolean;
 }
 
+export interface ZfsStatsStreamOptions {
+  statusIntervalMs?: number;
+  statusTimeoutMs?: number;
+  /** How long a fresh iostat gets to report a pool before a missing pool restarts it again. */
+  restartGraceMs?: number;
+  now?: () => number;
+}
+
+const DEFAULT_STATUS_INTERVAL_MS = 5000;
+const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
+const DEFAULT_RESTART_GRACE_MS = 10_000;
+
 /**
- * Drain the subprocess's stderr into the agent log. Reading it is not optional:
- * this process lives for the whole SSE session, so an unread pipe fills its OS
- * buffer and blocks zpool's stdout, stalling the stream it is meant to feed.
+ * Drain a subprocess's stderr into the agent log. Reading it is not optional:
+ * an unread pipe fills its OS buffer and blocks the process's stdout.
  */
-async function drainZpoolErrors(
+async function drainErrors(
+  label: string,
   stderr: ReadableStream<Uint8Array>,
   isStopped: () => boolean,
 ): Promise<void> {
   try {
     await readLines(stderr, isStopped, (line) => {
-      console.error('zpool iostat:', line);
+      console.error(`${label}:`, line);
     });
   } catch (err) {
     if (!isStopped()) {
@@ -65,15 +74,127 @@ async function drainZpoolErrors(
   }
 }
 
+async function readZpoolStatus(
+  timeoutMs: number,
+  isStopped: () => boolean,
+  track: (proc: ReturnType<typeof Bun.spawn> | null) => void,
+): Promise<ZpoolStatusSummary | null> {
+  const proc = Bun.spawn(ZPOOL_STATUS_ARGS, { stdout: 'pipe', stderr: 'pipe' });
+  track(proc);
+  const timer = setTimeout(() => proc.kill(), timeoutMs);
+  try {
+    void drainErrors('zpool status', proc.stderr as ReadableStream<Uint8Array>, isStopped);
+    const [exitCode, text] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout as ReadableStream<Uint8Array>).text(),
+    ]);
+    if (exitCode !== 0) {
+      if (!isStopped()) console.error(`zpool status exited with ${exitCode}`);
+      return null;
+    }
+    const summary = parseZpoolStatus(text);
+    if (!summary && !isStopped()) console.error('zpool status printed output this agent cannot read');
+    return summary;
+  } finally {
+    clearTimeout(timer);
+    track(null);
+  }
+}
+
+function missingPoolsKey(reportable: Set<string>, reported: Set<string>): string | null {
+  const missing = [...reportable].filter((name) => !reported.has(name)).sort((a, b) => a.localeCompare(b));
+  return missing.length > 0 ? missing.join('\n') : null;
+}
+
+function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions): () => void {
+  const now = options.now ?? Date.now;
+  const statusTimeoutMs = options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS;
+  const restartGraceMs = options.restartGraceMs ?? DEFAULT_RESTART_GRACE_MS;
+
+  let stopped = false;
+  let run: IostatRun | null = null;
+  let statusProc: ReturnType<typeof Bun.spawn> | null = null;
+  let statusInFlight = false;
+  let sparesByPool = new Map<string, string[]>();
+  let reportedPools = new Set<string>();
+  let lastRestartKey: string | null = null;
+
+  const startIostat = (): void => {
+    const proc = Bun.spawn(ZPOOL_IOSTAT_ARGS, { stdout: 'pipe', stderr: 'pipe' });
+    const current: IostatRun = { proc, startedAt: now(), replaced: false };
+    run = current;
+    reportedPools = new Set();
+    const isDone = () => stopped || current.replaced;
+    const reader = new IostatSampleReader((pools, time) => {
+      if (isDone()) return;
+      reportedPools = new Set(pools.map((pool) => pool.name));
+      emit.data({ v: 1, time, pools: withSpares(pools, sparesByPool) } satisfies ZfsStatsFrame);
+    }, now);
+
+    void (async () => {
+      try {
+        await readLines(proc.stdout as ReadableStream<Uint8Array>, isDone, (line) => reader.push(line));
+      } catch (err) {
+        if (!isDone()) console.error('ZFS stats stream error:', err);
+      } finally {
+        if (!isDone()) emit.close();
+      }
+    })();
+    void drainErrors('zpool iostat', proc.stderr as ReadableStream<Uint8Array>, isDone);
+  };
+
+  const restartIfPoolMissing = (reportable: Set<string>): void => {
+    const key = missingPoolsKey(reportable, reportedPools);
+    if (key === null) {
+      lastRestartKey = null;
+      return;
+    }
+    if (!run || key === lastRestartKey || now() - run.startedAt < restartGraceMs) return;
+    lastRestartKey = key;
+    console.info(`Restarting zpool iostat to pick up pool(s): ${key.split('\n').join(', ')}`);
+    run.replaced = true;
+    run.proc.kill();
+    startIostat();
+  };
+
+  const pollStatus = async (): Promise<void> => {
+    if (statusInFlight || stopped) return;
+    statusInFlight = true;
+    try {
+      const summary = await readZpoolStatus(statusTimeoutMs, () => stopped, (proc) => {
+        statusProc = proc;
+      });
+      if (stopped || !summary) return;
+      sparesByPool = summary.sparesByPool;
+      restartIfPoolMissing(summary.reportablePools);
+    } catch (err) {
+      if (!stopped) console.error('zpool status failed:', err);
+    } finally {
+      statusInFlight = false;
+    }
+  };
+
+  const statusTimer = setInterval(() => void pollStatus(), options.statusIntervalMs ?? DEFAULT_STATUS_INTERVAL_MS);
+  const cleanup = (): void => {
+    stopped = true;
+    clearInterval(statusTimer);
+    run?.proc.kill();
+    statusProc?.kill();
+  };
+
+  startIostat();
+  void pollStatus();
+  return cleanup;
+}
+
 /**
- * GET /zfs/stats/stream: SSE endpoint that streams `zpool iostat -v 1` output.
- *
- * Each non-empty line from the subprocess is emitted as an SSE event with
- * `{ line, timestamp }`. The subprocess is killed when the client disconnects.
+ * GET /zfs/stats/stream: SSE endpoint that sends one `ZfsStatsFrame` per `zpool iostat` sample.
+ * The subprocesses are killed when the client disconnects.
  */
 export function handleZfsStatsStream(
   request: Request,
   capabilities: ZfsCapabilities,
+  options: ZfsStatsStreamOptions = {},
 ): Response {
   if (!capabilities.available) {
     return Response.json(
@@ -83,23 +204,7 @@ export function handleZfsStatsStream(
   }
 
   return createSseStream(request, {
-    onStart: (emit) => {
-      const proc = Bun.spawn(['zpool', 'iostat', '-v', '1'], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      });
-
-      let stopped = false;
-      // Not awaited: the cleanup below has to be registered before the read
-      // loops block, or a teardown mid-loop would never kill the subprocess.
-      void pumpZpoolOutput(emit, proc.stdout, () => stopped);
-      void drainZpoolErrors(proc.stderr, () => stopped);
-
-      return () => {
-        stopped = true;
-        proc.kill();
-      };
-    },
+    onStart: (emit) => startZfsStatsSession(emit, options),
   });
 }
 

@@ -204,12 +204,13 @@ export interface ZFSEntityDef {
   host: string;
   pool: string;
   entity: string;
-  entityType: 'pool' | 'vdev' | 'disk';
+  entityType: 'pool' | 'group' | 'vdev' | 'disk';
   indent: number;
-  capacityAlloc: number;
-  capacityFree: number;
-  /** Activity-based I/O profile - replaces per-metric sine-wave profiles. */
-  activity: ActivityProfile;
+  /** Null where zpool reports no capacity: device groups and spares. */
+  capacityAlloc: number | null;
+  capacityFree: number | null;
+  /** Null for device groups and spares, which zpool iostat reports no I/O for. */
+  activity: ActivityProfile | null;
 }
 
 // ── application pool (2x NVMe mirror, ~3 TiB - VM/LXC storage) ──────────────
@@ -277,8 +278,8 @@ const RUST_DISK_ACTIVITY: ActivityProfile = {
 // ── system pool (single SSD, ~500 GiB - host OS) ─────────────────────────────
 //
 // Light, bursty OS workload: mostly idle with occasional reads (package updates,
-// logs) and small writes. sda is the only child entity (depth-1) with no disk
-// children → triggers isSingleDiskPool=true → shows "single disk" badge.
+// logs) and small writes. sda is the pool's only device, so the pool shows a
+// "single disk" badge.
 //
 // State breakdown:
 //   idle - OS idle, no disk activity             (55%)
@@ -299,10 +300,7 @@ const SYSTEM_ACTIVITY: ActivityProfile = {
 
 export const ZFS_ENTITIES: readonly ZFSEntityDef[] = [
   // ── application pool ──────────────────────────────────────────────────────
-  // Entity paths use slashes so buildHierarchyFromRows places them correctly:
-  //   depth 0 (no '/')  → pool
-  //   depth 1 (one '/') → vdev
-  //   depth 2+ (2+ '/') → disk
+  // A row's parent is its entity minus the last segment. Group segments start with '@'.
   { host: 'nas01', pool: 'application', entity: 'application',              entityType: 'pool', indent: 0, capacityAlloc: 1_800_000_000_000, capacityFree: 1_200_000_000_000, activity: APP_POOL_ACTIVITY },
   { host: 'nas01', pool: 'application', entity: 'application/mirror-0',     entityType: 'vdev', indent: 2, capacityAlloc: 1_800_000_000_000, capacityFree: 1_200_000_000_000, activity: APP_POOL_ACTIVITY },
   { host: 'nas01', pool: 'application', entity: 'application/mirror-0/nvme0n1', entityType: 'disk', indent: 4, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
@@ -316,12 +314,22 @@ export const ZFS_ENTITIES: readonly ZFSEntityDef[] = [
     host: 'nas01', pool: 'rust', entity: `rust/raidz2-0/${disk}`, entityType: 'disk', indent: 4,
     capacityAlloc: 0, capacityFree: 0, activity: RUST_DISK_ACTIVITY,
   })),
+  // Device groups: a mirrored special vdev for metadata, a log device, an L2ARC cache device and a hot spare
+  { host: 'nas01', pool: 'rust', entity: 'rust/@special',                  entityType: 'group', indent: 2, capacityAlloc: null, capacityFree: null, activity: null },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@special/mirror-1',         entityType: 'vdev',  indent: 4, capacityAlloc: 120_000_000_000, capacityFree: 880_000_000_000, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@special/mirror-1/nvme2n1', entityType: 'disk',  indent: 6, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@special/mirror-1/nvme3n1', entityType: 'disk',  indent: 6, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@logs',                     entityType: 'group', indent: 2, capacityAlloc: null, capacityFree: null, activity: null },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@logs/nvme4n1p1',           entityType: 'disk',  indent: 4, capacityAlloc: 0, capacityFree: 16_000_000_000, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@cache',                    entityType: 'group', indent: 2, capacityAlloc: null, capacityFree: null, activity: null },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@cache/nvme5n1',            entityType: 'disk',  indent: 4, capacityAlloc: 450_000_000_000, capacityFree: 50_000_000_000, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@spares',                   entityType: 'group', indent: 2, capacityAlloc: null, capacityFree: null, activity: null },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@spares/sdk',               entityType: 'disk',  indent: 4, capacityAlloc: null, capacityFree: null, activity: null },
 
   // ── system pool ───────────────────────────────────────────────────────────
-  // sda is the only child with a depth-1 entity path and no disk children
-  // → isSingleDiskPool=true → shows "single disk" badge, pool is non-expandable
+  // sda is the pool's only device → "single disk" badge, pool is non-expandable
   { host: 'nas01', pool: 'system', entity: 'system',     entityType: 'pool', indent: 0, capacityAlloc: 256_000_000_000, capacityFree: 244_000_000_000, activity: SYSTEM_ACTIVITY },
-  { host: 'nas01', pool: 'system', entity: 'system/sda', entityType: 'vdev', indent: 2, capacityAlloc: 256_000_000_000, capacityFree: 244_000_000_000, activity: SYSTEM_ACTIVITY },
+  { host: 'nas01', pool: 'system', entity: 'system/sda', entityType: 'disk', indent: 2, capacityAlloc: 256_000_000_000, capacityFree: 244_000_000_000, activity: SYSTEM_ACTIVITY },
 ];
 
 // ─── Proxmox Entities ────────────────────────────────────────────────────────

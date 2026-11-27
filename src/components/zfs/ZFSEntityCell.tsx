@@ -2,10 +2,11 @@ import { memo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronRight, Server } from 'lucide-react';
+import { cn } from '@/lib/utils/cn';
 
 interface ZFSEntityCellProps {
   name: string;
-  entityType: 'host' | 'pool' | 'vdev' | 'disk';
+  entityType: 'host' | 'pool' | 'group' | 'vdev' | 'disk';
   indent: number;
   isExpanded?: boolean;
   canExpand?: boolean;
@@ -42,7 +43,7 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
         />
       )}
       {entityType === 'host' && <Server size={18} />}
-      <span className={`truncate ${isBold ? 'font-bold' : 'text-sm'}`}>{name}</span>
+      <span className={cn('truncate', isBold ? 'font-bold' : 'text-sm', entityType === 'group' && 'text-muted-foreground')}>{name}</span>
       {badge?.tooltip ? (
         <Tooltip>
           <TooltipTrigger render={chipEl!} />

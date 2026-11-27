@@ -72,7 +72,7 @@ flowchart LR
     Agent --> SSE --> WK --> DB
 ```
 
-The worker connects to agent sidecars on each managed host via SSE. For Docker stats, the agent pre-computes metrics (CPU%, memory%, network/block I/O rates) before streaming, so the worker receives ready-to-insert rows. For ZFS, the agent streams raw `zpool iostat` output which the worker parses and rate-calculates. Proxmox is a direct REST API poll (no agent).
+The worker connects to agent sidecars on each managed host via SSE. For Docker stats, the agent pre-computes metrics (CPU%, memory%, network/block I/O rates) before streaming, so the worker receives ready-to-insert rows. For ZFS, the agent parses `zpool iostat -v -p -y 1` itself and sends one typed frame per sample with every pool's device tree (`zZfsStatsFrame` in `agent/src/types/protocol.ts`), so the worker only validates and stores it. Proxmox is a direct REST API poll (no agent).
 
 ### Stage 2: Real-Time Streaming (Server -> Browser)
 
@@ -92,7 +92,7 @@ flowchart LR
 
 1. **Agent sidecars** run alongside each managed Docker host, streaming stats and container events
 2. **AgentStatsCollector** connects to each agent's `/stats/stream` endpoint and receives pre-computed Docker metrics (CPU%, memory, network/block I/O rates)
-3. **ZFSCollector** connects to each agent's `/zfs/stats/stream` endpoint, parses `zpool iostat` output, and calculates rates
+3. **ZFSCollector** connects to each agent's `/zfs/stats/stream` endpoint, validates each sample frame against the shared schema, and writes one row per pool, device group, vdev and disk
 4. **ContainerInventoryCollector** connects to each agent's `/containers/events` endpoint and persists container inventory events to `docker_container_events`
 5. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows, and inserts into TimescaleDB
 6. Stats are **inserted** into TimescaleDB wide hypertables
@@ -191,7 +191,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | WS | `/exec/:containerId` | Interactive shell into a container (WebSocket) |
 | GET | `/tls/challenge` | Issue a single-use nonce for the enrollment handshake |
 | POST | `/tls/enroll` | Enroll a TLS certificate for the agent, verified against a signed challenge (manager-driven) |
-| GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
+| GET | `/zfs/stats/stream` | SSE, one `ZfsStatsFrame` per `zpool iostat -v -p -y 1` sample, spares from `zpool status -j` |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
 | POST | `/agent/update` | Spawn a helper container that replaces the agent with the digest-pinned target image |
 

@@ -13,10 +13,11 @@ import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 import PoolSubTable from '@/components/zfs/subtables/PoolSubTable';
 import { buildHostRow } from '@/components/zfs/utils/zfs-row-builders';
 import { Spinner } from '@/components/ui/spinner';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 /** Flattened row model for the DataTable tree structure */
 export interface ZFSTableRow {
-  type: 'host' | 'pool' | 'vdev' | 'disk';
+  type: 'host' | 'pool' | 'group' | 'vdev' | 'disk';
   id: string;
   name: string;
   indent: number;
@@ -30,6 +31,8 @@ export interface ZFSTableRow {
   utilizationPercent?: number;
   /** Display helpers */
   badge?: { label: string; tooltip?: string };
+  /** Shown in the host's panel in place of its pools. */
+  notice?: string;
   canExpand: boolean;
   /** Counts needed for auto-expand logic */
   totalHosts?: number;
@@ -105,7 +108,7 @@ export default function ZFSPoolsTable({
     const state: Record<string, boolean> = {};
     for (const hostRow of tableData) {
       if (hostRow.type === 'host' && hostRow.totalHosts != null) {
-        state[hostRow.id] = isZfsHostExpanded(hostRow.name, hostRow.totalHosts);
+        state[hostRow.id] = hostRow.notice !== undefined || isZfsHostExpanded(hostRow.name, hostRow.totalHosts);
       }
     }
     return state;
@@ -221,7 +224,15 @@ export default function ZFSPoolsTable({
   /** Host detail panel: a nested DataTable of pool rows */
   const renderDetailPanel = useCallback(
     (row: ZFSTableRow) => {
-      if (row.type !== 'host' || !row.children?.length) return null;
+      if (row.type !== 'host') return null;
+      if (row.notice) {
+        return (
+          <Alert variant="warning" className="my-2">
+            <AlertDescription>{row.notice}</AlertDescription>
+          </Alert>
+        );
+      }
+      if (!row.children?.length) return null;
       return (
         <PoolSubTable
           pools={row.children}

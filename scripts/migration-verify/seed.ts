@@ -16,6 +16,7 @@ import {
   ZFS_DECIMATED_SAMPLES,
   ZFS_ENTITIES,
   ZFS_HOST,
+  ZFS_LEGACY,
   ZFS_POOL,
   ZFS_RECENT_SAMPLES,
   BACKFILL_SENTINEL,
@@ -50,6 +51,7 @@ export async function seed(pool: Pool): Promise<void> {
   await seedDockerSparseHour(pool);
   await seedDockerNullMetricHour(pool);
   await seedZfs(pool);
+  await seedZfsLegacyEntities(pool);
   await seedProxmoxCounters(pool);
   await seedProxmoxSupporting(pool);
   await seedEntityMetadata(pool);
@@ -283,6 +285,21 @@ async function seedZfs(pool: Pool): Promise<void> {
         ZFS_DECIMATED_GAP_MINUTES,
         ZFS_DECIMATED_SAMPLES,
       ]
+    );
+  }
+}
+
+/** Whole minutes in the past, so the backfill materializes every one of them into `_1m`. */
+async function seedZfsLegacyEntities(pool: Pool): Promise<void> {
+  for (const row of ZFS_LEGACY.rows) {
+    await pool.query(
+      `INSERT INTO zfs_stats ${ZFS_COLUMNS}
+       SELECT
+         date_trunc('minute', now()) - make_interval(mins => s + 2),
+         $1, $2, $3, $4, 0,
+         $5::bigint, $6::bigint, 1, 1, 1, 1, 50
+       FROM generate_series(0, $7::int - 1) AS s`,
+      [ZFS_LEGACY.host, row.pool, row.entity, row.entityType, row.alloc, row.free, ZFS_LEGACY.samples]
     );
   }
 }

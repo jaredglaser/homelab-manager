@@ -4,6 +4,7 @@ import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { runMigrations } from '@/lib/database/migrate';
+import { runStatsRollupBackfill } from '@/lib/database/stats-rollup-backfill';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
@@ -60,6 +61,12 @@ async function main() {
 
     console.info('[Worker] Running database migrations...');
     await runMigrations(db);
+
+    // The web server starts this too, but it can run before a migration here rebuilds an aggregate,
+    // which then stays empty past its refresh policy's window until the web server restarts.
+    runStatsRollupBackfill(db).catch((err) => {
+      console.error('[Worker] Stats rollup backfill failed:', err);
+    });
 
     // Auto-seed localhost agent in dev mode (gated by DEV_AGENT_TOKEN env var)
     const { seedDevAgent } = await import('./dev-seed');

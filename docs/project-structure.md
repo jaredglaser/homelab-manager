@@ -31,7 +31,6 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 │   ├── health/             # /api/health handler
 │   ├── hosts/              # Host utilities
 │   ├── mock/               # Demo mode: seeded generators, mock server functions, mock WS handlers
-│   ├── parsers/            # zpool iostat parsing
 │   ├── schemas/            # Shared Zod schemas
 │   ├── services/           # Agent health, secret resolution, token generation
 │   ├── settings/           # Settings broadcast service

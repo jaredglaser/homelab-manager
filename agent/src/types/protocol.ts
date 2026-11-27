@@ -153,3 +153,78 @@ export type ComposeFrameEvent =
   | { event: 'phase'; data: ComposePhaseFrame }
   | { event: 'line'; data: ComposeLineFrame }
   | { event: 'result'; data: ComposeResultFrame };
+
+/** A byte count as decimal digits: pool sizes can pass 2^53, which a JSON number cannot carry exactly. */
+const zZfsByteCount = z.string().regex(/^\d+$/);
+const zZfsRate = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+export const zZfsCapacity = z.object({
+  allocBytes: zZfsByteCount,
+  freeBytes: zZfsByteCount,
+});
+export type ZfsCapacity = z.infer<typeof zZfsCapacity>;
+
+/** Per-second rates over the sample interval. */
+export const zZfsIo = z.object({
+  readOps: zZfsRate,
+  writeOps: zZfsRate,
+  readBytes: zZfsRate,
+  writeBytes: zZfsRate,
+});
+export type ZfsIo = z.infer<typeof zZfsIo>;
+
+export const ZFS_GROUP_KINDS = ['special', 'dedup', 'logs', 'cache', 'spares'] as const;
+export const zZfsGroupKind = z.enum(ZFS_GROUP_KINDS);
+export type ZfsGroupKind = z.infer<typeof zZfsGroupKind>;
+
+/** `capacity` is null where zpool reports none (leaf devices, spares). `io` is null for spares, which zpool iostat never reports. */
+export const zZfsDisk = z.object({
+  kind: z.literal('disk'),
+  name: z.string().min(1),
+  capacity: zZfsCapacity.nullable(),
+  io: zZfsIo.nullable(),
+});
+export type ZfsDisk = z.infer<typeof zZfsDisk>;
+
+export const zZfsVdev = z.object({
+  kind: z.literal('vdev'),
+  name: z.string().min(1),
+  capacity: zZfsCapacity.nullable(),
+  io: zZfsIo.nullable(),
+  get children() {
+    return z.array(zZfsDevice).min(1);
+  },
+});
+export type ZfsVdev = z.infer<typeof zZfsVdev>;
+
+export const zZfsDevice: z.ZodDiscriminatedUnion<[typeof zZfsDisk, typeof zZfsVdev]> = z.discriminatedUnion('kind', [zZfsDisk, zZfsVdev]);
+export type ZfsDevice = z.infer<typeof zZfsDevice>;
+
+export const zZfsGroup = z.object({
+  kind: z.literal('group'),
+  group: zZfsGroupKind,
+  children: z.array(zZfsDevice).min(1),
+});
+export type ZfsGroup = z.infer<typeof zZfsGroup>;
+
+export const zZfsPool = z.object({
+  name: z.string().min(1),
+  capacity: zZfsCapacity,
+  io: zZfsIo,
+  children: z.array(z.discriminatedUnion('kind', [zZfsDisk, zZfsVdev, zZfsGroup])),
+});
+export type ZfsPool = z.infer<typeof zZfsPool>;
+
+/** One `data:` frame per `zpool iostat` sample on GET /zfs/stats/stream, carrying every imported pool. */
+export const zZfsStatsFrame = z.object({
+  v: z.literal(1),
+  /** Epoch ms when the sample was read. */
+  time: z.number().int().positive(),
+  pools: z.array(zZfsPool),
+});
+export type ZfsStatsFrame = z.infer<typeof zZfsStatsFrame>;
+
+/** The `{ line, timestamp }` frame agents sent before `zZfsStatsFrame`. Recognized only to tell the operator to update the agent. */
+export function isLegacyZfsLineFrame(frame: unknown): boolean {
+  return z.object({ line: z.string() }).safeParse(frame).success;
+}

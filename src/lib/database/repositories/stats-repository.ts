@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { DockerStatsRow } from '@/types/docker';
 import { PROXMOX_ENTITY_TYPE_VALUES, type ProxmoxStatsRow } from '@/types/proxmox';
-import type { ZFSStatsRow } from '@/types/zfs';
+import { ZFS_ENTITY_TYPE_VALUES, type ZFSEntityType, type ZFSStatsRow } from '@/types/zfs';
 import { parseRowEnumOr } from '@/lib/database/repositories/row-enum';
 
 /** Insert shape for proxmox_stats: same as the read row, but `time` stays a Date for the timestamptz bind. */
@@ -24,20 +24,20 @@ export interface NewDockerStat {
   blockWriteBytesPerSec: number | null;
 }
 
-/** Domain shape the ZFS collector emits; no `zfs_stats` column knowledge. */
+/** Domain shape the ZFS collector emits, with no `zfs_stats` column knowledge. Byte counts are decimal strings so the bigint columns get them exactly. */
 export interface NewZFSStat {
   time: Date;
   host: string;
   pool: string;
   entity: string;
-  entityType: string;
+  entityType: ZFSEntityType;
   indent: number;
-  capacityAlloc: number;
-  capacityFree: number;
-  readOpsPerSec: number;
-  writeOpsPerSec: number;
-  readBytesPerSec: number;
-  writeBytesPerSec: number;
+  capacityAllocBytes: string | null;
+  capacityFreeBytes: string | null;
+  readOpsPerSec: number | null;
+  writeOpsPerSec: number | null;
+  readBytesPerSec: number | null;
+  writeBytesPerSec: number | null;
 }
 
 export type StatsSourceTable = 'docker_stats' | 'zfs_stats' | 'proxmox_stats';
@@ -238,13 +238,13 @@ export class StatsRepository {
       const entities: string[] = [];
       const entityTypes: string[] = [];
       const indents: number[] = [];
-      const capacityAllocs: number[] = [];
-      const capacityFrees: number[] = [];
-      const readOps: number[] = [];
-      const writeOps: number[] = [];
-      const readBytes: number[] = [];
-      const writeBytes: number[] = [];
-      const utilizations: number[] = [];
+      const capacityAllocs: (string | null)[] = [];
+      const capacityFrees: (string | null)[] = [];
+      const readOps: (number | null)[] = [];
+      const writeOps: (number | null)[] = [];
+      const readBytes: (number | null)[] = [];
+      const writeBytes: (number | null)[] = [];
+      const utilizations: (number | null)[] = [];
 
       for (const row of rows) {
         times.push(row.time);
@@ -253,16 +253,13 @@ export class StatsRepository {
         entities.push(row.entity);
         entityTypes.push(row.entityType);
         indents.push(row.indent);
-        // capacity_alloc/capacity_free are bigint columns; truncate before insert.
-        capacityAllocs.push(Math.trunc(row.capacityAlloc));
-        capacityFrees.push(Math.trunc(row.capacityFree));
+        capacityAllocs.push(row.capacityAllocBytes);
+        capacityFrees.push(row.capacityFreeBytes);
         readOps.push(row.readOpsPerSec);
         writeOps.push(row.writeOpsPerSec);
         readBytes.push(row.readBytesPerSec);
         writeBytes.push(row.writeBytesPerSec);
-        // zpool iostat values are already per-second; utilization is the only derived value.
-        const totalCapacity = row.capacityAlloc + row.capacityFree;
-        utilizations.push(totalCapacity > 0 ? (row.capacityAlloc / totalCapacity) * 100 : 0);
+        utilizations.push(capacityUsedPercent(row.capacityAllocBytes, row.capacityFreeBytes));
       }
 
       await this.pool.query(
@@ -320,7 +317,7 @@ export class StatsRepository {
        FROM zfs_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
-    return result.rows.map(toZFSStatsRow);
+    return result.rows.flatMap((row) => toZFSStatsRow(row) ?? []);
   }
 
   async getDockerStatsHistory(seconds: number): Promise<DockerStatsRow[]> {
@@ -440,7 +437,7 @@ export class StatsRepository {
        ORDER BY time ASC`,
       [seconds, bucketSeconds]
     );
-    return result.rows.map(toZFSStatsRow);
+    return result.rows.flatMap((row) => toZFSStatsRow(row) ?? []);
   }
 
   async insertProxmoxStats(rows: NewProxmoxStat[]): Promise<void> {
@@ -581,13 +578,23 @@ function toDockerStatsRow(row: DockerStatsQueryRow): DockerStatsRow {
   };
 }
 
-function toZFSStatsRow(row: ZFSStatsQueryRow): ZFSStatsRow {
+function capacityUsedPercent(allocBytes: string | null, freeBytes: string | null): number | null {
+  if (allocBytes === null || freeBytes === null) return null;
+  const alloc = Number(allocBytes);
+  const total = alloc + Number(freeBytes);
+  return total > 0 ? (alloc / total) * 100 : 0;
+}
+
+/** Null for a row whose entity_type this build does not know, so one bad row cannot fail the read or stall the poll cursor. */
+function toZFSStatsRow(row: ZFSStatsQueryRow): ZFSStatsRow | null {
+  const entityType = parseRowEnumOr('zfs_stats.entity_type', row.entity_type, ZFS_ENTITY_TYPE_VALUES, null);
+  if (entityType === null) return null;
   return {
     time: row.time.getTime(),
     host: row.host,
     pool: row.pool,
     entity: row.entity,
-    entity_type: row.entity_type,
+    entity_type: entityType,
     indent: row.indent,
     capacity_alloc: row.capacity_alloc,
     capacity_free: row.capacity_free,
