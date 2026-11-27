@@ -11,7 +11,7 @@ export function DemoBanner() {
   return (
     <div className="absolute left-1/2 -translate-x-1/2 top-full pt-2 pointer-events-auto w-fit max-w-[calc(100vw-1rem)]">
       <Alert variant="info" className="pr-2">
-        <AlertDescription className="flex items-center">
+        <AlertDescription className="grid-flow-col items-center">
           <span>
             <strong>Demo mode</strong> - all data is generated in the browser.
             {' '}Self-host to connect to your own infrastructure.

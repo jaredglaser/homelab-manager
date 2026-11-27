@@ -10,7 +10,7 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field'
+import { checkedOnFill, ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { agentUrlSchema } from '@/data/hosts/schemas'
 import type { HostListItem } from '@/lib/hosts/host-utils'
@@ -88,7 +88,7 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
           </Field>
           <Field id="edit-agent-url" label="Agent URL" error={form.formState.errors.agentUrl?.message}>
             {(control) => (
-              <Input {...control} disabled={isUpdating} aria-label="Edit Agent URL" autoComplete="off" {...form.register('agentUrl')} />
+              <Input {...control} disabled={isUpdating} aria-label="Edit Agent URL" {...checkedOnFill(form.register('agentUrl'))} />
             )}
           </Field>
         </DialogBody>

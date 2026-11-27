@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react';
+import { Children, type ComponentProps } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
 
@@ -46,13 +46,17 @@ function AlertTitle({ className, ...props }: ComponentProps<'div'>) {
   );
 }
 
-function AlertDescription({ className, ...props }: ComponentProps<'div'>) {
+function AlertDescription({ className, children, ...props }: ComponentProps<'div'>) {
+  // In a grid every inline element beside text becomes a row of its own, so a sentence with inline code must flow as text.
+  const isSentence = Children.toArray(children).some((child) => typeof child === 'string' || typeof child === 'number');
   return (
     <div
       data-slot="alert-description"
-      className={cn('col-start-2 space-y-1 [&_p]:leading-relaxed', className)}
+      className={cn('col-start-2 [&_p]:leading-relaxed', isSentence ? 'block' : 'grid justify-items-start gap-1', className)}
       {...props}
-    />
+    >
+      {children}
+    </div>
   );
 }
 

@@ -797,6 +797,15 @@ describe('AddHostWizard', () => {
       }
     })
 
+    it('judges a value filled into a field the user is not in, such as autofill, as if it were typed and left', async () => {
+      render(<AddHostWizard {...makeProps()} />)
+      const input = screen.getByLabelText('Host Name')
+      expect(document.activeElement).not.toBe(input)
+      fireEvent.change(input, { target: { value: 'my host' } })
+      expect((await screen.findByRole('alert')).textContent).toBe(HOST_NAME_CHARACTERS_MESSAGE)
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
     it('sends the host name without the spaces around it', async () => {
       const onCreateHost = mock(() => undefined)
       const user = setupUser()

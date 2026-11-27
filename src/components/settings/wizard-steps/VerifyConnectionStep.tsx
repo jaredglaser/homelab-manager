@@ -1,7 +1,7 @@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useFormContext } from 'react-hook-form'
-import { ActionReason, Field } from '@/components/ui/field'
+import { checkedOnFill, ActionReason, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Plus } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
@@ -38,12 +38,12 @@ export default function VerifyConnectionStep({
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <Field id="wizard-agent-host" label="Agent host or IP" error={errors.agentHost?.message} className="sm:col-span-2">
           {(control) => (
-            <Input {...control} placeholder="192.168.1.10" autoComplete="off" disabled={isProvisioning} {...register('agentHost')} />
+            <Input {...control} placeholder="192.168.1.10" disabled={isProvisioning} {...checkedOnFill(register('agentHost'))} />
           )}
         </Field>
         <Field id="wizard-agent-port" label="Agent port" error={errors.agentPort?.message}>
           {(control) => (
-            <Input {...control} placeholder="9090" inputMode="numeric" disabled={isProvisioning} {...register('agentPort')} />
+            <Input {...control} placeholder="9090" inputMode="numeric" disabled={isProvisioning} {...checkedOnFill(register('agentPort'))} />
           )}
         </Field>
       </div>

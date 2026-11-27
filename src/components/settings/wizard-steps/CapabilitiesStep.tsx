@@ -1,6 +1,6 @@
 import { useFormContext } from 'react-hook-form'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Field, FieldError } from '@/components/ui/field'
+import { checkedOnFill, Field, FieldError } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { AddHostFormValues } from '@/components/settings/add-host-form'
@@ -27,7 +27,7 @@ export default function CapabilitiesStep({ takenNameMessage }: Readonly<{ takenN
         error={errors.name?.message ?? takenNameMessage ?? undefined}
         hint={<>Used as the agent's <code>AGENT_HOST_NAME</code>, so it goes into the files in the next steps.</>}
       >
-        {(control) => <Input {...control} placeholder="dev-machine" autoComplete="off" {...register('name')} />}
+        {(control) => <Input {...control} placeholder="dev-machine" {...checkedOnFill(register('name'))} />}
       </Field>
       <p className="text-sm text-muted-foreground">
         Select the capabilities this host will provide:

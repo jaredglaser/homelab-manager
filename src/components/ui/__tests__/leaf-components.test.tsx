@@ -53,6 +53,18 @@ describe('Alert', () => {
     expect(classes).not.toContain('grid');
     expect(classes).not.toContain('flex');
   });
+
+  it('keeps the grid for a description made only of blocks, so those alerts look as they did', () => {
+    render(
+      <Alert variant="info">
+        <AlertDescription>
+          <p>First block</p>
+          <p>Second block</p>
+        </AlertDescription>
+      </Alert>,
+    );
+    expect(screen.getByText('First block').parentElement?.className.split(' ')).toContain('grid');
+  });
 });
 
 describe('Card', () => {
@@ -146,7 +158,7 @@ describe('Field', () => {
     expect(screen.queryByText('Shown in the host list.')).toBeNull();
   });
 
-  it('keeps the message line when there is nothing to show, so an error cannot shift the layout', () => {
+  it('keeps two message lines when there is nothing to show, so an error that wraps cannot shift the layout', () => {
     render(
       <Field id="plain" label="Plain">
         {(control) => <Input {...control} />}
@@ -154,6 +166,6 @@ describe('Field', () => {
     );
     const input = screen.getByLabelText('Plain');
     expect(input.hasAttribute('aria-describedby')).toBe(false);
-    expect(input.parentElement?.querySelector('[data-slot="field-hint"]')?.className).toContain('min-h-4');
+    expect(input.parentElement?.querySelector('[data-slot="field-hint"]')?.className).toContain('min-h-8');
   });
 });

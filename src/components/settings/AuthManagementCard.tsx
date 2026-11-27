@@ -12,7 +12,7 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field'
+import { checkedOnFill, ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EMPTY_CELL } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -313,7 +313,7 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
               )}
               <Field id="git-token-label" label="Label" error={form.formState.errors.label?.message}>
                 {(control) => (
-                  <Input {...control} disabled={isGenerating} aria-label="Token label" autoComplete="off" {...form.register('label')} />
+                  <Input {...control} disabled={isGenerating} aria-label="Token label" {...checkedOnFill(form.register('label'))} />
                 )}
               </Field>
             </>

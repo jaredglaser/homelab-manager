@@ -11,7 +11,7 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field';
+import { checkedOnFill, ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field';
 import type { ServerFailureCopy } from '@/lib/errors/server-fn-error-copy';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -98,7 +98,7 @@ export default function CreateStackDialog({
             </Alert>
           )}
           <Field id="stack-name" label="Stack Name" error={nameError} hint="e.g. my-app or my_stack">
-            {(control) => <Input {...control} autoFocus autoComplete="off" disabled={isLoading} {...form.register('stackName')} />}
+            {(control) => <Input {...control} autoFocus disabled={isLoading} {...checkedOnFill(form.register('stackName'))} />}
           </Field>
           {hosts.length > 1 && (
             <div className="flex flex-col gap-1">

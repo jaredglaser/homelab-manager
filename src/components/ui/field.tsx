@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { UseFormRegisterReturn } from 'react-hook-form';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils/cn';
 
@@ -60,6 +61,17 @@ function blockedReason(
   return issues.find((issue) => !state.isTouched(issue.field) && state.isEmpty(issue.field))?.message ?? null;
 }
 
+/** A change to a field the user is not in, such as browser autofill, is judged as if the user had typed it and left. */
+function checkedOnFill<T extends UseFormRegisterReturn>(registration: T): T {
+  return {
+    ...registration,
+    onChange: async (event: { target: unknown; type?: unknown }) => {
+      await registration.onChange(event);
+      if (event.target !== document.activeElement) await registration.onBlur({ target: event.target, type: 'blur' });
+    },
+  };
+}
+
 /** The first message each field gets from a schema check, in the schema's order. */
 function fieldIssues(result: { error?: { issues: readonly { path: readonly PropertyKey[]; message: string }[] } }): FieldIssue[] {
   const byField = new Map<string, string>();
@@ -78,4 +90,4 @@ function ActionReason({ children, className }: Readonly<{ children: ReactNode; c
   );
 }
 
-export { Field, FieldError, ActionReason, blockedReason, fieldIssues };
+export { Field, FieldError, ActionReason, blockedReason, checkedOnFill, fieldIssues };

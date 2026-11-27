@@ -26,7 +26,7 @@ test('a message under a field does not move the wizard buttons', async ({ page }
   await page.getByLabel('Host Name').fill('dev-box');
   await page.getByLabel('ZFS capability').click();
   await page.getByRole('button', { name: 'Next' }).click();
-  const uid = page.getByLabel('HLM_ZFS_UID');
+  const uid = page.getByLabel('ZFS user ID');
   await expect(uid).toBeVisible();
 
   const back = page.getByRole('button', { name: 'Back' });

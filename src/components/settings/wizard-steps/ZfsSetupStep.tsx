@@ -1,5 +1,5 @@
 import { useFormContext } from 'react-hook-form'
-import { Field } from '@/components/ui/field'
+import { checkedOnFill, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import CopyButton from '@/components/settings/CopyButton'
 import type { AddHostFormValues } from '@/components/settings/add-host-form'
@@ -35,10 +35,10 @@ export default function ZfsSetupStep({ docker }: Readonly<{ docker: boolean }>) 
       </p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <Field id="hlm-zfs-uid" label="ZFS user ID" hint={<code>HLM_ZFS_UID</code>} error={errors.hlmZfsUid?.message} className="flex-1">
-          {(control) => <Input {...control} type="number" min={0} {...register('hlmZfsUid')} />}
+          {(control) => <Input {...control} type="number" min={0} {...checkedOnFill(register('hlmZfsUid'))} />}
         </Field>
         <Field id="hlm-zfs-gid" label="ZFS group ID" hint={<code>HLM_ZFS_GID</code>} error={errors.hlmZfsGid?.message} className="flex-1">
-          {(control) => <Input {...control} type="number" min={0} {...register('hlmZfsGid')} />}
+          {(control) => <Input {...control} type="number" min={0} {...checkedOnFill(register('hlmZfsGid'))} />}
         </Field>
       </div>
       {docker && (
@@ -48,7 +48,7 @@ export default function ZfsSetupStep({ docker }: Readonly<{ docker: boolean }>) 
           error={errors.dockerGid?.message}
           hint={<><code>DOCKER_GID</code>, from <code>getent group docker</code> on the target host</>}
         >
-          {(control) => <Input {...control} type="number" min={0} {...register('dockerGid')} />}
+          {(control) => <Input {...control} type="number" min={0} {...checkedOnFill(register('dockerGid'))} />}
         </Field>
       )}
     </div>
