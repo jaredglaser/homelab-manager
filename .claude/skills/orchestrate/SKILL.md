@@ -33,6 +33,7 @@ A PR is approval-ready only when every acceptance criterion has a recorded resul
 **Everything runs in this cloud box.** Agents, reviewers, and verifiers never use the maintainer's computer. Setup of the box is described in `docs/cloud-environment.md`.
 
 ## 0. Start of session
+- **When you load this skill after a compaction:** read the handoff before anything else. It is the record, and the compaction summary is a note. For each PR, compare its current head commit with the one the handoff records. Where they differ, read the diff between the two before acting on that PR.
 - **Base clone:** the session's checkout of this repo. A session with more than one repository starts in their parent directory and does not run this repo's SessionStart hook, so do not rely on the working directory or on Docker already running. Find the checkout (`git rev-parse --show-toplevel`, or the directory that holds this skill's `.claude/`) and `cd` into it.
 - `mkdir -p /home/claude/work`, then start Docker and check the box from the base clone: `bash scripts/cloud/session-start.sh && bash scripts/cloud/env-check.sh`. The check reports the Bun pin, Docker, which stack images are cached, and which hosts are reachable. The proof types the box can produce today follow from it (section 2).
 - Run `nproc` and `free -g`. The memory rules in sections 4 and 5 assume a small box. Loosen them only if the box clearly has room.
@@ -63,9 +64,9 @@ A PR is approval-ready only when every acceptance criterion has a recorded resul
 - Propose a merge order, and flag anything to defer or close.
 
 ## 2. Acceptance criteria (before any agent starts)
-The orchestrator writes the criteria. The agent that will do the work does not write its own.
+Criteria come from a plan page the maintainer answers before any agent starts. The orchestrator publishes one per PR or task with the `plan-page` skill. The agent that will do the work does not write its own.
 
-- **Per PR or task, 3 to 8 criteria**, each one observable from outside the code: what a user, operator, API caller, or CI run sees. "Refactor X" is not a criterion. "Saving a host edit closes the dialog and the row shows the new name" is.
+- **Each criterion is observable from outside the code:** what a user, operator, API caller, or CI run sees. "Refactor X" is not a criterion. "Saving a host edit closes the dialog and the row shows the new name" is.
 - **Each criterion gets an ID and a proof type**, chosen before the work starts:
   - `unit`: a named `bun test` case that fails without the change
   - `e2e`: a Playwright run against the MSW app or demo build
@@ -75,8 +76,8 @@ The orchestrator writes the criteria. The agent that will do the work does not w
 - **Pick a proof type the box can produce.** `stack` needs Docker running and the four compose images present or pullable. `scripts/cloud/env-check.sh` shows both. If `stack` is unavailable, prefer a CI job that exercises the same thing.
 - **Include what must not change.** At least one criterion per PR names existing behaviour the change sits next to and could break.
 - **Sources, in order:** the linked issue, the PR body, the maintainer's request, then the diff. For an existing PR with no stated intent, derive the criteria from the diff and mark them `derived`.
-- **Write them to** `/home/claude/work/pr-<N>-meta/criteria.md` and to `criteria/pr-<N>.md` in the records repo.
-- **Send the maintainer all criteria in one message at the start.** Agents start immediately on PRs whose criteria restate a stated intent. A PR with `derived` criteria, or one where the orchestrator had to choose between readings, waits for the maintainer's answer on that PR only.
+- **Send the plan pages in one message at the start,** as links. A PR waits until its page has no open decision, case or message. Work on the other PRs goes ahead.
+- **Copy the page's criteria word for word** to `/home/claude/work/pr-<N>-meta/criteria.md` and to `criteria/pr-<N>.md` in the records repo, with the page's link.
 - **Criteria change only through the orchestrator.** An agent that finds a criterion wrong or impossible raises it. A changed criterion is noted in the evidence table with the reason.
 
 Format:
@@ -97,7 +98,7 @@ AC3 [e2e, must-not-change] Cancel still discards the edit and leaves the row unc
   | Low | Sonnet, high | A contained fix or small feature in one area, with no migration, no auth or security code, and no CI workflow change |
   | Higher | Opus, medium | Everything else: changes across several areas, migrations, auth or security code, CI ratchets and workflow changes, any PR in a stack, any PR with a `stack` criterion |
 
-  When unsure between two tiers, take the higher one. List each PR's tier in the criteria message (section 2) so the maintainer can change it. If an agent on a Sonnet tier stalls or its review finds serious problems twice, replace it with a fresh Opus agent rather than sending a third round.
+  When unsure between two tiers, take the higher one. List each PR's tier in the message that sends the plan pages (section 2) so the maintainer can change it. If an agent on a Sonnet tier stalls or its review finds serious problems twice, replace it with a fresh Opus agent rather than sending a third round.
 - **Workspace:** each agent works in its own full clone at `/home/claude/work/pr-<N>`, with scratch files in `/home/claude/work/pr-<N>-meta/`. These are separate clones, not worktrees, so no agent can touch another's git state or `node_modules`. `/tmp` is shared, so never use fixed `/tmp` paths: agents clobbered each other's PR bodies that way.
 - **Prompt:** each agent's prompt gives what is specific to its PR:
   - the PR number, branch, base and clone path
@@ -170,7 +171,7 @@ The maintainer reviews the evidence, not a summary of it.
 - **Before the wrap-up,** do a final sweep of every open PR. Check the head SHA, that every check group has a success, that the branch is 0 behind its base, and that it is mergeable. Check that each PR body still matches its PR, and that its Acceptance table is at the head SHA.
 
 ## 8. Talking to the maintainer
-- Send the acceptance criteria for every PR in one message at the start (section 2).
+- Send the plan pages for every PR in one message at the start (section 2).
 - Relay each agent report as a short summary: state, what changed, open risks, and questions with options plus a recommendation.
 - Keep a running list of open questions and the merge order.
 - Repo settings, such as rulesets, and the cloud environment's allowed domains cannot be changed from the session. Give the maintainer the steps instead.
@@ -192,7 +193,7 @@ designs/                          design plans and the decisions made on them
 
 - The first line of `handoff.md` is the status line: `ACTIVE: <session URL>, since <date>` or `IDLE`.
 - Run `git pull --ff-only` before every write. Commit straight to `main` and push. If the pull shows that another session changed `handoff.md` while this one holds the role, stop and tell the maintainer.
-- Keep `handoff.md` current throughout, so a new session can resume without the old context. It carries the task, the merge order, each PR's tier, criteria and current results, open questions for the maintainer, and links to the evidence.
+- Keep `handoff.md` current throughout, so a new session can resume without the old context. It carries the task, the merge order, each PR's tier, head commit, criteria and current results, open questions for the maintainer, and links to the evidence.
 - At the wrap-up, copy `handoff.md` to `archive/`, then set its status line to `IDLE`.
 - Questions and findings go to the maintainer in the session first. For a decision, a follow-up or an environment problem that is still open when the session ends, open an issue in the records repo from its matching template and link it from `handoff.md`.
 - Check `designs/` for a plan that covers the work before writing criteria for it.

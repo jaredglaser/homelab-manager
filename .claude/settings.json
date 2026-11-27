@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/cloud/session-start.sh",
-            "timeout": 30
+            "timeout": 120
           }
         ]
       }

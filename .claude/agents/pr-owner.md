@@ -12,6 +12,7 @@ You own exactly one PR, or you create it for a follow-up task. Make it satisfy i
 - For each `unit` criterion, name the test that proves it, and make sure that test fails without your source change.
 - If a criterion is wrong, impossible, or missing something the change clearly needs, stop and raise it. Do not reinterpret it.
 - You do not verify your own behavioural criteria. A separate verifier runs them. When it reports a failure, fix it and say which files you changed.
+- After a compaction of your context, read your criteria file again before your next push.
 - When the verifier's results arrive, write the Acceptance table into the PR body at the current head SHA.
 
 ## Hard rules
