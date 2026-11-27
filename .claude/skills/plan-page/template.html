@@ -1,0 +1,444 @@
+<title>Form Validation Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #f4f6f4; --surface: #ffffff; --sunk: #eceeec; --fg: #191e1b; --muted: #56625c;
+  --line: #d6dcd8; --line-strong: #a5afa9;
+  --accent: #0d6b60; --accent-soft: #dff1ee;
+  --warn: #8a5300; --warn-soft: #f7ebd3;
+  --bad: #b3261e; --bad-soft: #fbe6e3;
+  --ok: #1d6b38; --ok-soft: #e2f2e6;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101413; --surface: #19201d; --sunk: #141917; --fg: #e6ece9; --muted: #9aa7a1;
+    --line: #2a3330; --line-strong: #56635d;
+    --accent: #5ecbbb; --accent-soft: #15322e;
+    --warn: #e3ab4d; --warn-soft: #33280f;
+    --bad: #f18c82; --bad-soft: #3b1b18;
+    --ok: #77cc8f; --ok-soft: #15311f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101413; --surface: #19201d; --sunk: #141917; --fg: #e6ece9; --muted: #9aa7a1;
+  --line: #2a3330; --line-strong: #56635d;
+  --accent: #5ecbbb; --accent-soft: #15322e;
+  --warn: #e3ab4d; --warn-soft: #33280f;
+  --bad: #f18c82; --bad-soft: #3b1b18;
+  --ok: #77cc8f; --ok-soft: #15311f;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.5; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+h1, h2, h3, h4 { margin: 0; line-height: 1.25; text-wrap: balance; font-weight: 600; }
+h1 { font-size: 1.55rem; } h2 { font-size: 1.2rem; } h3 { font-size: 1rem; } h4 { font-size: 0.92rem; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--mono); font-size: 0.88em; overflow-wrap: anywhere; }
+button { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 920px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 9; background: var(--bg); border-bottom: 1px solid var(--line); }
+.bar .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding-block: 8px; }
+.bar nav { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 0.84rem; }
+.bar nav a { text-decoration: none; color: var(--muted); }
+.bar nav a:hover { color: var(--fg); }
+.meter { margin-left: auto; font-size: 0.84rem; font-variant-numeric: tabular-nums; color: var(--muted); }
+.meter b { color: var(--fg); }
+.page { display: flex; flex-direction: column; gap: 40px; padding-block: 24px 64px; }
+.eyebrow { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.head { display: flex; flex-direction: column; gap: 12px; }
+.lede { font-size: 1.04rem; }
+.ask { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.ask a { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--fg); }
+.ask a:hover { border-color: var(--accent); }
+.ask .n { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.ask .l { font-size: 0.86rem; color: var(--muted); }
+.note { border-left: 3px solid var(--warn); background: var(--warn-soft); padding: 10px 14px; font-size: 0.9rem; }
+section { display: flex; flex-direction: column; gap: 14px; scroll-margin-top: 64px; }
+.sub { color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.chip { display: inline-block; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--muted); white-space: nowrap; }
+.chip.bad { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); }
+.chip.warn { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+.chip.ok { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
+.chip.new { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+/* layers */
+.layers { display: grid; grid-template-columns: 12rem minmax(0, 1fr) minmax(0, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--surface); }
+.layers > div { padding: 10px 12px; border-top: 1px solid var(--line); font-size: 0.92rem; }
+.layers > .h { border-top: 0; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); background: var(--sunk); }
+.layers .where { font-weight: 600; }
+.layers .where small { display: block; font-weight: 400; color: var(--muted); font-size: 0.82rem; }
+.cell { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.cell.bad { background: var(--bad-soft); } .cell.ok { background: var(--ok-soft); } .cell.new { background: var(--accent-soft); }
+.cell .k { display: none; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+@media (max-width: 640px) {
+  .layers { grid-template-columns: 1fr; }
+  .layers > .h { display: none; }
+  .layers .where { background: var(--sunk); }
+  .cell .k { display: block; }
+}
+/* what a user sees */
+.sees { display: flex; flex-direction: column; gap: 12px; }
+.see { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.see.has-img { grid-template-columns: minmax(0, 1fr) minmax(0, 300px); }
+@media (max-width: 720px) { .see.has-img { grid-template-columns: minmax(0, 1fr); } }
+.see-top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.see-top .scr { font-size: 0.84rem; color: var(--muted); }
+.says { font-size: 1.02rem; border-left: 3px solid var(--line-strong); padding: 2px 0 2px 12px; }
+.says.none { font-style: italic; color: var(--muted); }
+.when { font-size: 0.9rem; color: var(--muted); }
+.why { font-size: 0.92rem; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pick { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 0.9rem; }
+.pick:hover { border-color: var(--accent); }
+.pick[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+textarea, input[type="text"] { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line-strong); border-radius: 6px; padding: 7px 10px; width: 100%; box-sizing: border-box; }
+textarea { min-height: 2.6rem; resize: vertical; }
+.linkish { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.9rem; }
+/* edge cases */
+.edges { display: flex; flex-direction: column; gap: 8px; }
+.edge { display: grid; grid-template-columns: 5.6rem minmax(0, 1fr); gap: 4px 12px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 0.92rem; }
+.edge > .chip { align-self: start; justify-self: start; margin-top: 2px; }
+.edge .how { font-size: 0.8rem; color: var(--muted); }
+.edge.mine { border-style: dashed; }
+details > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+details[open] > summary { margin-bottom: 8px; }
+.oklist { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
+.addrow { display: flex; gap: 8px; }
+.addrow input { flex: 1; min-width: 0; }
+/* decisions */
+.dec-q { display: flex; gap: 10px; align-items: baseline; }
+.dec-id { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); flex: none; }
+.ctx { font-size: 0.92rem; color: var(--muted); }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.opt { text-align: left; border: 1px solid var(--line-strong); background: var(--bg); border-radius: 6px; padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.opt:hover { border-color: var(--accent); }
+.opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.opt-h { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-weight: 600; }
+.opt-k { font-family: var(--mono); color: var(--accent); }
+.opt dl { margin: 0; display: grid; grid-template-columns: 4.6rem minmax(0, 1fr); gap: 2px 8px; font-size: 0.86rem; }
+.opt dt { color: var(--muted); } .opt dd { margin: 0; }
+.unk { font-size: 0.88rem; color: var(--warn); }
+/* reach, code, proof */
+.reach { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+.reach ul, .files ul { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; display: flex; flex-direction: column; gap: 3px; }
+.files { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; }
+.frame { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px; overflow-x: auto; }
+.tbl { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 600px; font-size: 0.88rem; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em; }
+tr:last-child td { border-bottom: 0; }
+.send pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.84rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 12px; max-height: 320px; overflow: auto; }
+.status { font-size: 0.86rem; color: var(--muted); }
+.bulk { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 14px; align-items: start; }
+@media (max-width: 640px) { .item { grid-template-columns: minmax(0, 1fr); } }
+.item .b { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.item .t { font-weight: 600; }
+.item .p { font-size: 0.94rem; }
+.item .m { font-size: 0.82rem; color: var(--muted); }
+.grp-h { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+</style>
+<script>
+/* PLAN is the only part an agent edits, together with the <title> above. Wrap code or file names in backticks. */
+window.PLAN = {
+  slug: 'form-validation-plan',
+  title: 'Stop bad input at the field, in words a user can act on',
+  lede: 'A host name with a space passed the Add Host wizard, was rejected by the server, and came back to you as raw JSON. This plan makes four forms check typed input before anything is sent.',
+  note: 'This is the worked example that ships with the template. "Today" means read from the current code or taken from your report.',
+  picture: {
+    intro: 'A value you type can be turned away in three places. What matters is what you see at each one.',
+    rows: [
+      { where: 'In the form', sub: 'before anything is sent', today: { text: 'Nothing checks it. The button is live.' }, proposed: { text: 'A message under the field. The button stays off.', tone: 'ok', tag: 'new' } },
+      { where: 'At the server\'s input check', sub: 'every server function has one', today: { text: 'The raw list of issues, as JSON, on your screen.', tone: 'bad', tag: 'your bug' }, proposed: { text: 'A sentence written for a user. Decision D1 settles who writes it.', tone: 'new', tag: 'new' } },
+      { where: 'Deeper', sub: 'the service, the database, the agent', today: { text: 'Often nothing. A failed compose save shows no message at all.' }, proposed: { text: 'In or out of this change? Decision D7.', tag: 'your call' } }
+    ]
+  },
+  decisions: [
+    { id: 'D1', q: 'Who writes the words when the server\'s input check fails?', ctx: 'The form will stop most bad input, but something can still call the server directly. Today that failure reaches the screen as JSON. Your current rule says the browser writes user wording.',
+      opts: [
+        { k: 'A', t: 'The server, one fixed sentence', ch: 'A catch on all 59 server functions swaps the JSON for one sentence.', co: 'Goes against your own rule. The sentence cannot name the field.', lo: 'Server-written wording for this kind of failure.' },
+        { k: 'B', t: 'The browser, on each screen', ch: 'Each screen maps the failure to its own words.', co: 'A screen that forgets shows JSON again.', lo: 'Nothing.' },
+        { k: 'C', t: 'The server tags it, the browser writes it', rec: true, ch: 'The catch passes a short code and the field name. One shared browser helper writes the sentence and can name the field.', co: 'One more small shared file than A.', lo: 'The code as a contract, the pattern agent errors already follow.' }
+      ] },
+    { id: 'D2', q: 'May a form have rules of its own, apart from the server\'s?', ctx: 'The wizard collects a port and three IDs that are never sent to the server. They are used in the browser to build the compose file and the first-contact address. Only the name and capabilities are sent.',
+      opts: [
+        { k: 'A', t: 'Yes, only for fields the server never receives', rec: true, ch: 'The wizard gets a rule file of its own that reuses the server\'s name and address rules.', co: 'Two rule files for hosts.', lo: 'A boundary for later forms: if the server receives a field, the server\'s rule file owns it.' },
+        { k: 'B', t: 'No, every rule lives with the server', ch: 'One file per subject.', co: 'The server\'s rules grow fields it never sees.', lo: 'Nothing.' }
+      ] },
+    { id: 'D3', q: 'Which way do forms check input?', ctx: 'The stack editor already uses react-hook-form in 8 files. The other forms hold their state by hand.',
+      opts: [
+        { k: 'A', t: 'react-hook-form with its resolver package', rec: true, ch: 'Four forms move onto it. The wizard is largely rewritten.', co: 'One new pinned dependency, @hookform/resolvers.', lo: 'It as the form library for the app.' },
+        { k: 'B', t: 'Check by hand in each form', ch: 'Each form calls the rule itself.', co: 'More code per form, and four ways to do it.', lo: 'Nothing.' }
+      ] },
+    { id: 'D4', q: 'Write a standing rule for forms in AGENTS.md?', ctx: 'Without one, the next form can be built the old way. With one, D1, D2 and D6 become policy.',
+      opts: [
+        { k: 'A', t: 'Yes, in this change, in full', ch: 'Every later form PR is held to it.', co: 'About 150 more words in AGENTS.md.', lo: 'This plan\'s choices as policy.' },
+        { k: 'B', t: 'Yes, three lines, saying only what you decide here', rec: true, ch: 'The rule states the library, where rules live and when messages appear.', co: 'Less guidance for edge cases.', lo: 'The same, in fewer words.' },
+        { k: 'C', t: 'Not yet', ch: 'Nothing.', co: 'The next form has no rule to follow.', lo: 'Nothing.' }
+      ] },
+    { id: 'D5', q: 'Fix the two alerts you flagged, or the shared alert?', ctx: 'In the Configuration step and the keypair dialog, inline code breaks onto a row of its own. The cause is in the shared alert, which 13 places use.',
+      opts: [
+        { k: 'A', t: 'The shared alert, with a screenshot of all 13 as proof', rec: true, ch: 'Inline code stays inside its sentence everywhere.', co: 'One browser run to capture the 13.', lo: 'Nothing. It is one class name.' },
+        { k: 'B', t: 'Only the two you flagged', ch: 'Nothing else moves.', co: 'The next alert with inline code breaks the same way.', lo: 'Nothing.' }
+      ] },
+    { id: 'D6', q: 'When should a message first appear?', ctx: 'This decides how the forms feel. A field that needs several characters, such as an address, is wrong after the first keystroke.',
+      opts: [
+        { k: 'A', t: 'From the first keystroke', ch: 'Nothing waits.', co: 'Address fields complain while you are still typing.', lo: 'Nothing.' },
+        { k: 'B', t: 'After you leave the field, then live', rec: true, ch: 'The first message comes when you tab away. After that it updates as you fix it.', co: 'The button needs to say why it is off meanwhile.', lo: 'Nothing.' },
+        { k: 'C', t: 'Only when you press the button', ch: 'No message until you act.', co: 'The button must stay live, so it cannot also be off while the form is wrong.', lo: 'Nothing.' }
+      ] },
+    { id: 'D7', q: 'Failures past the input check: in this change or not?', ctx: 'A stack name that already exists, or a compose save the server refuses, is not an input-format problem. Today these show nothing or the server\'s own text.',
+      opts: [
+        { k: 'A', t: 'Out. This change is about typed input only', ch: 'Those failures stay as they are today.', co: 'A user can still hit a silent failure or server wording.', lo: 'Nothing. A follow-up is filed.' },
+        { k: 'B', t: 'In, for the cases these four forms can hit', rec: true, ch: 'A name that already exists and a refused save get user wording under the field or in a toast.', co: 'The server must tag those failures. Roughly a third more work.', lo: 'Nothing.' },
+        { k: 'C', t: 'Show the server\'s text in a toast for now', ch: 'Failures stop being silent.', co: 'Server wording on screen, against your rule.', lo: 'Nothing.' }
+      ] }
+  ],
+  words: [
+    { id: 'w1', scr: 'Add Host, first step', when: 'A name with a space or another character that is not allowed', says: 'Use only letters, numbers, hyphens and underscores. Spaces are not allowed.' },
+    { id: 'w2', scr: 'Add Host, first step', when: 'The name is empty', says: 'Enter a name for this host.' },
+    { id: 'w3', scr: 'Add Host, first step', when: 'The name is over 100 characters', says: 'Use 100 characters or fewer.' },
+    { id: 'w4', scr: 'Add Host, first step', when: 'No capability is ticked', says: 'Select at least one capability.' },
+    { id: 'w5', scr: 'Add Host, ZFS Setup', when: 'An ID field is empty', says: 'Enter the number after uid= in the command output.', doubt: 'The field labels today are environment variable names (HLM_ZFS_UID). Keep them, or label the fields in plain words with the variable as a hint?' },
+    { id: 'w6', scr: 'Add Host, Verify Connection', when: 'The agent host is empty', says: 'Enter the host name or IP address of the agent.' },
+    { id: 'w7', scr: 'Add Host, Verify Connection', when: 'A full address was pasted into the host field', says: 'Enter only a host name or IP address, without http:// or a port.' },
+    { id: 'w8', scr: 'Add Host, Verify Connection', when: 'The host cannot be an address, such as 256.256.256.256', says: 'This is not a valid host name or IP address.', doubt: 'It says what is wrong but not what to do.' },
+    { id: 'w9', scr: 'Add Host, Verify Connection', when: 'The port is not a number from 1 to 65535', says: 'Enter a port from 1 to 65535.' },
+    { id: 'w10', scr: 'Edit Host', when: 'The agent address is not a full http or https address', says: 'Enter the full agent URL, such as https://192.168.1.10:9090.' },
+    { id: 'w11', scr: 'Create Stack', when: 'The name is empty, or no host is chosen', says: 'Enter a name for this stack. / Select a target host.' },
+    { id: 'w12', scr: 'Create Stack', when: 'The name starts with a digit or has a character that is not allowed', says: 'Start with a letter, then use only letters, numbers, hyphens and underscores.', doubt: 'Today\'s text is a rule ("Must start with a letter and contain only..."). This rewrites it as an instruction like the others.' },
+    { id: 'w13', scr: 'Generate Git Token', when: 'The label is empty or over 100 characters', says: 'Enter a label for this token. / Use 100 characters or fewer.' },
+    { id: 'w14', scr: 'Generate Git Token', when: 'The server could not create the token', says: 'The token could not be generated. Try again.', doubt: 'It gives no reason. Acceptable only if the reason is logged for you.' },
+    { id: 'w15', scr: 'Stack editor', when: 'The compose file is empty', says: 'The compose file is empty. Add at least one service before saving.' },
+    { id: 'w16', scr: 'Any screen', when: 'The server\'s input check rejects a value the form did not catch', says: 'The value for "Host name" was not accepted. Check it and try again.', doubt: 'Naming the field needs D1 option C. Under option A it can only say "one of its values".' }
+  ],
+  edges: [
+    { id: 'e1', t: 'A host name with a space', p: 'Message under the field. Next stays off.', proof: 'unit' },
+    { id: 'e2', t: 'Spaces before or after a name', p: 'Accepted. The spaces are removed before it is sent.', proof: 'unit' },
+    { id: 'e3', t: 'Arriving at the empty wizard', p: 'Next is off, and a line beside it says a name is needed.', proof: 'e2e', today: 'No form check exists today.' },
+    { id: 'e4', t: 'A full address pasted into the agent host field', p: 'Message telling you to remove http:// and the port.', proof: 'unit', alt: 'Alternative: accept it and split out the host and port.' },
+    { id: 'e5', t: 'IPv6 in brackets, such as [fe80::1]', p: 'Accepted.', proof: 'unit' },
+    { id: 'e6', t: 'Edit Host with ftp://example', p: 'Rejected with the full-address message.', proof: 'unit', today: 'Accepted today: the rule asks for any URL.' },
+    { id: 'e7', t: 'A stack or host name that already exists', p: 'Under D7 option B: a message under the name field saying it is taken.', proof: 'stack', today: 'The server answers with its own text.' },
+    { id: 'e8', t: 'A compose save the server refuses', p: 'Under D7 option B: a toast in user wording.', proof: 'stack', today: 'Nothing is shown.' },
+    { id: 'e9', t: 'Something calls the server directly with bad input', p: 'A user-worded sentence, never JSON (D1).', proof: 'unit' },
+    { id: 'e10', t: 'Bad input from a signed-out session', p: 'The sign-in error wins. The input message is not shown.', proof: 'stack' },
+    { id: 'e11', t: 'A message long enough to wrap to two lines, at phone width', p: 'The buttons do not move when it appears.', proof: 'e2e' },
+    { id: 'e12', t: 'Pasted text with a trailing newline or tab', p: 'Trimmed, then checked.', proof: 'unit' },
+    { id: 'e13', t: 'Browser autofill into the name or address fields', p: 'Checked the same way as typed text.', proof: 'e2e' },
+    { id: 'e14', t: 'Demo mode, where a mock answers in place of the server', p: 'Same messages: the rules run in the browser.', proof: 'e2e' },
+    { id: 'e15', t: 'A valid host, end to end', p: 'Must not change: it still enrols exactly as today.', proof: 'stack' },
+    { id: 'e16', t: 'The 13 alerts', p: 'Must not change, except inline code stays in its sentence (D5).', proof: 'e2e' }
+  ],
+  reach: [
+    { title: 'Every alert in the app', text: 'If the shared alert changes (decision D5), 13 places render it.', items: ['Add Host: the wizard, Configuration, Verify Connection', 'Keypair dialog, Managed hosts, Auth management', 'Create Stack, drift summary, variables panel and rows', 'Agents overview, demo banner, stale-data notice on tables'] },
+    { title: 'Every text input', text: 'The shared input would gain a red border when a field is marked invalid. Inputs that are never marked look the same as now.' },
+    { title: 'Every server function', text: 'Under D1 option A or C, one catch sits on the error path of all 59. It would act only on a failed input check and pass everything else through.' }
+  ],
+  files: [
+    { title: 'Existing forms to change', items: ['`settings/AddHostWizard.tsx` and its three step files. The largest change: step state moves into one form', '`settings/HostDialogs.tsx`, `settings/AuthManagementCard.tsx`', '`stacks/CreateStackDialog.tsx`, `stacks/ComposeEditor.tsx`'] },
+    { title: 'Existing rules to change', items: ['`src/data/hosts/schemas.ts`, `src/data/stacks/schemas.ts`: export the rules and give each a user-worded message', '`src/data/stacks/functions.tsx`, `src/data/git-tokens.functions.tsx`: their inline rules move into rule files'] },
+    { title: 'New files proposed', items: ['A shared field component: label, control, message', 'The wizard\'s own rules (decision D2)', 'A rule file for git tokens', 'The catch on server functions and its wording (decision D1)'] },
+    { title: 'One import to know about', items: ['Today only server function files import the rule files. Under this plan browser components import them too, so they ship to the browser. They import only `zod` now. A server-only import added to one later would fail the build.'] }
+  ]
+};
+</script>
+
+<div class="bar"><div class="wrap">
+  <nav aria-label="Sections" id="nav"></nav>
+  <span class="meter" id="meter" aria-live="polite"></span>
+</div></div>
+
+<div class="wrap"><div class="page">
+<header class="head">
+  <span class="eyebrow">Plan &middot; before any code</span>
+  <h1 id="title"></h1>
+  <p class="lede" id="lede"></p>
+  <div class="ask" id="ask" aria-label="What needs you"></div>
+  <p class="note" id="note"></p>
+</header>
+<section id="picture"><h2>The change in one picture</h2><p class="sub" id="picture-intro"></p><div class="layers" id="layers"></div></section>
+<section id="decide"><h2>Decisions</h2><p class="sub">Each card stands alone: the proposal, the alternatives, what each changes, costs and locks in, and my pick. Tap one.</p><div class="sees" id="dec-list"></div></section>
+<section id="words"><h2>Every message a user would see</h2><p class="sub">All of them, as drafts, grouped by screen. The ones I am unsure of say why. Accept the lot, then change the few.</p>
+  <div class="bulk"><button class="pick" id="words-all" type="button">Accept all as drafted</button><span class="status" id="words-count"></span></div><div class="sees" id="word-list"></div></section>
+<section id="edges"><h2>Edge cases</h2><p class="sub">For each case, the behaviour I propose and how it would be proven. An accepted case becomes an acceptance criterion. Add any I missed.</p>
+  <div class="bulk"><button class="pick" id="edges-all" type="button">Accept all as proposed</button><span class="status" id="edges-count"></span></div><div class="sees" id="edge-list"></div>
+  <div class="card"><label for="edge-new"><h4>A case I missed</h4></label><div class="addrow"><input type="text" id="edge-new" placeholder="For example: two tabs doing this at once"><button class="pick" id="edge-add" type="button">Add</button></div></div></section>
+<section id="reach"><h2>What this would reach beyond itself</h2><p class="sub">Counted in the current code.</p><div class="reach" id="reach-list"></div></section>
+<section id="code"><h2>Where the code would land</h2><p class="sub">A prediction, not a diff. Existing files are named from the current code. New files are proposals.</p><details><summary>Files, by layer</summary><div class="files" id="file-list"></div></details></section>
+<section id="criteria" class="send"><h2>Acceptance criteria</h2><p class="sub">Built from your answers above. This is the output of the page: the work starts from this list, and the agent reads it from here.</p>
+  <div class="card"><label for="overall"><h4>Anything else the work must respect</h4></label><textarea id="overall" placeholder="Anything this page did not ask"></textarea><pre id="summary" tabindex="0"></pre>
+  <div class="acts"><button class="pick" id="copy" type="button">Copy</button><span class="status" id="status" aria-live="polite"></span></div></div></section>
+</div></div>
+<script>
+(function () {
+  var P = window.PLAN, DECS = P.decisions || [], WORDS = P.words || [], EDGES = P.edges || [];
+  var KEY = 'plan-' + P.slug;
+  var state = { dec: {}, words: {}, edges: {}, mine: [], overall: '' };
+  var ref = null, timer = null, saving = false, again = false;
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) rich(n, text); return n; }
+  function rich(node, text) { String(text).split('`').forEach(function (part, i) { if (!part) return; if (i % 2) { var c = document.createElement('code'); c.textContent = part; node.appendChild(c); } else node.appendChild(document.createTextNode(part)); }); }
+  function obj(x) { return x && typeof x === 'object' && !Array.isArray(x); }
+  function take(src) {
+    if (!obj(src)) return;
+    if (obj(src.dec)) state.dec = src.dec; if (obj(src.words)) state.words = src.words; if (obj(src.edges)) state.edges = src.edges;
+    if (Array.isArray(src.mine)) state.mine = src.mine.filter(function (x) { return typeof x === 'string'; }).slice(0, 50);
+    if (typeof src.overall === 'string') state.overall = src.overall;
+  }
+  function setStatus(t) { $('status').textContent = t; }
+  function changed() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    paint();
+    if (!ref) { setStatus('Kept in this browser.'); return; }
+    clearTimeout(timer); timer = setTimeout(push, 900);
+  }
+  function push() {
+    if (saving) { again = true; return; }
+    saving = true;
+    ref.set({ dec: state.dec, words: state.words, edges: state.edges, mine: state.mine, overall: state.overall, criteria: criteria(), open: openCount(), updatedAt: new Date().toISOString() })
+      .then(function () { setStatus('Saved to this page.'); }, function () { setStatus('Kept in this browser only.'); })
+      .then(function () { saving = false; if (again) { again = false; push(); } });
+  }
+  function slot(bag, id) { return bag[id] || (bag[id] = {}); }
+  function verdict(bag, id, prefix, rebuild, ph) {
+    var cur = bag[id] || {}; var box = el('div'); box.style.display = 'flex'; box.style.flexDirection = 'column'; box.style.gap = '6px';
+    var acts = el('div', 'acts');
+    [['ok', 'Accept'], ['change', 'Change']].forEach(function (p) {
+      var b = el('button', 'pick', p[1]); b.type = 'button'; b.id = prefix + id + '-' + p[0];
+      b.setAttribute('aria-pressed', cur.v === p[0] ? 'true' : 'false');
+      b.addEventListener('click', function () { var s = slot(bag, id); s.v = s.v === p[0] ? '' : p[0]; rebuild(); changed(); });
+      acts.appendChild(b);
+    });
+    box.appendChild(acts);
+    if (cur.v === 'change' || cur.n) {
+      var t = el('textarea'); t.id = prefix + 'note-' + id; t.placeholder = ph; t.setAttribute('aria-label', ph); t.value = cur.n || '';
+      t.addEventListener('input', function () { slot(bag, id).n = t.value; changed(); }); box.appendChild(t);
+    }
+    return box;
+  }
+  function buildHead() {
+    $('title').textContent = P.title; $('lede').textContent = P.lede;
+    $('note').textContent = (P.note ? P.note + ' ' : '') + 'Nothing here is evidence. Your answers turn into the acceptance criteria at the bottom, and that list is what the work is held to.';
+    var tiles = [['decide', DECS.length, 'decisions, each with my pick'], ['words', WORDS.length, 'messages a user would see, as drafts'], ['edges', EDGES.length, 'edge cases, each with the behaviour I propose']];
+    tiles.forEach(function (t) { if (!t[1]) return; var a = el('a'); a.href = '#' + t[0]; a.appendChild(el('span', 'n', String(t[1]))); a.appendChild(el('span', 'l', t[2])); $('ask').appendChild(a); });
+    var secs = [['picture', 'Picture', (P.picture && P.picture.rows || []).length], ['decide', 'Decisions', DECS.length], ['words', 'Wording', WORDS.length], ['edges', 'Edge cases', 1], ['reach', 'Reach', (P.reach || []).length], ['code', 'Code', (P.files || []).length], ['criteria', 'Criteria', 1]];
+    secs.forEach(function (s) { if (!s[2]) { $(s[0]).hidden = true; return; } var a = el('a', null, s[1]); a.href = '#' + s[0]; $('nav').appendChild(a); });
+  }
+  function buildPicture() {
+    if (!P.picture) return; $('picture-intro').textContent = P.picture.intro || '';
+    var box = $('layers'); ['Where it is stopped', 'Today', 'Proposed'].forEach(function (h) { box.appendChild(el('div', 'h', h)); });
+    P.picture.rows.forEach(function (r) {
+      var w = el('div', 'where', r.where); if (r.sub) w.appendChild(el('small', null, r.sub)); box.appendChild(w);
+      [['Today', r.today], ['Proposed', r.proposed]].forEach(function (c) {
+        var cell = el('div', 'cell' + (c[1].tone ? ' ' + c[1].tone : '')); cell.appendChild(el('span', 'k', c[0]));
+        if (c[1].tag) cell.appendChild(el('span', 'chip ' + (c[1].tone === 'bad' ? 'bad' : c[1].tone ? 'new' : 'warn'), c[1].tag));
+        cell.appendChild(el('span', null, c[1].text)); box.appendChild(cell);
+      });
+    });
+  }
+  function buildLists() {
+    (P.reach || []).forEach(function (r) { var c = el('div', 'card'); c.appendChild(el('h4', null, r.title)); if (r.text) c.appendChild(el('p', 'sub', r.text)); if (r.items) { var u = el('ul'); r.items.forEach(function (i) { u.appendChild(el('li', null, i)); }); c.appendChild(u); } $('reach-list').appendChild(c); });
+    (P.files || []).forEach(function (f) { var c = el('div', 'card'); c.appendChild(el('h4', null, f.title)); var u = el('ul'); f.items.forEach(function (i) { u.appendChild(el('li', null, i)); }); c.appendChild(u); $('file-list').appendChild(c); });
+  }
+  function buildDecs() {
+    var list = $('dec-list'); list.textContent = '';
+    DECS.forEach(function (d) {
+      var card = el('div', 'card'); var q = el('div', 'dec-q'); q.appendChild(el('span', 'dec-id', d.id)); q.appendChild(el('h3', null, d.q)); card.appendChild(q);
+      card.appendChild(el('p', 'ctx', d.ctx));
+      var cur = state.dec[d.id] || {}; var opts = el('div', 'opts');
+      d.opts.forEach(function (o) {
+        var b = el('button', 'opt'); b.type = 'button'; b.id = 'opt-' + d.id + '-' + o.k; b.setAttribute('aria-pressed', cur.pick === o.k ? 'true' : 'false');
+        var h = el('div', 'opt-h'); h.appendChild(el('span', 'opt-k', o.k)); h.appendChild(el('span', null, o.t)); if (o.rec) h.appendChild(el('span', 'chip new', 'my pick')); b.appendChild(h);
+        var dl = el('dl'); [['Changes', o.ch], ['Costs', o.co], ['Locks in', o.lo]].forEach(function (r) { dl.appendChild(el('dt', null, r[0])); dl.appendChild(el('dd', null, r[1])); }); b.appendChild(dl);
+        b.addEventListener('click', function () { var s = slot(state.dec, d.id); s.pick = s.pick === o.k ? '' : o.k; buildDecs(); changed(); });
+        opts.appendChild(b);
+      });
+      card.appendChild(opts);
+      if (d.unk) card.appendChild(el('p', 'unk', d.unk));
+      var t = el('textarea'); t.id = 'dec-note-' + d.id; t.placeholder = 'A condition, or a different answer'; t.setAttribute('aria-label', 'Note on ' + d.id); t.value = cur.n || '';
+      t.addEventListener('input', function () { slot(state.dec, d.id).n = t.value; changed(); }); card.appendChild(t);
+      list.appendChild(card);
+    });
+  }
+  function buildWords() {
+    var list = $('word-list'); list.textContent = ''; var last = '';
+    WORDS.forEach(function (w) {
+      if (w.scr !== last) { list.appendChild(el('div', 'grp-h', w.scr)); last = w.scr; }
+      var card = el('div', 'card item'); var b = el('div', 'b');
+      b.appendChild(el('div', 'm', 'When: ' + w.when)); b.appendChild(el('div', 'says', w.says));
+      if (w.doubt) { var d = el('div', 'p'); d.appendChild(el('span', 'chip warn', 'unsure')); d.appendChild(document.createTextNode(' ' + w.doubt)); b.appendChild(d); }
+      card.appendChild(b); card.appendChild(verdict(state.words, w.id, 'w-', buildWords, 'What should it say instead?'));
+      list.appendChild(card);
+    });
+  }
+  function buildEdges() {
+    var list = $('edge-list'); list.textContent = '';
+    EDGES.forEach(function (e) {
+      var card = el('div', 'card item'); var b = el('div', 'b');
+      b.appendChild(el('div', 't', e.t)); b.appendChild(el('div', 'p', e.p));
+      var m = el('div', 'm'); m.appendChild(el('span', 'chip', 'proof: ' + e.proof)); if (e.today) m.appendChild(document.createTextNode(' ' + e.today)); if (e.alt) m.appendChild(document.createTextNode(' ' + e.alt)); b.appendChild(m);
+      card.appendChild(b); card.appendChild(verdict(state.edges, e.id, 'e-', buildEdges, 'What should happen instead?'));
+      list.appendChild(card);
+    });
+    state.mine.forEach(function (t, i) {
+      var card = el('div', 'card item'); var b = el('div', 'b'); var h = el('div', 't'); h.appendChild(el('span', 'chip new', 'yours')); h.appendChild(document.createTextNode(' ' + t)); b.appendChild(h);
+      b.appendChild(el('div', 'm', 'The agent proposes a behaviour for this before starting.')); card.appendChild(b);
+      var rm = el('button', 'linkish', 'Remove'); rm.type = 'button'; rm.addEventListener('click', function () { state.mine.splice(i, 1); buildEdges(); changed(); }); card.appendChild(rm);
+      list.appendChild(card);
+    });
+  }
+  function count(items, bag) { return items.filter(function (x) { return (bag[x.id] || {}).v; }).length; }
+  function decided() { return DECS.filter(function (x) { return (state.dec[x.id] || {}).pick; }).length; }
+  function openCount() { return DECS.length - decided() + EDGES.length - count(EDGES, state.edges) + WORDS.length - count(WORDS, state.words); }
+  function criteria() {
+    var out = [], n = 0;
+    if (DECS.length) { out.push('Decisions'); DECS.forEach(function (d) { var s = state.dec[d.id] || {}; var o = d.opts.filter(function (x) { return x.k === s.pick; })[0]; out.push('  ' + d.id + ': ' + (o ? o.k + ', ' + o.t : 'OPEN') + (s.n ? ' (' + s.n + ')' : '')); }); out.push(''); }
+    out.push('Acceptance criteria');
+    EDGES.forEach(function (e) { var s = state.edges[e.id] || {}; if (!s.v) return; n += 1; out.push('  AC' + n + ' [' + e.proof + '] ' + e.t + ': ' + (s.v === 'change' ? (s.n || 'CHANGE REQUESTED, no text yet') : e.p)); });
+    var okWords = WORDS.filter(function (w) { return (state.words[w.id] || {}).v === 'ok'; }).length;
+    if (okWords) { n += 1; out.push('  AC' + n + ' [e2e] The ' + okWords + ' accepted messages appear word for word.'); }
+    WORDS.filter(function (w) { return (state.words[w.id] || {}).v === 'change'; }).forEach(function (w) { n += 1; out.push('  AC' + n + ' [e2e] ' + w.scr + ', when ' + w.when.charAt(0).toLowerCase() + w.when.slice(1) + ': ' + ((state.words[w.id] || {}).n || 'NEW WORDING NEEDED')); });
+    if (!n) out.push('  None yet. Accept or change the cases and messages above.');
+    var open = openCount(); if (open) out.push('', 'Still open: ' + open + ' decisions, cases or messages with no answer.');
+    if (state.mine.length) { out.push('', 'Cases you added, for the agent to propose a behaviour'); state.mine.forEach(function (t) { out.push('  - ' + t); }); }
+    if (state.overall) out.push('', 'Also: ' + state.overall);
+    return out.join('\n');
+  }
+  function paint() {
+    var w = count(WORDS, state.words), e = count(EDGES, state.edges);
+    var m = $('meter'); m.textContent = '';
+    [[decided(), DECS.length, ' decided'], [w, WORDS.length, ' messages'], [e, EDGES.length, ' cases']].forEach(function (r) { if (!r[1]) return; if (m.childNodes.length) m.appendChild(document.createTextNode(' · ')); var b = document.createElement('b'); b.textContent = r[0] + '/' + r[1]; m.appendChild(b); m.appendChild(document.createTextNode(r[2])); });
+    $('words-count').textContent = w + ' of ' + WORDS.length + ' answered'; $('edges-count').textContent = e + ' of ' + EDGES.length + ' answered';
+    $('summary').textContent = criteria();
+  }
+  function rebuild() { buildDecs(); buildWords(); buildEdges(); $('overall').value = state.overall; paint(); }
+  function acceptAll(items, bag, again2) { items.forEach(function (x) { var s = slot(bag, x.id); if (!s.v) s.v = 'ok'; }); again2(); changed(); }
+  try { take(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch (e) {}
+  buildHead(); buildPicture(); buildLists(); rebuild(); setStatus('Kept in this browser.');
+  $('words-all').addEventListener('click', function () { acceptAll(WORDS, state.words, buildWords); });
+  $('edges-all').addEventListener('click', function () { acceptAll(EDGES, state.edges, buildEdges); });
+  $('overall').addEventListener('input', function () { state.overall = $('overall').value; changed(); });
+  function addEdge() { var i = $('edge-new'); var v = i.value.trim(); if (!v) return; state.mine.push(v.slice(0, 300)); i.value = ''; buildEdges(); changed(); }
+  $('edge-add').addEventListener('click', addEdge);
+  $('edge-new').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addEdge(); } });
+  $('copy').addEventListener('click', function () {
+    function fallback() { var r = document.createRange(); r.selectNodeContents($('summary')); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); setStatus('Selected. Copy it with your keyboard or the menu.'); }
+    try { navigator.clipboard.writeText(criteria()).then(function () { setStatus('Copied.'); }, fallback); } catch (e) { fallback(); }
+  });
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('db').then(function (db) {
+      if (!db) return; var r = db.doc('reviews/' + P.slug);
+      return r.get().then(function (snap) { ref = r; if (snap && snap.exists) { take(snap.data()); rebuild(); setStatus('Loaded your earlier answers.'); } else setStatus('Your answers will be saved to this page.'); });
+    }).catch(function () {});
+  }
+})();
+</script>
