@@ -1,4 +1,4 @@
-<title>Form Validation Plan</title>
+<title>Plan title</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
@@ -148,106 +148,39 @@ tr:last-child td { border-bottom: 0; }
 </style>
 <script>
 /* PLAN is the only part an agent edits, together with the <title> above. Wrap code or file names in backticks. */
+// tone is 'bad', 'ok' or 'new'. proof is 'unit', 'e2e', 'stack', 'ci' or 'run'.
+// Optional keys: note, sub, tone, tag, unk, rec, doubt, today, alt, items. An empty list drops its section.
 window.PLAN = {
-  slug: 'form-validation-plan',
-  title: 'Stop bad input at the field, in words a user can act on',
-  lede: 'A host name with a space passed the Add Host wizard, was rejected by the server, and came back to you as raw JSON. This plan makes four forms check typed input before anything is sent.',
-  note: 'This is the worked example that ships with the template. "Today" means read from the current code or taken from your report.',
+  slug: 'replace-with-a-short-slug',
+  title: 'The change in one sentence, as its outcome for a user',
+  lede: 'Two or three sentences: what is wrong or missing today, and what this plan does about it.',
+  note: 'How "today" was established: read from the code, measured, or taken from a report.',
   picture: {
-    intro: 'A value you type can be turned away in three places. What matters is what you see at each one.',
+    intro: 'One sentence that frames the rows.',
     rows: [
-      { where: 'In the form', sub: 'before anything is sent', today: { text: 'Nothing checks it. The button is live.' }, proposed: { text: 'A message under the field. The button stays off.', tone: 'ok', tag: 'new' } },
-      { where: 'At the server\'s input check', sub: 'every server function has one', today: { text: 'The raw list of issues, as JSON, on your screen.', tone: 'bad', tag: 'your bug' }, proposed: { text: 'A sentence written for a user. Decision D1 settles who writes it.', tone: 'new', tag: 'new' } },
-      { where: 'Deeper', sub: 'the service, the database, the agent', today: { text: 'Often nothing. A failed compose save shows no message at all.' }, proposed: { text: 'In or out of this change? Decision D7.', tag: 'your call' } }
+      { where: 'A place where a user meets the change', sub: 'a detail that locates it', today: { text: 'What happens there now.', tone: 'bad', tag: 'reported' }, proposed: { text: 'What would happen instead.', tone: 'ok', tag: 'new' } }
     ]
   },
   decisions: [
-    { id: 'D1', q: 'Who writes the words when the server\'s input check fails?', ctx: 'The form will stop most bad input, but something can still call the server directly. Today that failure reaches the screen as JSON. Your current rule says the browser writes user wording.',
+    { id: 'D1', q: 'A choice that is his to make, asked as a question?', ctx: 'What he needs in order to answer: what exists today, counted or read from the code.', unk: 'What you could not check, and why.',
       opts: [
-        { k: 'A', t: 'The server, one fixed sentence', ch: 'A catch on all 59 server functions swaps the JSON for one sentence.', co: 'Goes against your own rule. The sentence cannot name the field.', lo: 'Server-written wording for this kind of failure.' },
-        { k: 'B', t: 'The browser, on each screen', ch: 'Each screen maps the failure to its own words.', co: 'A screen that forgets shows JSON again.', lo: 'Nothing.' },
-        { k: 'C', t: 'The server tags it, the browser writes it', rec: true, ch: 'The catch passes a short code and the field name. One shared browser helper writes the sentence and can name the field.', co: 'One more small shared file than A.', lo: 'The code as a contract, the pattern agent errors already follow.' }
-      ] },
-    { id: 'D2', q: 'May a form have rules of its own, apart from the server\'s?', ctx: 'The wizard collects a port and three IDs that are never sent to the server. They are used in the browser to build the compose file and the first-contact address. Only the name and capabilities are sent.',
-      opts: [
-        { k: 'A', t: 'Yes, only for fields the server never receives', rec: true, ch: 'The wizard gets a rule file of its own that reuses the server\'s name and address rules.', co: 'Two rule files for hosts.', lo: 'A boundary for later forms: if the server receives a field, the server\'s rule file owns it.' },
-        { k: 'B', t: 'No, every rule lives with the server', ch: 'One file per subject.', co: 'The server\'s rules grow fields it never sees.', lo: 'Nothing.' }
-      ] },
-    { id: 'D3', q: 'Which way do forms check input?', ctx: 'The stack editor already uses react-hook-form in 8 files. The other forms hold their state by hand.',
-      opts: [
-        { k: 'A', t: 'react-hook-form with its resolver package', rec: true, ch: 'Four forms move onto it. The wizard is largely rewritten.', co: 'One new pinned dependency, @hookform/resolvers.', lo: 'It as the form library for the app.' },
-        { k: 'B', t: 'Check by hand in each form', ch: 'Each form calls the rule itself.', co: 'More code per form, and four ways to do it.', lo: 'Nothing.' }
-      ] },
-    { id: 'D4', q: 'Write a standing rule for forms in AGENTS.md?', ctx: 'Without one, the next form can be built the old way. With one, D1, D2 and D6 become policy.',
-      opts: [
-        { k: 'A', t: 'Yes, in this change, in full', ch: 'Every later form PR is held to it.', co: 'About 150 more words in AGENTS.md.', lo: 'This plan\'s choices as policy.' },
-        { k: 'B', t: 'Yes, three lines, saying only what you decide here', rec: true, ch: 'The rule states the library, where rules live and when messages appear.', co: 'Less guidance for edge cases.', lo: 'The same, in fewer words.' },
-        { k: 'C', t: 'Not yet', ch: 'Nothing.', co: 'The next form has no rule to follow.', lo: 'Nothing.' }
-      ] },
-    { id: 'D5', q: 'Fix the two alerts you flagged, or the shared alert?', ctx: 'In the Configuration step and the keypair dialog, inline code breaks onto a row of its own. The cause is in the shared alert, which 13 places use.',
-      opts: [
-        { k: 'A', t: 'The shared alert, with a screenshot of all 13 as proof', rec: true, ch: 'Inline code stays inside its sentence everywhere.', co: 'One browser run to capture the 13.', lo: 'Nothing. It is one class name.' },
-        { k: 'B', t: 'Only the two you flagged', ch: 'Nothing else moves.', co: 'The next alert with inline code breaks the same way.', lo: 'Nothing.' }
-      ] },
-    { id: 'D6', q: 'When should a message first appear?', ctx: 'This decides how the forms feel. A field that needs several characters, such as an address, is wrong after the first keystroke.',
-      opts: [
-        { k: 'A', t: 'From the first keystroke', ch: 'Nothing waits.', co: 'Address fields complain while you are still typing.', lo: 'Nothing.' },
-        { k: 'B', t: 'After you leave the field, then live', rec: true, ch: 'The first message comes when you tab away. After that it updates as you fix it.', co: 'The button needs to say why it is off meanwhile.', lo: 'Nothing.' },
-        { k: 'C', t: 'Only when you press the button', ch: 'No message until you act.', co: 'The button must stay live, so it cannot also be off while the form is wrong.', lo: 'Nothing.' }
-      ] },
-    { id: 'D7', q: 'Failures past the input check: in this change or not?', ctx: 'A stack name that already exists, or a compose save the server refuses, is not an input-format problem. Today these show nothing or the server\'s own text.',
-      opts: [
-        { k: 'A', t: 'Out. This change is about typed input only', ch: 'Those failures stay as they are today.', co: 'A user can still hit a silent failure or server wording.', lo: 'Nothing. A follow-up is filed.' },
-        { k: 'B', t: 'In, for the cases these four forms can hit', rec: true, ch: 'A name that already exists and a refused save get user wording under the field or in a toast.', co: 'The server must tag those failures. Roughly a third more work.', lo: 'Nothing.' },
-        { k: 'C', t: 'Show the server\'s text in a toast for now', ch: 'Failures stop being silent.', co: 'Server wording on screen, against your rule.', lo: 'Nothing.' }
+        { k: 'A', t: 'The option you recommend', rec: true, ch: 'What it changes.', co: 'What it costs.', lo: 'What it locks in, or "Nothing."' },
+        { k: 'B', t: 'The alternative', ch: 'What it changes.', co: 'What it costs.', lo: 'What it locks in, or "Nothing."' }
       ] }
   ],
   words: [
-    { id: 'w1', scr: 'Add Host, first step', when: 'A name with a space or another character that is not allowed', says: 'Use only letters, numbers, hyphens and underscores. Spaces are not allowed.' },
-    { id: 'w2', scr: 'Add Host, first step', when: 'The name is empty', says: 'Enter a name for this host.' },
-    { id: 'w3', scr: 'Add Host, first step', when: 'The name is over 100 characters', says: 'Use 100 characters or fewer.' },
-    { id: 'w4', scr: 'Add Host, first step', when: 'No capability is ticked', says: 'Select at least one capability.' },
-    { id: 'w5', scr: 'Add Host, ZFS Setup', when: 'An ID field is empty', says: 'Enter the number after uid= in the command output.', doubt: 'The field labels today are environment variable names (HLM_ZFS_UID). Keep them, or label the fields in plain words with the variable as a hint?' },
-    { id: 'w6', scr: 'Add Host, Verify Connection', when: 'The agent host is empty', says: 'Enter the host name or IP address of the agent.' },
-    { id: 'w7', scr: 'Add Host, Verify Connection', when: 'A full address was pasted into the host field', says: 'Enter only a host name or IP address, without http:// or a port.' },
-    { id: 'w8', scr: 'Add Host, Verify Connection', when: 'The host cannot be an address, such as 256.256.256.256', says: 'This is not a valid host name or IP address.', doubt: 'It says what is wrong but not what to do.' },
-    { id: 'w9', scr: 'Add Host, Verify Connection', when: 'The port is not a number from 1 to 65535', says: 'Enter a port from 1 to 65535.' },
-    { id: 'w10', scr: 'Edit Host', when: 'The agent address is not a full http or https address', says: 'Enter the full agent URL, such as https://192.168.1.10:9090.' },
-    { id: 'w11', scr: 'Create Stack', when: 'The name is empty, or no host is chosen', says: 'Enter a name for this stack. / Select a target host.' },
-    { id: 'w12', scr: 'Create Stack', when: 'The name starts with a digit or has a character that is not allowed', says: 'Start with a letter, then use only letters, numbers, hyphens and underscores.', doubt: 'Today\'s text is a rule ("Must start with a letter and contain only..."). This rewrites it as an instruction like the others.' },
-    { id: 'w13', scr: 'Generate Git Token', when: 'The label is empty or over 100 characters', says: 'Enter a label for this token. / Use 100 characters or fewer.' },
-    { id: 'w14', scr: 'Generate Git Token', when: 'The server could not create the token', says: 'The token could not be generated. Try again.', doubt: 'It gives no reason. Acceptable only if the reason is logged for you.' },
-    { id: 'w15', scr: 'Stack editor', when: 'The compose file is empty', says: 'The compose file is empty. Add at least one service before saving.' },
-    { id: 'w16', scr: 'Any screen', when: 'The server\'s input check rejects a value the form did not catch', says: 'The value for "Host name" was not accepted. Check it and try again.', doubt: 'Naming the field needs D1 option C. Under option A it can only say "one of its values".' }
+    { id: 'w1', scr: 'The screen or place where the text appears', when: 'What triggers it', says: 'The exact text, as a draft.', doubt: 'Why you are unsure of this wording.' }
   ],
   edges: [
-    { id: 'e1', t: 'A host name with a space', p: 'Message under the field. Next stays off.', proof: 'unit' },
-    { id: 'e2', t: 'Spaces before or after a name', p: 'Accepted. The spaces are removed before it is sent.', proof: 'unit' },
-    { id: 'e3', t: 'Arriving at the empty wizard', p: 'Next is off, and a line beside it says a name is needed.', proof: 'e2e', today: 'No form check exists today.' },
-    { id: 'e4', t: 'A full address pasted into the agent host field', p: 'Message telling you to remove http:// and the port.', proof: 'unit', alt: 'Alternative: accept it and split out the host and port.' },
-    { id: 'e5', t: 'IPv6 in brackets, such as [fe80::1]', p: 'Accepted.', proof: 'unit' },
-    { id: 'e6', t: 'Edit Host with ftp://example', p: 'Rejected with the full-address message.', proof: 'unit', today: 'Accepted today: the rule asks for any URL.' },
-    { id: 'e7', t: 'A stack or host name that already exists', p: 'Under D7 option B: a message under the name field saying it is taken.', proof: 'stack', today: 'The server answers with its own text.' },
-    { id: 'e8', t: 'A compose save the server refuses', p: 'Under D7 option B: a toast in user wording.', proof: 'stack', today: 'Nothing is shown.' },
-    { id: 'e9', t: 'Something calls the server directly with bad input', p: 'A user-worded sentence, never JSON (D1).', proof: 'unit' },
-    { id: 'e10', t: 'Bad input from a signed-out session', p: 'The sign-in error wins. The input message is not shown.', proof: 'stack' },
-    { id: 'e11', t: 'A message long enough to wrap to two lines, at phone width', p: 'The buttons do not move when it appears.', proof: 'e2e' },
-    { id: 'e12', t: 'Pasted text with a trailing newline or tab', p: 'Trimmed, then checked.', proof: 'unit' },
-    { id: 'e13', t: 'Browser autofill into the name or address fields', p: 'Checked the same way as typed text.', proof: 'e2e' },
-    { id: 'e14', t: 'Demo mode, where a mock answers in place of the server', p: 'Same messages: the rules run in the browser.', proof: 'e2e' },
-    { id: 'e15', t: 'A valid host, end to end', p: 'Must not change: it still enrols exactly as today.', proof: 'stack' },
-    { id: 'e16', t: 'The 13 alerts', p: 'Must not change, except inline code stays in its sentence (D5).', proof: 'e2e' }
+    { id: 'e1', t: 'An edge case, in plain words', p: 'The behaviour you propose.', proof: 'unit', today: 'What happens today, if you checked.' },
+    { id: 'e2', t: 'Something nearby that must keep working', p: 'Must not change.', proof: 'e2e' }
   ],
   reach: [
-    { title: 'Every alert in the app', text: 'If the shared alert changes (decision D5), 13 places render it.', items: ['Add Host: the wizard, Configuration, Verify Connection', 'Keypair dialog, Managed hosts, Auth management', 'Create Stack, drift summary, variables panel and rows', 'Agents overview, demo banner, stale-data notice on tables'] },
-    { title: 'Every text input', text: 'The shared input would gain a red border when a field is marked invalid. Inputs that are never marked look the same as now.' },
-    { title: 'Every server function', text: 'Under D1 option A or C, one catch sits on the error path of all 59. It would act only on a failed input check and pass everything else through.' }
+    { title: 'Something the change touches beyond itself', text: 'How far, counted in the current code.', items: ['The places, if a list helps'] }
   ],
   files: [
-    { title: 'Existing forms to change', items: ['`settings/AddHostWizard.tsx` and its three step files. The largest change: step state moves into one form', '`settings/HostDialogs.tsx`, `settings/AuthManagementCard.tsx`', '`stacks/CreateStackDialog.tsx`, `stacks/ComposeEditor.tsx`'] },
-    { title: 'Existing rules to change', items: ['`src/data/hosts/schemas.ts`, `src/data/stacks/schemas.ts`: export the rules and give each a user-worded message', '`src/data/stacks/functions.tsx`, `src/data/git-tokens.functions.tsx`: their inline rules move into rule files'] },
-    { title: 'New files proposed', items: ['A shared field component: label, control, message', 'The wizard\'s own rules (decision D2)', 'A rule file for git tokens', 'The catch on server functions and its wording (decision D1)'] },
-    { title: 'One import to know about', items: ['Today only server function files import the rule files. Under this plan browser components import them too, so they ship to the browser. They import only `zod` now. A server-only import added to one later would fail the build.'] }
+    { title: 'Existing files to change', items: ['`path/to/file.ts`: what changes in it'] },
+    { title: 'New files proposed', items: ['What the file is for, or its path if you are sure of it'] }
   ]
 };
 </script>

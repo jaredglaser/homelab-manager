@@ -9,7 +9,7 @@ Before writing code, give the maintainer one page he can decide from. He answers
 
 ## Steps
 1. Research without narrating. Read the code the change touches, and run the current app where today's behaviour matters. Do not post findings as you go.
-2. Copy `template.html` from this folder to a scratch file. Replace `window.PLAN` and the `<title>`. Leave everything else alone.
+2. Copy `template.html` from this folder to a scratch file. Its `window.PLAN` is a skeleton: one entry per list, with text that says what belongs there. Replace every value and the `<title>`. Leave everything else alone.
 3. Publish it with the Artifact tool and `capabilities: {db: {}, user: {}}`.
 4. Send one message: the link and the number of decisions. Nothing else.
 5. When he says he is done, read his answers with `ArtifactData` (`get`, collection `reviews`, document id = the plan's `slug`). `criteria` holds the list. `open` must be 0. If it is not, ask about what is open and nothing else.
