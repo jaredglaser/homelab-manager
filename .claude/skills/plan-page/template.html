@@ -268,7 +268,7 @@ window.PLAN = {
   }
   function buildPicture() {
     if (!P.picture) return; $('picture-intro').textContent = P.picture.intro || '';
-    var box = $('layers'); ['Where it is stopped', 'Today', 'Proposed'].forEach(function (h) { box.appendChild(el('div', 'h', h)); });
+    var box = $('layers'); ['Where', 'Today', 'Proposed'].forEach(function (h) { box.appendChild(el('div', 'h', h)); });
     P.picture.rows.forEach(function (r) {
       var w = el('div', 'where', r.where); if (r.sub) w.appendChild(el('small', null, r.sub)); box.appendChild(w);
       [['Today', r.today], ['Proposed', r.proposed]].forEach(function (c) {
