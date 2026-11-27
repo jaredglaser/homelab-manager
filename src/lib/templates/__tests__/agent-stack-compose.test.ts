@@ -91,15 +91,44 @@ describe('generateAgentStackCompose', () => {
     }
   });
 
-  it('uses restart: unless-stopped for all services', () => {
+  it('uses restart: unless-stopped for every long-running service', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackCompose(config);
       const parsed = parseYaml(result);
-      for (const [, service] of Object.entries(
+      for (const [name, service] of Object.entries(
         parsed.services as Record<string, { restart: string }>
       )) {
-        expect(service.restart).toBe('unless-stopped');
+        expect(service.restart).toBe(name === 'stacks-dir-init' ? 'no' : 'unless-stopped');
       }
+    }
+  });
+
+  it('gives the agent access to the stacks dir only when it lacks it, before the agent starts', () => {
+    const cases: [AgentStackConfig, string, string][] = [
+      [dockerOnlyConfig, 'agent:agent', 'setpriv --reuid=agent --regid=agent --clear-groups'],
+      [zfsOnlyConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}', 'setpriv --reuid=${HLM_ZFS_UID} --regid=${HLM_ZFS_GID} --clear-groups'],
+      [dockerZfsConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}', 'setpriv --reuid=${HLM_ZFS_UID} --regid=${HLM_ZFS_GID} --groups=${DOCKER_GID}'],
+    ];
+    for (const [config, owner, asAgent] of cases) {
+      const parsed = parseYaml(generateAgentStackCompose(config));
+      const init = parsed.services['stacks-dir-init'];
+      expect(init.image).toBe('${AGENT_IMAGE}');
+      expect(init.user).toBe('0:0');
+      expect(init.network_mode).toBe('none');
+      expect(init.working_dir).toBe('/opt/homelab-manager/stacks');
+      expect(init.labels).toEqual(['hlm.managed=true', 'hlm.role=agent-init']);
+      expect(init.volumes).toEqual([stacksMount]);
+      const script: string = init.entrypoint[2];
+      expect(script).toStartWith(`can_use() { ${asAgent} test -r "$$1" -a -w "$$1" -a -x "$$1"; }\n`);
+      expect(script).toContain(`if ! can_use .; then\n  chown ${owner} . && chmod u+rwx . || warn `);
+      expect(script).toContain(
+        `if [ -d hlm-agent-tls ] && ! can_use hlm-agent-tls; then\n  chown -R ${owner} hlm-agent-tls && chmod u+rwx hlm-agent-tls || warn `,
+      );
+      expect(script).not.toContain(`chown -R ${owner} . `);
+      expect(script).toEndWith('\nexit 0\n');
+      expect(parsed.services.agent.depends_on['stacks-dir-init']).toEqual({
+        condition: 'service_completed_successfully',
+      });
     }
   });
 
@@ -114,7 +143,7 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.environment.DOCKER_HOST).toBe(
       'tcp://socket-proxy:2375'
     );
-    expect(parsed.services.agent.depends_on).toContain('socket-proxy');
+    expect(parsed.services.agent.depends_on['socket-proxy']).toEqual({ condition: 'service_started' });
 
     expect(parsed.services.agent.user).toBeUndefined();
     expect(parsed.services.agent.group_add).toBeUndefined();
@@ -134,7 +163,7 @@ describe('generateAgentStackCompose', () => {
 
     expect(parsed.services['socket-proxy']).toBeUndefined();
     expect(parsed.services.agent.environment.DOCKER_HOST).toBeUndefined();
-    expect(parsed.services.agent.depends_on).toBeUndefined();
+    expect(Object.keys(parsed.services.agent.depends_on)).toEqual(['stacks-dir-init']);
 
     expect(parsed.services.agent.volumes).toEqual([
       stacksMount,
@@ -153,7 +182,7 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.environment.DOCKER_HOST).toBe(
       'tcp://socket-proxy:2375'
     );
-    expect(parsed.services.agent.depends_on).toContain('socket-proxy');
+    expect(parsed.services.agent.depends_on['socket-proxy']).toEqual({ condition: 'service_started' });
 
     expect(parsed.services.agent.volumes).toEqual([
       stacksMount,
@@ -165,12 +194,12 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.group_add).toEqual(['${DOCKER_GID}']);
   });
 
-  it('generates only the agent service, plus the socket proxy for docker hosts', () => {
+  it('generates the agent and its stacks-dir init, plus the socket proxy for docker hosts', () => {
     const dockerParsed = parseYaml(generateAgentStackCompose(dockerOnlyConfig));
-    expect(Object.keys(dockerParsed.services).sort()).toEqual(['agent', 'socket-proxy']);
+    expect(Object.keys(dockerParsed.services).sort()).toEqual(['agent', 'socket-proxy', 'stacks-dir-init']);
 
     const zfsParsed = parseYaml(generateAgentStackCompose(zfsOnlyConfig));
-    expect(Object.keys(zfsParsed.services)).toEqual(['agent']);
+    expect(Object.keys(zfsParsed.services).sort()).toEqual(['agent', 'stacks-dir-init']);
   });
 
   it('agent gets TLS env, ca trust, and an https healthcheck override', () => {
@@ -225,7 +254,7 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services['agent']).toBeDefined();
     expect(parsed.networks).toBeUndefined();
     expect(parsed.services.agent.networks).toBeUndefined();
-    expect(parsed.services.agent.depends_on).toBeUndefined();
+    expect(Object.keys(parsed.services.agent.depends_on)).toEqual(['stacks-dir-init']);
   });
 });
 
