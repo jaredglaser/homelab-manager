@@ -368,6 +368,7 @@ describe('AuthManagementCard', () => {
       await openDialog(user)
       await user.click(screen.getByLabelText('Token label'))
       await user.paste('x'.repeat(101))
+      await user.tab()
       expect((await screen.findByText('Use 100 characters or fewer.')).getAttribute('role')).toBe('alert')
       expect(screen.getByLabelText('Token label').getAttribute('aria-invalid')).toBe('true')
       expect(generateButton().disabled).toBe(true)

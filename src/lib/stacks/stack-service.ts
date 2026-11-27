@@ -16,6 +16,7 @@ import type {
 } from '@/types/stacks';
 import type { DeployAction, DeployRecord, DeployRequest, DeployStatus } from '@/lib/deploy/types';
 import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
+import { TaggedServerError } from '@/lib/errors/tagged-server-error';
 import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-client';
 import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
@@ -371,7 +372,7 @@ export async function createStackInRepo(
     const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
 
     if (manifest.stacks[stackName]) {
-      throw new Error(`Stack "${host}/${stackName}" already exists`);
+      throw new TaggedServerError('name_taken', `A stack named "${stackName}" already exists. Choose another name.`, 'stackName');
     }
 
     manifest.stacks[stackName] = { host, autoDeploy };

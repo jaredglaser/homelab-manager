@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react'
 import { FormProvider, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
+import { ActionReason, blockedReason } from '@/components/ui/field'
+import type { ServerFailureCopy } from '@/lib/errors/server-fn-error-copy'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import { Spinner } from '@/components/ui/spinner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -16,8 +18,9 @@ import VerifyConnectionStep from '@/components/settings/wizard-steps/VerifyConne
 import {
   ADD_HOST_FORM_DEFAULTS,
   addHostFormSchema,
+  addHostStepIssues,
   firstContactAgentUrl,
-  isAddHostStepValid,
+  type AddHostField,
   type AddHostFormValues,
 } from '@/components/settings/add-host-form'
 
@@ -33,7 +36,7 @@ export interface PendingHostState {
 interface AddHostWizardProps {
   isCreating: boolean
   isProvisioning: boolean
-  createError: string | null
+  createError: ServerFailureCopy | null
   provisionError: TlsFailureGuidance | null
   pendingHost: PendingHostState | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
@@ -60,7 +63,7 @@ export default function AddHostWizard({
 }: AddHostWizardProps) {
   const [activeStep, setActiveStep] = useState(0)
   const form = useForm<AddHostFormValues>({
-    mode: 'all',
+    mode: 'onTouched',
     defaultValues: ADD_HOST_FORM_DEFAULTS,
     resolver: zodResolver(addHostFormSchema),
   })
@@ -103,8 +106,24 @@ export default function AddHostWizard({
     }
   }, [agentStackConfig, pendingHost])
 
-  const isCurrentStepValid = isAddHostStepValid(currentStepName, values)
-  const canVerify = !!pendingHost && isAddHostStepValid('Verify Connection', values)
+  const { touchedFields } = form.formState
+
+  const [seenCreateError, setSeenCreateError] = useState(createError)
+  const [takenName, setTakenName] = useState<string | null>(null)
+  if (createError !== seenCreateError) {
+    setSeenCreateError(createError)
+    setTakenName(createError?.field === 'name' ? name : null)
+    if (createError?.field === 'name') setActiveStep(0)
+  }
+  const takenNameMessage = takenName !== null && takenName === name ? createError?.message ?? null : null
+
+  const stepIssues = addHostStepIssues(currentStepName, values)
+  const isCurrentStepValid = stepIssues.length === 0 && !(currentStepName === 'Capabilities' && takenNameMessage)
+  const canVerify = !!pendingHost && addHostStepIssues('Verify Connection', values).length === 0
+  const nextBlockedReason = blockedReason(stepIssues, {
+    isTouched: (field) => Boolean(touchedFields[field as AddHostField]),
+    isEmpty: (field) => String(values[field as AddHostField]).trim() === '',
+  })
 
   function handleNext() {
     if (!isCurrentStepValid) return
@@ -139,7 +158,7 @@ export default function AddHostWizard({
 
         <div className="min-h-[200px]">
           {currentStepName === 'Capabilities' && (
-            <CapabilitiesStep />
+            <CapabilitiesStep takenNameMessage={takenNameMessage} />
           )}
 
           {currentStepName === 'ZFS Setup' && (
@@ -148,9 +167,9 @@ export default function AddHostWizard({
 
           {currentStepName === 'Compose File' && (
             <div className="flex flex-col gap-2">
-              {createError && (
+              {createError && createError.field === null && (
                 <Alert variant="error">
-                  <AlertDescription>{createError}</AlertDescription>
+                  <AlertDescription>{createError.message}</AlertDescription>
                 </Alert>
               )}
               {isCreating ? (
@@ -160,7 +179,7 @@ export default function AddHostWizard({
                 </div>
               ) : composeYaml ? (
                 <ComposeFileStep composeYaml={composeYaml} />
-              ) : !createError ? (
+              ) : createError?.field !== null ? (
                 <p className="text-sm text-muted-foreground">The keypair is generated when you reach this step.</p>
               ) : null}
             </div>
@@ -174,6 +193,7 @@ export default function AddHostWizard({
             <VerifyConnectionStep
               isProvisioning={isProvisioning}
               canVerify={canVerify}
+              blockedReason={nextBlockedReason}
               error={provisionError}
               onVerify={handleVerify}
               onCancel={onCancelVerify}
@@ -181,22 +201,26 @@ export default function AddHostWizard({
           )}
         </div>
 
-        <div className="flex justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="shrink-0">
             {activeStep > 0 && (
               <Button size="sm" variant="ghost" className="text-foreground" onClick={handleBack} disabled={isCreating || isProvisioning}>
                 Back
               </Button>
             )}
           </div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="ghost" className="text-foreground" onClick={handleReset} disabled={isCreating || isProvisioning}>
+          <div className="flex min-w-0 items-start gap-2">
+            {currentStepName !== 'Verify Connection' && nextBlockedReason && (
+              <ActionReason className="min-w-0 self-center">{nextBlockedReason}</ActionReason>
+            )}
+            <Button size="sm" variant="ghost" className="shrink-0 text-foreground" onClick={handleReset} disabled={isCreating || isProvisioning}>
               Reset
             </Button>
             {currentStepName !== 'Verify Connection' && (
               <Button
                 requires="admin"
                 size="sm"
+                className="shrink-0"
                 onClick={handleNext}
                 disabled={
                   isCreating

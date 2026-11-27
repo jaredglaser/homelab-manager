@@ -30,23 +30,23 @@ export default function ZfsSetupStep({ docker }: Readonly<{ docker: boolean }>) 
         </div>
       </div>
       <p className="text-sm text-muted-foreground mt-2">
-        From the output above: copy the number after <code>uid=</code> into HLM_ZFS_UID, and the number after{' '}
-        <code>gid=</code> in the <code>(zfs)</code> supplementary group into HLM_ZFS_GID.
+        From the output above: copy the number after <code>uid=</code> into ZFS user ID, and the number before{' '}
+        <code>(zfs)</code> into ZFS group ID.
       </p>
-      <div className="flex gap-2">
-        <Field id="hlm-zfs-uid" label="HLM_ZFS_UID" error={errors.hlmZfsUid?.message} className="flex-1">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Field id="hlm-zfs-uid" label="ZFS user ID" hint={<code>HLM_ZFS_UID</code>} error={errors.hlmZfsUid?.message} className="flex-1">
           {(control) => <Input {...control} type="number" min={0} {...register('hlmZfsUid')} />}
         </Field>
-        <Field id="hlm-zfs-gid" label="HLM_ZFS_GID" error={errors.hlmZfsGid?.message} className="flex-1">
+        <Field id="hlm-zfs-gid" label="ZFS group ID" hint={<code>HLM_ZFS_GID</code>} error={errors.hlmZfsGid?.message} className="flex-1">
           {(control) => <Input {...control} type="number" min={0} {...register('hlmZfsGid')} />}
         </Field>
       </div>
       {docker && (
         <Field
           id="docker-gid"
-          label="DOCKER_GID"
+          label="Docker group ID"
           error={errors.dockerGid?.message}
-          hint="GID of the docker group on the target host (run: getent group docker)"
+          hint={<><code>DOCKER_GID</code>, from <code>getent group docker</code> on the target host</>}
         >
           {(control) => <Input {...control} type="number" min={0} {...register('dockerGid')} />}
         </Field>

@@ -27,7 +27,7 @@ export const getDeployHistorySchema = z.object({
   limit: z.number().int().min(1).max(100).optional().default(20),
 });
 
-export const composeContentSchema = z.string().min(1, 'The compose file is empty. Add at least one service before saving.');
+export const composeContentSchema = z.string().refine((content) => content.trim() !== '', 'The compose file is empty. Add at least one service before saving.');
 
 export const saveComposeFileSchema = z.object({
   stackName: stackNameField,
@@ -37,7 +37,7 @@ export const saveComposeFileSchema = z.object({
 export const createStackSchema = z.object({
   stackName: z.string()
     .min(1, 'Enter a name for this stack.')
-    .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, 'Must start with a letter and contain only letters, numbers, hyphens, and underscores.'),
+    .regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/, 'Start with a letter, then use only letters, numbers, hyphens and underscores.'),
   host: z.string().min(1, 'Select a target host.'),
   autoDeploy: z.boolean(),
 });

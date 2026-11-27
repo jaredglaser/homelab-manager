@@ -15,6 +15,7 @@ import { parseManifest } from '@/lib/git/manifest';
 import { MANIFEST, composePath, serializeManifest } from '@/lib/stacks/stack-repo-layout';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { mockModule } from '@/lib/test/mock-module';
+import { TaggedServerError } from '@/lib/errors/tagged-server-error';
 
 const PLEX_COMPOSE = 'services:\n  plex:\n    image: plex:repo\n';
 
@@ -352,7 +353,9 @@ describe('stack-service repo-backed operations', () => {
       await seed({ plex: { host: 'alpha', autoDeploy: true } });
 
       const { createStackInRepo } = await import('@/lib/stacks/stack-service');
-      await expect(createStackInRepo('plex', 'alpha', false)).rejects.toThrow(/already exists/);
+      const attempt = createStackInRepo('plex', 'alpha', false);
+      await expect(attempt).rejects.toBeInstanceOf(TaggedServerError);
+      await expect(attempt).rejects.toMatchObject({ code: 'name_taken', field: 'stackName' });
     });
   });
 

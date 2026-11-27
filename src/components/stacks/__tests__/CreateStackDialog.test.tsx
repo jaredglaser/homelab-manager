@@ -46,8 +46,9 @@ describe('CreateStackDialog', () => {
     render(<CreateStackDialog {...defaultProps} />);
     const input = screen.getByLabelText('Stack Name');
     fireEvent.change(input, { target: { value: '1invalid' } });
+    fireEvent.blur(input);
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'Must start with a letter and contain only letters, numbers, hyphens, and underscores.',
+      'Start with a letter, then use only letters, numbers, hyphens and underscores.',
     );
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(true);
@@ -57,8 +58,9 @@ describe('CreateStackDialog', () => {
     render(<CreateStackDialog {...defaultProps} />);
     const input = screen.getByLabelText('Stack Name');
     fireEvent.change(input, { target: { value: 'bad name' } });
+    fireEvent.blur(input);
     expect((await screen.findByRole('alert')).textContent).toBe(
-      'Must start with a letter and contain only letters, numbers, hyphens, and underscores.',
+      'Start with a letter, then use only letters, numbers, hyphens and underscores.',
     );
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(true);
@@ -68,7 +70,7 @@ describe('CreateStackDialog', () => {
     render(<CreateStackDialog {...defaultProps} />);
     const input = screen.getByLabelText('Stack Name');
     fireEvent.change(input, { target: { value: 'my-stack_1' } });
-    expect(screen.queryByText((t) => t.includes('Must start with a letter'))).toBeNull();
+    expect(screen.queryByText((t) => t.includes('Start with a letter'))).toBeNull();
   });
 
   it('Create Stack button enabled for valid name and host', () => {
@@ -148,9 +150,53 @@ describe('CreateStackDialog', () => {
     const onSubmit = mock(() => {});
     render(<CreateStackDialog {...defaultProps} onSubmit={onSubmit} />);
     await user.type(screen.getByLabelText('Stack Name'), 'bad name');
+    await user.tab();
     await screen.findByRole('alert');
     await user.click(screen.getByRole('button', { name: 'Create Stack' }));
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('says beside the button that a name is needed until the field is left', async () => {
+    const user = setupUser();
+    render(<CreateStackDialog {...defaultProps} />);
+    const footer = screen.getByRole('button', { name: 'Create Stack' }).parentElement;
+    expect(footer?.textContent).toContain('Enter a name for this stack.');
+    expect(screen.queryByRole('alert')).toBeNull();
+    await user.click(screen.getByLabelText('Stack Name'));
+    await user.tab();
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter a name for this stack.');
+    expect(footer?.textContent).not.toContain('Enter a name for this stack.');
+  });
+
+  it('asks for a target host when there is none to pick', async () => {
+    const user = setupUser();
+    render(<CreateStackDialog {...defaultProps} hosts={[]} />);
+    await user.type(screen.getByLabelText('Stack Name'), 'my-app');
+    const footer = screen.getByRole('button', { name: 'Create Stack' }).parentElement;
+    expect(footer?.textContent).toContain('Select a target host.');
+    expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('sends the name without the spaces around it', async () => {
+    const user = setupUser();
+    const onSubmit = mock(() => {});
+    render(<CreateStackDialog {...defaultProps} onSubmit={onSubmit} />);
+    await user.type(screen.getByLabelText('Stack Name'), '  my-app ');
+    await user.click(screen.getByRole('button', { name: 'Create Stack' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ stackName: 'my-app', host: 'server1', autoDeploy: false }));
+  });
+
+  it('puts a name the server says is taken under the name field', async () => {
+    const user = setupUser();
+    const view = render(<CreateStackDialog {...defaultProps} />);
+    await user.type(screen.getByLabelText('Stack Name'), 'my-app');
+    view.rerender(<CreateStackDialog {...defaultProps} error={{ message: 'A stack with this name already exists. Choose another name.', field: 'stackName' }} />);
+    expect((await screen.findByRole('alert')).textContent).toBe('A stack with this name already exists. Choose another name.');
+    expect(screen.getByLabelText('Stack Name').getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(true);
+    await user.type(screen.getByLabelText('Stack Name'), '2');
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(false);
   });
 
   it('calls onClose when Cancel is clicked', () => {
@@ -166,7 +212,7 @@ describe('CreateStackDialog', () => {
   });
 
   it('displays error message when error prop is provided', () => {
-    render(<CreateStackDialog {...defaultProps} error="Something went wrong" />);
+    render(<CreateStackDialog {...defaultProps} error={{ message: 'Something went wrong', field: null }} />);
     expect(screen.getByText('Something went wrong')).toBeDefined();
   });
 

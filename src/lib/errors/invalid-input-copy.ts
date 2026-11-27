@@ -1,5 +1,5 @@
-export const INVALID_INPUT_MESSAGE =
-  'The dashboard did not accept this request because one of its values is not valid. Check what you entered and try again.';
+import { TaggedServerError } from '@/lib/errors/tagged-server-error';
+import { UNNAMED_VALUE_REJECTED_MESSAGE, valueRejectedMessage } from '@/lib/errors/server-fn-error-copy';
 
 interface ValidatorIssue {
   message: string;
@@ -22,14 +22,19 @@ export function readValidatorIssues(err: unknown): ValidatorIssue[] | null {
   return Array.isArray(parsed) && parsed.length > 0 && parsed.every(isValidatorIssue) ? parsed : null;
 }
 
-function describeIssue(issue: ValidatorIssue): string {
-  const path = Array.isArray(issue.path) ? issue.path.map(String).join('.') : '';
-  return path ? `${path}: ${issue.message}` : issue.message;
+function issueField(issue: ValidatorIssue): string | null {
+  return Array.isArray(issue.path) && issue.path.length > 0 ? issue.path.map(String).join('.') : null;
 }
 
-export function toUserFacingInputError(err: unknown): unknown {
+function describeIssue(issue: ValidatorIssue): string {
+  const field = issueField(issue);
+  return field ? `${field}: ${issue.message}` : issue.message;
+}
+
+export function toTaggedInputError(err: unknown): unknown {
   const issues = readValidatorIssues(err);
   if (!issues) return err;
   console.error('Rejected a server function call with invalid input:', issues.map(describeIssue).join(', '));
-  return new Error(INVALID_INPUT_MESSAGE);
+  const field = issueField(issues[0]);
+  return new TaggedServerError('invalid_input', field ? valueRejectedMessage(field) : UNNAMED_VALUE_REJECTED_MESSAGE, field);
 }

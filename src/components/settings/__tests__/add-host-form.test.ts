@@ -3,7 +3,7 @@ import {
   ADD_HOST_FORM_DEFAULTS,
   addHostFormSchema,
   firstContactAgentUrl,
-  isAddHostStepValid,
+  addHostStepIssues,
   type AddHostFormValues,
 } from '@/components/settings/add-host-form'
 import { rotateHostTlsSchema } from '@/data/hosts/schemas'
@@ -35,6 +35,15 @@ describe('addHostFormSchema', () => {
     expect(messagesFor({ name: '  dev-box ' })).toEqual({})
   })
 
+  it.each(['\n', '\t', '\r\n'])('trims a pasted trailing %p before checking the name and the agent host', (tail) => {
+    expect(messagesFor({ name: `dev-box${tail}` })).toEqual({})
+    expect(messagesFor({ agentHost: `192.168.1.10${tail}` })).toEqual({})
+  })
+
+  it('checks what is left after trimming', () => {
+    expect(messagesFor({ name: 'my host\n' })).toEqual({ name: 'Use only letters, numbers, hyphens and underscores. Spaces are not allowed.' })
+  })
+
   it('asks for a capability when neither is selected', () => {
     expect(messagesFor({ docker: false, zfs: false })).toEqual({ zfs: 'Select at least one capability.' })
   })
@@ -46,8 +55,8 @@ describe('addHostFormSchema', () => {
   it('asks for the ZFS ids only when ZFS is selected', () => {
     expect(messagesFor({ zfs: true })).toEqual({
       hlmZfsUid: 'Enter the number after uid= in the command output.',
-      hlmZfsGid: 'Enter the number after gid= for the zfs group.',
-      dockerGid: 'Enter the numeric ID of the docker group.',
+      hlmZfsGid: 'Enter the number before (zfs) in the command output.',
+      dockerGid: 'Enter the number after docker:x: in the output of getent group docker.',
     })
     expect(messagesFor({ zfs: true, hlmZfsUid: '995', hlmZfsGid: '994', dockerGid: '999' })).toEqual({})
   })
@@ -92,22 +101,26 @@ describe('addHostFormSchema', () => {
   })
 })
 
-describe('isAddHostStepValid', () => {
+describe('addHostStepIssues', () => {
   it('judges a step by its own fields only', () => {
     const values = { ...ADD_HOST_FORM_DEFAULTS, name: 'dev-box' }
-    expect(isAddHostStepValid('Capabilities', values)).toBe(true)
-    expect(isAddHostStepValid('Verify Connection', values)).toBe(false)
-    expect(isAddHostStepValid('Capabilities', { ...values, name: 'my host' })).toBe(false)
+    expect(addHostStepIssues('Capabilities', values)).toEqual([])
+    expect(addHostStepIssues('Verify Connection', values)).toEqual([
+      { field: 'agentHost', message: 'Enter the host name or IP address of the agent.' },
+    ])
+    expect(addHostStepIssues('Capabilities', { ...values, name: 'my host' })).toEqual([
+      { field: 'name', message: 'Use only letters, numbers, hyphens and underscores. Spaces are not allowed.' },
+    ])
   })
 
   it('treats a step with no fields as valid', () => {
-    expect(isAddHostStepValid('Compose File', ADD_HOST_FORM_DEFAULTS)).toBe(true)
-    expect(isAddHostStepValid('Configuration', ADD_HOST_FORM_DEFAULTS)).toBe(true)
+    expect(addHostStepIssues('Compose File', ADD_HOST_FORM_DEFAULTS)).toEqual([])
+    expect(addHostStepIssues('Configuration', ADD_HOST_FORM_DEFAULTS)).toEqual([])
   })
 
-  it('needs every ZFS id on the ZFS step', () => {
-    const values = { ...ADD_HOST_FORM_DEFAULTS, name: 'dev-box', zfs: true, hlmZfsUid: '995', hlmZfsGid: '994' }
-    expect(isAddHostStepValid('ZFS Setup', values)).toBe(false)
-    expect(isAddHostStepValid('ZFS Setup', { ...values, dockerGid: '999' })).toBe(true)
+  it('lists the issues in the order the fields appear on screen', () => {
+    const values = { ...ADD_HOST_FORM_DEFAULTS, name: 'dev-box', zfs: true, hlmZfsUid: '995' }
+    expect(addHostStepIssues('ZFS Setup', values).map((issue) => issue.field)).toEqual(['hlmZfsGid', 'dockerGid'])
+    expect(addHostStepIssues('ZFS Setup', { ...values, hlmZfsGid: '994', dockerGid: '999' })).toEqual([])
   })
 })

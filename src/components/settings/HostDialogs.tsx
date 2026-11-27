@@ -10,7 +10,7 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Field } from '@/components/ui/field'
+import { ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { agentUrlSchema } from '@/data/hosts/schemas'
 import type { HostListItem } from '@/lib/hosts/host-utils'
@@ -58,11 +58,16 @@ type EditHostFormValues = z.infer<typeof editHostFormSchema>
 
 export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogProps) {
   const form = useForm<EditHostFormValues>({
-    mode: 'all',
+    mode: 'onTouched',
     values: { agentUrl: host?.agentUrl ?? '' },
     resolver: zodResolver(editHostFormSchema),
   })
-  const isValid = editHostFormSchema.safeParse(form.watch()).success
+  const values = form.watch()
+  const check = editHostFormSchema.safeParse(values)
+  const reason = blockedReason(fieldIssues(check), {
+    isTouched: () => Boolean(form.formState.touchedFields.agentUrl),
+    isEmpty: () => values.agentUrl.trim() === '',
+  })
 
   const handleSave = form.handleSubmit(({ agentUrl }) => {
     if (!host || isUpdating) return
@@ -88,8 +93,9 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
           </Field>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => { void handleSave() }} disabled={!isValid}>
+          {reason && <ActionReason className="mr-auto min-w-0 pl-4">{reason}</ActionReason>}
+          <Button variant="ghost" className="shrink-0" onClick={onClose}>Cancel</Button>
+          <Button className="shrink-0" onClick={() => { void handleSave() }} disabled={!check.success}>
             {isUpdating ? <Spinner className="size-4" /> : 'Save'}
           </Button>
         </DialogFooter>

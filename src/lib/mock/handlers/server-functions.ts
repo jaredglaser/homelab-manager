@@ -3,7 +3,8 @@ import { fromJSON, toCrossJSONAsync } from 'seroval';
 // Both directions need the plugin list the TanStack client uses; without its
 // ShallowErrorPlugin an Error with a non-serializable own property (a ZodError)
 // fails to encode instead of reaching the client.
-import { defaultSerovalPlugins } from '@tanstack/router-core/ssr/client';
+import { defaultSerovalPlugins, makeSerovalPlugin } from '@tanstack/router-core/ssr/client';
+import { TaggedServerError, taggedServerErrorAdapter, type ServerFailureCode } from '@/lib/errors/tagged-server-error';
 
 import * as dockerFns from '@/lib/mock/functions/docker.functions';
 import * as zfsFns from '@/lib/mock/functions/zfs.functions';
@@ -154,11 +155,30 @@ function readOverride(name: string): { hit: boolean; value: unknown } {
   return { hit: false, value: undefined };
 }
 
+interface MockRejection {
+  message: string;
+  code?: ServerFailureCode;
+  field?: string | null;
+}
+
+/** The failure half of the override hook: `window.__mockServerFnRejections` maps an export name to the error it throws. */
+function readRejection(name: string): Error | null {
+  const rejections = (globalThis as { __mockServerFnRejections?: Record<string, MockRejection> })
+    .__mockServerFnRejections;
+  const rejection = rejections && Object.prototype.hasOwnProperty.call(rejections, name) ? rejections[name] : undefined;
+  if (!rejection) return null;
+  return rejection.code
+    ? new TaggedServerError(rejection.code, rejection.message, rejection.field ?? null)
+    : new Error(rejection.message);
+}
+
 export async function handleServerFn(request: Request): Promise<Response> {
   const segment = functionIdFromUrl(request.url);
   const name = segment ? resolveFunctionName(segment) : null;
 
   if (name) {
+    const rejection = readRejection(name);
+    if (rejection) return serializedResponse(undefined, rejection);
     const override = readOverride(name);
     if (override.hit) return serializedResponse(override.value);
   }
@@ -201,7 +221,7 @@ async function serializedResponse(
   envelope.context = {};
   const crossJson = await toCrossJSONAsync(envelope, {
     refs: new Map(),
-    plugins: defaultSerovalPlugins,
+    plugins: [makeSerovalPlugin(taggedServerErrorAdapter), ...defaultSerovalPlugins],
   });
   return new HttpResponse(JSON.stringify(crossJson), {
     headers: {

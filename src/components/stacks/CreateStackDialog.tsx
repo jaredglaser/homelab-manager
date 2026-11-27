@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,14 +11,18 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Field } from '@/components/ui/field';
+import { ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field';
+import type { ServerFailureCopy } from '@/lib/errors/server-fn-error-copy';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { createStackSchema } from '@/data/stacks/schemas';
 
-type CreateStackInput = z.infer<typeof createStackSchema>;
+const createStackFormSchema = createStackSchema.extend({
+  stackName: z.string().trim().pipe(createStackSchema.shape.stackName),
+});
+type CreateStackInput = z.infer<typeof createStackFormSchema>;
 
 interface CreateStackDialogProps {
   open: boolean;
@@ -26,7 +30,7 @@ interface CreateStackDialogProps {
   onSubmit: (input: CreateStackInput) => void;
   hosts: string[];
   isLoading: boolean;
-  error?: string | null;
+  error?: ServerFailureCopy | null;
 }
 
 export default function CreateStackDialog({
@@ -38,13 +42,30 @@ export default function CreateStackDialog({
   error,
 }: CreateStackDialogProps) {
   const form = useForm<CreateStackInput>({
-    mode: 'all',
+    mode: 'onTouched',
     defaultValues: { stackName: '', host: hosts[0] ?? '', autoDeploy: false },
-    resolver: zodResolver(createStackSchema),
+    resolver: zodResolver(createStackFormSchema),
   });
   const { reset, setValue, getValues } = form;
   const values = form.watch();
-  const isValid = createStackSchema.safeParse(values).success;
+  const { errors, touchedFields } = form.formState;
+
+  // The taken name is remembered rather than set as a form error, which the form would keep until the field is next left.
+  const [seenError, setSeenError] = useState(error);
+  const [takenName, setTakenName] = useState<string | null>(null);
+  if (error !== seenError) {
+    setSeenError(error);
+    setTakenName(error?.field === 'stackName' ? getValues('stackName').trim() : null);
+  }
+  const takenMessage = takenName !== null && takenName === values.stackName.trim() ? error?.message : undefined;
+  const nameError = errors.stackName?.message ?? takenMessage;
+
+  const check = createStackFormSchema.safeParse(values);
+  const isValid = check.success && !nameError;
+  const reason = blockedReason(fieldIssues(check), {
+    isTouched: (field) => Boolean(touchedFields[field as keyof CreateStackInput]),
+    isEmpty: (field) => String(values[field as keyof CreateStackInput]).trim() === '',
+  });
 
   useEffect(() => {
     if (open) reset({ stackName: '', host: hosts[0] ?? '', autoDeploy: false });
@@ -71,12 +92,12 @@ export default function CreateStackDialog({
       <DialogContent>
         <DialogTitle>Create Stack</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">
-          {error && (
+          {error && error.field === null && (
             <Alert variant="error">
-              <AlertDescription>{error}</AlertDescription>
+              <AlertDescription>{error.message}</AlertDescription>
             </Alert>
           )}
-          <Field id="stack-name" label="Stack Name" error={form.formState.errors.stackName?.message} hint="e.g. my-app or my_stack">
+          <Field id="stack-name" label="Stack Name" error={nameError} hint="e.g. my-app or my_stack">
             {(control) => <Input {...control} autoFocus autoComplete="off" disabled={isLoading} {...form.register('stackName')} />}
           </Field>
           {hosts.length > 1 && (
@@ -84,7 +105,7 @@ export default function CreateStackDialog({
               <Label htmlFor="target-host" className="text-sm mb-1">Target Host</Label>
               <Select
                 value={values.host}
-                onValueChange={(value) => { if (value) setValue('host', value, { shouldDirty: true }); }}
+                onValueChange={(value) => { if (value) setValue('host', value, { shouldDirty: true, shouldTouch: true, shouldValidate: true }); }}
                 disabled={isLoading}
               >
                 <SelectTrigger id="target-host">
@@ -125,10 +146,11 @@ export default function CreateStackDialog({
           </div>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" className="text-foreground" onClick={handleClose}>
+          {reason && <ActionReason className="mr-auto min-w-0 pl-4">{reason}</ActionReason>}
+          <Button variant="ghost" className="shrink-0 text-foreground" onClick={handleClose}>
             Cancel
           </Button>
-          <Button onClick={() => { void handleSubmit(); }} disabled={!isValid}>
+          <Button className="shrink-0" onClick={() => { void handleSubmit(); }} disabled={!isValid}>
             Create Stack
           </Button>
         </DialogFooter>

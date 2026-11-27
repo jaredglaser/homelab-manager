@@ -7,6 +7,7 @@ import type { HostListItem } from '@/lib/hosts/host-utils'
 import { useToast } from '@/hooks/toastAtom'
 import { tlsFailureGuidance, type TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
+import { HOST_NAME_TAKEN_MESSAGE, serverFailureCopy, type ServerFailureCopy } from '@/lib/errors/server-fn-error-copy'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
 
@@ -18,7 +19,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
   const { showToast } = useToast()
   const [pendingHost, setPendingHost] = useState<PendingHostState | null>(null)
-  const [createError, setCreateError] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<ServerFailureCopy | null>(null)
   const [provisionError, setProvisionError] = useState<TlsFailureGuidance | null>(null)
   const [keypairJwkJson, setKeypairJwkJson] = useState<string | null>(null)
   const [keypairFingerprint, setKeypairFingerprint] = useState<string | null>(null)
@@ -40,7 +41,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   // Renaming after the Compose step drops the stale pending record and creates a new one.
   // The stale id rides the mutate variables because a pendingHost closure goes stale once onMutate clears it mid-mutation.
   const createHostMutation = useMutation({
-    mutationFn: async ({ name, capabilities, staleHostId }: { name: string; capabilities: { docker: boolean; zfs: boolean }; staleHostId: number | null }) => {
+    mutationFn: async ({ name, capabilities, staleHostId, resumeHostId }: { name: string; capabilities: { docker: boolean; zfs: boolean }; staleHostId: number | null; resumeHostId?: number }) => {
       if (staleHostId != null) {
         await removeHost({ data: { hostId: staleHostId, expectStatus: 'pending' } }).catch((err: unknown) => {
           // The stale record is gone or no longer pending, so creation proceeds and
@@ -48,7 +49,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
           if (!isRemovalNoOp(err)) throw Object.assign(err instanceof Error ? err : new Error(String(err)), { staleRemovalFailed: true })
         })
       }
-      return createPendingHost({ data: { name, capabilities } })
+      return createPendingHost({ data: { name, capabilities, resumeHostId } })
     },
     onMutate: ({ staleHostId }) => {
       if (staleHostId != null) {
@@ -73,7 +74,11 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
         && context?.replacedHost?.id === variables.staleHostId) {
         setPendingHost(context.replacedHost)
       }
-      setCreateError(err instanceof Error ? err.message : 'Failed to create the pending host')
+      setCreateError(serverFailureCopy(err, {
+        labels: { name: 'Host name' },
+        taken: HOST_NAME_TAKEN_MESSAGE,
+        fallback: err instanceof Error ? err.message : 'Failed to create the pending host',
+      }))
     },
   })
 
@@ -182,7 +187,10 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       showToast('Host updated', 'success')
     },
     onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Failed to update host'
+      const { message } = serverFailureCopy(err, {
+        labels: { name: 'Host name', agentUrl: 'Agent URL' },
+        fallback: err instanceof Error ? err.message : 'Failed to update host',
+      })
       showToast(message, 'error')
     },
   })
@@ -269,7 +277,8 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       isLoading={isLoading}
       onCreateHost={(name, capabilities) => {
         const stale = pendingHost && isStillPending(pendingHost) && pendingHost.name !== name ? pendingHost : null
-        createHostMutation.mutate({ name, capabilities, staleHostId: stale?.id ?? null })
+        const resumeHostId = pendingHost?.name === name ? pendingHost.id : undefined
+        createHostMutation.mutate({ name, capabilities, staleHostId: stale?.id ?? null, resumeHostId })
       }}
       isCreating={createHostMutation.isPending}
       isProvisioning={provisionMutation.isPending}

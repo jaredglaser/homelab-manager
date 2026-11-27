@@ -12,7 +12,7 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { Field } from '@/components/ui/field'
+import { ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EMPTY_CELL } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -21,7 +21,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
 import { createGitTokenSchema } from '@/data/git-tokens.schemas'
-import { serverFnErrorMessage } from '@/lib/errors/server-fn-error-copy'
+import { serverFailureCopy } from '@/lib/errors/server-fn-error-copy'
 import { Spinner } from '@/components/ui/spinner';
 import CopyButton from '@/components/settings/CopyButton'
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
@@ -267,11 +267,16 @@ type GenerateTokenFormValues = z.infer<typeof generateTokenFormSchema>
 
 function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken, error }: GenerateTokenDialogProps) {
   const form = useForm<GenerateTokenFormValues>({
-    mode: 'all',
+    mode: 'onTouched',
     defaultValues: { label: '' },
     resolver: zodResolver(generateTokenFormSchema),
   })
-  const isValid = generateTokenFormSchema.safeParse(form.watch()).success
+  const values = form.watch()
+  const check = generateTokenFormSchema.safeParse(values)
+  const reason = blockedReason(fieldIssues(check), {
+    isTouched: () => Boolean(form.formState.touchedFields.label),
+    isEmpty: () => values.label.trim() === '',
+  })
 
   const handleGenerate = form.handleSubmit(({ label }) => {
     if (isGenerating) return
@@ -319,8 +324,9 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
             <Button variant="ghost" onClick={handleClose}>Done</Button>
           ) : (
             <>
-              <Button variant="ghost" onClick={handleClose}>Cancel</Button>
-              <Button onClick={() => { void handleGenerate() }} disabled={!isValid}>
+              {reason && <ActionReason className="mr-auto min-w-0 pl-4">{reason}</ActionReason>}
+              <Button variant="ghost" className="shrink-0" onClick={handleClose}>Cancel</Button>
+              <Button className="shrink-0" onClick={() => { void handleGenerate() }} disabled={!check.success}>
                 {isGenerating ? <Spinner className="size-4" /> : 'Generate'}
               </Button>
             </>
@@ -356,7 +362,7 @@ export function GitTokensSection() {
       void queryClient.invalidateQueries({ queryKey: ['git-tokens'] })
     },
     onError: (err: unknown) => {
-      setGenerateError(serverFnErrorMessage(err, 'The token could not be generated. Try again.'))
+      setGenerateError(serverFailureCopy(err, { labels: { label: 'Label' }, fallback: 'The token could not be generated. Try again.' }).message)
     },
   })
 

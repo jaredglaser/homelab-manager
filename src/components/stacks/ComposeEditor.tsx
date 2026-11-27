@@ -8,6 +8,7 @@ import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks/functions';
 import { composeContentSchema } from '@/data/stacks/schemas';
 import { useToast } from '@/hooks/toastAtom';
+import { COMPOSE_SAVE_FAILED_MESSAGE, serverFailureCopy } from '@/lib/errors/server-fn-error-copy';
 import { Spinner } from '@/components/ui/spinner';
 import type { StackFormValues } from '@/components/stacks/stack-form';
 
@@ -62,7 +63,11 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
       await queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
     },
     onError: (err) => {
-      showToast(err instanceof Error ? err.message : String(err), 'error');
+      const { message } = serverFailureCopy(err, {
+        labels: { content: 'Compose file', stackName: 'Stack name' },
+        fallback: COMPOSE_SAVE_FAILED_MESSAGE,
+      });
+      showToast(message, 'error');
     },
   });
 

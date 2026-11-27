@@ -1,7 +1,7 @@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useFormContext } from 'react-hook-form'
-import { Field } from '@/components/ui/field'
+import { ActionReason, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Plus } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
@@ -12,6 +12,7 @@ import type { AddHostFormValues } from '@/components/settings/add-host-form'
 interface VerifyConnectionStepProps {
   isProvisioning: boolean
   canVerify: boolean
+  blockedReason: string | null
   error: TlsFailureGuidance | null
   onVerify: () => void
   onCancel: () => void
@@ -20,6 +21,7 @@ interface VerifyConnectionStepProps {
 export default function VerifyConnectionStep({
   isProvisioning,
   canVerify,
+  blockedReason,
   error,
   onVerify,
   onCancel,
@@ -33,8 +35,8 @@ export default function VerifyConnectionStep({
         the agent is reachable. First contact is plain HTTP. Verifying enrolls a TLS certificate
         for the agent and moves the connection to HTTPS.
       </p>
-      <div className="grid grid-cols-3 gap-2">
-        <Field id="wizard-agent-host" label="Agent host or IP" error={errors.agentHost?.message} className="col-span-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Field id="wizard-agent-host" label="Agent host or IP" error={errors.agentHost?.message} className="sm:col-span-2">
           {(control) => (
             <Input {...control} placeholder="192.168.1.10" autoComplete="off" disabled={isProvisioning} {...register('agentHost')} />
           )}
@@ -45,7 +47,8 @@ export default function VerifyConnectionStep({
           )}
         </Field>
       </div>
-      <div className="flex justify-end gap-2">
+      <div className="flex items-start justify-end gap-2">
+        {blockedReason && !isProvisioning && <ActionReason className="min-w-0 self-center">{blockedReason}</ActionReason>}
         {isProvisioning && (
           <Button size="sm" variant="outline" onClick={onCancel} data-testid="cancel-provisioning">
             Cancel
@@ -53,6 +56,7 @@ export default function VerifyConnectionStep({
         )}
         <Button
           size="sm"
+          className="shrink-0"
           disabled={!canVerify || isProvisioning}
           onClick={onVerify}
         >

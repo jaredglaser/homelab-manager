@@ -213,8 +213,8 @@ describe('createStackSchema', () => {
 
   it.each([
     ['', 'Enter a name for this stack.'],
-    ['1invalid', 'Must start with a letter and contain only letters, numbers, hyphens, and underscores.'],
-    ['bad name', 'Must start with a letter and contain only letters, numbers, hyphens, and underscores.'],
+    ['1invalid', 'Start with a letter, then use only letters, numbers, hyphens and underscores.'],
+    ['bad name', 'Start with a letter, then use only letters, numbers, hyphens and underscores.'],
   ])('rejects the name %p in words a user can act on', (stackName, message) => {
     expect(createStackSchema.safeParse({ ...base, stackName }).error?.issues[0]?.message).toBe(message);
   });
@@ -230,5 +230,6 @@ describe('composeContentSchema', () => {
       'The compose file is empty. Add at least one service before saving.',
     );
     expect(saveComposeFileSchema.safeParse({ stackName: 'my-app', content: '' }).success).toBe(false);
+    expect(saveComposeFileSchema.safeParse({ stackName: 'my-app', content: ' \n\t' }).success).toBe(false);
   });
 });

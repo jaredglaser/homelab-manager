@@ -9,6 +9,7 @@ import StackDriftSummary from '@/components/stacks/StackDriftSummary'
 import { createStack, scanDrift } from '@/data/stacks/functions'
 import { useCanWrite } from '@/hooks/useAuth'
 import { STACKS_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { STACK_NAME_TAKEN_MESSAGE, serverFailureCopy, type ServerFailureCopy } from '@/lib/errors/server-fn-error-copy'
 
 export default function StacksOverview() {
   const { stacks, hosts, isLoading } = useStackListContext()
@@ -16,7 +17,7 @@ export default function StacksOverview() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<ServerFailureCopy | null>(null)
 
   const canWrite = useCanWrite()
 
@@ -57,8 +58,11 @@ export default function StacksOverview() {
       navigate({ to: '/stacks/$stackName', params: { stackName: variables.stackName } })
     },
     onError: (err) => {
-      console.error('Stack creation failed:', err)
-      setCreateError(err instanceof Error ? err.message : String(err))
+      setCreateError(serverFailureCopy(err, {
+        labels: { stackName: 'Stack name', host: 'Target host', autoDeploy: 'Deploy mode' },
+        taken: STACK_NAME_TAKEN_MESSAGE,
+        fallback: err instanceof Error ? err.message : String(err),
+      }))
     },
   })
 

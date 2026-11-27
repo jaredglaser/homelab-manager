@@ -185,13 +185,14 @@ describe('EditDialog', () => {
     expect(saveBtn.hasAttribute('disabled')).toBe(true)
   })
 
-  it.each(['nas.local', 'not a url', '256.256.256.256:9090'])('explains that %p is not a full URL and blocks Save', async (value) => {
+  it.each(['nas.local', 'not a url', '256.256.256.256:9090', 'ftp://example'])('explains that %p is not a full URL and blocks Save', async (value) => {
     const user = setupUser()
     const onConfirm = mock(() => undefined)
     render(<EditDialog {...defaultProps} onConfirm={onConfirm} />)
     const input = screen.getByLabelText('Edit Agent URL')
     await user.clear(input)
     await user.type(input, value)
+    await user.tab()
     expect((await screen.findByRole('alert')).textContent).toBe('Enter the full agent URL, such as https://192.168.1.10:9090.')
     expect(input.getAttribute('aria-invalid')).toBe('true')
     const saveBtn = screen.getByRole('button', { name: 'Save' })
@@ -205,6 +206,7 @@ describe('EditDialog', () => {
     render(<EditDialog {...defaultProps} />)
     const input = screen.getByLabelText('Edit Agent URL')
     await user.clear(input)
+    await user.tab()
     await screen.findByRole('alert')
     await user.type(input, 'https://10.0.0.1:9090')
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())

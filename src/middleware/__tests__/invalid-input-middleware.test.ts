@@ -1,10 +1,12 @@
 import { describe, expect, it, spyOn, beforeEach, afterEach } from 'bun:test';
 import { createMiddleware } from '@tanstack/react-start';
 import { executeMiddleware } from '@tanstack/start-client-core';
+import { defaultSerovalPlugins, makeSerovalPlugin } from '@tanstack/router-core/ssr/client';
+import { fromCrossJSON, toCrossJSONAsync } from 'seroval';
 import { z } from 'zod';
 import { withStartContext } from '@/lib/test/start-context';
 import { invalidInputMiddleware } from '@/middleware/invalid-input-middleware';
-import { INVALID_INPUT_MESSAGE } from '@/lib/errors/invalid-input-copy';
+import { TaggedServerError, taggedServerErrorAdapter } from '@/lib/errors/tagged-server-error';
 import { createPendingHostSchema } from '@/data/hosts/schemas';
 import { startInstance } from '@/start';
 
@@ -17,6 +19,8 @@ async function runOnServer(middlewares: unknown[], data: unknown): Promise<{ err
   ) as Promise<{ error?: unknown; result?: unknown }>;
 }
 
+const wirePlugins = [makeSerovalPlugin(taggedServerErrorAdapter), ...defaultSerovalPlugins];
+
 describe('invalidInputMiddleware', () => {
   let errorSpy: ReturnType<typeof spyOn>;
 
@@ -28,15 +32,38 @@ describe('invalidInputMiddleware', () => {
     errorSpy.mockRestore();
   });
 
-  it('replaces the issue JSON of a failed validator with user copy', async () => {
+  it('replaces the issue JSON of a failed validator with a tagged sentence that names the field', async () => {
     const validated = createMiddleware({ type: 'function' }).validator(createPendingHostSchema);
 
     const withoutIt = await runOnServer([validated], { name: 'my host' });
     expect((withoutIt.error as Error).message.trimStart().startsWith('[')).toBe(true);
 
     const outcome = await runOnServer([invalidInputMiddleware, validated], { name: 'my host' });
-    expect(outcome.error).toBeInstanceOf(Error);
-    expect((outcome.error as Error).message).toBe(INVALID_INPUT_MESSAGE);
+    expect(outcome.error).toBeInstanceOf(TaggedServerError);
+    expect(outcome.error).toMatchObject({
+      code: 'invalid_input',
+      field: 'name',
+      message: 'The value for "name" was not accepted. Check it and try again.',
+    });
+  });
+
+  it('sends a direct caller the sentence and the tag, never the issue list', async () => {
+    const validated = createMiddleware({ type: 'function' }).validator(createPendingHostSchema);
+    const outcome = await runOnServer([invalidInputMiddleware, validated], { name: 'my host' });
+
+    const body = JSON.stringify(await toCrossJSONAsync({ error: outcome.error }, { refs: new Map(), plugins: wirePlugins }));
+    expect(body).toContain('was not accepted. Check it and try again.');
+    expect(body).toContain('invalid_input');
+    expect(body).not.toContain('invalid_format');
+    expect(body).not.toContain('Spaces are not allowed');
+
+    const received = (fromCrossJSON(JSON.parse(body), { refs: new Map(), plugins: wirePlugins }) as { error: unknown }).error;
+    expect(received).toBeInstanceOf(TaggedServerError);
+    expect(received).toMatchObject({
+      code: 'invalid_input',
+      field: 'name',
+      message: 'The value for "name" was not accepted. Check it and try again.',
+    });
   });
 
   it('logs which fields were rejected', async () => {
@@ -55,17 +82,19 @@ describe('invalidInputMiddleware', () => {
     expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('passes any other failure through unchanged', async () => {
-    const failure = new Error('A host named dev-box already exists');
+  it('passes any other failure through unchanged, so a sign-in error ahead of the validator wins', async () => {
+    const failure = new Error('Unauthorized');
     const failing = createMiddleware({ type: 'function' }).server(() => {
       throw failure;
     });
-    const outcome = await runOnServer([invalidInputMiddleware, failing], {});
+    const validated = createMiddleware({ type: 'function' }).validator(createPendingHostSchema);
+    const outcome = await runOnServer([invalidInputMiddleware, failing, validated], { name: 'my host' });
     expect(outcome.error).toBe(failure);
   });
 
-  it('is registered for every server function', async () => {
+  it('is registered for every server function, with the adapter that carries its tag to the browser', async () => {
     const options = await startInstance.getOptions();
     expect(options.functionMiddleware).toContain(invalidInputMiddleware);
+    expect(options.serializationAdapters).toContain(taggedServerErrorAdapter);
   });
 });

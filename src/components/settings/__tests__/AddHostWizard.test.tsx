@@ -3,13 +3,14 @@ import { seedSession } from '@/lib/test/session'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
+import type { ServerFailureCopy } from '@/lib/errors/server-fn-error-copy'
 import '@/lib/test/testing-library'
 import AddHostWizard, { type PendingHostState } from '@/components/settings/AddHostWizard'
 
 interface WizardProps {
   isCreating: boolean
   isProvisioning: boolean
-  createError: string | null
+  createError: ServerFailureCopy | null
   provisionError: TlsFailureGuidance | null
   pendingHost: PendingHostState | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
@@ -132,9 +133,9 @@ describe('AddHostWizard', () => {
       await enterHostName(user)
       await user.click(screen.getByLabelText('ZFS capability'))
       await user.click(screen.getByRole('button', { name: 'Next' }))
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1001')
+      await user.type(screen.getByLabelText('ZFS group ID'), '1001')
+      await user.type(screen.getByLabelText('Docker group ID'), '999')
       await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(onCreateHost).toHaveBeenCalledWith('dev-machine', { docker: true, zfs: true })
     })
@@ -233,9 +234,9 @@ describe('AddHostWizard', () => {
       await user.click(screen.getByLabelText('ZFS capability'))
       // Go to ZFS Setup step
       await user.click(screen.getByRole('button', { name: 'Next' }))
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1001')
+      await user.type(screen.getByLabelText('ZFS group ID'), '1001')
+      await user.type(screen.getByLabelText('Docker group ID'), '999')
       const nextBtn = screen.getByRole('button', { name: 'Next' })
       expect(nextBtn.hasAttribute('disabled')).toBe(false)
     })
@@ -250,8 +251,8 @@ describe('AddHostWizard', () => {
       // Go to ZFS Setup step
       await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
-      expect(screen.getByLabelText('HLM_ZFS_UID')).toBeDefined()
-      expect(screen.queryByLabelText('DOCKER_GID')).toBeNull()
+      expect(screen.getByLabelText('ZFS user ID')).toBeDefined()
+      expect(screen.queryByLabelText('Docker group ID')).toBeNull()
     })
   })
 
@@ -519,7 +520,7 @@ describe('AddHostWizard', () => {
 
     it('shows the create error without a spinner on the Compose step when creation failed', async () => {
       const user = setupUser()
-      render(<AddHostWizard {...makeProps({ pendingHost: null, createError: 'Failed to generate agent keypair: disk full' })} />)
+      render(<AddHostWizard {...makeProps({ pendingHost: null, createError: { message: 'Failed to generate agent keypair: disk full', field: null } })} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText(/Failed to generate agent keypair/)).toBeDefined()
@@ -639,17 +640,17 @@ describe('AddHostWizard', () => {
       await enterHostName(user)
       await user.click(screen.getByLabelText('ZFS capability'))
       await user.click(screen.getByRole('button', { name: 'Next' }))
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1002')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1001')
+      await user.type(screen.getByLabelText('ZFS group ID'), '1002')
+      await user.type(screen.getByLabelText('Docker group ID'), '999')
       await user.click(screen.getByRole('button', { name: 'Reset' }))
       await enterHostName(user)
       await user.click(screen.getByLabelText('ZFS capability'))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
-      expect(screen.getByLabelText<HTMLInputElement>('HLM_ZFS_UID').value).toBe('')
-      expect(screen.getByLabelText<HTMLInputElement>('HLM_ZFS_GID').value).toBe('')
-      expect(screen.getByLabelText<HTMLInputElement>('DOCKER_GID').value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('ZFS user ID').value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('ZFS group ID').value).toBe('')
+      expect(screen.getByLabelText<HTMLInputElement>('Docker group ID').value).toBe('')
     })
 
     it('clears the agent host and restores the default port', async () => {
@@ -712,6 +713,7 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps({ onCreateHost })} />)
       await user.type(screen.getByLabelText('Host Name'), value)
+      await user.tab()
       expect((await screen.findByRole('alert')).textContent).toBe(HOST_NAME_CHARACTERS_MESSAGE)
       expect(screen.getByLabelText('Host Name').getAttribute('aria-invalid')).toBe('true')
       expect(nextButton().hasAttribute('disabled')).toBe(true)
@@ -720,11 +722,29 @@ describe('AddHostWizard', () => {
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
     })
 
+    it('shows no message while the name is typed, then one when the field is left, then updates it live', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      const input = screen.getByLabelText('Host Name')
+      await user.type(input, 'my host')
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+      await user.tab()
+      await screen.findByText(HOST_NAME_CHARACTERS_MESSAGE)
+      await user.click(input)
+      await user.type(input, '{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}{Backspace}')
+      await screen.findByText('Enter a name for this host.')
+      await user.type(input, 'my-host')
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
+    })
+
     it('clears the host name message once the name is valid', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       const input = screen.getByLabelText('Host Name')
       await user.type(input, 'my host')
+      await user.tab()
       await screen.findByText(HOST_NAME_CHARACTERS_MESSAGE)
       await user.clear(input)
       await user.type(input, 'my-host')
@@ -738,8 +758,70 @@ describe('AddHostWizard', () => {
       render(<AddHostWizard {...makeProps()} />)
       await user.click(screen.getByLabelText('Host Name'))
       await user.paste('x'.repeat(101))
+      await user.tab()
       expect((await screen.findByRole('alert')).textContent).toBe('Use 100 characters or fewer.')
       expect(nextButton().hasAttribute('disabled')).toBe(true)
+    })
+
+    it('says beside Next why it is off when the wizard opens, and hands over to the field once it is left', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(nextButton().parentElement?.textContent).toContain('Enter a name for this host.')
+      await user.click(screen.getByLabelText('Host Name'))
+      await user.tab()
+      expect((await screen.findByRole('alert')).textContent).toBe('Enter a name for this host.')
+      expect(nextButton().parentElement?.textContent).not.toContain('Enter a name for this host.')
+    })
+
+    it('asks for each ZFS id beside Next until its field is left', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      expect(nextButton().parentElement?.textContent).toContain('Enter the number after uid= in the command output.')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1001')
+      expect(nextButton().parentElement?.textContent).toContain('Enter the number before (zfs) in the command output.')
+      await user.type(screen.getByLabelText('ZFS group ID'), '1001')
+      expect(nextButton().parentElement?.textContent).toContain('Enter the number after docker:x: in the output of getent group docker.')
+    })
+
+    it('labels the ZFS ids in plain words with the variable name as the hint', async () => {
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps()} />)
+      await openZfsStep(user)
+      for (const [label, variable] of [['ZFS user ID', 'HLM_ZFS_UID'], ['ZFS group ID', 'HLM_ZFS_GID'], ['Docker group ID', 'DOCKER_GID']]) {
+        const input = screen.getByLabelText(label)
+        const hint = document.getElementById(input.getAttribute('aria-describedby') ?? '')
+        expect(hint?.textContent).toContain(variable)
+      }
+    })
+
+    it('sends the host name without the spaces around it', async () => {
+      const onCreateHost = mock(() => undefined)
+      const user = setupUser()
+      render(<AddHostWizard {...makeProps({ onCreateHost })} />)
+      await user.type(screen.getByLabelText('Host Name'), '  dev-box  ')
+      await user.tab()
+      expect(screen.queryByRole('alert')).toBeNull()
+      await user.click(nextButton())
+      expect(onCreateHost).toHaveBeenCalledWith('dev-box', { docker: true, zfs: false })
+    })
+
+    it('puts a name the server says is taken under the name field and returns to the first step', async () => {
+      const user = setupUser()
+      const view = render(<AddHostWizard {...makeProps({ pendingHost: null })} />)
+      await enterHostName(user, 'dev-box')
+      await user.click(nextButton())
+      expect(screen.queryByTestId('step-capabilities')).toBeNull()
+      view.rerender(<AddHostWizard {...makeProps({ pendingHost: null, createError: { message: 'A host with this name already exists. Choose another name.', field: 'name' } })} />)
+      expect((await screen.findByRole('alert')).textContent).toBe('A host with this name already exists. Choose another name.')
+      expect(screen.getByTestId('step-capabilities')).toBeDefined()
+      expect(screen.getByLabelText('Host Name').getAttribute('aria-invalid')).toBe('true')
+      expect(nextButton().hasAttribute('disabled')).toBe(true)
+      await user.type(screen.getByLabelText('Host Name'), '-2')
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+      expect(nextButton().hasAttribute('disabled')).toBe(false)
     })
 
     it('asks for a host name when the field is left empty', async () => {
@@ -764,7 +846,8 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1.5')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1.5')
+      await user.tab()
       expect((await screen.findByRole('alert')).textContent).toBe('Enter the number after uid= in the command output.')
       expect(nextButton().hasAttribute('disabled')).toBe(true)
     })
@@ -779,6 +862,7 @@ describe('AddHostWizard', () => {
       await enterHostName(user)
       await advanceToVerify(user)
       await user.type(screen.getByLabelText('Agent host or IP'), value)
+      await user.tab()
       expect((await screen.findByRole('alert')).textContent).toBe(message)
       expect(verifyButton().hasAttribute('disabled')).toBe(true)
       await user.click(verifyButton())
@@ -793,6 +877,7 @@ describe('AddHostWizard', () => {
       await user.type(screen.getByLabelText('Agent host or IP'), '192.168.1.10')
       await user.clear(screen.getByLabelText('Agent port'))
       await user.type(screen.getByLabelText('Agent port'), '70000')
+      await user.tab()
       expect((await screen.findByRole('alert')).textContent).toBe('Enter a port from 1 to 65535.')
       expect(verifyButton().hasAttribute('disabled')).toBe(true)
     })
@@ -812,8 +897,8 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.type(screen.getByLabelText('ZFS group ID'), '1001')
+      await user.type(screen.getByLabelText('Docker group ID'), '999')
       expect(nextButton().hasAttribute('disabled')).toBe(true)
     })
 
@@ -821,8 +906,8 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1001')
+      await user.type(screen.getByLabelText('Docker group ID'), '999')
       expect(nextButton().hasAttribute('disabled')).toBe(true)
     })
 
@@ -830,10 +915,10 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1001')
+      await user.type(screen.getByLabelText('ZFS group ID'), '1001')
       expect(nextButton().hasAttribute('disabled')).toBe(true)
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.type(screen.getByLabelText('Docker group ID'), '999')
       expect(nextButton().hasAttribute('disabled')).toBe(false)
     })
 
@@ -841,13 +926,13 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await openZfsStep(user, { docker: false })
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1001')
       expect(nextButton().hasAttribute('disabled')).toBe(true)
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
+      await user.type(screen.getByLabelText('ZFS group ID'), '1001')
       expect(nextButton().hasAttribute('disabled')).toBe(false)
     })
 
-    it.each(['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID'])('rejects a negative or fractional value in %s', async (field) => {
+    it.each(['ZFS user ID', 'ZFS group ID', 'Docker group ID'])('rejects a negative or fractional value in %s', async (field) => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await openZfsStep(user)
@@ -855,7 +940,7 @@ describe('AddHostWizard', () => {
         await user.clear(screen.getByLabelText(name))
         await user.type(screen.getByLabelText(name), value)
       }
-      for (const name of ['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID']) await fill(name, '1001')
+      for (const name of ['ZFS user ID', 'ZFS group ID', 'Docker group ID']) await fill(name, '1001')
       expect(nextButton().hasAttribute('disabled')).toBe(false)
       for (const bad of ['-1', '1.5']) {
         await fill(field, bad)
@@ -865,11 +950,11 @@ describe('AddHostWizard', () => {
       expect(nextButton().hasAttribute('disabled')).toBe(false)
     })
 
-    it.each(['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID'])('accepts a value padded with whitespace in %s', async (field) => {
+    it.each(['ZFS user ID', 'ZFS group ID', 'Docker group ID'])('accepts a value padded with whitespace in %s', async (field) => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await openZfsStep(user)
-      for (const name of ['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID']) await user.type(screen.getByLabelText(name), '1001')
+      for (const name of ['ZFS user ID', 'ZFS group ID', 'Docker group ID']) await user.type(screen.getByLabelText(name), '1001')
       expect(nextButton().hasAttribute('disabled')).toBe(false)
       fireEvent.change(screen.getByLabelText(field), { target: { value: '1001 ' } })
       expect(nextButton().hasAttribute('disabled')).toBe(false)
@@ -1083,9 +1168,9 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1002')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
+      await user.type(screen.getByLabelText('ZFS user ID'), '1001')
+      await user.type(screen.getByLabelText('ZFS group ID'), '1002')
+      await user.type(screen.getByLabelText('Docker group ID'), '999')
       await user.click(nextButton())
       await user.click(screen.getByRole('button', { name: 'Back' }))
       await user.click(screen.getByRole('button', { name: 'Back' }))

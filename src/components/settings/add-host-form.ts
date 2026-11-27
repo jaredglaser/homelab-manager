@@ -63,8 +63,8 @@ export const addHostFormSchema = z.object({
 
   if (values.zfs) {
     if (!WHOLE_NUMBER_PATTERN.test(values.hlmZfsUid)) reject('hlmZfsUid', 'Enter the number after uid= in the command output.');
-    if (!WHOLE_NUMBER_PATTERN.test(values.hlmZfsGid)) reject('hlmZfsGid', 'Enter the number after gid= for the zfs group.');
-    if (values.docker && !WHOLE_NUMBER_PATTERN.test(values.dockerGid)) reject('dockerGid', 'Enter the numeric ID of the docker group.');
+    if (!WHOLE_NUMBER_PATTERN.test(values.hlmZfsGid)) reject('hlmZfsGid', 'Enter the number before (zfs) in the command output.');
+    if (values.docker && !WHOLE_NUMBER_PATTERN.test(values.dockerGid)) reject('dockerGid', 'Enter the number after docker:x: in the output of getent group docker.');
   }
 
   if (!isValidPort(values.agentPort)) reject('agentPort', 'Enter a port from 1 to 65535.');
@@ -79,15 +79,19 @@ export const addHostFormSchema = z.object({
   }
 });
 
-export function invalidAddHostFields(values: AddHostFormValues): Set<AddHostField> {
-  const result = addHostFormSchema.safeParse(values);
-  if (result.success) return new Set();
-  return new Set(result.error.issues.map((issue) => issue.path[0] as AddHostField));
+export interface AddHostStepIssue {
+  field: AddHostField;
+  message: string;
 }
 
-export function isAddHostStepValid(step: string, values: AddHostFormValues): boolean {
+/** The step's rejected fields in the order they appear on screen, each with the message its field shows. */
+export function addHostStepIssues(step: string, values: AddHostFormValues): AddHostStepIssue[] {
   const fields: readonly AddHostField[] | undefined = ADD_HOST_STEP_FIELDS[step as keyof typeof ADD_HOST_STEP_FIELDS];
-  if (!fields) return true;
-  const invalid = invalidAddHostFields(values);
-  return fields.every((field) => !invalid.has(field));
+  if (!fields) return [];
+  const result = addHostFormSchema.safeParse(values);
+  if (result.success) return [];
+  return fields.flatMap((field) => {
+    const issue = result.error.issues.find((candidate) => candidate.path[0] === field);
+    return issue ? [{ field, message: issue.message }] : [];
+  });
 }

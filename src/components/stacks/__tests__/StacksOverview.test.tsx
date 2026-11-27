@@ -5,6 +5,7 @@ import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { mockModule } from '@/lib/test/mock-module';
+import { TaggedServerError } from '@/lib/errors/tagged-server-error';
 
 const mockNavigate = mock(() => {});
 const mockCreateStack = mock(() => Promise.resolve({}));
@@ -137,6 +138,26 @@ describe('StacksOverview', () => {
     fireEvent.click(bgBtn!);
 
     expect(screen.queryByText('stack already exists')).toBeNull();
+  });
+
+  it('puts a stack name the server says is taken under the name field, without the server text', async () => {
+    mockCreateStack.mockRejectedValueOnce(new TaggedServerError('name_taken', 'A stack named "mystack" already exists. Choose another name.', 'stackName'));
+    render(<StacksOverview />, { wrapper: createWrapper() });
+    fireEvent.click(screen.getByRole('button', { name: /New stack/i }));
+    fireEvent.change(screen.getByLabelText('Stack Name'), { target: { value: 'mystack' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Stack' }));
+    const message = await screen.findByText('A stack with this name already exists. Choose another name.');
+    expect(message.id).toBe(screen.getByLabelText('Stack Name').getAttribute('aria-describedby') ?? '');
+    expect(screen.queryByText(/A stack named "mystack"/)).toBeNull();
+  });
+
+  it('names the field the server input check refused, by its label', async () => {
+    mockCreateStack.mockRejectedValueOnce(new TaggedServerError('invalid_input', 'The value for "stackName" was not accepted. Check it and try again.', 'stackName'));
+    render(<StacksOverview />, { wrapper: createWrapper() });
+    fireEvent.click(screen.getByRole('button', { name: /New stack/i }));
+    fireEvent.change(screen.getByLabelText('Stack Name'), { target: { value: 'mystack' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Stack' }));
+    expect(await screen.findByText('The value for "Stack name" was not accepted. Check it and try again.')).toBeDefined();
   });
 
   it('shows mutation error message in the dialog', async () => {

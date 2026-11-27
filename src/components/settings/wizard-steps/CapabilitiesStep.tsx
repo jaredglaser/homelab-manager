@@ -7,7 +7,7 @@ import type { AddHostFormValues } from '@/components/settings/add-host-form'
 
 const CAPABILITIES_ERROR_ID = 'wizard-capabilities-error'
 
-export default function CapabilitiesStep() {
+export default function CapabilitiesStep({ takenNameMessage }: Readonly<{ takenNameMessage: string | null }>) {
   const { register, setValue, trigger, watch, formState: { errors } } = useFormContext<AddHostFormValues>()
   const docker = watch('docker')
   const zfs = watch('zfs')
@@ -24,7 +24,7 @@ export default function CapabilitiesStep() {
       <Field
         id="wizard-host-name"
         label="Host Name"
-        error={errors.name?.message}
+        error={errors.name?.message ?? takenNameMessage ?? undefined}
         hint={<>Used as the agent's <code>AGENT_HOST_NAME</code>, so it goes into the files in the next steps.</>}
       >
         {(control) => <Input {...control} placeholder="dev-machine" autoComplete="off" {...register('name')} />}
