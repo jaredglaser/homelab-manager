@@ -84,7 +84,6 @@ export interface AddHostStepIssue {
   message: string;
 }
 
-/** The step's rejected fields in the order they appear on screen, each with the message its field shows. */
 export function addHostStepIssues(step: string, values: AddHostFormValues): AddHostStepIssue[] {
   const fields: readonly AddHostField[] | undefined = ADD_HOST_STEP_FIELDS[step as keyof typeof ADD_HOST_STEP_FIELDS];
   if (!fields) return [];

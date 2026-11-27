@@ -44,7 +44,7 @@ describe('createPendingHostSchema', () => {
 });
 
 describe('agent URL', () => {
-  it.each(['nas.local', 'http://256.256.256.256:9090', ''])('rejects %p in words a user can act on', (agentUrl) => {
+  it.each(['nas.local', 'http://256.256.256.256:9090', '', 'ftp://example'])('rejects %p in words a user can act on', (agentUrl) => {
     const message = 'Enter the full agent URL, such as https://192.168.1.10:9090.';
     expect(firstMessage(updateHostSchema.safeParse({ hostId: 1, agentUrl }))).toBe(message);
     expect(firstMessage(rotateHostTlsSchema.safeParse({ hostId: 1, agentUrl }))).toBe(message);

@@ -72,7 +72,6 @@ function checkedOnFill<T extends UseFormRegisterReturn>(registration: T): T {
   };
 }
 
-/** The first message each field gets from a schema check, in the schema's order. */
 function fieldIssues(result: { error?: { issues: readonly { path: readonly PropertyKey[]; message: string }[] } }): FieldIssue[] {
   const byField = new Map<string, string>();
   for (const issue of result.error?.issues ?? []) {
