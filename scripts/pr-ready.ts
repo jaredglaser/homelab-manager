@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 import { fetchWithRetry } from './fetch-retry';
 
-export const COULD_NOT_CHECK = 'Could not check. Re-run this check.';
+export const COULD_NOT_CHECK = 'Could not check. Run it again.';
 
 export type CheckState = 'passed' | 'failed' | 'running' | 'missing';
 

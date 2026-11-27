@@ -179,7 +179,7 @@ describe('the Ready line, word for word', () => {
 
   test('w11: could not check is never Ready (AC8)', () => {
     expect(couldNotCheck(new Error('GET x failed: HTTP 502'))).toEqual({
-      line: 'Could not check. Re-run this check.',
+      line: 'Could not check. Run it again.',
       error: 'GET x failed: HTTP 502',
     });
     expect(couldNotCheck('boom').error).toBe('boom');
@@ -448,14 +448,14 @@ describe('runCli', () => {
   test('prints the error under a could-not-check line', async () => {
     const { out, err, d } = deps(fakes({ fail: 'compare' }));
     expect(await runCli([], d)).toBe(0);
-    expect(out).toEqual(['Could not check. Re-run this check. #700 at abcdef1']);
+    expect(out).toEqual(['Could not check. Run it again. #700 at abcdef1']);
     expect(err).toEqual(['  GET compare failed: HTTP 403']);
   });
 
   test('exits 1 with "Could not check" when the PR list cannot be read', async () => {
     const { out, err, d } = deps(fakes({ fail: 'listOpenPulls' }));
     expect(await runCli(['694'], d)).toBe(1);
-    expect(out).toEqual(['Could not check. Re-run this check. #694 at an unknown commit']);
+    expect(out).toEqual(['Could not check. Run it again. #694 at an unknown commit']);
     expect(err).toEqual(['GET listOpenPulls failed: HTTP 403']);
   });
 });
