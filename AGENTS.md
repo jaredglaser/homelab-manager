@@ -28,12 +28,11 @@
 
 **Light lane (a change the maintainer asks a session for):**
 - When the maintainer asks a session for a change and has not confirmed it as orchestrator, the session follows the light lane. He can ask for the full process instead: then follow the `orchestrate` skill.
-- Work from criteria: a plan page when the plan-page rule calls for one, otherwise one to three lines at the top of the PR body. A trivial change (a typo, a comment, a dependency bump) needs one line of criteria and no review agent.
+- Work from criteria: a plan page when the plan-page rule calls for one, otherwise one to three lines at the top of the PR body.
 - State any design choice you made, and the alternative you did not take, at the top of the PR body.
-- Before calling it done, have one fresh agent review the diff against the criteria, and check the change by real use. Fix a serious finding and have the new commits reviewed once more. List minor findings as not fixed in the PR body.
-- Open the PR for that change without asking. Touch no other PR. If a PR for the same change is already open, stop and say so.
-- Report a second problem you find on the way. Do not fix it in this PR or open another.
-- After opening the PR, fix it until its checks pass, or say what blocks it. Stop when the maintainer says stop.
+- Before calling it done, have one fresh agent review the diff against the criteria, and check the change by real use. Fix a serious finding and have it reviewed once more. List minor ones in the PR body. A trivial change (a typo, a comment, a dependency bump) skips the review.
+- Open the PR for that change without asking. Touch no other PR, and report a second problem instead of fixing it.
+- Fix your own PR until its checks pass, or say what blocks it.
 - End with the PR number, the state of its checks, and what was not checked and why.
 - No records repo writes and no separate verifier.
 
