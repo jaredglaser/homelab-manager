@@ -109,8 +109,11 @@ export async function resolveAgentImageDigest(imageRef: string): Promise<string 
 
 export interface AgentImageRelease {
   digest: string;
-  /** The image's AGENT_SOURCE_HASH_LABEL, or null when it has none or it could not be read. */
-  sourceHash: string | null;
+  /**
+   * The image's AGENT_SOURCE_HASH_LABEL, or null when it has none. When the label cannot be read this
+   * sweep, the last hash read successfully, or undefined when no read has succeeded yet.
+   */
+  sourceHash: string | null | undefined;
 }
 
 const SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/;
@@ -128,7 +131,40 @@ function platformManifestDigest(index: unknown, indexDigest: string): string | n
   return typeof entry?.digest === 'string' && SHA256_DIGEST_PATTERN.test(entry.digest) ? entry.digest : null;
 }
 
-async function fetchConfigBlob(session: RegistrySession, configDigest: string): Promise<Uint8Array | null> {
+// A real config blob is a few KiB. The storage host is outside the registry, so an unbounded read lets it exhaust worker memory.
+const MAX_CONFIG_BLOB_BYTES = 1024 * 1024;
+
+async function readCappedBytes(response: Response, maxBytes: number): Promise<Uint8Array<ArrayBuffer> | null> {
+  const declared = Number(response.headers.get('content-length'));
+  if (declared > maxBytes) {
+    void response.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array(0);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > maxBytes) return null;
+      chunks.push(next.value);
+    }
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function fetchConfigBlob(session: RegistrySession, configDigest: string): Promise<Uint8Array<ArrayBuffer> | null> {
   let response = await registryGet(session, `blobs/${configDigest}`, '*/*');
   if (!response) return null;
   if (response.status >= 300 && response.status < 400) {
@@ -140,7 +176,8 @@ async function fetchConfigBlob(session: RegistrySession, configDigest: string): 
     response = await fetch(target, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
   }
   if (!response.ok) return null;
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = await readCappedBytes(response, MAX_CONFIG_BLOB_BYTES);
+  if (!bytes) return null;
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
   const actual = 'sha256:' + Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('');
   return actual === configDigest ? bytes : null;
@@ -164,33 +201,40 @@ async function readSourceHash(session: RegistrySession, index: unknown, indexDig
   return typeof label === 'string' && SOURCE_HASH_PATTERN.test(label) ? label : null;
 }
 
-// An index digest names immutable content, so its label never changes. Bounded because `main` moves on every merge.
-const sourceHashByDigest = new Map<string, string | null>();
 const MAX_CACHED_DIGESTS = 32;
 
 /** Resolves the image's digest and, best-effort, its source hash label. Null only when the digest itself is unresolvable. */
-export async function resolveAgentImageRelease(imageRef: string): Promise<AgentImageRelease | null> {
-  const parts = splitImageRef(imageRef);
-  if (!parts) return null;
-  const session: RegistrySession = { parts };
-  let index: { digest: string; body: unknown } | null;
-  try {
-    index = await readIndex(session);
-  } catch {
-    return null;
-  }
-  if (!index) return null;
-  const cached = sourceHashByDigest.get(index.digest);
-  if (cached !== undefined) return { digest: index.digest, sourceHash: cached };
-  let sourceHash: string | null | undefined;
-  try {
-    sourceHash = await readSourceHash(session, index.body, index.digest);
-  } catch {
-    sourceHash = undefined;
-  }
-  if (sourceHash !== undefined) {
+export function createAgentImageReleaseResolver(): (imageRef: string) => Promise<AgentImageRelease | null> {
+  // An index digest names immutable content, so its label never changes. Bounded because `main` moves on every merge.
+  const sourceHashByDigest = new Map<string, string | null>();
+  // A failed read that fell back to digests would flag every host on a rebuild of unchanged source.
+  let lastReadSourceHash: string | null | undefined;
+
+  return async (imageRef) => {
+    const parts = splitImageRef(imageRef);
+    if (!parts) return null;
+    const session: RegistrySession = { parts };
+    let index: { digest: string; body: unknown } | null;
+    try {
+      index = await readIndex(session);
+    } catch {
+      return null;
+    }
+    if (!index) return null;
+    const cached = sourceHashByDigest.get(index.digest);
+    if (cached !== undefined) return { digest: index.digest, sourceHash: cached };
+    let sourceHash: string | null | undefined;
+    try {
+      sourceHash = await readSourceHash(session, index.body, index.digest);
+    } catch {
+      sourceHash = undefined;
+    }
+    if (sourceHash === undefined) return { digest: index.digest, sourceHash: lastReadSourceHash };
     if (sourceHashByDigest.size >= MAX_CACHED_DIGESTS) sourceHashByDigest.clear();
     sourceHashByDigest.set(index.digest, sourceHash);
-  }
-  return { digest: index.digest, sourceHash: sourceHash ?? null };
+    lastReadSourceHash = sourceHash;
+    return { digest: index.digest, sourceHash };
+  };
 }
+
+export const resolveAgentImageRelease = createAgentImageReleaseResolver();

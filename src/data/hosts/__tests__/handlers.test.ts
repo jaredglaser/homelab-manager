@@ -922,6 +922,62 @@ describe('handleUpdateAgent', () => {
     }
   });
 
+  it('re-reads a same-version agent a bounded number of times before giving up on its image', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      const checkHealth = mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' }));
+      const delays: number[] = [];
+      const deps = { ...updateDeps(undefined, checkHealth), sleep: (ms: number) => { delays.push(ms); return Promise.resolve(); } };
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('image_unconfirmed');
+      expect(checkHealth).toHaveBeenCalledTimes(10);
+      expect(delays).toEqual([500, 1000, 2000, 4000, 8000, 16000, 1000, 1000, 1000]);
+    } finally {
+      restore();
+    }
+  });
+
+  it('confirms the update when the restarted agent reports its digest on a re-read', async () => {
+    const repo = mockRepo();
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const checkHealth = mock(() => {
+        calls += 1;
+        return Promise.resolve(calls < 9
+          ? { healthy: true as const, version: '1.0.0' }
+          : { healthy: true as const, version: '1.0.0', agentImageDigest: TEST_DIGEST });
+      });
+      const deps = { ...updateDeps(repo, checkHealth), sleep: () => Promise.resolve() };
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'updated' });
+      expect(checkHealth).toHaveBeenCalledTimes(9);
+      expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
+    } finally {
+      restore();
+    }
+  });
+
+  it('reports an interrupted update when a re-read shows the previous digest', async () => {
+    const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
+    try {
+      let calls = 0;
+      const checkHealth = mock(() => {
+        calls += 1;
+        return Promise.resolve(calls < 8
+          ? { healthy: true as const, version: '1.0.0' }
+          : { healthy: true as const, version: '1.0.0', agentImageDigest: 'sha256:' + 'a'.repeat(64) });
+      });
+      const deps = { ...updateDeps(undefined, checkHealth), sleep: () => Promise.resolve() };
+      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.code).toBe('update_interrupted');
+    } finally {
+      restore();
+    }
+  });
+
   it('reports an interrupted update when the agent still runs the previous digest', async () => {
     const timers = mockSetTimeout({ fireImmediately: true });
     const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));

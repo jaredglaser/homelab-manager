@@ -1,5 +1,5 @@
 import { describe, test, expect, mock } from 'bun:test';
-import { resolveAgentImageDigest, resolveAgentImageRelease } from '@/lib/hosts/agent-image-digest';
+import { createAgentImageReleaseResolver, resolveAgentImageDigest, resolveAgentImageRelease } from '@/lib/hosts/agent-image-digest';
 import { AGENT_SOURCE_HASH_LABEL } from '@homelab-manager/agent/types';
 
 const REPO = 'ghcr.io/jaredglaser/homelab-manager-agent';
@@ -141,8 +141,9 @@ async function sha256Of(text: string): Promise<string> {
 const PLATFORM_DIGEST = 'sha256:' + 'b'.repeat(64);
 const SOURCE_HASH = 'e'.repeat(64);
 
-async function registry(opts: { label?: string; tamper?: boolean; indexDigest?: string } = {}) {
-  const config = JSON.stringify({ config: { Labels: opts.label === undefined ? {} : { [AGENT_SOURCE_HASH_LABEL]: opts.label } } });
+async function registry(opts: { label?: string; tamper?: boolean; indexDigest?: string; padding?: number; blob?: () => Response } = {}) {
+  const labels = opts.label === undefined ? {} : { [AGENT_SOURCE_HASH_LABEL]: opts.label };
+  const config = JSON.stringify({ config: { Labels: labels }, padding: 'x'.repeat(opts.padding ?? 0) });
   const configDigest = await sha256Of(config);
   const indexDigest = opts.indexDigest ?? DIGEST;
   return withFetch((url) => {
@@ -162,6 +163,7 @@ async function registry(opts: { label?: string; tamper?: boolean; indexDigest?: 
       return Promise.resolve(new Response(null, { status: 307, headers: { Location: 'https://pkg-containers.example/blob' } }));
     }
     if (u === 'https://pkg-containers.example/blob') {
+      if (opts.blob) return Promise.resolve(opts.blob());
       return Promise.resolve(new Response(opts.tamper ? config + ' ' : config, { status: 200 }));
     }
     return Promise.resolve(manifestResponse(404));
@@ -202,9 +204,10 @@ describe('resolveAgentImageRelease', () => {
   });
 
   test('ignores a config blob whose bytes do not match its digest', async () => {
+    const resolve = createAgentImageReleaseResolver();
     const { restore } = await registry({ label: SOURCE_HASH, tamper: true, indexDigest: 'sha256:' + '4'.repeat(64) });
     try {
-      expect(await resolveAgentImageRelease(`${REPO}:main`)).toEqual({ digest: 'sha256:' + '4'.repeat(64), sourceHash: null });
+      expect((await resolve(`${REPO}:main`))?.sourceHash).toBeUndefined();
     } finally {
       restore();
     }
@@ -214,6 +217,64 @@ describe('resolveAgentImageRelease', () => {
     const { restore } = await registry({ label: 'not-a-hash', indexDigest: 'sha256:' + '5'.repeat(64) });
     try {
       expect((await resolveAgentImageRelease(`${REPO}:main`))?.sourceHash).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  test('keeps the last hash it read when a later label read fails', async () => {
+    const resolve = createAgentImageReleaseResolver();
+    const first = await registry({ label: SOURCE_HASH, indexDigest: 'sha256:' + '6'.repeat(64) });
+    try {
+      await resolve(`${REPO}:main`);
+    } finally {
+      first.restore();
+    }
+    const failing = await registry({ label: SOURCE_HASH, tamper: true, indexDigest: 'sha256:' + '7'.repeat(64) });
+    try {
+      expect(await resolve(`${REPO}:main`)).toEqual({ digest: 'sha256:' + '7'.repeat(64), sourceHash: SOURCE_HASH });
+    } finally {
+      failing.restore();
+    }
+  });
+
+  test('reports the hash as unknown, not absent, when no label read has ever succeeded', async () => {
+    const resolve = createAgentImageReleaseResolver();
+    const { restore } = await registry({ label: SOURCE_HASH, tamper: true, indexDigest: 'sha256:' + '8'.repeat(64) });
+    try {
+      const release = await resolve(`${REPO}:main`);
+      expect(release?.digest).toBe('sha256:' + '8'.repeat(64));
+      expect(release && 'sourceHash' in release ? release.sourceHash : 'missing').toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test('fails the label read for a config blob over 1 MiB, even when its digest matches', async () => {
+    const resolve = createAgentImageReleaseResolver();
+    const { restore } = await registry({ label: SOURCE_HASH, padding: 1024 * 1024, indexDigest: 'sha256:' + 'f'.repeat(64) });
+    try {
+      const release = await resolve(`${REPO}:main`);
+      expect(release?.digest).toBe('sha256:' + 'f'.repeat(64));
+      expect(release?.sourceHash).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test('stops reading a config blob that streams past 1 MiB with no length', async () => {
+    const resolve = createAgentImageReleaseResolver();
+    let pulls = 0;
+    const endless = () => new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(new Uint8Array(64 * 1024));
+      },
+    }), { status: 200 });
+    const { restore } = await registry({ label: SOURCE_HASH, blob: endless, indexDigest: 'sha256:' + 'e'.repeat(64) });
+    try {
+      expect((await resolve(`${REPO}:main`))?.sourceHash).toBeUndefined();
+      expect(pulls).toBeLessThan(20);
     } finally {
       restore();
     }

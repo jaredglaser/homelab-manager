@@ -68,6 +68,12 @@ function readUpdateRefusal(response: Response, body: string): { code: UpdateFail
 /** A peer that never finishes answering the trigger must not hang the update. */
 const UPDATE_TRIGGER_TIMEOUT_MS = 30_000;
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
+// A restarted agent resolves its image lazily and can lose the startup race with socket-proxy.
+const IMAGE_DIGEST_RETRY_DELAYS_MS = [1000, 1000, 1000] as const;
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function digestPinnedImageRef(imageRef: string, digest: string): string {
   return `${imageRef.slice(0, imageRef.lastIndexOf(':'))}@${digest}`;
@@ -349,9 +355,11 @@ export async function handleUpdateAgent(
     resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
     /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
     getCaCert?: (hostname: string) => Promise<string | null>;
+    sleep?: (ms: number) => Promise<void>;
   },
   data: { hostId: number },
 ): Promise<UpdateAgentResult> {
+  const sleep = deps.sleep ?? sleepMs;
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -458,7 +466,7 @@ export async function handleUpdateAgent(
   let sawRestart = false;
 
   for (const delay of HEALTH_CHECK_DELAYS_MS) {
-    await new Promise((resolve) => setTimeout(resolve, delay));
+    await sleep(delay);
     lastResult = await deps.checkHealth(host.agentUrl, host.name);
     if (!lastResult.healthy) {
       sawRestart = true;
@@ -481,8 +489,15 @@ export async function handleUpdateAgent(
   if (!newVersion) {
     if (lastResult.healthy && currentVersion !== undefined && lastResult.version === currentVersion) {
       // An image rebuilt without a version bump keeps the version string, so the digest is what proves the swap happened.
-      if (typeof lastResult.agentImageDigest === 'string') {
-        if (lastResult.agentImageDigest !== digest) {
+      let runningDigest = lastResult.agentImageDigest;
+      for (const delay of IMAGE_DIGEST_RETRY_DELAYS_MS) {
+        if (typeof runningDigest === 'string') break;
+        await sleep(delay);
+        const reread = await deps.checkHealth(host.agentUrl, host.name);
+        if (reread.healthy && reread.version === currentVersion) runningDigest = reread.agentImageDigest;
+      }
+      if (typeof runningDigest === 'string') {
+        if (runningDigest !== digest) {
           return {
             hostId: host.id,
             healthy: false,
@@ -538,7 +553,10 @@ export interface AgentsInventoryDeps extends HostHandlerDeps {
 // CI republishes the agent on every merge, so a digest alone flags rebuilds of unchanged source. The digest is the fallback for unstamped images.
 function agentOutOfDateFor(outcome: HealthCheckOutcome, expected: AgentImageRelease | null): boolean {
   if (!outcome.healthy || !expected) return false;
-  if (expected.sourceHash && outcome.agentSourceHash) return outcome.agentSourceHash !== expected.sourceHash;
+  if (outcome.agentSourceHash) {
+    if (expected.sourceHash === undefined) return false;
+    if (expected.sourceHash) return outcome.agentSourceHash !== expected.sourceHash;
+  }
   return !!outcome.agentImageDigest && outcome.agentImageDigest !== expected.digest;
 }
 

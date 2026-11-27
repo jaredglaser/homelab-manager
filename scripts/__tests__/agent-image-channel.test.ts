@@ -293,6 +293,14 @@ describe('agent source hash stamping', () => {
     expect(agentDockerfile).toContain('ENV AGENT_SOURCE_HASH=${AGENT_SOURCE_HASH}');
   });
 
+  test('the hash covers the Dockerfile, the dockerignore and every file the Dockerfile copies', () => {
+    const step = /git ls-tree -r HEAD -- ([^\\\n]+)/.exec(read(WORKFLOW));
+    const hashed = new Set(step?.[1]?.trim().split(/\s+/));
+    const copied = [...read('agent/Dockerfile').matchAll(/^COPY\s+(?!--from)(\S+)\s/gm)].map((m) => `agent/${m[1]}`);
+    expect(copied.length).toBeGreaterThan(0);
+    for (const path of ['agent/Dockerfile', 'agent/.dockerignore', ...copied]) expect(hashed).toContain(path);
+  });
+
   test('CI passes the hash to the agent build', () => {
     expect(read(WORKFLOW)).toContain('AGENT_SOURCE_HASH=${{ steps.agent-source.outputs.hash }}');
   });

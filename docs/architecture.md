@@ -213,7 +213,7 @@ Agent updates are manager-driven and manual only: the manager resolves the regis
 5. Start the new container
 6. Poll the Docker healthcheck, then verify the agent's HTTP `/health` endpoint, rolling back to the previous digest on failure
 
-**Detection:** CI stamps each agent image with a hash of its build inputs (`AGENT_SOURCE_HASH`, also the `AGENT_SOURCE_HASH_LABEL` image label), and the agent reports it and its running image digest on `/info`. The worker's inventory sweep reads the label from the registry image the manager points at and compares hashes, so a rebuild of unchanged source on every merge to `main` is not flagged. When either side has no hash (an older agent, a local build), it compares digests instead. It persists the verdict the Hosts page displays.
+**Detection:** CI stamps each agent image with a hash of its build inputs (`AGENT_SOURCE_HASH`, also the `AGENT_SOURCE_HASH_LABEL` image label), and the agent reports it and its running image digest on `/info`. The worker's inventory sweep reads the label from the registry image the manager points at and compares hashes, so a rebuild of unchanged source on every merge to `main` is not flagged. When either side has no hash (an older agent, a local build), it compares digests instead. A label read that fails reuses the last hash read, and until one succeeds a host that reports a hash is not flagged. It persists the verdict the Hosts page displays.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 

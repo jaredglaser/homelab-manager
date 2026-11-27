@@ -595,7 +595,7 @@ jobs:
       - name: Hash the agent build inputs
         id: agent-source
         run: |
-          HASH=$(git ls-tree -r HEAD -- agent/Dockerfile agent/package.json agent/bun.lock agent/tsconfig.json agent/src \
+          HASH=$(git ls-tree -r HEAD -- agent/Dockerfile agent/.dockerignore agent/package.json agent/bun.lock agent/tsconfig.json agent/src \
             | grep -v -e '/__tests__/' -e '\.test\.ts' | sha256sum | cut -d' ' -f1)
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
