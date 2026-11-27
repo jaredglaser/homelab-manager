@@ -58,8 +58,8 @@ test('heads the guest rate columns Net in, Net out, Disk read and Disk write, wi
     await expect(page.getByText(header, { exact: true }).first()).toBeVisible();
   }
   const guestRow = page.locator('.group.grid', { hasText: 'ubuntu-server' });
-  await expect(guestRow).toContainText(/bps/);
-  await expect(guestRow).toContainText(/B\/s/);
+  const rates = /\d[\d.]*\s*(?:[KMGT]i?)?(?:B\/s|bps|\/s)/g;
+  await expect.poll(async () => ((await guestRow.textContent())?.match(rates) ?? []).length).toBe(4);
 });
 
 test.describe('worker state messages', () => {
