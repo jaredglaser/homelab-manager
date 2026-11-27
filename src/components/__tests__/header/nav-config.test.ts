@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { mockModule } from '@/lib/test/mock-module';
+import { Server } from 'lucide-react'
 
 const mockQuery = mock(() => Promise.resolve())
 
@@ -37,7 +38,17 @@ describe('NAV_ITEMS', () => {
 
   it('has the correct routes', () => {
     const routes = NAV_ITEMS.map((i) => i.to)
-    expect(routes).toEqual(['/docker', '/stacks', '/zfs', '/proxmox', '/agents', '/settings'])
+    expect(routes).toEqual(['/docker', '/stacks', '/zfs', '/proxmox', '/hosts', '/settings'])
+  })
+
+  it('labels the hosts route Hosts with the Server icon', () => {
+    const hosts = NAV_ITEMS.find((i) => i.to === '/hosts')
+    expect(hosts?.label).toBe('Hosts')
+    expect(hosts?.Icon).toBe(Server)
+  })
+
+  it('has no Agents label', () => {
+    expect(NAV_ITEMS.some((i) => i.label === 'Agents')).toBe(false)
   })
 
   it('has correct hasMenu flags', () => {
@@ -116,7 +127,7 @@ describe('handlePrefetch', () => {
   it('does not throw or produce an unhandled rejection when query rejects', async () => {
     // First call: resolved mock so the .not.toThrow() check doesn't consume the rejection.
     mockQuery.mockResolvedValueOnce(undefined)
-    // Second call: rejects — this is the one tested for unhandled rejection.
+    // Second call: rejects. This is the one tested for unhandled rejection.
     mockQuery.mockImplementationOnce(() => Promise.reject(new Error('network error')))
     expect(() => handlePrefetch('/docker')).not.toThrow()
     let unhandledRejection = false

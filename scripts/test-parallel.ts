@@ -72,7 +72,8 @@ mkdirSync(LOG_DIR, { recursive: true });
 const startedAt = performance.now();
 const results = await Promise.all(
   shards.map(async (shardFiles, i) => {
-    const proc = Bun.spawn(["bun", "test", "--isolate", ...shardFiles], {
+    // Bun reads a bare path as a substring filter, so src/x.test.ts would also run agent/src/x.test.ts.
+    const proc = Bun.spawn(["bun", "test", "--isolate", ...shardFiles.map((f) => `./${f}`)], {
       stdout: "pipe",
       stderr: "pipe",
     });

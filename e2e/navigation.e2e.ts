@@ -1,7 +1,8 @@
 import { test, expect } from './fixtures';
 
 const routes = [
-  { path: '/docker', signature: /hosts/i },
+  { path: '/docker', signature: /Disk Read/ },
+  { path: '/hosts', signature: /Update agent/ },
   { path: '/stacks', signature: /Stacks Overview/i },
   { path: '/zfs', signature: /pools/i },
   { path: '/proxmox', signature: /nodes/i },
@@ -24,4 +25,8 @@ test('top navigation moves between sections', async ({ page }) => {
 
   await page.getByRole('tab', { name: 'ZFS' }).click();
   await expect(page).toHaveURL(/\/zfs$/);
+
+  await page.getByRole('tab', { name: 'Hosts', exact: true }).click();
+  await expect(page).toHaveURL(/\/hosts$/);
+  await expect(page.getByText(/Update agent/).first()).toBeVisible();
 });

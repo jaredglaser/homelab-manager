@@ -16,7 +16,7 @@ export interface ZfsSettingsValue {
   isVdevExpanded: (vdevId: string) => boolean;
 }
 
-/** ZFS-dashboard settings: disk-speed decimals are global, host / pool / vdev expansion is kept in this browser. */
+/** ZFS-dashboard settings: disk-speed decimals are stored per user (see `USER_SETTINGS_KEYS`), host / pool / vdev expansion is kept in this browser. */
 export function useZfsSettings(): ZfsSettingsValue {
   const zfs = useAtomValue(zfsSettingsAtom);
   const optimisticSet = useOptimisticSetting();

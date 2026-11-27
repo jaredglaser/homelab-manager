@@ -24,10 +24,7 @@ export const sessionReadMiddleware = createMiddleware().server<{ sessionUser: Au
 // eslint-disable-next-line local/endpoint-auth
 export const getSession = createServerFn()
   .middleware([sessionReadMiddleware])
-  .handler(async ({ context }): Promise<AuthUser | null> => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (context as any).sessionUser as AuthUser | null;
-  });
+  .handler(async ({ context }): Promise<AuthUser | null> => context.sessionUser);
 
 /**
  * List all users (admin only).

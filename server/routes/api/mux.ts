@@ -36,6 +36,7 @@ const sessions = new Map<string, MuxSession>();
 // messages arriving before async open() finishes auth are buffered here and replayed only
 // after auth succeeds; without this the client's first sub commands are silently dropped
 const pendingMessages = new Map<string, string[]>();
+const openingPeers = new Set<string>();
 
 function stopTopic(session: MuxSession, topic: string): void {
   const stream = session.topics.get(topic);
@@ -60,6 +61,7 @@ function startTopic(session: MuxSession, topic: string, adapter: TopicAdapter): 
   const controller = new AbortController();
   session.topics.set(topic, { controller });
   const emit: EmitFrame = (frame) => {
+    if (controller.signal.aborted) return;
     if (session.outbox.pushFrame(frame) === 'failed') {
       controller.abort();
     }
@@ -76,15 +78,29 @@ function startTopic(session: MuxSession, topic: string, adapter: TopicAdapter): 
   }
 }
 
+interface Subscribable<Args extends unknown[]> {
+  subscribe(...args: Args): () => void;
+}
+
+// An abort fired before this call never reaches a listener added after it, so subscribing then would never end.
+export function subscribeUntilAborted<Args extends unknown[]>(
+  signal: AbortSignal,
+  service: Subscribable<Args>,
+  ...args: NoInfer<Args>
+): void {
+  if (signal.aborted) return;
+  const unsubscribe = service.subscribe(...args);
+  signal.addEventListener('abort', () => unsubscribe(), { once: true });
+}
+
 async function inventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
   await import('../../../src/lib/server-init');
   const { dockerInventoryBroadcastService } = await import(
     '../../../src/lib/docker/docker-inventory-broadcast-service'
   );
-  const unsubscribe = dockerInventoryBroadcastService.subscribe((event) => {
+  subscribeUntilAborted(signal, dockerInventoryBroadcastService, (event) => {
     emit({ topic, kind: 'data', payload: event });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function agentInventoryAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -92,10 +108,9 @@ async function agentInventoryAdapter(topic: string, emit: EmitFrame, signal: Abo
   const { agentInventoryBroadcastService } = await import(
     '../../../src/lib/agents/agent-inventory-broadcast-service'
   );
-  const unsubscribe = agentInventoryBroadcastService.subscribe((snapshot) => {
+  subscribeUntilAborted(signal, agentInventoryBroadcastService, (snapshot) => {
     emit({ topic, kind: 'data', payload: snapshot });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function settingsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -103,12 +118,9 @@ async function settingsAdapter(topic: string, emit: EmitFrame, signal: AbortSign
   const { settingsBroadcastService } = await import(
     '../../../src/lib/settings/settings-broadcast-service'
   );
-  // An abort fired during the imports never reaches a listener added after it, so the subscription would never end.
-  if (signal.aborted) return;
-  const unsubscribe = settingsBroadcastService.subscribe((message) => {
+  subscribeUntilAborted(signal, settingsBroadcastService, (message) => {
     emit({ topic, kind: 'data', payload: message });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function userSettingsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal, user: AuthUser): Promise<void> {
@@ -116,11 +128,9 @@ async function userSettingsAdapter(topic: string, emit: EmitFrame, signal: Abort
   const { userSettingsBroadcastService } = await import(
     '../../../src/lib/settings/settings-broadcast-service'
   );
-  if (signal.aborted) return;
-  const unsubscribe = userSettingsBroadcastService.subscribe((message) => {
+  subscribeUntilAborted(signal, userSettingsBroadcastService, (message) => {
     emit({ topic, kind: 'data', payload: message });
   }, user.id);
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -129,23 +139,20 @@ async function stackStatusAdapter(topic: string, emit: EmitFrame, signal: AbortS
     '../../../src/lib/stacks/stack-status-broadcast-service'
   );
   const { toStackStatusWireMessage } = await import('../../../src/lib/channels/stack-status');
-  const unsubscribe = stackStatusBroadcastService.subscribe((event) => {
+  subscribeUntilAborted(signal, stackStatusBroadcastService, (event) => {
     emit({ topic, kind: 'data', payload: toStackStatusWireMessage(event) });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
   await import('../../../src/lib/server-init');
-  if (signal.aborted) return;
   const { imageUpdateBroadcastService } = await import(
     '../../../src/lib/stacks/image-update-broadcast-service'
   );
   const { toImageUpdateWireMessage } = await import('../../../src/lib/channels/image-updates');
-  const unsubscribe = imageUpdateBroadcastService.subscribe((event) => {
+  subscribeUntilAborted(signal, imageUpdateBroadcastService, (event) => {
     emit({ topic, kind: 'data', payload: toImageUpdateWireMessage(event) });
   });
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 async function statsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
@@ -157,12 +164,13 @@ async function statsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal)
   }
   await import('../../../src/lib/server-init');
   const { statsPollService } = await import('../../../src/lib/database/subscription-service');
-  const unsubscribe = statsPollService.subscribe(
+  subscribeUntilAborted(
+    signal,
+    statsPollService,
     source,
     (rows) => emit({ topic, kind: 'data', payload: rows }),
     () => emit({ topic, kind: 'error', payload: { message: 'Stats polling failed, retrying', gone: false } }),
   );
-  signal.addEventListener('abort', () => unsubscribe(), { once: true });
 }
 
 export function parseAgentSseBlock(block: string): { event: string; data: string } {
@@ -179,6 +187,11 @@ export function parseAgentSseBlock(block: string): { event: string; data: string
   return { event: eventName, data: dataParts.join('\n') };
 }
 
+// TypeScript keeps signal.aborted narrowed to false after a first check, though any await can flip it.
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted;
+}
+
 async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
   const { parseLogsTopic } = await import('../../../src/lib/mux/protocol');
   const parsed = parseLogsTopic(topic);
@@ -191,9 +204,12 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   const { databaseConnectionManager } = await import('../../../src/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('../../../src/lib/config/database-config');
   const { HostRepository } = await import('../../../src/lib/database/repositories/host-repository');
+  if (isAborted(signal)) return;
   const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  if (isAborted(signal)) return;
   const hostRepo = new HostRepository(dbClient.getPool());
   const managedHost = await hostRepo.findByName(host);
+  if (isAborted(signal)) return;
   if (!managedHost) {
     emit({ topic, kind: 'error', payload: { message: `Unknown host: ${host}`, gone: true } });
     return;
@@ -205,9 +221,12 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   );
   const { loadMasterKeyring } = await import('../../../src/lib/crypto/master-key');
   const { signAgentJwt } = await import('../../../src/lib/crypto/agent-jwt');
+  if (isAborted(signal)) return;
   const keyring = await loadMasterKeyring();
+  if (isAborted(signal)) return;
   const keypairs = new AgentKeypairsRepository(dbClient.getPool(), keyring);
   const privateKey = await keypairs.getPrivateKeyForHost(host);
+  if (isAborted(signal)) return;
   if (!privateKey) {
     emit({ topic, kind: 'error', payload: { message: `No agent keypair for host: ${host}`, gone: true } });
     return;
@@ -216,6 +235,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   // A missing pin is permanent, so fail as gone instead of looping as a fake agent outage.
   const tlsCerts = new AgentTlsCertificatesRepository(dbClient.getPool());
   const caCertPem = (await tlsCerts.getCertForHost(host))?.trim() || null;
+  if (isAborted(signal)) return;
   if (isTlsUrl(managedHost.agentUrl) && !caCertPem) {
     emit({
       topic,
@@ -234,7 +254,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
   let attempt = 0;
   let degraded = false;
   for (;;) {
-    if (signal.aborted) return;
+    if (isAborted(signal)) return;
     attempt++;
     try {
       const agentResponse = await agentFetch(agentUrl, {
@@ -242,6 +262,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
         signal,
         redirect: 'manual',
       }, { caCertPem });
+      if (isAborted(signal)) return;
       if (!agentResponse.ok || !agentResponse.body) {
         throw new Error(`Agent request failed with status ${agentResponse.status}`);
       }
@@ -250,7 +271,7 @@ async function logsAdapter(topic: string, emit: EmitFrame, signal: AbortSignal):
       await pipeAgentSse(agentResponse.body, topic, emit, signal);
       return;
     } catch (err) {
-      if (signal.aborted) return;
+      if (isAborted(signal)) return;
       if (!degraded) {
         degraded = true;
         console.error('[mux-ws] log upstream degraded:', err instanceof Error ? err.message : String(err), { host, containerId });
@@ -325,6 +346,8 @@ export interface MuxWsDeps {
 export function createMuxWsHandlers(deps: MuxWsDeps) {
   async function handleCommand(peer: Peer, session: MuxSession, text: string): Promise<void> {
     const { parseCommandFrame, MAX_SESSION_TOPICS, TOPIC_LIMIT_ERROR_CODE } = await import('../../../src/lib/mux/protocol');
+    // A close during the import has already torn the session down, so a topic started now is never stopped.
+    if (sessions.get(peer.id) !== session) return;
     let raw: unknown;
     try {
       raw = JSON.parse(text);
@@ -362,17 +385,20 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
 
   return {
     async open(peer: Peer) {
+      openingPeers.add(peer.id);
       let user: AuthUser | null;
       try {
         const { authenticateWsUpgrade } = await import('../../../src/lib/auth/ws-auth');
         user = await authenticateWsUpgrade(peer.request as unknown as Request);
         if (!user) {
           pendingMessages.delete(peer.id);
+          openingPeers.delete(peer.id);
           try { peer.close(1008, 'Unauthorized'); } catch { /* already closed */ }
           return;
         }
       } catch (err) {
         pendingMessages.delete(peer.id);
+        openingPeers.delete(peer.id);
         console.error('[mux-ws] auth failed:', err instanceof Error ? err.message : String(err));
         try { peer.close(1011, 'Internal error'); } catch { /* already closed */ }
         return;
@@ -394,6 +420,8 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
           },
         }),
       };
+      // A close during auth or the imports found no session to tear down, so storing one now would leak it and its ping timer.
+      if (!openingPeers.delete(peer.id)) return;
       sessions.set(peer.id, session);
       session.pingTimer = setInterval(() => {
         session.outbox.pushPing();
@@ -422,12 +450,14 @@ export function createMuxWsHandlers(deps: MuxWsDeps) {
 
     close(peer: Peer) {
       pendingMessages.delete(peer.id);
+      openingPeers.delete(peer.id);
       teardownSession(peer);
     },
 
     error(peer: Peer, err?: WSError) {
       console.error('[mux-ws] peer error:', { peerId: peer.id, error: err?.message ?? '(no error)' });
       pendingMessages.delete(peer.id);
+      openingPeers.delete(peer.id);
       teardownSession(peer);
     },
   };
@@ -442,7 +472,7 @@ export const STATIC_TOPIC_ADAPTERS: Record<string, TopicAdapter> = {
   [IMAGE_UPDATES_TOPIC]: imageUpdatesAdapter,
 };
 
-const PREFIX_TOPIC_ADAPTERS = [
+export const PREFIX_TOPIC_ADAPTERS = [
   { prefix: LOGS_TOPIC_PREFIX, adapter: logsAdapter },
   { prefix: STATS_TOPIC_PREFIX, adapter: statsAdapter },
 ] as const;

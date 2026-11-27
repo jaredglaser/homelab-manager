@@ -30,7 +30,7 @@ test('the drawer exposes submenus that desktop opens on hover', async ({ page })
 // Route bodies are widened by their tables and are covered by the per-route
 // mobile specs; this only pins the shell chrome, which every route inherits.
 test('the header fits the viewport on every route', async ({ page }) => {
-  for (const path of ['/docker', '/stacks', '/zfs', '/proxmox', '/settings']) {
+  for (const path of ['/docker', '/stacks', '/zfs', '/proxmox', '/hosts', '/settings']) {
     await page.goto(path);
     await expect(page.getByText('Something went wrong')).toHaveCount(0);
 
@@ -39,5 +39,18 @@ test('the header fits the viewport on every route', async ({ page }) => {
     const viewport = page.viewportSize();
     expect(box, `${path} has no header`).not.toBeNull();
     expect(box!.width, `${path} header overflows`).toBeLessThanOrEqual(viewport!.width);
+  }
+});
+
+test('host names are not truncated on the hosts page', async ({ page }) => {
+  await page.goto('/hosts');
+
+  for (const name of ['homeserver', 'media-server']) {
+    const nameText = page.getByTestId(`agent-row-${name}`).getByText(name, { exact: true });
+    await expect(nameText, `${name} name is not visible`).toBeVisible();
+
+    const widths = await nameText.evaluate((el) => ({ client: el.clientWidth, scroll: el.scrollWidth }));
+    expect(widths.client, `${name} name has no width`).toBeGreaterThan(0);
+    expect(widths.scroll, `${name} name is truncated`).toBeLessThanOrEqual(widths.client);
   }
 });
