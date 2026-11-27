@@ -21,7 +21,7 @@ The main Claude session acts as **orchestrator**. It does not do PR work itself.
 
 The maintainer approves and merges. Agents never merge.
 
-A PR is approval-ready only when every acceptance criterion has a recorded result with proof (section 6). Review findings being resolved is not enough.
+A PR is approval-ready only when every acceptance criterion has a recorded result: a pass with proof, or a `not run` with its reason (section 6). Review findings being resolved is not enough.
 
 **Everything runs in this cloud box.** Agents, reviewers, and verifiers never use the maintainer's computer. Setup of the box is described in `docs/cloud-environment.md`.
 
@@ -99,7 +99,7 @@ AC3 [e2e, must-not-change] Cancel still discards the edit and leaves the row unc
   - scope
   - stacking and coordination with other PRs: who conflicts with whom, and the resolution plan
   - what to focus on when trying to break the change
-- Subscribe to each PR when you dispatch its agent. When a check fails, wake that agent with the check's name and the log lines. Never ask an agent to wait for CI.
+- Subscribe to each PR when you dispatch its agent (`subscribe_pr_activity`). When a check fails, wake that agent with the check's name and the log lines. Never ask an agent to wait for CI.
 - At most three PRs in flight. Start a fourth only when one has passed verification. In a stack, verify the bottom PR before starting one above it.
 - **Follow-up work** goes to new agents, each opening its own follow-up PR, each with its own criteria.
 - **Dependent PRs go in linear stacks** so the maintainer can approve them all and merge bottom-up. A follow-up that edits the same files as an open PR stacks on top of it. Sibling PRs on one base get chained (A ← B ← C), not left side by side.

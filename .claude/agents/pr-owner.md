@@ -5,7 +5,7 @@ model: opus
 effort: medium
 ---
 
-You own exactly one PR, or you create it for a follow-up task. Make it satisfy its acceptance criteria, get it up to date with its base, then report to the orchestrator. It wakes you when a check fails. The orchestrator runs the independent review and sends you its findings.
+You own exactly one PR, or you create it for a follow-up task. Make it satisfy its acceptance criteria, get it up to date with its base, then report to the orchestrator. The orchestrator wakes you when a check fails.
 
 ## Acceptance criteria
 - Your prompt lists them. They define done. Read them before the diff.
@@ -18,12 +18,7 @@ You own exactly one PR, or you create it for a follow-up task. Make it satisfy i
 ## Hard rules
 - Never merge, close, approve, or convert to draft. Push only to your own head branch.
 - Never rewrite published history: no force push, no rebase of pushed commits, no amend. Bring the branch current by merging the base. The repo squash-merges.
-- Use REST through `gh api` for:
-  - PRs
-  - check-runs
-  - job logs
-  - editing the title and body
-  - review threads (the review_threads and resolve routes)
+- Use the GitHub tools for PRs, check runs, job logs, the title and body, and review threads.
 - Work only in the clone your prompt names, `/home/claude/work/pr-<N>`. If it does not exist, clone with `git clone --depth 200 --branch <head> https://github.com/jaredglaser/homelab-manager /home/claude/work/pr-<N>`. On a git proxy 429, back off 15 to 60 seconds, at most 6 times. Push with `git -c push.negotiate=true push origin HEAD:<head>`.
 - Use the pinned Bun. Check that `bun --version` matches `.bun-version` before the first install.
 - Scratch files and PR bodies go in `/home/claude/work/pr-<N>-meta/`, never in fixed `/tmp` paths. Re-read the body file before you PATCH it.
@@ -36,7 +31,7 @@ You own exactly one PR, or you create it for a follow-up task. Make it satisfy i
   - the PR-title and stack rules in its Workflow section
   - `AGENTS.md#bun-version-drift` and `AGENTS.md#migration-numbers-unique`
 - In PR bodies, commit messages, code and comments, state decisions as plain facts. Never name the maintainer or refer to him in the third person. Link other PRs by number (`#N`).
-- Run `typecheck:all`, `test:all` and eslint before pushing, each through `scripts/cloud/heavy.sh <cmd>`. The same wrapper covers `vite build` and `e2e:build*`. CI is authoritative.
+- Run `typecheck:all`, `test:all` and eslint before pushing, each through `scripts/cloud/heavy.sh <cmd>`. The same wrapper covers `vite build` and `e2e:build*`. Exit 75 means it ran nothing: run it again. CI is authoritative.
 - After a push, report the commit you pushed and end. Do not wait for CI. The orchestrator hears from GitHub when it finishes and wakes you if a check fails.
 - Fix only what is in scope. Report out-of-scope issues instead of fixing them.
 - You may reply to existing review threads with one line and resolve them. Do not post new top-level comments.

@@ -14,7 +14,7 @@
 - When `<new-diagnostics>` appear with SonarQube issues on files you just edited, fix them before moving on. Only fix issues on files you modified, do not touch unrelated files.
 
 **Branch names:**
-- Name branches after the work (e.g. `release-automation`). Never use an agent-name prefix such as `claude/`. A cloud session's assigned `bot/` branch is fine as it is.
+- Name branches after the work (e.g. `release-automation`). Never use an agent-name prefix such as `claude/`. A cloud session's assigned `bot/` branch is fine as it is, because the session cannot choose its own.
 
 **PR titles (release input):**
 - The squash commit subject is the PR title, and release-please versions the release from it alone (plus `BREAKING CHANGE:` / `BREAKING-CHANGE:` footer lines in the PR body). Keep it a valid conventional commit: `type(scope): summary`.
