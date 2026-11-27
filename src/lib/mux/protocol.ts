@@ -11,6 +11,7 @@ export const USER_SETTINGS_TOPIC = 'user-settings';
 export const STACK_STATUS_TOPIC = 'stack-status';
 export const AGENT_INVENTORY_TOPIC = 'agent-inventory';
 export const IMAGE_UPDATES_TOPIC = 'image-updates';
+export const PROXMOX_STATE_TOPIC = 'proxmox-state';
 
 export const MAX_SESSION_TOPICS = 250;
 export const MAX_SUB_BATCH = 30;
@@ -100,6 +101,7 @@ const TOPIC_REGISTRY = new Map<string, MuxTopicSpec>([
   [INVENTORY_TOPIC, { class: 'control' }],
   [AGENT_INVENTORY_TOPIC, { class: 'control' }],
   [IMAGE_UPDATES_TOPIC, { class: 'control' }],
+  [PROXMOX_STATE_TOPIC, { class: 'control' }],
   [statsTopic('docker'), { class: 'bulk' }],
   [statsTopic('zfs'), { class: 'bulk' }],
   [statsTopic('proxmox'), { class: 'bulk' }],
@@ -118,6 +120,7 @@ export function isValidTopic(topic: unknown): topic is string {
     topic === USER_SETTINGS_TOPIC ||
     topic === STACK_STATUS_TOPIC ||
     topic === AGENT_INVENTORY_TOPIC ||
+    topic === PROXMOX_STATE_TOPIC ||
     lookupTopicSpec(topic) !== null
   );
 }

@@ -11,6 +11,7 @@ import {
   PROXMOX_SUPPORTING_ENTITIES,
   PROXMOX_SUPPORTING_GAP_MINUTES,
   PROXMOX_SUPPORTING_SAMPLES,
+  RATE_GUEST,
   SPARSE_HOUR,
   ZFS_DECIMATED_GAP_MINUTES,
   ZFS_DECIMATED_SAMPLES,
@@ -527,4 +528,30 @@ async function seedNullInvariantRows(pool: Pool): Promise<void> {
     `INSERT INTO entity_metadata (source, entity, key, value) VALUES ('docker', $1, 'icon', NULL)`,
     [NULL_INVARIANT_ROWS.metadataEntity]
   );
+}
+
+/**
+ * Raw rows for RATE_GUEST, which only the head schema can hold. Each rate column is a fixed
+ * multiple of the net-in rate, so one expectation covers all four.
+ */
+export async function seedProxmoxRates(pool: Pool): Promise<void> {
+  const minute = (offset: number) => `date_trunc('hour', now()) - INTERVAL '1 hour' + make_interval(mins => ${offset})`;
+  const insert = (start: string, samples: number, rate: string, status: string) => pool.query(
+    `INSERT INTO proxmox_stats (
+       time, host, entity_type, node, entity_id, entity_name, status, vmid,
+       net_in_bytes_per_sec, net_out_bytes_per_sec, disk_read_bytes_per_sec, disk_write_bytes_per_sec
+     )
+     SELECT ${start} + make_interval(secs => s), $1, $2, $3, $4, $5, '${status}', $6::int,
+       r, 2 * r, 3 * r, 4 * r
+     FROM generate_series(0, $7::int - 1) AS s, LATERAL (SELECT ${rate} AS r) rate`,
+    [RATE_GUEST.host, RATE_GUEST.entityType, RATE_GUEST.node, RATE_GUEST.entityId, RATE_GUEST.entityName, RATE_GUEST.vmid, samples]
+  );
+  await insert(
+    minute(RATE_GUEST.runningMinute),
+    60,
+    `CASE WHEN s = 0 THEN NULL ELSE ${RATE_GUEST.runningRate} + (s % 3) END::double precision`,
+    'running'
+  );
+  await insert(minute(RATE_GUEST.stoppedMinute), 60, 'NULL::double precision', 'stopped');
+  await insert(minute(RATE_GUEST.burstMinute), RATE_GUEST.burstSamples, `${RATE_GUEST.burstRate}::double precision`, 'running');
 }

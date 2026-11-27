@@ -190,6 +190,36 @@ export const PROXMOX_SUPPORTING_ENTITIES = [
   PROXMOX_STORAGE_ENTITY,
 ] as const;
 
+/**
+ * A guest carrying the per-second rates migration 052 adds, seeded only after the head migrations
+ * because a base schema has no column to hold them. Three minutes of one closed hour: a running
+ * minute whose first point has no rate, a stopped minute with no rate at all, and half a minute at a
+ * higher rate. An hourly average weighted by every row would come out lower than the rates the page
+ * showed, which is the dilution `rate_sample_count` exists to prevent.
+ */
+export const RATE_GUEST = {
+  host: 'ci-proxmox-rates',
+  entityType: 'qemu',
+  entityId: '300',
+  entityName: 'ci-rate-vm',
+  node: 'ci-node-1',
+  vmid: 300,
+  /** Minute offsets from the start of the previous whole hour */
+  runningMinute: 10,
+  stoppedMinute: 11,
+  burstMinute: 12,
+  runningRate: 100,
+  burstRate: 400,
+  burstSamples: 30,
+} as const;
+
+export const RATE_COLUMNS = [
+  'net_in_bytes_per_sec',
+  'net_out_bytes_per_sec',
+  'disk_read_bytes_per_sec',
+  'disk_write_bytes_per_sec',
+] as const;
+
 export const PROXMOX_SUPPORTING_SAMPLES = 60;
 export const PROXMOX_SUPPORTING_GAP_MINUTES = 1;
 
@@ -205,6 +235,7 @@ export const EXPECTED_TABLES = [
   'image_update_checks',
   'managed_hosts',
   'migrations',
+  'proxmox_collector_state',
   'proxmox_stats',
   'sessions',
   'settings',

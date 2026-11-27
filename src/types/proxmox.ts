@@ -6,73 +6,51 @@
  */
 import { z } from 'zod';
 
-/** Generic Proxmox API response wrapper */
-export interface ProxmoxResponse<T> {
-  data: T;
-}
+const zOptionalNumber = z.number().nullish();
 
-/** Node status from GET /api2/json/nodes */
-export interface ProxmoxNode {
-  node: string;
-  status: 'online' | 'offline' | 'unknown';
-  cpu: number;
-  maxcpu: number;
-  mem: number;
-  maxmem: number;
-  disk: number;
-  maxdisk: number;
-  uptime: number;
-  type: string;
-  id: string;
-  level?: string;
-  ssl_fingerprint?: string;
-}
+/** Entry of GET /api2/json/cluster/status: one `cluster` entry (absent on a standalone node) plus one per node. */
+export const zProxmoxClusterStatus = z.object({
+  type: z.string(),
+  id: z.string().optional(),
+  name: z.string().optional(),
+  nodes: zOptionalNumber,
+  quorate: zOptionalNumber,
+  version: zOptionalNumber,
+});
 
-/** Cluster status entry from GET /api2/json/cluster/status */
-export interface ProxmoxClusterStatus {
-  type: 'cluster' | 'node';
-  id: string;
-  name: string;
-  /** Only present when type === 'cluster' */
-  nodes?: number;
-  quorate?: number;
-  version?: number;
-  /** Only present when type === 'node' */
-  nodeid?: number;
-  ip?: string;
-  online?: number;
-  local?: number;
-  level?: string;
-}
+export type ProxmoxClusterStatus = z.infer<typeof zProxmoxClusterStatus>;
 
-/** Resource from GET /api2/json/cluster/resources */
-export interface ProxmoxResource {
-  id: string;
-  type: 'qemu' | 'lxc' | 'node' | 'storage' | 'sdn' | 'pool';
-  node?: string;
-  status: string;
-  name?: string;
-  vmid?: number;
-  /** CPU usage (0-1 fraction for VMs, absolute count for nodes) */
-  cpu?: number;
-  maxcpu?: number;
-  mem?: number;
-  maxmem?: number;
-  disk?: number;
-  maxdisk?: number;
-  uptime?: number;
-  netin?: number;
-  netout?: number;
-  diskread?: number;
-  diskwrite?: number;
-  template?: number;
-  pool?: string;
-  hastate?: string;
-  storage?: string;
-  content?: string;
-  plugintype?: string;
-  shared?: number;
-}
+/** Entry of GET /api2/json/cluster/resources. `netin`, `netout`, `diskread` and `diskwrite` are cumulative byte counters. */
+export const zProxmoxResource = z.object({
+  id: z.string(),
+  type: z.string(),
+  node: z.string().optional(),
+  status: z.string().optional(),
+  name: z.string().optional(),
+  vmid: zOptionalNumber,
+  /** 0-1 fraction of `maxcpu` */
+  cpu: zOptionalNumber,
+  maxcpu: zOptionalNumber,
+  mem: zOptionalNumber,
+  maxmem: zOptionalNumber,
+  disk: zOptionalNumber,
+  maxdisk: zOptionalNumber,
+  uptime: zOptionalNumber,
+  netin: zOptionalNumber,
+  netout: zOptionalNumber,
+  diskread: zOptionalNumber,
+  diskwrite: zOptionalNumber,
+  template: zOptionalNumber,
+  storage: z.string().optional(),
+  content: z.string().optional(),
+  plugintype: z.string().optional(),
+  shared: zOptionalNumber,
+});
+
+export type ProxmoxResource = z.infer<typeof zProxmoxResource>;
+
+export const zProxmoxClusterStatusResponse = z.object({ data: z.array(zProxmoxClusterStatus) });
+export const zProxmoxResourcesResponse = z.object({ data: z.array(zProxmoxResource) });
 
 /**
  * Cluster snapshot assembled from GET /cluster/status plus GET /cluster/resources.
@@ -83,13 +61,38 @@ export interface ProxmoxClusterSnapshot {
   quorate: boolean;
   version: number;
   resources: ProxmoxResource[];
+  /** Monotonic time (performance.now()) when both responses had arrived, immune to wall-clock changes on the worker. */
+  sampledAtMs: number;
 }
 
-/** VM (QEMU) from GET /api2/json/nodes/{node}/qemu */
-export interface ProxmoxVM {
+/** Per-second rates the worker derives from consecutive polls. Null where no rate exists (first point, restart, stopped). */
+export interface ProxmoxGuestRates {
+  netInBytesPerSec: number | null;
+  netOutBytesPerSec: number | null;
+  diskReadBytesPerSec: number | null;
+  diskWriteBytesPerSec: number | null;
+}
+
+/** `host` is the Proxmox connection the row came from. Every key built from a node or guest carries it. */
+export interface ProxmoxNode {
+  host: string;
+  node: string;
+  status: 'online' | 'offline' | 'unknown';
+  cpu: number;
+  maxcpu: number;
+  mem: number;
+  maxmem: number;
+  disk: number;
+  maxdisk: number;
+  uptime: number;
+}
+
+export interface ProxmoxGuest extends ProxmoxGuestRates {
+  host: string;
+  node: string;
   vmid: number;
   name: string;
-  status: 'running' | 'stopped' | 'paused' | 'suspended';
+  status: string;
   cpu: number;
   cpus: number;
   mem: number;
@@ -97,40 +100,11 @@ export interface ProxmoxVM {
   disk: number;
   maxdisk: number;
   uptime: number;
-  netin: number;
-  netout: number;
-  diskread: number;
-  diskwrite: number;
-  pid?: number;
-  template?: number;
-  tags?: string;
 }
 
-/** Container (LXC) from GET /api2/json/nodes/{node}/lxc */
-export interface ProxmoxContainer {
-  vmid: number;
-  name: string;
-  status: 'running' | 'stopped';
-  type: string;
-  cpu: number;
-  cpus: number;
-  mem: number;
-  maxmem: number;
-  disk: number;
-  maxdisk: number;
-  uptime: number;
-  netin: number;
-  netout: number;
-  diskread: number;
-  diskwrite: number;
-  swap: number;
-  maxswap: number;
-  template?: number;
-  tags?: string;
-}
-
-/** Storage from GET /api2/json/nodes/{node}/storage */
 export interface ProxmoxStorage {
+  host: string;
+  node: string;
   storage: string;
   type: string;
   content: string;
@@ -143,11 +117,10 @@ export interface ProxmoxStorage {
   used_fraction: number;
 }
 
-/**
- * Flattened presentation row for a VM or LXC container, used in guest table rendering.
- * Derived from ProxmoxVM / ProxmoxContainer with node context stripped.
- */
-export type GuestRow = {
+/** Presentation row for a VM or LXC container in the guest table. */
+export type GuestRow = ProxmoxGuestRates & {
+  host: string
+  node: string
   vmid: number
   name: string
   status: string
@@ -155,8 +128,6 @@ export type GuestRow = {
   cpus: number
   mem: number
   maxmem: number
-  netin: number
-  netout: number
 }
 
 export const zProxmoxEntityType = z.enum(['cluster', 'node', 'qemu', 'lxc', 'storage']);
@@ -183,8 +154,10 @@ export interface ProxmoxStatsRow {
   max_disk: number | null;
   uptime: number | null;
   vmid: number | null;
-  netin: number | null;
-  netout: number | null;
+  net_in_bytes_per_sec: number | null;
+  net_out_bytes_per_sec: number | null;
+  disk_read_bytes_per_sec: number | null;
+  disk_write_bytes_per_sec: number | null;
   storage_type: string | null;
   storage_content: string | null;
   storage_avail: number | null;
@@ -198,9 +171,9 @@ export interface ProxmoxClusterOverview {
   quorate: boolean;
   version: number;
   nodes: ProxmoxNode[];
-  vms: (ProxmoxVM & { node: string })[];
-  containers: (ProxmoxContainer & { node: string })[];
-  storages: (ProxmoxStorage & { node: string })[];
+  vms: ProxmoxGuest[];
+  containers: ProxmoxGuest[];
+  storages: ProxmoxStorage[];
   totals: {
     totalCpu: number;
     usedCpu: number;
@@ -213,4 +186,27 @@ export interface ProxmoxClusterOverview {
     runningContainers: number;
     stoppedContainers: number;
   };
+}
+
+export const PROXMOX_COLLECTOR_STATES = [
+  'collecting',
+  'unreachable',
+  'token_rejected',
+  'certificate_refused',
+  'collector_off',
+] as const;
+
+export type ProxmoxCollectorStateKind = (typeof PROXMOX_COLLECTOR_STATES)[number];
+
+/** What the worker last recorded for one Proxmox connection. `reason` is log detail for the console, never UI copy. */
+export interface ProxmoxCollectorState {
+  connectionId: string;
+  host: string;
+  port: number;
+  state: ProxmoxCollectorStateKind;
+  reason: string | null;
+  /** Epoch ms of the last poll that stored data */
+  lastSuccessAt: number | null;
+  /** Epoch ms */
+  updatedAt: number;
 }

@@ -12,7 +12,8 @@ import { isUserSettingsKey } from '@/lib/constants/settings-keys';
 import { settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/mock/live-updates';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
-import { DOCKER_ENTITIES } from '@/lib/mock/entities';
+import { DOCKER_ENTITIES, PROXMOX_HOST } from '@/lib/mock/entities';
+import type { ProxmoxCollectorState } from '@/types/proxmox';
 import { parseStatsTopic, type StatsTopicSource } from '@/lib/mux/protocol';
 
 const LOG_INTERVAL_MS = 3000;
@@ -68,6 +69,31 @@ export function statsTickFrame(topic: string, tick: number, time: Date): string 
   return eventFrame(topic, 'data', STATS_SNAPSHOTS[source](time));
 }
 
+/**
+ * Test hooks an e2e init script seeds before the page loads: `__mockProxmoxState` replaces the worker's
+ * recorded connections, and a topic in `__mockMuxTopicErrors` answers with a retrying error frame.
+ */
+interface MockMuxOverrides {
+  __mockProxmoxState?: ProxmoxCollectorState[];
+  __mockMuxTopicErrors?: string[];
+}
+
+function mockOverrides(): MockMuxOverrides {
+  return globalThis as MockMuxOverrides;
+}
+
+export function mockProxmoxState(now: Date): ProxmoxCollectorState[] {
+  return mockOverrides().__mockProxmoxState ?? [{
+    connectionId: PROXMOX_HOST,
+    host: PROXMOX_HOST,
+    port: 8006,
+    state: 'collecting',
+    reason: null,
+    lastSuccessAt: now.getTime(),
+    updatedAt: now.getTime(),
+  }];
+}
+
 const mux = ws.link('*/api/mux');
 
 export interface MuxMockClient {
@@ -92,6 +118,14 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
 
   const startTopic = (topic: string) => {
     stopTopic(topic);
+    if (mockOverrides().__mockMuxTopicErrors?.includes(topic)) {
+      client.send(eventFrame(topic, 'error', { message: 'Mock stream failure', gone: false }));
+      return;
+    }
+    if (topic === 'proxmox-state') {
+      client.send(eventFrame(topic, 'data', { connections: mockProxmoxState(new Date()) }));
+      return;
+    }
     if (topic === 'inventory') {
       client.send(eventFrame(topic, 'data', { type: 'init', containers: generateDockerInventorySnapshot(new Date()) }));
       return;

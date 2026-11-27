@@ -1,8 +1,9 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import { isProxmoxConfigured, loadProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
+import type { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
 import type { BaseCollector } from './collectors/base-collector';
-import { ProxmoxCollector } from './collectors/proxmox-collector';
+import { ProxmoxCollector, proxmoxConnectionId } from './collectors/proxmox-collector';
 
 export interface CollectorFactoryResult {
   collectors: BaseCollector[];
@@ -54,4 +55,32 @@ export function createCollectors(
   }
 
   return { collectors, runners };
+}
+
+/**
+ * Brings proxmox_collector_state in line with this worker's configuration at startup: no row when no
+ * connection is set up, `collector_off` when one is set up but the collector is disabled. A running
+ * collector writes its own state from its first poll on.
+ */
+export async function recordProxmoxStartupState(
+  store: Pick<ProxmoxStateRepository, 'record' | 'removeAllExcept'>,
+  workerConfig: WorkerConfig,
+): Promise<void> {
+  if (!isProxmoxConfigured()) {
+    await store.removeAllExcept([]);
+    return;
+  }
+  const config = loadProxmoxConfig();
+  const connectionId = proxmoxConnectionId(config);
+  await store.removeAllExcept([connectionId]);
+  if (!workerConfig.proxmox.enabled) {
+    await store.record({
+      connectionId,
+      host: config.host,
+      port: config.port,
+      state: 'collector_off',
+      reason: null,
+      lastSuccessAt: null,
+    });
+  }
 }

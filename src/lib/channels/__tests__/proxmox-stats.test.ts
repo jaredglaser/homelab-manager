@@ -17,8 +17,10 @@ const wireRow = {
   max_disk: 200,
   uptime: 3600,
   vmid: null,
-  netin: 10,
-  netout: 20,
+  net_in_bytes_per_sec: 10,
+  net_out_bytes_per_sec: 20,
+  disk_read_bytes_per_sec: null,
+  disk_write_bytes_per_sec: null,
   storage_type: null,
   storage_content: null,
   storage_avail: null,
@@ -40,6 +42,11 @@ describe('proxmoxStatsChannel', () => {
   it('rejects an unknown entity_type', () => {
     const result = proxmoxStatsChannel.schema.safeParse([{ ...wireRow, entity_type: 'bogus' }]);
     expect(result.success).toBe(false);
+  });
+
+  it('rejects a row without the rate columns', () => {
+    const { net_in_bytes_per_sec: _rate, ...withoutRate } = wireRow;
+    expect(proxmoxStatsChannel.schema.safeParse([withoutRate]).success).toBe(false);
   });
 
   it('has no revive step; the schema shape matches ProxmoxStatsRow directly', () => {

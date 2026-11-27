@@ -18,6 +18,8 @@ import {
   PROXMOX_CLUSTER_ENTITY,
   PROXMOX_HOST,
   PROXMOX_STORAGE_ENTITY,
+  RATE_COLUMNS,
+  RATE_GUEST,
   REMOVED_COLUMNS,
   SPARSE_HOUR,
   ZFS_ENTITIES,
@@ -157,6 +159,11 @@ export interface TierProbe {
   key: string[];
   weightedAverageColumns: string[];
   lastValueColumns: string[];
+  /**
+   * The tier column counting the rows that carry this probe's weighted columns, when those columns
+   * can be NULL on rows that still count in `sample_count`. The hourly tier weights by it instead.
+   */
+  weightColumn?: string;
 }
 
 /**
@@ -241,6 +248,12 @@ const PROXMOX_PROBES: TierProbe[] = [
     weightedAverageColumns: [],
     lastValueColumns: ['cluster_version'],
   },
+  {
+    key: [RATE_GUEST.host, RATE_GUEST.entityType, RATE_GUEST.entityId],
+    weightedAverageColumns: [...RATE_COLUMNS],
+    lastValueColumns: [],
+    weightColumn: 'rate_sample_count',
+  },
 ];
 
 export const AGGREGATE_TIERS: AggregateTier[] = [
@@ -299,6 +312,11 @@ export const AGGREGATE_TIERS: AggregateTier[] = [
     probes: PROXMOX_PROBES,
   },
 ];
+
+/** What one source row weighs for this probe: raw rows count once, `_1m` rows carry the probe's count. */
+function probeSourceWeight(tier: AggregateTier, probe: TierProbe): string {
+  return tier.sourceWeight === '1' ? '1' : (probe.weightColumn ?? tier.sourceWeight);
+}
 
 function viewColumnFor(tier: AggregateTier, column: string): string {
   return tier.weightedColumnShape === 'weighted_sum' ? `${column}_sum` : column;
@@ -951,6 +969,7 @@ export async function assertTierColumnCoverage(pool: Pool, checks: Checks): Prom
       for (const column of probe.lastValueColumns) {
         claimed.add(column);
       }
+      if (probe.weightColumn) claimed.add(probe.weightColumn);
     }
 
     checks.sameSet(`every ${tier.view} column is claimed by a tier probe`, columns, [...claimed]);
@@ -986,7 +1005,7 @@ export async function assertHourlyAverageViews(pool: Pool, checks: Checks): Prom
           `WITH ${probeCte}
            SELECT
              (SELECT ${column} FROM ${avgView}, probe WHERE ${where}) AS view_value,
-             (SELECT ${column}_sum / NULLIF(sample_count, 0) FROM ${tier.view}, probe
+             (SELECT ${column}_sum / NULLIF(${probe.weightColumn ?? 'sample_count'}, 0) FROM ${tier.view}, probe
               WHERE ${where}) AS expected`,
           probe.key
         );
@@ -1003,7 +1022,7 @@ export async function assertHourlyAverageViews(pool: Pool, checks: Checks): Prom
         checks.equal(`${label} arrives as a JS number, not numeric text`, typeof row.view_value, 'number');
         const expected = Number(row.expected);
         checks.closeTo(
-          `${label} divides the weighted sum by sample_count`,
+          `${label} divides the weighted sum by ${probe.weightColumn ?? 'sample_count'}`,
           Number(row.view_value),
           expected,
           toleranceFor(expected)
@@ -1078,6 +1097,24 @@ async function assertTierProbe(
     );
   }
 
+  if (probe.weightColumn && probe.weightedAverageColumns.length > 0) {
+    const carrier = probe.weightedAverageColumns[0];
+    const rowFilter = tier.sourceWeight === '1' ? ` AND ${carrier} IS NOT NULL` : '';
+    const weights = await selectRow<{ view_value: string | null; expected: string | null }>(
+      pool,
+      `WITH ${probeCte}
+       SELECT
+         (SELECT ${probe.weightColumn} FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
+         (SELECT sum(${probeSourceWeight(tier, probe)}) FROM ${sourceFrom} WHERE ${sourceWhere}${rowFilter}) AS expected`,
+      probe.key
+    );
+    checks.equal(
+      `${tier.view}.${probe.weightColumn} ${suffix} counts the source rows that carry a value`,
+      Number(weights?.view_value),
+      Number(weights?.expected)
+    );
+  }
+
   const weightedSum = tier.weightedColumnShape === 'weighted_sum';
   for (const column of probe.weightedAverageColumns) {
     const viewColumn = viewColumnFor(tier, column);
@@ -1086,7 +1123,7 @@ async function assertTierProbe(
       pool,
       `WITH ${probeCte},
        source_rows AS (
-         SELECT ${column} AS value, ${tier.sourceWeight} AS weight
+         SELECT ${column} AS value, ${probeSourceWeight(tier, probe)} AS weight
          FROM ${sourceFrom} WHERE ${sourceWhere} AND ${column} IS NOT NULL
        )
        SELECT
@@ -1602,4 +1639,42 @@ export async function assertNullInvariantRepair(pool: Pool, checks: Checks): Pro
     ]),
     0
   );
+}
+
+/**
+ * End to end over the cascade: the hourly rate a history read gets from `proxmox_stats_1h_avg`
+ * equals the plain mean of the raw rates the live page showed in that hour. Rows with no rate (the
+ * first point, a stopped minute) take no part in either side.
+ */
+export async function assertRateRollupMatchesRaw(pool: Pool, checks: Checks): Promise<void> {
+  for (const column of RATE_COLUMNS) {
+    const row = await selectRow<{ hourly: number | null; raw: string | null; diluted: string | null }>(
+      pool,
+      `WITH bucket AS (
+         SELECT date_trunc('hour', min(time)) AS lo FROM proxmox_stats
+         WHERE host = $1 AND entity_type = $2 AND entity_id = $3
+       )
+       SELECT
+         (SELECT ${column} FROM proxmox_stats_1h_avg, bucket
+          WHERE host = $1 AND entity_type = $2 AND entity_id = $3 AND time = bucket.lo) AS hourly,
+         (SELECT avg(${column}) FROM proxmox_stats, bucket
+          WHERE host = $1 AND entity_type = $2 AND entity_id = $3
+            AND time >= bucket.lo AND time < bucket.lo + INTERVAL '1 hour') AS raw,
+         (SELECT sum(${column}) / count(*) FROM proxmox_stats, bucket
+          WHERE host = $1 AND entity_type = $2 AND entity_id = $3
+            AND time >= bucket.lo AND time < bucket.lo + INTERVAL '1 hour') AS diluted`,
+      [RATE_GUEST.host, RATE_GUEST.entityType, RATE_GUEST.entityId]
+    );
+    if (row?.hourly == null || row.raw == null || row.diluted == null) {
+      checks.record(`${column} hourly and raw rates are both populated`, false, `hourly=${row?.hourly} raw=${row?.raw}`);
+      continue;
+    }
+    const raw = Number(row.raw);
+    checks.closeTo(`proxmox_stats_1h_avg.${column} matches the raw rates the page showed`, Number(row.hourly), raw, toleranceFor(raw));
+    checks.equal(
+      `the ${column} fixture tells a weighted rate from one diluted by rows with no rate`,
+      Math.abs(raw - Number(row.diluted)) > toleranceFor(raw),
+      true
+    );
+  }
 }

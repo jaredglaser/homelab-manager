@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import type { GuestRow } from '@/types/proxmox';
-import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
+import { formatAsPercentParts, formatBitsSIUnitsParts, formatBytesParts } from '@/formatters/metrics';
 import { EMPTY_CELL } from '@/components/ui/table';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { nameColumn, statusColumn, metricColumn } from '@/components/ui/datatable/columns';
@@ -24,7 +24,36 @@ const BORDER = 'border-t border-border';
 const metricGroups: MetricGroup[] = [
   { label: 'CPU / Memory', columnIds: ['cpu', 'memory'] },
   { label: 'Network', columnIds: ['netin', 'netout'] },
+  { label: 'Disk I/O', columnIds: ['diskread', 'diskwrite'] },
 ];
+
+const BLANK = { value: EMPTY_CELL, unit: '' };
+
+/** A rate is blank for a stopped guest and wherever the worker had no rate (first point, restart), never 0. */
+function rateCell(row: GuestRow, rate: number | null, format: (value: number) => { value: string; unit: string }) {
+  if (row.status !== 'running' || rate === null) return BLANK;
+  return format(rate);
+}
+
+const formatNetworkRate = (bytesPerSec: number) => formatBitsSIUnitsParts(bytesPerSec * 8, true);
+const formatDiskRate = (bytesPerSec: number) => formatBytesParts(bytesPerSec, true);
+
+function rateColumn(
+  id: string,
+  header: string,
+  pick: (row: GuestRow) => number | null,
+  format: (value: number) => { value: string; unit: string },
+  showSparklines: boolean,
+  useAbbreviatedUnits: boolean,
+): ColumnDef<DataTableFeatures, GuestRow, unknown> {
+  return metricColumn<GuestRow>({
+    id,
+    header,
+    showSparklines,
+    useAbbreviatedUnits,
+    getValue: (row) => rateCell(row, pick(row), format),
+  });
+}
 
 function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<DataTableFeatures, GuestRow, unknown>[] {
   return [
@@ -46,7 +75,7 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
       showSparklines,
       useAbbreviatedUnits,
       getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
+        if (row.status !== 'running') return BLANK;
         return formatAsPercentParts(row.cpu, true);
       },
     }),
@@ -64,26 +93,10 @@ function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): Co
         return formatBytesParts(row.maxmem, false, false);
       },
     }),
-    metricColumn<GuestRow>({
-      id: 'netin',
-      header: 'Net In',
-      showSparklines,
-      useAbbreviatedUnits,
-      getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
-        return formatBytesParts(row.netin, false, false);
-      },
-    }),
-    metricColumn<GuestRow>({
-      id: 'netout',
-      header: 'Net Out',
-      showSparklines,
-      useAbbreviatedUnits,
-      getValue: (row) => {
-        if (row.status !== 'running') return { value: EMPTY_CELL, unit: '' };
-        return formatBytesParts(row.netout, false, false);
-      },
-    }),
+    rateColumn('netin', 'Net in', (row) => row.netInBytesPerSec, formatNetworkRate, showSparklines, useAbbreviatedUnits),
+    rateColumn('netout', 'Net out', (row) => row.netOutBytesPerSec, formatNetworkRate, showSparklines, useAbbreviatedUnits),
+    rateColumn('diskread', 'Disk read', (row) => row.diskReadBytesPerSec, formatDiskRate, showSparklines, useAbbreviatedUnits),
+    rateColumn('diskwrite', 'Disk write', (row) => row.diskWriteBytesPerSec, formatDiskRate, showSparklines, useAbbreviatedUnits),
   ];
 }
 
@@ -118,7 +131,7 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
           <DataTable
             data={sorted}
             columns={columns}
-            getRowId={(row) => String(row.vmid)}
+            getRowId={(row) => `${row.host}/${row.vmid}`}
             metricGroups={metricGroups}
             enableSorting={false}
             enableColumnResizing={false}

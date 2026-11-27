@@ -191,3 +191,66 @@ describe('createCollectors', () => {
   });
 
 });
+
+describe('recordProxmoxStartupState', () => {
+  function makeStore() {
+    return {
+      record: mock(async () => {}),
+      removeAllExcept: mock(async () => {}),
+    };
+  }
+
+  beforeEach(() => {
+    clearProxmoxEnv();
+  });
+
+  afterEach(() => {
+    restoreEnv();
+  });
+
+  function configure() {
+    process.env.PROXMOX_HOST = 'pve.lan';
+    process.env.PROXMOX_PORT = '8007';
+    process.env.PROXMOX_TOKEN_ID = 'root@pam!test';
+    process.env.PROXMOX_TOKEN_SECRET = '12345678-1234-1234-1234-123456789012';
+  }
+
+  it('clears every row when no connection is set up, which the page reads as not set up', async () => {
+    const { recordProxmoxStartupState } = await import('../collector-factory');
+    const store = makeStore();
+
+    await recordProxmoxStartupState(store, createWorkerConfig({ proxmox: { enabled: true } }));
+
+    expect(store.removeAllExcept).toHaveBeenCalledWith([]);
+    expect(store.record).not.toHaveBeenCalled();
+  });
+
+  it('records collector_off for a connection that is set up while the collector is disabled', async () => {
+    configure();
+    const { recordProxmoxStartupState } = await import('../collector-factory');
+    const store = makeStore();
+
+    await recordProxmoxStartupState(store, createWorkerConfig({ proxmox: { enabled: false } }));
+
+    expect(store.removeAllExcept).toHaveBeenCalledWith(['pve.lan']);
+    expect(store.record).toHaveBeenCalledWith({
+      connectionId: 'pve.lan',
+      host: 'pve.lan',
+      port: 8007,
+      state: 'collector_off',
+      reason: null,
+      lastSuccessAt: null,
+    });
+  });
+
+  it('only drops other connections when the collector runs, leaving its state to the collector', async () => {
+    configure();
+    const { recordProxmoxStartupState } = await import('../collector-factory');
+    const store = makeStore();
+
+    await recordProxmoxStartupState(store, createWorkerConfig({ proxmox: { enabled: true } }));
+
+    expect(store.removeAllExcept).toHaveBeenCalledWith(['pve.lan']);
+    expect(store.record).not.toHaveBeenCalled();
+  });
+});

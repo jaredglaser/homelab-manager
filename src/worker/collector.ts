@@ -6,9 +6,10 @@ import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
+import { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { createCollectors } from './collector-factory';
+import { createCollectors, recordProxmoxStartupState } from './collector-factory';
 import { HostCollectorManager, defaultHostCollectorFactory } from './host-collector-manager';
 import { HostsListener } from './hosts-listener';
 import { AgentInventorySweeper } from './agent-inventory-sweeper';
@@ -99,6 +100,11 @@ async function main() {
     {
       await using stack = new AsyncDisposableStack();
 
+      try {
+        await recordProxmoxStartupState(new ProxmoxStateRepository(db.getPool()), workerConfig);
+      } catch (err) {
+        console.error('[Worker] Failed to record the Proxmox collector state:', err instanceof Error ? err.message : err);
+      }
       const { collectors: staticCollectors, runners: staticRunners } = createCollectors(
         db, workerConfig, shutdownController, stack, proxmoxPollIntervalMs,
       );

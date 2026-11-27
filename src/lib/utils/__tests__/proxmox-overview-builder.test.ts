@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { buildProxmoxOverview } from '../proxmox-overview-builder';
+import { buildProxmoxOverview, proxmoxEntityKey } from '../proxmox-overview-builder';
 import { snapshotToRows } from '../proxmox-overview-converter';
 import type { ProxmoxClusterSnapshot, ProxmoxStatsRow } from '@/types/proxmox';
 import type { NewProxmoxStat } from '@/lib/database/repositories/stats-repository';
@@ -9,6 +9,7 @@ function createMockSnapshot(): ProxmoxClusterSnapshot {
     clusterName: 'test-cluster',
     quorate: true,
     version: 5,
+    sampledAtMs: 0,
     resources: [
       {
         id: 'node/pve1',
@@ -76,9 +77,8 @@ function createMockSnapshot(): ProxmoxClusterSnapshot {
 /** Converts `snapshotToRows` insert rows to read rows the same way the repository read path does. */
 function rowsToLatestMap(rawRows: NewProxmoxStat[]): Map<string, ProxmoxStatsRow> {
   const map = new Map<string, ProxmoxStatsRow>();
-  for (const row of rawRows) {
-    const key = `${row.entity_type}/${row.entity_id}`;
-    map.set(key, { ...row, time: row.time.getTime() });
+  for (const { netin: _netin, netout: _netout, ...row } of rawRows) {
+    map.set(proxmoxEntityKey(row), { ...row, time: row.time.getTime() });
   }
   return map;
 }
@@ -134,7 +134,8 @@ describe('buildProxmoxOverview', () => {
     expect(vm.status).toBe('running');
     expect(vm.cpu).toBe(0.5);
     expect(vm.cpus).toBe(4);
-    expect(vm.netin).toBe(1_000_000);
+    expect(vm.netInBytesPerSec).toBeNull();
+    expect(vm.host).toBe('host');
     expect(vm.node).toBe('pve1');
   });
 
@@ -254,8 +255,10 @@ describe('buildProxmoxOverview', () => {
       max_disk: 100_000_000_000,
       uptime: 3600,
       vmid: null,
-      netin: null,
-      netout: null,
+      net_in_bytes_per_sec: null,
+      net_out_bytes_per_sec: null,
+      disk_read_bytes_per_sec: null,
+      disk_write_bytes_per_sec: null,
       storage_type: null,
       storage_content: null,
       storage_avail: null,
@@ -287,8 +290,10 @@ describe('buildProxmoxOverview', () => {
       max_disk: 0,
       uptime: 0,
       vmid: null,
-      netin: null,
-      netout: null,
+      net_in_bytes_per_sec: null,
+      net_out_bytes_per_sec: null,
+      disk_read_bytes_per_sec: null,
+      disk_write_bytes_per_sec: null,
       storage_type: null,
       storage_content: null,
       storage_avail: null,
@@ -318,8 +323,10 @@ describe('buildProxmoxOverview', () => {
       max_disk: 0,
       uptime: null,
       vmid: null,
-      netin: null,
-      netout: null,
+      net_in_bytes_per_sec: null,
+      net_out_bytes_per_sec: null,
+      disk_read_bytes_per_sec: null,
+      disk_write_bytes_per_sec: null,
       storage_type: 'dir',
       storage_content: 'rootdir',
       storage_avail: 0,
@@ -343,8 +350,10 @@ describe('buildProxmoxOverview', () => {
       max_disk: 0,
       uptime: null,
       vmid: null,
-      netin: null,
-      netout: null,
+      net_in_bytes_per_sec: null,
+      net_out_bytes_per_sec: null,
+      disk_read_bytes_per_sec: null,
+      disk_write_bytes_per_sec: null,
       storage_type: null,
       storage_content: null,
       storage_avail: null,
@@ -377,8 +386,10 @@ describe('buildProxmoxOverview', () => {
       max_disk: null,
       uptime: null,
       vmid: null,
-      netin: null,
-      netout: null,
+      net_in_bytes_per_sec: null,
+      net_out_bytes_per_sec: null,
+      disk_read_bytes_per_sec: null,
+      disk_write_bytes_per_sec: null,
       storage_type: null,
       storage_content: null,
       storage_avail: null,
@@ -402,8 +413,10 @@ describe('buildProxmoxOverview', () => {
       max_disk: 0,
       uptime: null,
       vmid: null,
-      netin: null,
-      netout: null,
+      net_in_bytes_per_sec: null,
+      net_out_bytes_per_sec: null,
+      disk_read_bytes_per_sec: null,
+      disk_write_bytes_per_sec: null,
       storage_type: null,
       storage_content: null,
       storage_avail: null,
@@ -420,5 +433,47 @@ describe('buildProxmoxOverview', () => {
     expect(rebuilt.vms[0].vmid).toBe(0);
     expect(rebuilt.vms[0].name).toBe('');
     expect(rebuilt.vms[0].node).toBe('');
+  });
+
+  describe('two clusters', () => {
+    function clusterRows(host: string, clusterName: string): Map<string, ProxmoxStatsRow> {
+      const snapshot = createMockSnapshot();
+      snapshot.clusterName = clusterName;
+      return rowsToLatestMap(snapshotToRows(snapshot, host));
+    }
+
+    it('keys every entity by its host, so a guest 100 in each cluster is two entries', () => {
+      const latest = new Map([...clusterRows('pve-a.lan', 'alpha'), ...clusterRows('pve-b.lan', 'beta')]);
+      expect([...latest.keys()].filter((key) => key.endsWith('/qemu/100')).sort()).toEqual([
+        'pve-a.lan/qemu/100',
+        'pve-b.lan/qemu/100',
+      ]);
+
+      const rebuilt = buildProxmoxOverview(latest)!;
+      expect(rebuilt.vms.map((vm) => `${vm.host}/${vm.vmid}`).sort()).toEqual(['pve-a.lan/100', 'pve-b.lan/100']);
+      expect(rebuilt.nodes.map((node) => `${node.host}/${node.node}`).sort()).toEqual(['pve-a.lan/pve1', 'pve-b.lan/pve1']);
+      expect(rebuilt.storages.map((st) => `${st.host}/${st.node}/${st.storage}`).sort()).toEqual([
+        'pve-a.lan/pve1/local',
+        'pve-b.lan/pve1/local',
+      ]);
+    });
+
+    it('names the cluster of the first host whatever order the rows arrive in', () => {
+      const forward = new Map([...clusterRows('pve-a.lan', 'alpha'), ...clusterRows('pve-b.lan', 'beta')]);
+      const reverse = new Map([...clusterRows('pve-b.lan', 'beta'), ...clusterRows('pve-a.lan', 'alpha')]);
+      expect(buildProxmoxOverview(forward)!.clusterName).toBe('alpha');
+      expect(buildProxmoxOverview(reverse)!.clusterName).toBe('alpha');
+    });
+  });
+
+  it('passes a missing rate through as null and a stored rate as is', () => {
+    const latest = rowsToLatestMap(snapshotToRows(createMockSnapshot(), 'host'));
+    const key = 'host/qemu/100';
+    latest.set(key, { ...latest.get(key)!, net_in_bytes_per_sec: 1234, disk_write_bytes_per_sec: 0 });
+    const vm = buildProxmoxOverview(latest)!.vms[0];
+    expect(vm.netInBytesPerSec).toBe(1234);
+    expect(vm.netOutBytesPerSec).toBeNull();
+    expect(vm.diskReadBytesPerSec).toBeNull();
+    expect(vm.diskWriteBytesPerSec).toBe(0);
   });
 });

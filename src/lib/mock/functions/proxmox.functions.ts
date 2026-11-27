@@ -13,13 +13,3 @@ export const getHistoricalProxmoxStats = async (opts?: {
   const seconds = Math.min(opts?.data?.seconds ?? 120, MAX_HISTORY_SECONDS);
   return generateProxmoxHistory(seconds);
 };
-
-/**
- * Mock: Test Proxmox connection - always succeeds in demo mode.
- */
-export const testProxmoxConnection = async (): Promise<{
-  connected: boolean;
-  error?: string;
-}> => {
-  return { connected: true };
-};

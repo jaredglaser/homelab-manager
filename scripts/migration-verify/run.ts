@@ -34,6 +34,7 @@ import {
   assertHourlyAverageViews,
   assertIdleContainerIdentity,
   assertNullMetricDilution,
+  assertRateRollupMatchesRaw,
   assertRollupBackfill,
   assertRowCountsPreserved,
   assertSchema,
@@ -51,7 +52,7 @@ import {
 import { Checks } from './checks';
 import { LEGACY_RESTART_DEPLOY, NULL_INVARIANT_ROWS } from './fixture';
 import { createPool, recreateDatabase, waitForDatabase } from './db';
-import { seed } from './seed';
+import { seed, seedProxmoxRates } from './seed';
 
 type MigrationRunner = (db: DatabaseClient) => Promise<void>;
 
@@ -159,6 +160,10 @@ async function runUpgrade(): Promise<void> {
     }
     await assertIdleContainerIdentity(pool, checks);
 
+    // Seeded only now: the base schema has no rate columns. After the row-count snapshot, so the
+    // preserved-row checks compare like with like.
+    await seedProxmoxRates(pool);
+
     // Both of the above read state the backfill changes: it adds the retention policies that
     // assertSchema requires the migrations not to add, and raw retention covers the 31-day-old
     // rows assertIdleContainerIdentity resolves a name from.
@@ -174,6 +179,7 @@ async function runUpgrade(): Promise<void> {
     await assertNullMetricDilution(pool, checks);
     await assertAggregateTierValues(pool, checks);
     await assertHourlyAverageViews(pool, checks);
+    await assertRateRollupMatchesRaw(pool, checks);
 
     const backfillSql = readFileSync(
       join(REPO_ROOT, 'migrations', '037_backfill_container_service_keys.sql'),

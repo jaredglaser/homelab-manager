@@ -100,7 +100,7 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
           <DataTable
             data={sorted}
             columns={columns}
-            getRowId={(row) => row.storage}
+            getRowId={(row) => `${row.host}/${row.node}/${row.storage}`}
             metricGroups={metricGroups}
             enableSorting={false}
             enableColumnResizing={false}

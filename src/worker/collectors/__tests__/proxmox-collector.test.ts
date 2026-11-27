@@ -1,5 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
-import type { ProxmoxClient } from '@/lib/clients/proxmox-client';
+import { ProxmoxRequestError, type ProxmoxClient } from '@/lib/clients/proxmox-client';
+import type { ProxmoxClusterSnapshot } from '@/types/proxmox';
+import type { ProxmoxCollectorStateWrite } from '@/lib/database/repositories/proxmox-state-repository';
 import { ProxmoxCollector } from '../proxmox-collector';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
@@ -166,6 +168,7 @@ describe('ProxmoxCollector', () => {
         clusterName: 'test-cluster',
         quorate: true,
         version: 3,
+        sampledAtMs: 0,
         resources: [{
           id: 'node/pve1', type: 'node' as const, node: 'pve1', status: 'online',
           cpu: 0.5, maxcpu: 4, mem: 2e9, maxmem: 8e9, disk: 10e9, maxdisk: 100e9,
@@ -187,6 +190,7 @@ describe('ProxmoxCollector', () => {
         10000,
         controller,
         clientProvider,
+        { record: mock(async () => {}) },
       );
 
       const writtenRows: any[][] = [];
@@ -240,6 +244,134 @@ describe('ProxmoxCollector', () => {
       collector.dbFlushDebugLogging = false;
 
       controller.abort();
+    });
+  });
+
+  describe('recorded state', () => {
+    const goodSnapshot: ProxmoxClusterSnapshot = {
+      clusterName: 'c', quorate: true, version: 1, sampledAtMs: 0, resources: [],
+    };
+    let timeoutSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => {
+        queueMicrotask(fn);
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout);
+    });
+
+    afterEach(() => {
+      timeoutSpy.mockRestore();
+    });
+
+    type Step = ProxmoxClusterSnapshot | Error;
+
+    function setup(steps: Step[], options: { stopAfterInserts?: number; record?: (w: ProxmoxCollectorStateWrite) => Promise<void> } = {}) {
+      const controller = new AbortController();
+      const queue = [...steps];
+      const getClusterSnapshot = mock(async () => {
+        const step = queue.shift() ?? goodSnapshot;
+        if (step instanceof Error) throw step;
+        return step;
+      });
+      const writes: ProxmoxCollectorStateWrite[] = [];
+      const record = mock(options.record ?? (async (write: ProxmoxCollectorStateWrite) => { writes.push(write); }));
+      const collector = new ProxmoxCollector(
+        createMockDb() as unknown as DatabaseClient,
+        createMockConfig(),
+        createProxmoxConfig({ host: 'pve.lan', port: 8006 }),
+        1000,
+        controller,
+        { getClient: () => ({ getClusterSnapshot }) as unknown as ProxmoxClient },
+        { record },
+      );
+      let inserts = 0;
+      const insert = spyOn((collector as any).repository, 'insertProxmoxStats').mockImplementation(async () => {
+        inserts++;
+        if (inserts >= (options.stopAfterInserts ?? 1)) controller.abort();
+      });
+      return { collector, controller, getClusterSnapshot, writes, record, insert };
+    }
+
+    it('logs an unexpected response, records unreachable with its reason, and keeps polling until Proxmox answers', async () => {
+      const shape = new ProxmoxRequestError('unreachable', '/cluster/resources: unexpected response shape: expected array');
+      const { collector, getClusterSnapshot, writes } = setup([shape, shape]);
+
+      await collector.run();
+
+      expect(getClusterSnapshot).toHaveBeenCalledTimes(3);
+      const logged = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+      expect(logged.some((line) => line.includes('code=unreachable') && line.includes('unexpected response shape'))).toBe(true);
+      expect(writes.map((w) => [w.state, w.reason])).toEqual([
+        ['unreachable', '/cluster/resources: unexpected response shape: expected array'],
+        ['collecting', null],
+      ]);
+      expect(writes[0]).toMatchObject({ connectionId: 'pve.lan', host: 'pve.lan', port: 8006, lastSuccessAt: null });
+      expect(writes[1].lastSuccessAt).toBeInstanceOf(Date);
+    });
+
+    it('records unreachable for a minute-long outage, then collecting on the first poll that succeeds', async () => {
+      const down = new ProxmoxRequestError('unreachable', '/cluster/status: Connection refused');
+      const { collector, writes } = setup([goodSnapshot, ...Array.from({ length: 6 }, () => down)], { stopAfterInserts: 2 });
+
+      await collector.run();
+
+      expect(writes.map((w) => w.state)).toEqual(['collecting', 'unreachable', 'collecting']);
+      expect(writes[1].lastSuccessAt).toEqual(writes[0].lastSuccessAt);
+    });
+
+    it.each([
+      ['token_rejected', new ProxmoxRequestError('token_rejected', '/cluster/status: HTTP 401')],
+      ['certificate_refused', new ProxmoxRequestError('certificate_refused', '/cluster/status: self signed certificate')],
+      ['unreachable', new TypeError('fetch is broken')],
+    ] as const)('records %s and keeps polling', async (state, error) => {
+      const { collector, writes, getClusterSnapshot } = setup([error]);
+
+      await collector.run();
+
+      expect(getClusterSnapshot).toHaveBeenCalledTimes(2);
+      expect(writes.map((w) => w.state)).toEqual([state, 'collecting']);
+    });
+
+    it('writes collecting once while it lasts, and again after a minute to keep last_success_at fresh', async () => {
+      const nowSpy = spyOn(Date, 'now');
+      let now = 1_000_000;
+      nowSpy.mockImplementation(() => now);
+      try {
+        const { collector, writes, insert } = setup([], { stopAfterInserts: 4 });
+        insert.mockImplementation(async () => {
+          now += 30_000;
+          if (insert.mock.calls.length >= 4) (collector as any).abortController.abort();
+        });
+
+        await collector.run();
+
+        expect(writes.map((w) => w.state)).toEqual(['collecting', 'collecting']);
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+
+    it('keeps polling when recording the state fails, and tries the write again next time', async () => {
+      const { collector, record, getClusterSnapshot } = setup([], {
+        stopAfterInserts: 2,
+        record: async () => { throw new Error('db down'); },
+      });
+
+      await collector.run();
+
+      expect(getClusterSnapshot).toHaveBeenCalledTimes(2);
+      expect(record).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not blame Proxmox when storing the rows fails', async () => {
+      const { collector, writes, insert, controller } = setup([]);
+      insert.mockImplementationOnce(async () => { throw new Error('insert failed'); });
+      insert.mockImplementationOnce(async () => { controller.abort(); });
+
+      await collector.run();
+
+      expect(writes.map((w) => w.state)).toEqual(['collecting']);
     });
   });
 });

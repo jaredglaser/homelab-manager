@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'bun:test';
-import { snapshotToRows } from '../proxmox-overview-converter';
-import type { ProxmoxClusterSnapshot } from '@/types/proxmox';
+import { ProxmoxRateTracker, snapshotToRows } from '../proxmox-overview-converter';
+import type { ProxmoxClusterSnapshot, ProxmoxResource } from '@/types/proxmox';
 
 function createMockSnapshot(): ProxmoxClusterSnapshot {
   return {
     clusterName: 'test-cluster',
     quorate: true,
     version: 5,
+    sampledAtMs: 0,
     resources: [
       {
         id: 'node/pve1',
@@ -196,7 +197,7 @@ describe('snapshotToRows', () => {
     const snapshot = createMockSnapshot();
     snapshot.resources.push(
       { id: 'sdn/pve1/zone1', type: 'sdn', node: 'pve1', status: 'ok' },
-      { id: '/pool/prod', type: 'pool', status: 'ok', pool: 'prod' },
+      { id: '/pool/prod', type: 'pool', status: 'ok' },
     );
     const rows = snapshotToRows(snapshot, 'host');
 
@@ -246,6 +247,7 @@ describe('snapshotToRows', () => {
       clusterName: 'c',
       quorate: true,
       version: 1,
+      sampledAtMs: 0,
       resources: [
         { id: 'node/pve1', type: 'node', node: 'pve1', status: 'offline' },
         { id: 'qemu/100', type: 'qemu', node: 'pve1', status: 'unknown', vmid: 100, name: 'vm1' },
@@ -287,5 +289,185 @@ describe('snapshotToRows', () => {
     const times = rows.map(r => new Date(r.time).getTime());
     const unique = new Set(times);
     expect(unique.size).toBe(1);
+  });
+});
+
+describe('ProxmoxRateTracker', () => {
+  interface Sample {
+    uptime: number;
+    netin: number;
+    netout: number;
+    diskread: number;
+    diskwrite: number;
+    status?: string;
+  }
+
+  function guest(sample: Sample, vmid = 100): ProxmoxResource {
+    return { id: `qemu/${vmid}`, type: 'qemu', node: 'pve1', vmid, status: sample.status ?? 'running', ...sample };
+  }
+
+  const start: Sample = { uptime: 1000, netin: 10_000, netout: 20_000, diskread: 30_000, diskwrite: 40_000 };
+
+  function advance(prev: Sample, seconds: number, perSec: [number, number, number, number]): Sample {
+    return {
+      uptime: prev.uptime + seconds,
+      netin: prev.netin + perSec[0] * seconds,
+      netout: prev.netout + perSec[1] * seconds,
+      diskread: prev.diskread + perSec[2] * seconds,
+      diskwrite: prev.diskwrite + perSec[3] * seconds,
+    };
+  }
+
+  const allNull = { netInBytesPerSec: null, netOutBytesPerSec: null, diskReadBytesPerSec: null, diskWriteBytesPerSec: null };
+
+  it('gives the first point after start no rate, never 0', () => {
+    const tracker = new ProxmoxRateTracker();
+    expect(tracker.rates(guest(start), 'qemu', 0)).toEqual(allNull);
+  });
+
+  it('divides each counter delta by the seconds between the two samples', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const next = advance(start, 10, [100, 200, 300, 400]);
+    expect(tracker.rates(guest(next), 'qemu', 10_000)).toEqual({
+      netInBytesPerSec: 100,
+      netOutBytesPerSec: 200,
+      diskReadBytesPerSec: 300,
+      diskWriteBytesPerSec: 400,
+    });
+  });
+
+  it('stays correct when the poll interval switches between 10 and 1 seconds', () => {
+    const tracker = new ProxmoxRateTracker();
+    let sample = start;
+    tracker.rates(guest(sample), 'qemu', 0);
+    sample = advance(sample, 10, [500, 500, 500, 500]);
+    expect(tracker.rates(guest(sample), 'qemu', 10_000).netInBytesPerSec).toBe(500);
+    sample = advance(sample, 1, [500, 500, 500, 500]);
+    expect(tracker.rates(guest(sample), 'qemu', 11_000).netInBytesPerSec).toBe(500);
+    sample = advance(sample, 10, [500, 500, 500, 500]);
+    expect(tracker.rates(guest(sample), 'qemu', 21_000).netInBytesPerSec).toBe(500);
+  });
+
+  it('uses the time Proxmox sampled at, so a slow or late poll does not skew the rate', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const next = advance(start, 10, [100, 100, 100, 100]);
+    expect(tracker.rates(guest(next), 'qemu', 27_000).netInBytesPerSec).toBe(100);
+  });
+
+  it('falls back to the worker clock when uptime did not move but the counters did', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const next = { ...start, netin: start.netin + 4000 };
+    expect(tracker.rates(guest(next), 'qemu', 2_000).netInBytesPerSec).toBe(2000);
+  });
+
+  it('repeats the last rates for a poll that sees the same Proxmox sample again, instead of 0', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const next = advance(start, 10, [100, 100, 100, 100]);
+    const first = tracker.rates(guest(next), 'qemu', 10_000);
+    expect(tracker.rates(guest(next), 'qemu', 11_000)).toBe(first);
+    const later = advance(next, 10, [300, 300, 300, 300]);
+    expect(tracker.rates(guest(later), 'qemu', 20_000).netInBytesPerSec).toBe(300);
+  });
+
+  it('gives an idle guest 0, once its uptime moves on with the counters unchanged', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    expect(tracker.rates(guest({ ...start, uptime: start.uptime + 10 }), 'qemu', 10_000)).toEqual({
+      netInBytesPerSec: 0,
+      netOutBytesPerSec: 0,
+      diskReadBytesPerSec: 0,
+      diskWriteBytesPerSec: 0,
+    });
+  });
+
+  it('blanks the one point where a guest restarted and its counters reset, never negative', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(advance(start, 500, [100, 100, 100, 100])), 'qemu', 0);
+    const restarted: Sample = { uptime: 5, netin: 300, netout: 300, diskread: 300, diskwrite: 300 };
+    expect(tracker.rates(guest(restarted), 'qemu', 10_000)).toEqual(allNull);
+    const after = advance(restarted, 10, [50, 50, 50, 50]);
+    expect(tracker.rates(guest(after), 'qemu', 20_000).netInBytesPerSec).toBe(50);
+  });
+
+  it('blanks a point where one counter fell just below its previous value while uptime moved on', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const next = { ...advance(start, 10, [100, 100, 100, 100]), diskwrite: start.diskwrite - 1 };
+    expect(tracker.rates(guest(next), 'qemu', 10_000)).toEqual(allNull);
+  });
+
+  it('blanks a stopped guest and starts it blank again when it comes back', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    expect(tracker.rates(guest({ ...start, status: 'stopped' }), 'qemu', 10_000)).toEqual(allNull);
+    expect(tracker.rates(guest({ ...start, uptime: 3 }), 'qemu', 20_000)).toEqual(allNull);
+  });
+
+  it('blanks a guest Proxmox reports without counters', () => {
+    const tracker = new ProxmoxRateTracker();
+    const bare: ProxmoxResource = { id: 'qemu/100', type: 'qemu', vmid: 100, status: 'running', uptime: 10 };
+    tracker.rates(bare, 'qemu', 0);
+    expect(tracker.rates({ ...bare, uptime: 20 }, 'qemu', 10_000)).toEqual(allNull);
+  });
+
+  it('gives two polls with the same timestamp and new counters no rate rather than a division by zero', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 5_000);
+    expect(tracker.rates(guest({ ...start, netin: start.netin + 10 }), 'qemu', 5_000)).toEqual(allNull);
+  });
+
+  it('keeps a guest that migrates to another node on the same series', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const moved = { ...guest(advance(start, 10, [100, 100, 100, 100])), node: 'pve2' };
+    expect(tracker.rates(moved, 'qemu', 10_000).netInBytesPerSec).toBe(100);
+  });
+
+  it('keeps a VM and a container with the same vmid apart', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    expect(tracker.rates({ ...guest(advance(start, 10, [1, 1, 1, 1])), type: 'lxc' }, 'lxc', 10_000)).toEqual(allNull);
+  });
+
+  it('writes the rates onto the guest rows across polls of one connection', () => {
+    const tracker = new ProxmoxRateTracker();
+    const snapshot = (sample: Sample, sampledAtMs: number): ProxmoxClusterSnapshot => ({
+      clusterName: 'c', quorate: true, version: 1, sampledAtMs, resources: [guest(sample)],
+    });
+    const first = snapshotToRows(snapshot(start, 0), 'pve.lan', tracker).find((r) => r.entity_type === 'qemu')!;
+    expect(first.net_in_bytes_per_sec).toBeNull();
+    expect(first.disk_write_bytes_per_sec).toBeNull();
+    const next = advance(start, 10, [100, 200, 300, 400]);
+    const second = snapshotToRows(snapshot(next, 10_000), 'pve.lan', tracker).find((r) => r.entity_type === 'qemu')!;
+    expect(second).toMatchObject({
+      net_in_bytes_per_sec: 100,
+      net_out_bytes_per_sec: 200,
+      disk_read_bytes_per_sec: 300,
+      disk_write_bytes_per_sec: 400,
+      netin: next.netin,
+    });
+  });
+
+  it('forgets a guest that left the snapshot, so it starts blank when it returns', () => {
+    const tracker = new ProxmoxRateTracker();
+    const snapshot = (resources: ProxmoxResource[], sampledAtMs: number): ProxmoxClusterSnapshot => ({
+      clusterName: 'c', quorate: true, version: 1, sampledAtMs, resources,
+    });
+    snapshotToRows(snapshot([guest(start)], 0), 'pve.lan', tracker);
+    snapshotToRows(snapshot([], 10_000), 'pve.lan', tracker);
+    const back = snapshotToRows(snapshot([guest(advance(start, 20, [5, 5, 5, 5]))], 20_000), 'pve.lan', tracker);
+    expect(back.find((r) => r.entity_type === 'qemu')!.net_in_bytes_per_sec).toBeNull();
+  });
+
+  it('gives node, storage and cluster rows no rates', () => {
+    const rows = snapshotToRows(createMockSnapshot(), 'pve.lan');
+    for (const row of rows.filter((r) => r.entity_type !== 'qemu' && r.entity_type !== 'lxc')) {
+      expect(row.net_in_bytes_per_sec).toBeNull();
+      expect(row.disk_write_bytes_per_sec).toBeNull();
+    }
   });
 });

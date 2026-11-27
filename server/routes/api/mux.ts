@@ -14,6 +14,7 @@ const USER_SETTINGS_TOPIC = 'user-settings';
 const STACK_STATUS_TOPIC = 'stack-status';
 const AGENT_INVENTORY_TOPIC = 'agent-inventory';
 const IMAGE_UPDATES_TOPIC = 'image-updates';
+const PROXMOX_STATE_TOPIC = 'proxmox-state';
 export const MAX_PENDING_FRAMES = 64;
 const LOGS_DEGRADED_MESSAGE = 'Agent unreachable, retrying in the background';
 
@@ -152,6 +153,16 @@ async function imageUpdatesAdapter(topic: string, emit: EmitFrame, signal: Abort
   const { toImageUpdateWireMessage } = await import('../../../src/lib/channels/image-updates');
   subscribeUntilAborted(signal, imageUpdateBroadcastService, (event) => {
     emit({ topic, kind: 'data', payload: toImageUpdateWireMessage(event) });
+  });
+}
+
+async function proxmoxStateAdapter(topic: string, emit: EmitFrame, signal: AbortSignal): Promise<void> {
+  await import('../../../src/lib/server-init');
+  const { proxmoxStateBroadcastService } = await import(
+    '../../../src/lib/proxmox/proxmox-state-broadcast-service'
+  );
+  subscribeUntilAborted(signal, proxmoxStateBroadcastService, (snapshot) => {
+    emit({ topic, kind: 'data', payload: snapshot });
   });
 }
 
@@ -470,6 +481,7 @@ export const STATIC_TOPIC_ADAPTERS: Record<string, TopicAdapter> = {
   [STACK_STATUS_TOPIC]: stackStatusAdapter,
   [AGENT_INVENTORY_TOPIC]: agentInventoryAdapter,
   [IMAGE_UPDATES_TOPIC]: imageUpdatesAdapter,
+  [PROXMOX_STATE_TOPIC]: proxmoxStateAdapter,
 };
 
 export const PREFIX_TOPIC_ADAPTERS = [

@@ -8,13 +8,20 @@ import ClusterSummaryCards from '@/components/proxmox/ClusterSummaryCards'
 import ProxmoxHostView from '@/components/proxmox/ProxmoxHostView'
 import { IntervalToggle } from '@/components/proxmox/ProxmoxIntervalToggle'
 import { UpdateIndicator } from '@/components/proxmox/ProxmoxUpdateIndicator'
+import {
+  PROXMOX_LIVE_CONNECTION_LOST,
+  ProxmoxNoticeList,
+  proxmoxDataExpected,
+  proxmoxStateNotices,
+} from '@/components/proxmox/ProxmoxNotices'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
-import { testProxmoxConnection } from '@/data/proxmox/functions'
 import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/lib/constants/preload-queries'
-import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
+import { buildProxmoxOverview, proxmoxEntityKey } from '@/lib/utils/proxmox-overview-builder'
 import { proxmoxStatsChannel } from '@/lib/channels/proxmox-stats'
+import { proxmoxStateChannel, type ProxmoxStateMessage } from '@/lib/channels/proxmox-state'
+import { useMuxQuery } from '@/lib/mux/use-mux-channel'
 import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
-import { useProxmoxSettings } from '@/hooks/useSettings'
+import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
 import { Spinner } from '@/components/ui/spinner';
 
@@ -57,19 +64,17 @@ interface ProxmoxContentProps {
   onOverviewChange: (overview: ProxmoxClusterOverview | null) => void;
 }
 
+const PROXMOX_STATE_QUERY_KEY = ['proxmox-state']
+
+const keepLatestState = (_prev: ProxmoxStateMessage | null, next: ProxmoxStateMessage) => next
+
 /**
- * Render the Proxmox dashboard content, handling live time-series streaming, configuration checks, and overview-driven UI.
- *
- * Uses a time-series stream (with a 120s window and 1s updates), preloads recent history, updates the global
- * last-update timestamp when new rows arrive, and runs a delayed configuration check if connected but no data is received.
- *
- * @returns The JSX content for the Proxmox dashboard: an error message on stream failure, a configuration guidance panel
- *          when Proxmox is not configured, a loading indicator while awaiting data, or the overview UI (summary cards and host view)
- *          when overview data is available.
+ * Live Proxmox content. The worker's recorded state decides the notices (not set up, collector off,
+ * unreachable, token rejected, certificate refused) and the last data stays on screen under them.
  */
 function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
-  const [configured, setConfigured] = useState<boolean | null>(null)
   const setLastUpdate = useSetAtom(proxmoxLastUpdateAtom)
+  const { general: { use12HourTime } } = useGeneralSettings()
 
   const preloadFn = useCallback(preloadProxmoxStats, [])
 
@@ -82,12 +87,18 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   const stream = useTimeSeriesStream({
     channel: proxmoxStatsChannel,
     preloadFn,
-    getKey: (r) => `${r.entity_type}/${r.entity_id}/${r.time}`,
+    getKey: (r) => `${proxmoxEntityKey(r)}/${r.time}`,
     getTime: (r) => r.time,
-    getEntity: (r) => `${r.entity_type}/${r.entity_id}`,
+    getEntity: proxmoxEntityKey,
     windowSeconds: WINDOW_SECONDS,
     updateIntervalMs: 1000,
     initialData,
+  })
+
+  const { state: collectorState } = useMuxQuery(proxmoxStateChannel, {
+    queryKey: PROXMOX_STATE_QUERY_KEY,
+    initial: null as ProxmoxStateMessage | null,
+    fold: keepLatestState,
   })
 
   // Update the last-update atom when new rows arrive
@@ -100,6 +111,10 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
     }
   }, [stream.rows, setLastUpdate])
 
+  useEffect(() => {
+    if (stream.error) console.error('[proxmox] Live stream error:', stream.error.message)
+  }, [stream.error])
+
   const overview = useMemo(
     () => buildProxmoxOverview(stream.latestByEntity),
     [stream.latestByEntity],
@@ -110,72 +125,26 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
     onOverviewChange(overview)
   }, [overview, onOverviewChange])
 
-  // Mark configured once we get data
-  useEffect(() => {
-    if (overview) setConfigured(true)
-  }, [overview])
-
-  // Check configuration if connected but no data received after a delay
-  const configCheckedRef = useRef(false)
-  useEffect(() => {
-    if (configCheckedRef.current || overview) return
-    if (!stream.isConnected) return
-
-    const timer = setTimeout(() => {
-      if (!overview && !configCheckedRef.current) {
-        configCheckedRef.current = true
-        testProxmoxConnection().then((result) => {
-          if (!result.connected) {
-            setConfigured(false)
-          }
-        })
-      }
-    }, 3000)
-
-    return () => clearTimeout(timer)
-  }, [stream.isConnected, overview])
-
-  if (stream.error) {
-    return (
-      <p className="text-base text-destructive py-8">
-        Failed to connect to the Proxmox live stream: {stream.error.message}
-      </p>
-    )
-  }
-
-  if (!overview) {
-    if (configured === false) {
-      return (
-        <div className="py-8">
-          <p className="text-base mb-2">
-            Proxmox is not configured.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Set the following environment variables to connect to your Proxmox cluster:
-          </p>
-          <pre className="mt-3 p-4 bg-level1 rounded-lg text-sm font-mono">
-{`PROXMOX_HOST=your-proxmox-host
-PROXMOX_TOKEN_ID=user@realm!tokenid
-PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-PROXMOX_PORT=8006              # optional, default 8006
-PROXMOX_ALLOW_SELF_SIGNED=true # optional, default true`}
-          </pre>
-        </div>
-      )
-    }
-
-    return (
-      <div className="flex items-center gap-3 py-12">
-        <Spinner className="size-5" />
-        <p className="text-base">Loading Proxmox cluster data...</p>
-      </div>
-    )
-  }
+  const notices = useMemo(() => {
+    const fromState = proxmoxStateNotices(collectorState, use12HourTime)
+    return stream.error ? [{ key: 'live-connection', text: PROXMOX_LIVE_CONNECTION_LOST }, ...fromState] : fromState
+  }, [collectorState, use12HourTime, stream.error])
 
   return (
     <>
-      <ClusterSummaryCards overview={overview} />
-      <ProxmoxHostView overview={overview} />
+      <ProxmoxNoticeList notices={notices} />
+      {overview && (
+        <>
+          <ClusterSummaryCards overview={overview} />
+          <ProxmoxHostView overview={overview} />
+        </>
+      )}
+      {!overview && !stream.error && proxmoxDataExpected(collectorState) && (
+        <div className="flex items-center gap-3 py-12">
+          <Spinner className="size-5" />
+          <p className="text-base">Loading Proxmox cluster data...</p>
+        </div>
+      )}
     </>
   )
 }

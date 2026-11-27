@@ -1,10 +1,40 @@
-import type { ProxmoxConfig } from '../config/proxmox-config';
-import type {
-  ProxmoxResponse,
-  ProxmoxClusterStatus,
-  ProxmoxResource,
-  ProxmoxClusterSnapshot,
-} from '../../types/proxmox';
+import type { z } from 'zod';
+import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
+import { isCertificateRejectionError } from '@/lib/clients/agent-http';
+import {
+  zProxmoxClusterStatusResponse,
+  zProxmoxResourcesResponse,
+  type ProxmoxClusterStatus,
+  type ProxmoxResource,
+  type ProxmoxClusterSnapshot,
+} from '@/types/proxmox';
+
+export type ProxmoxFailureKind = 'unreachable' | 'token_rejected' | 'certificate_refused';
+
+/** A failed Proxmox request, sorted into what the operator has to fix. `message` is log detail, never UI copy. */
+export class ProxmoxRequestError extends Error {
+  constructor(readonly kind: ProxmoxFailureKind, message: string) {
+    super(message);
+    this.name = 'ProxmoxRequestError';
+  }
+
+  /** Read by BaseCollector's error log line. */
+  get code(): ProxmoxFailureKind {
+    return this.kind;
+  }
+}
+
+const MAX_ERROR_BODY_CHARS = 300;
+
+function classifyFetchFailure(path: string, err: unknown): ProxmoxRequestError {
+  if (err instanceof ProxmoxRequestError) return err;
+  const cause = (err as { cause?: unknown } | null)?.cause;
+  const detail = err instanceof Error ? err.message : String(err);
+  if (isCertificateRejectionError(err) || isCertificateRejectionError(cause)) {
+    return new ProxmoxRequestError('certificate_refused', `${path}: ${detail}`);
+  }
+  return new ProxmoxRequestError('unreachable', `${path}: ${detail}`);
+}
 
 // Covers both Bun's native fetch (`tls`) and Node.js-compat/undici fetch (`dispatcher`)
 interface CrossRuntimeRequestInit extends RequestInit {
@@ -57,55 +87,43 @@ export class ProxmoxClient {
       .catch(() => {});
   }
 
-  /**
-   * Make an authenticated GET request to the Proxmox API
-   */
-  private async get<T>(path: string): Promise<T> {
-    await this.dispatcherReady;
-    const url = `${this.baseUrl}${path}`;
-    const response = await fetch(url, {
-      ...this.fetchOptions,
-      headers: {
-        Authorization: this.authHeader,
-      },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(
-        `Proxmox API error: ${response.status} ${response.statusText} - ${text}`
-      );
-    }
-
-    const json = (await response.json()) as ProxmoxResponse<T>;
-    return json.data;
-  }
-
-  /**
-   * Test connectivity to the Proxmox API
-   */
-  async testConnection(): Promise<boolean> {
+  private async get<S extends z.ZodType<{ data: unknown }>>(path: string, schema: S): Promise<z.infer<S>['data']> {
+    let body: unknown;
     try {
-      await this.get<unknown>('/version');
-      return true;
-    } catch {
-      return false;
+      await this.dispatcherReady;
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        ...this.fetchOptions,
+        headers: {
+          Authorization: this.authHeader,
+        },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const text = (await response.text().catch(() => '')).slice(0, MAX_ERROR_BODY_CHARS);
+        const kind = response.status === 401 || response.status === 403 ? 'token_rejected' : 'unreachable';
+        throw new ProxmoxRequestError(kind, `${path}: HTTP ${response.status} ${response.statusText} ${text}`.trim());
+      }
+
+      body = await response.json();
+    } catch (err) {
+      throw classifyFetchFailure(path, err);
     }
+
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      throw new ProxmoxRequestError('unreachable', `${path}: unexpected response shape: ${parsed.error.message}`);
+    }
+    return parsed.data.data;
   }
 
-  /**
-   * Get cluster status
-   */
   async getClusterStatus(): Promise<ProxmoxClusterStatus[]> {
-    return this.get<ProxmoxClusterStatus[]>('/cluster/status');
+    return this.get('/cluster/status', zProxmoxClusterStatusResponse);
   }
 
-  /**
-   * Get all cluster resources (nodes, VMs, containers, storage) in one call
-   */
+  /** Every node, guest and storage entry in one call. */
   async getClusterResources(): Promise<ProxmoxResource[]> {
-    return this.get<ProxmoxResource[]>('/cluster/resources');
+    return this.get('/cluster/resources', zProxmoxResourcesResponse);
   }
 
   /**
@@ -126,6 +144,7 @@ export class ProxmoxClient {
       quorate: clusterEntry?.quorate === 1,
       version: clusterEntry?.version || 0,
       resources,
+      sampledAtMs: performance.now(),
     };
   }
 }
