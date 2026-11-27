@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { agentUrlSchema, hostNameSchema } from '@/data/hosts/schemas';
+import { agentUrlSchema, hostCapabilitiesSchema, hostNameSchema } from '@/data/hosts/schemas';
 
 const WHOLE_NUMBER_PATTERN = /^\d+$/;
 const AGENT_HOST_PATTERN = /^[a-zA-Z0-9._-]+$/;
@@ -59,7 +59,8 @@ export const addHostFormSchema = z.object({
 }).superRefine((values, ctx) => {
   const reject = (field: AddHostField, message: string) => ctx.addIssue({ code: 'custom', path: [field], message });
 
-  if (!values.docker && !values.zfs) reject('zfs', 'Select at least one capability.');
+  const capabilities = hostCapabilitiesSchema.safeParse({ docker: values.docker, zfs: values.zfs });
+  if (!capabilities.success) reject('zfs', capabilities.error.issues[0].message);
 
   if (values.zfs) {
     if (!WHOLE_NUMBER_PATTERN.test(values.hlmZfsUid)) reject('hlmZfsUid', 'Enter the number after uid= in the command output.');
@@ -69,11 +70,11 @@ export const addHostFormSchema = z.object({
 
   if (!isValidPort(values.agentPort)) reject('agentPort', 'Enter a port from 1 to 65535.');
 
+  // The last check uses a fixed port, so editing the port never changes the host's verdict: the form re-checks only the field being edited.
   if (values.agentHost === '') {
     reject('agentHost', 'Enter the host name or IP address of the agent.');
   } else if (!AGENT_HOST_PATTERN.test(values.agentHost) && !AGENT_HOST_IPV6_PATTERN.test(values.agentHost)) {
     reject('agentHost', 'Enter only a host name or IP address, without http:// or a port.');
-    // A fixed port, so editing the port never changes the host's verdict: the form re-checks only the field being edited.
   } else if (!agentUrlSchema.safeParse(firstContactAgentUrl({ agentHost: values.agentHost, agentPort: DEFAULT_AGENT_PORT })).success) {
     reject('agentHost', 'This is not a valid host name or IP address.');
   }

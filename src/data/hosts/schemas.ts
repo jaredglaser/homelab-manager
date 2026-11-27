@@ -9,14 +9,16 @@ export const hostNameSchema = z.string()
 
 export const agentUrlSchema = z.url({ protocol: /^https?$/, error: 'Enter the full agent URL, such as https://192.168.1.10:9090.' });
 
+export const hostCapabilitiesSchema = z.object({
+  docker: z.boolean().optional().default(false),
+  zfs: z.boolean().optional().default(false),
+}).refine((capabilities) => capabilities.docker || capabilities.zfs, 'Select at least one capability.');
+
 export const createPendingHostSchema = z.object({
   name: hostNameSchema,
   /** The host this wizard already created, which keeps its name once it has enrolled. */
   resumeHostId: z.number().int().positive().optional(),
-  capabilities: z.object({
-    docker: z.boolean().optional().default(false),
-    zfs: z.boolean().optional().default(false),
-  }).optional().default({ docker: false, zfs: false }),
+  capabilities: hostCapabilitiesSchema,
 });
 
 export const removeHostSchema = z.object({

@@ -38,6 +38,30 @@ export async function overrideServerFn(
 }
 
 /**
+ * The failing counterpart of `overrideServerFn`: the call rejects with a tagged refusal, serialized the way the real
+ * server sends it. Must be called before `page.goto`.
+ */
+export async function rejectServerFn(
+  page: Page,
+  functionName: string,
+  rejection: { code: 'invalid_input' | 'name_taken'; field: string | null; message: string },
+): Promise<void> {
+  if (!registeredServerFnNames.includes(functionName)) {
+    throw new Error(`rejectServerFn: "${functionName}" is not a mocked server function.`);
+  }
+  await page.addInitScript(
+    ([name, value]) => {
+      const w = window as typeof window & {
+        __mockServerFnRejections?: Record<string, unknown>;
+      };
+      w.__mockServerFnRejections = w.__mockServerFnRejections ?? {};
+      w.__mockServerFnRejections[name] = value;
+    },
+    [functionName, rejection] as const,
+  );
+}
+
+/**
  * A single change is also produced by the page settling after load, so two are
  * required: only the second one rules out a stream that sent one frame and died.
  * `target` must be the narrowest locator carrying streamed values, since a

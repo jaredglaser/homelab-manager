@@ -35,7 +35,6 @@ export interface ServerFailureCopy {
   field: string | null;
 }
 
-/** The one place a tagged server refusal becomes what the user reads. */
 export function serverFailureCopy(err: unknown, { labels, taken, fallback }: ServerFailureCopyOptions): ServerFailureCopy {
   if (!(err instanceof TaggedServerError)) return { message: serverFnErrorMessage(err, fallback), field: null };
   console.error(err);

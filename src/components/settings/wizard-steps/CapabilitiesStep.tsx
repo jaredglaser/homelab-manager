@@ -52,7 +52,9 @@ export default function CapabilitiesStep({ takenNameMessage }: Readonly<{ takenN
         />
         <Label htmlFor="capability-zfs" className="cursor-pointer">ZFS</Label>
       </div>
-      {capabilitiesError && <FieldError id={CAPABILITIES_ERROR_ID}>{capabilitiesError}</FieldError>}
+      {capabilitiesError
+        ? <FieldError id={CAPABILITIES_ERROR_ID}>{capabilitiesError}</FieldError>
+        : <div aria-hidden className="min-h-8" />}
     </div>
   )
 }

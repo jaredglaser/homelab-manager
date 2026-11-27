@@ -30,7 +30,7 @@ function firstMessage(result: { success: boolean; error?: { issues: { message: s
 
 describe('createPendingHostSchema', () => {
   it.each(['dev-box', 'NAS_01', 'x'.repeat(100)])('accepts the name %p', (name) => {
-    expect(createPendingHostSchema.safeParse({ name }).success).toBe(true);
+    expect(createPendingHostSchema.safeParse({ name, capabilities: { docker: true } }).success).toBe(true);
   });
 
   it.each([
@@ -39,7 +39,18 @@ describe('createPendingHostSchema', () => {
     ['nas.local', 'Use only letters, numbers, hyphens and underscores. Spaces are not allowed.'],
     ['x'.repeat(101), 'Use 100 characters or fewer.'],
   ])('rejects the name %p in words a user can act on', (name, message) => {
-    expect(firstMessage(createPendingHostSchema.safeParse({ name }))).toBe(message);
+    expect(firstMessage(createPendingHostSchema.safeParse({ name, capabilities: { docker: true } }))).toBe(message);
+  });
+
+  it.each([
+    ['neither capability', { docker: false, zfs: false }],
+    ['an empty capabilities object', {}],
+  ])('rejects %s in words a user can act on', (_label, capabilities) => {
+    expect(firstMessage(createPendingHostSchema.safeParse({ name: 'dev-box', capabilities }))).toBe('Select at least one capability.');
+  });
+
+  it('rejects a call that leaves the capabilities out', () => {
+    expect(createPendingHostSchema.safeParse({ name: 'dev-box' }).success).toBe(false);
   });
 });
 

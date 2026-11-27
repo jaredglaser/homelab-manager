@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test';
+import { z } from 'zod';
 import { readValidatorIssues, toTaggedInputError } from '../invalid-input-copy';
 import { TaggedServerError } from '@/lib/errors/tagged-server-error';
 
@@ -57,5 +58,12 @@ describe('toTaggedInputError', () => {
   it('returns any other error as it is', () => {
     const err = new Error('Stack my-app already exists');
     expect(toTaggedInputError(err)).toBe(err);
+  });
+
+  it('returns a ZodError thrown inside a handler as it is, so a server fault is not worded as bad input', () => {
+    const manifest = z.object({ stacks: z.record(z.string(), z.object({ host: z.string() })) });
+    const fault = manifest.safeParse({ stacks: { web: { host: 5 } } }).error;
+    expect(fault).toBeInstanceOf(Error);
+    expect(toTaggedInputError(fault)).toBe(fault);
   });
 });

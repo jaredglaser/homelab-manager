@@ -10,9 +10,13 @@ function isValidatorIssue(value: unknown): value is ValidatorIssue {
   return typeof value === 'object' && value !== null && typeof (value as ValidatorIssue).message === 'string';
 }
 
-/** TanStack Start rejects a failed input validator with a plain Error whose message is the issue list as JSON. */
+/**
+ * TanStack Start rejects a failed input validator with a plain Error whose message is the issue list as JSON.
+ * A ZodError a handler throws has the same message, so only a bare Error counts: a server fault must never read as bad input.
+ */
 export function readValidatorIssues(err: unknown): ValidatorIssue[] | null {
-  if (!(err instanceof Error) || !err.message.trimStart().startsWith('[')) return null;
+  if (!(err instanceof Error) || Object.getPrototypeOf(err) !== Error.prototype) return null;
+  if (!err.message.trimStart().startsWith('[')) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(err.message);
