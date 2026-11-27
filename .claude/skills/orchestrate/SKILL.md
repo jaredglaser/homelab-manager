@@ -33,7 +33,7 @@ A PR is approval-ready only when every acceptance criterion has a recorded resul
 **Everything runs in this cloud box.** Agents, reviewers, and verifiers never use the maintainer's computer. Setup of the box is described in `docs/cloud-environment.md`.
 
 ## 0. Start of session
-- **When you load this skill after a summary:** read the handoff before anything else. It is the record, and the summary is a note. For each PR, compare its current head commit with the one the handoff records. Where they differ, read the diff between the two before acting on that PR.
+- **When you load this skill after a compaction:** read the handoff before anything else. It is the record, and the compaction summary is a note. For each PR, compare its current head commit with the one the handoff records. Where they differ, read the diff between the two before acting on that PR.
 - **Base clone:** the session's checkout of this repo. A session with more than one repository starts in their parent directory and does not run this repo's SessionStart hook, so do not rely on the working directory or on Docker already running. Find the checkout (`git rev-parse --show-toplevel`, or the directory that holds this skill's `.claude/`) and `cd` into it.
 - `mkdir -p /home/claude/work`, then start Docker and check the box from the base clone: `bash scripts/cloud/session-start.sh && bash scripts/cloud/env-check.sh`. The check reports the Bun pin, Docker, which stack images are cached, and which hosts are reachable. The proof types the box can produce today follow from it (section 2).
 - Run `nproc` and `free -g`. The memory rules in sections 4 and 5 assume a small box. Loosen them only if the box clearly has room.
