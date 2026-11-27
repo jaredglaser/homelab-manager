@@ -1,4 +1,4 @@
-import type { ManagedHost, HostHealthVerdict } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost, HostHealthVerdict, HostRepository, SettledAgentUpdate } from '@/lib/database/repositories/host-repository';
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
@@ -11,7 +11,7 @@ import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine }
 import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agent-identity';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import type { AgentInventoryEntry, AgentUpdateResult } from '@/lib/hosts/agent-inventory';
 import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
@@ -43,10 +43,8 @@ export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode
   | { hostId: number; healthy: false; code: Code; message: string };
 
 export type HealthCheckResult = HostOperationResult;
-export type UpdateAgentResult =
-  | { hostId: number; healthy: true; outcome: 'updated'; version?: string }
-  | { hostId: number; healthy: true; outcome: 'already_current' }
-  | { hostId: number; healthy: false; code: UpdateFailureCode; message: string };
+/** `at` orders the answer against the host row's update state: the row's own `at` wins once it is later. */
+export type UpdateAgentResult = { hostId: number; at: string } & (AgentUpdateResult | { healthy: true; outcome: 'started' });
 
 function readUpdateRefusal(response: Response, body: string): { code: UpdateFailureCode; message: string } {
   let parsed: unknown;
@@ -89,6 +87,8 @@ export interface HostRepo {
   updateLastSweptAt(id: number, at: Date): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null; imageDigest?: string | null; outOfDate?: boolean }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  claimAgentUpdate(id: number, startedAt: Date): Promise<boolean>;
+  settleAgentUpdate(id: number, startedAt: Date, settled: SettledAgentUpdate | null, at: Date): Promise<void>;
 }
 
 export interface HostHandlerDeps {
@@ -347,51 +347,95 @@ export async function handleRotateHostTls(
   };
 }
 
+export type UpdateAgentDeps = HostHandlerDeps & {
+  getSigner: (hostname: string) => Promise<() => Promise<string>>;
+  checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+  resolveAgentImageRelease?: (imageRef: string) => Promise<AgentImageRelease | null>;
+  /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
+  getCaCert?: (hostname: string) => Promise<string | null>;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => Date;
+  runDetached?: (task: () => Promise<void>) => void;
+};
+
+type UpdateAttempt =
+  | { kind: 'settled'; result: AgentUpdateResult }
+  | { kind: 'accepted'; confirm: () => Promise<AgentUpdateResult> };
+
+async function settleUpdate(
+  repo: HostRepo,
+  host: ManagedHost,
+  startedAt: Date,
+  settled: SettledAgentUpdate | null,
+  at: Date,
+): Promise<void> {
+  try {
+    await repo.settleAgentUpdate(host.id, startedAt, settled, at);
+  } catch (err) {
+    console.error(`[hosts] Could not record the end of the agent update on ${host.name}:`, err instanceof Error ? err.message : err);
+  }
+}
+
 // Scoped to this host's agentUrl. Never touches any other host.
-export async function handleUpdateAgent(
-  deps: HostHandlerDeps & {
-    getSigner: (hostname: string) => Promise<() => Promise<string>>;
-    checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
-    resolveAgentImageRelease?: (imageRef: string) => Promise<AgentImageRelease | null>;
-    /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
-    getCaCert?: (hostname: string) => Promise<string | null>;
-    sleep?: (ms: number) => Promise<void>;
-  },
-  data: { hostId: number },
-): Promise<UpdateAgentResult> {
-  const sleep = deps.sleep ?? sleepMs;
+export async function handleUpdateAgent(deps: UpdateAgentDeps, data: { hostId: number }): Promise<UpdateAgentResult> {
+  const now = deps.now ?? (() => new Date());
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
+  const startedAt = now();
+  if (!(await deps.repo.claimAgentUpdate(host.id, startedAt))) {
+    return { hostId: host.id, at: startedAt.toISOString(), healthy: false, code: 'update_already_running', message: '' };
+  }
+
+  let attempt: UpdateAttempt;
+  try {
+    attempt = await attemptAgentUpdate(deps, host);
+  } catch (err) {
+    await settleUpdate(deps.repo, host, startedAt, null, now());
+    throw err;
+  }
+  if (attempt.kind === 'settled') {
+    const at = now();
+    await settleUpdate(deps.repo, host, startedAt, { state: 'done', result: attempt.result }, at);
+    return { hostId: host.id, at: at.toISOString(), ...attempt.result };
+  }
+
+  const { confirm } = attempt;
+  const runDetached = deps.runDetached ?? ((task) => void task());
+  runDetached(async () => {
+    let settled: SettledAgentUpdate;
+    try {
+      settled = { state: 'done', result: await confirm() };
+    } catch (err) {
+      console.error(`[hosts] Confirming the agent update on ${host.name} crashed:`, err);
+      settled = { state: 'interrupted' };
+    }
+    await settleUpdate(deps.repo, host, startedAt, settled, now());
+  });
+  return { hostId: host.id, at: startedAt.toISOString(), healthy: true, outcome: 'started' };
+}
+
+async function attemptAgentUpdate(deps: UpdateAgentDeps, host: ManagedHost): Promise<UpdateAttempt> {
+  const settled = (result: AgentUpdateResult): UpdateAttempt => ({ kind: 'settled', result });
   const preCheck = await deps.checkHealth(host.agentUrl, host.name);
   if (!preCheck.healthy) {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: probeFailureCode(preCheck),
-      message: preCheck.error,
-    };
+    return settled({ healthy: false, code: probeFailureCode(preCheck), message: preCheck.error });
   }
-  const currentVersion = preCheck.version;
-  // A missing pre-update version only implies an upgrade when /info 404s. Any
-  // other cause would make a later version read look like a change that never happened.
-  const preInfoUnsupported = preCheck.infoSupported === false;
 
   const resolveRelease = deps.resolveAgentImageRelease ?? resolveAgentImageRelease;
   const imageRef = getAgentImage();
   const release = await resolveRelease(imageRef);
   if (!release) {
-    return {
-      hostId: host.id,
+    return settled({
       healthy: false,
       code: 'image_digest_unresolved',
       message: 'Could not resolve the agent image digest from the registry',
-    };
+    });
   }
   // The agent decides by digest alone, so without this a rebuild of unchanged source swaps the container for nothing.
   if (release.sourceHash && preCheck.agentSourceHash === release.sourceHash) {
     await deps.repo.updateAgentInfo(host.id, { outOfDate: false });
-    return { hostId: host.id, healthy: true, outcome: 'already_current' };
+    return settled({ healthy: true, outcome: 'already_current' });
   }
   const digest = release.digest;
   const targetImage = digestPinnedImageRef(imageRef, digest);
@@ -400,24 +444,14 @@ export async function handleUpdateAgent(
   try {
     signer = await deps.getSigner(host.name);
   } catch {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'keypair_unavailable',
-      message: 'Could not retrieve agent keypair',
-    };
+    return settled({ healthy: false, code: 'keypair_unavailable', message: 'Could not retrieve agent keypair' });
   }
 
   let jwt: string;
   try {
     jwt = await signer();
   } catch {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'token_signing_failed',
-      message: 'Could not sign the agent request token',
-    };
+    return settled({ healthy: false, code: 'token_signing_failed', message: 'Could not sign the agent request token' });
   }
 
   let triggerResponse: Response;
@@ -431,40 +465,49 @@ export async function handleUpdateAgent(
       signal: AbortSignal.timeout(UPDATE_TRIGGER_TIMEOUT_MS),
     }, { caCertPem: deps.getCaCert ? await deps.getCaCert(host.name) : null });
   } catch (err) {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'agent_unreachable',
-      message: err instanceof Error ? err.message : String(err),
-    };
+    return settled({ healthy: false, code: 'agent_unreachable', message: err instanceof Error ? err.message : String(err) });
   }
 
   if (triggerResponse.type === 'opaqueredirect' || (triggerResponse.status >= 300 && triggerResponse.status < 400)) {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'unexpected_redirect',
-      message: 'Agent URL returned an unexpected redirect',
-    };
+    return settled({ healthy: false, code: 'unexpected_redirect', message: 'Agent URL returned an unexpected redirect' });
   }
 
   if (triggerResponse.status === 200) {
     await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
-    return { hostId: host.id, healthy: true, outcome: 'already_current' };
+    return settled({ healthy: true, outcome: 'already_current' });
   }
 
   if (triggerResponse.status !== 202) {
     const notAnswering = await readNotAnsweringFailure(triggerResponse);
     if (notAnswering) {
       console.error(`[hosts] ${notAnsweringLogLine(notAnswering, `the update request for ${host.name}`)}`);
-      return { hostId: host.id, healthy: false, code: notAnswering.code, message: notAnswering.detail };
+      return settled({ healthy: false, code: notAnswering.code, message: notAnswering.detail });
     }
     const body = await readBoundedBody(triggerResponse, MAX_AGENT_FAILURE_BODY_BYTES);
     const { code, message } = readUpdateRefusal(triggerResponse, body);
     console.error(`[hosts] Agent update refused for ${host.name}: HTTP ${triggerResponse.status} ${code}: ${message}`);
-    return { hostId: host.id, healthy: false, code, message };
+    return settled({ healthy: false, code, message });
   }
 
+  return {
+    kind: 'accepted',
+    confirm: () => confirmAgentUpdate(deps, host, {
+      currentVersion: preCheck.version,
+      // A missing pre-update version only implies an upgrade when /info 404s. Any
+      // other cause would make a later version read look like a change that never happened.
+      preInfoUnsupported: preCheck.infoSupported === false,
+      digest,
+    }),
+  };
+}
+
+async function confirmAgentUpdate(
+  deps: UpdateAgentDeps,
+  host: ManagedHost,
+  before: { currentVersion: string | undefined; preInfoUnsupported: boolean; digest: string },
+): Promise<AgentUpdateResult> {
+  const sleep = deps.sleep ?? sleepMs;
+  const { currentVersion, preInfoUnsupported, digest } = before;
   let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
   let newVersion: string | undefined;
   // The helper pulls the new image before stopping the old agent, so on an /info-less host a
@@ -505,7 +548,6 @@ export async function handleUpdateAgent(
       if (typeof runningDigest === 'string') {
         if (runningDigest !== digest) {
           return {
-            hostId: host.id,
             healthy: false,
             code: 'update_interrupted',
             message: 'The agent is still running its previous image, so the update was interrupted before it completed',
@@ -513,10 +555,9 @@ export async function handleUpdateAgent(
         }
         await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
         await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
-        return { hostId: host.id, healthy: true, outcome: 'updated' };
+        return { healthy: true, outcome: 'updated' };
       }
       return {
-        hostId: host.id,
         healthy: false,
         code: 'image_unconfirmed',
         message: 'The agent reports the same version as before and does not report its image, so the update could not be confirmed',
@@ -524,7 +565,6 @@ export async function handleUpdateAgent(
     }
     if (lastResult.healthy && preInfoUnsupported && !sawRestart) {
       return {
-        hostId: host.id,
         healthy: false,
         code: 'restart_unconfirmed',
         message: 'The agent stayed reachable throughout the update window, so its restart could not be confirmed',
@@ -532,23 +572,27 @@ export async function handleUpdateAgent(
     }
     if (lastResult.healthy) {
       return {
-        hostId: host.id,
         healthy: false,
         code: 'version_unconfirmed',
         message: 'Agent is reachable but its version could not be read, so the update could not be confirmed',
       };
     }
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'agent_did_not_restart',
-      message: 'Agent did not restart after update',
-    };
+    return { healthy: false, code: 'agent_did_not_restart', message: 'Agent did not restart after update' };
   }
 
   await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
   await deps.repo.updateAgentInfo(host.id, { version: newVersion, imageDigest: digest, outOfDate: false });
-  return { hostId: host.id, healthy: true, outcome: 'updated', version: newVersion };
+  return { healthy: true, outcome: 'updated', version: newVersion };
+}
+
+/** Startup step: an update that started before this process cannot finish in it, so its result is never recorded. */
+export async function recoverInterruptedAgentUpdates(
+  repo: Pick<HostRepository, 'interruptAgentUpdates'>,
+  processStartedAt: Date,
+  now: Date = new Date(),
+): Promise<void> {
+  const ids = await repo.interruptAgentUpdates(processStartedAt, now);
+  if (ids.length > 0) console.info(`[Server] Marked ${ids.length} agent update(s) interrupted by the restart`);
 }
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {

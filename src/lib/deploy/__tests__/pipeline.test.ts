@@ -92,6 +92,7 @@ const testHost: ManagedHost = {
   createdAt: new Date(),
   updatedAt: new Date(),
   lastSweptAt: null,
+  agentUpdate: null,
 };
 
 const testRequest: DeployRequest = {

@@ -21,6 +21,7 @@ function host(overrides: Partial<ManagedHost> = {}): ManagedHost {
     createdAt: NOW,
     updatedAt: NOW,
     lastSweptAt: NOW,
+    agentUpdate: null,
     ...overrides,
   };
 }
@@ -52,5 +53,20 @@ describe('inventory status for a failure', () => {
 
     expect(stored.status).toBe('unreachable');
     expect(uncaused.status).toBe('unknown');
+  });
+});
+
+describe('agent update on the inventory entry', () => {
+  it('sends the stored update with its time as an ISO string, and leaves the update badge to the sweep', () => {
+    const at = new Date('2026-11-27T10:00:00.123Z');
+    const running = buildStoredAgentInventoryEntry(host({ status: 'healthy', agentOutOfDate: true, agentUpdate: { state: 'running', at } }));
+    expect(running.update).toEqual({ state: 'running', at: '2026-11-27T10:00:00.123Z' });
+    expect(running.agentOutOfDate).toBe(true);
+
+    const done = buildStoredAgentInventoryEntry(
+      host({ agentUpdate: { state: 'done', at, result: { healthy: true, outcome: 'already_current' } } }),
+    );
+    expect(done.update).toEqual({ state: 'done', at: '2026-11-27T10:00:00.123Z', result: { healthy: true, outcome: 'already_current' } });
+    expect(buildStoredAgentInventoryEntry(host()).update).toBeNull();
   });
 });

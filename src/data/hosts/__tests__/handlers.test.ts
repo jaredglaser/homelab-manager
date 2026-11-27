@@ -4,7 +4,8 @@ import { mockSetTimeout } from '@/lib/test/mock-timers';
 import { NOT_ANSWERING_BODY_TIMEOUT_MS } from '@/lib/clients/agent-identity';
 import { getAgentImage } from '@/lib/hosts/host-utils';
 import type { JWK } from 'jose';
-import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
+import type { HostHandlerDeps, HostRepo, KeypairsDep, UpdateAgentDeps } from '../handlers';
+import type { SettledAgentUpdate } from '@/lib/database/repositories/host-repository';
 import {
   handleListHosts,
   handleCheckHostHealth,
@@ -15,6 +16,7 @@ import {
   handleRotateHostKeypair,
   handleRotateHostTls,
   handleUpdateAgent,
+  recoverInterruptedAgentUpdates,
 } from '../handlers';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
 import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
@@ -39,6 +41,7 @@ function mockRow(overrides?: Record<string, unknown>) {
     status: 'pending' as const,
     createdAt: NOW, updatedAt: NOW,
     lastSweptAt: null,
+    agentUpdate: null,
     ...overrides,
   };
 }
@@ -54,6 +57,8 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     delete: mock(() => Promise.resolve()),
     updateHealth: mock(() => Promise.resolve()),
     updateAgentInfo: mock(() => Promise.resolve()),
+    claimAgentUpdate: mock(() => Promise.resolve(true)),
+    settleAgentUpdate: mock(() => Promise.resolve()),
     ...overrides,
   } as HostRepo;
 }
@@ -725,9 +730,21 @@ describe('handleUpdateAgent', () => {
     return { restore: () => { globalThis.fetch = original; }, fetchMock };
   }
 
+  async function updateAndConfirm(deps: UpdateAgentDeps, data: { hostId: number }) {
+    let confirmation: Promise<void> | undefined;
+    const answer = await handleUpdateAgent({ ...deps, runDetached: (task) => { confirmation = task(); } }, data);
+    const { at: _at, ...result } = answer;
+    if (!(result.healthy && result.outcome === 'started')) return result;
+    await confirmation;
+    const calls = (deps.repo.settleAgentUpdate as ReturnType<typeof mock>).mock.calls;
+    const settled = calls.at(-1)?.[2] as SettledAgentUpdate | null;
+    if (settled?.state !== 'done') throw new Error(`the confirmation settled the row as ${JSON.stringify(settled)}`);
+    return { hostId: result.hostId, ...settled.result };
+  }
+
   it('throws when host not found', async () => {
     const deps = updateDeps({ findById: mock(() => Promise.resolve(null)) });
-    await expect(handleUpdateAgent(deps, { hostId: 99 })).rejects.toThrow('not found');
+    await expect(updateAndConfirm(deps, { hostId: 99 })).rejects.toThrow('not found');
   });
 
   describe('when the source hashes are known', () => {
@@ -750,7 +767,7 @@ describe('handleUpdateAgent', () => {
       const { restore, fetchMock } = agentAnswersCurrent();
       try {
         const deps = hashDeps(HASH, { sourceHash: HASH });
-        const result = await handleUpdateAgent(deps, { hostId: 1 });
+        const result = await updateAndConfirm(deps, { hostId: 1 });
         expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'already_current' });
         expect(fetchMock).not.toHaveBeenCalled();
         expect(deps.repo.updateAgentInfo).toHaveBeenCalledWith(1, { outOfDate: false });
@@ -767,7 +784,7 @@ describe('handleUpdateAgent', () => {
     ])('calls the agent when %s', async (_case, agentHash, release) => {
       const { restore, fetchMock } = agentAnswersCurrent();
       try {
-        const result = await handleUpdateAgent(hashDeps(agentHash, release), { hostId: 1 });
+        const result = await updateAndConfirm(hashDeps(agentHash, release), { hostId: 1 });
         expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'already_current' });
         expect(fetchMock).toHaveBeenCalledTimes(1);
       } finally {
@@ -781,7 +798,7 @@ describe('handleUpdateAgent', () => {
     try {
       const resolveAgentImageDigest = mock(async (_imageRef: string) => TEST_DIGEST);
       const deps = updateDeps(undefined, undefined, resolveAgentImageDigest);
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(true);
       expect(resolveAgentImageDigest).toHaveBeenCalledWith(getAgentImage());
       expect(resolveAgentImageDigest).toHaveBeenCalledTimes(1);
@@ -801,7 +818,7 @@ describe('handleUpdateAgent', () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
     try {
       const deps = updateDeps(undefined, undefined, mock(async (_imageRef: string) => null));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.code).toBe('image_digest_unresolved');
@@ -816,7 +833,7 @@ describe('handleUpdateAgent', () => {
     const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
     try {
       const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'connection refused' })));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('offline');
       expect(fetchMock).not.toHaveBeenCalled();
@@ -830,7 +847,7 @@ describe('handleUpdateAgent', () => {
     try {
       const repo = mockRepo();
       const deps = updateDeps(repo);
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'already_current' });
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -849,7 +866,7 @@ describe('handleUpdateAgent', () => {
         polls++;
         return Promise.resolve({ healthy: true as const, version: polls === 1 ? '1.0.0' : '2.0.0' });
       }));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'updated', version: '2.0.0' });
       expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { version: '2.0.0', imageDigest: TEST_DIGEST, outOfDate: false });
@@ -865,7 +882,7 @@ describe('handleUpdateAgent', () => {
         throw new Error('keyring locked');
       }),
     };
-    const result = await handleUpdateAgent(deps, { hostId: 1 });
+    const result = await updateAndConfirm(deps, { hostId: 1 });
     expect(result.healthy).toBe(false);
     if (!result.healthy) {
       expect(result.code).toBe('keypair_unavailable');
@@ -882,7 +899,7 @@ describe('handleUpdateAgent', () => {
     };
     const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('{}', { status: 202 })));
     try {
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.code).toBe('token_signing_failed');
@@ -897,7 +914,7 @@ describe('handleUpdateAgent', () => {
     const { restore } = withFetch(() => Promise.reject(new Error('ECONNREFUSED')));
     try {
       const deps = updateDeps();
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('agent_unreachable');
       if (!result.healthy) expect(result.message).toBe('ECONNREFUSED');
@@ -910,7 +927,7 @@ describe('handleUpdateAgent', () => {
     const { restore } = withFetch(() => Promise.resolve(new Response(null, { status: 302 })));
     try {
       const deps = updateDeps();
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('unexpected_redirect');
     } finally {
@@ -923,7 +940,7 @@ describe('handleUpdateAgent', () => {
     const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
     try {
       const deps = updateDeps(undefined, mock(() => Promise.resolve({ healthy: true as const, version: undefined, infoSupported: false })));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('restart_unconfirmed');
     } finally {
@@ -947,7 +964,7 @@ describe('handleUpdateAgent', () => {
             : { healthy: true as const, version: '9.9.9', infoSupported: false }
         );
       }));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'updated', version: '9.9.9' });
     } finally {
       timers.restore();
@@ -961,7 +978,7 @@ describe('handleUpdateAgent', () => {
     const { restore } = withFetch(() => Promise.resolve(new Response(JSON.stringify({ started: true }), { status: 202 })));
     try {
       const deps = updateDeps(repo, mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('image_unconfirmed');
       expect(repo.updateAgentInfo).not.toHaveBeenCalled();
@@ -977,7 +994,7 @@ describe('handleUpdateAgent', () => {
       const checkHealth = mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' }));
       const delays: number[] = [];
       const deps = { ...updateDeps(undefined, checkHealth), sleep: (ms: number) => { delays.push(ms); return Promise.resolve(); } };
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('image_unconfirmed');
       expect(checkHealth).toHaveBeenCalledTimes(10);
@@ -999,7 +1016,7 @@ describe('handleUpdateAgent', () => {
           : { healthy: true as const, version: '1.0.0', agentImageDigest: TEST_DIGEST });
       });
       const deps = { ...updateDeps(repo, checkHealth), sleep: () => Promise.resolve() };
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'updated' });
       expect(checkHealth).toHaveBeenCalledTimes(9);
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
@@ -1019,7 +1036,7 @@ describe('handleUpdateAgent', () => {
           : { healthy: true as const, version: '1.0.0', agentImageDigest: 'sha256:' + 'a'.repeat(64) });
       });
       const deps = { ...updateDeps(undefined, checkHealth), sleep: () => Promise.resolve() };
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('update_interrupted');
     } finally {
@@ -1035,7 +1052,7 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps(undefined, mock(() =>
         Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: staleDigest }),
       ));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.code).toBe('update_interrupted');
@@ -1054,7 +1071,7 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps(repo, mock(() =>
         Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: TEST_DIGEST }),
       ));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'updated' });
       expect(repo.updateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       expect(repo.updateAgentInfo).toHaveBeenCalledWith(1, { imageDigest: TEST_DIGEST, outOfDate: false });
@@ -1076,7 +1093,7 @@ describe('handleUpdateAgent', () => {
           ? { healthy: true as const, version: undefined }
           : { healthy: true as const, version: undefined });
       }));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('version_unconfirmed');
     } finally {
@@ -1096,7 +1113,7 @@ describe('handleUpdateAgent', () => {
           ? Promise.resolve({ healthy: true as const, version: '1.0.0' })
           : Promise.resolve({ healthy: false as const, error: 'connection refused during health check' });
       }));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('agent_did_not_restart');
     } finally {
@@ -1119,7 +1136,7 @@ describe('handleUpdateAgent', () => {
             : { healthy: true as const, version: '1.0.0', infoSupported: false },
         );
       }));
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.code).toBe('restart_unconfirmed');
@@ -1134,7 +1151,7 @@ describe('handleUpdateAgent', () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ error: 'Agent updates require Docker capability, which this agent does not have.' }), { status: 503 })));
     try {
       const deps = updateDeps();
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('agent_reported_error');
       if (!result.healthy) expect(result.message).toContain('Docker capability');
@@ -1146,7 +1163,7 @@ describe('handleUpdateAgent', () => {
   it('promotes the code of a coded refusal and keeps the agent message beside it', async () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ error: 'An update is already in progress', code: 'update_in_progress' }), { status: 409 })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: 'An update is already in progress' });
     } finally {
       restore();
@@ -1157,7 +1174,7 @@ describe('handleUpdateAgent', () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ error: 'agent sentence', code: 'update_target_not_pinned' }), { status: 400 })));
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
     try {
-      await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('update_target_not_pinned: agent sentence'));
     } finally {
       errorSpy.mockRestore();
@@ -1175,7 +1192,7 @@ describe('handleUpdateAgent', () => {
   ])('keeps the generic refusal code for %s', async (_label, payload) => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify(payload), { status: 409 })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: 'newer refusal' });
     } finally {
       restore();
@@ -1185,7 +1202,7 @@ describe('handleUpdateAgent', () => {
   it.each([['null'], ['"update_in_progress"'], ['[]'], ['42']])('keeps the generic code and shows no message for the non-error JSON body %s', async (body) => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(body, { status: 500, headers: { 'content-type': 'application/json' } })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) {
         expect(result.code).toBe('agent_reported_error');
@@ -1200,7 +1217,7 @@ describe('handleUpdateAgent', () => {
     const page = '<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>';
     const { restore } = withFetch(() => Promise.resolve(agentResponse(page, { status: 502, headers: { 'content-type': 'text/html' } })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: '' });
     } finally {
       restore();
@@ -1210,7 +1227,7 @@ describe('handleUpdateAgent', () => {
   it('bounds a long text body to the detail limit after the prefix, on one line', async () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(`${'w'.repeat(1000)}\nsecond`, { status: 502, headers: { 'content-type': 'text/plain' } })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: `It said: ${'w'.repeat(300)}...` });
     } finally {
       restore();
@@ -1220,7 +1237,7 @@ describe('handleUpdateAgent', () => {
   it('treats a code with no message as off the error contract, so its code is not trusted', async () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ code: 'update_in_progress' }), { status: 409 })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result).toEqual({
         hostId: 1,
         healthy: false,
@@ -1235,7 +1252,7 @@ describe('handleUpdateAgent', () => {
   it('accepts a text/plain content type in any case', async () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse('Bad Gateway', { status: 502, headers: { 'content-type': 'Text/Plain; charset=utf-8' } })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.message).toBe('It said: Bad Gateway');
     } finally {
@@ -1247,7 +1264,7 @@ describe('handleUpdateAgent', () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse('first\r\n[hosts] forged line\u0007', { status: 502, headers: { 'content-type': 'text/plain' } })));
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       if (!result.healthy) expect(result.message).toBe('It said: first [hosts] forged line');
       const logged = String(errorSpy.mock.calls[0]?.[0]);
       expect(logged).not.toMatch(/\p{Cc}/u);
@@ -1272,7 +1289,7 @@ describe('handleUpdateAgent', () => {
     });
     const { restore } = withFetch(() => Promise.resolve(agentResponse(stream, { status: 502, headers: { 'content-type': 'text/plain' } })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(cancelled).toBe(true);
       expect(sent).toBe(1024 * (8192 / 1024 + 1));
       expect(result.healthy).toBe(false);
@@ -1288,7 +1305,7 @@ describe('handleUpdateAgent', () => {
     for (let at = 0; at < encoded.byteLength; at += 1024) pieces.push(encoded.slice(at, at + 1024));
     const { restore } = withFetch(() => Promise.resolve(agentResponse(chunkedStream(pieces), { status: 409 })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'update_in_progress', message: `${'e'.repeat(300)}...` });
     } finally {
       restore();
@@ -1304,7 +1321,7 @@ describe('handleUpdateAgent', () => {
       Promise.resolve(agentResponse(chunkedStream([encoded.slice(0, 8192), encoded.slice(8192)]), { status: 409 })),
     );
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: '' });
     } finally {
       restore();
@@ -1317,7 +1334,7 @@ describe('handleUpdateAgent', () => {
       Promise.resolve(agentResponse(chunkedStream([encoded.slice(0, 4), encoded.slice(4)]), { status: 502, headers: { 'content-type': 'text/plain' } })),
     );
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect('message' in result ? result.message : '').toBe('It said: caf\u00e9 is down');
     } finally {
       restore();
@@ -1327,7 +1344,7 @@ describe('handleUpdateAgent', () => {
   it('caps an agent message that runs long', async () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse(JSON.stringify({ error: 'x'.repeat(5000) }), { status: 500 })));
     try {
-      const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+      const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.message).toBe(`${'x'.repeat(300)}...`);
     } finally {
@@ -1351,8 +1368,8 @@ describe('handleUpdateAgent', () => {
       const deps = updateDeps(undefined, mock(() =>
         Promise.resolve({ healthy: true as const, version: '1.0.0', agentImageDigest: staleDigest }),
       ));
-      const first = await handleUpdateAgent(deps, { hostId: 1 });
-      const second = await handleUpdateAgent(deps, { hostId: 1 });
+      const first = await updateAndConfirm(deps, { hostId: 1 });
+      const second = await updateAndConfirm(deps, { hostId: 1 });
       expect(first).toMatchObject({ healthy: false, code: 'update_interrupted' });
       expect(second).toMatchObject({ healthy: false, code: 'update_in_progress' });
     } finally {
@@ -1365,7 +1382,7 @@ describe('handleUpdateAgent', () => {
     const { restore } = withFetch(() => Promise.resolve(agentResponse('Update check failed. Verify the agent host can reach the image registry, then retry the update.', { status: 503 })));
     try {
       const deps = updateDeps();
-      const result = await handleUpdateAgent(deps, { hostId: 1 });
+      const result = await updateAndConfirm(deps, { hostId: 1 });
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.code).toBe('agent_reported_error');
       if (!result.healthy) expect(result.message).toBe('It said: Update check failed. Verify the agent host can reach the image registry, then retry the update.');
@@ -1383,7 +1400,7 @@ describe('handleUpdateAgent', () => {
       const page = '<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>';
       const { restore } = withFetch(() => Promise.resolve(new Response(page, { status: 502, headers: { 'content-type': 'text/html' } })));
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
         expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_not_answering', message: 'HTTP 502' });
         if (!result.healthy) expect(updateFailureMessage(result.code, result.message)).toBe(NOT_ANSWERING_MESSAGE(502));
       } finally {
@@ -1399,7 +1416,7 @@ describe('handleUpdateAgent', () => {
     ])('does not read %s as the agent, whatever its body', async (_label, body, status) => {
       const { restore } = withFetch(() => Promise.resolve(new Response(body, { status })));
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
         expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_not_answering', message: `HTTP ${status}` });
       } finally {
         restore();
@@ -1411,7 +1428,7 @@ describe('handleUpdateAgent', () => {
       const { restore } = withFetch(() => Promise.resolve(new Response(body, { status: 502 })));
       const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
         if (!result.healthy) expect(result.message).toBe('HTTP 502');
         const logged = String(errorSpy.mock.calls[0]?.[0]);
         expect(logged).not.toMatch(/\p{Cc}/u);
@@ -1427,7 +1444,7 @@ describe('handleUpdateAgent', () => {
       const { restore, fetchMock } = withFetch(() => Promise.resolve(new Response('Bad Gateway', { status: 502 })));
       const checkHealth = mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' }));
       try {
-        await handleUpdateAgent(updateDeps(undefined, checkHealth), { hostId: 1 });
+        await updateAndConfirm(updateDeps(undefined, checkHealth), { hostId: 1 });
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(checkHealth).toHaveBeenCalledTimes(1);
       } finally {
@@ -1451,7 +1468,7 @@ describe('handleUpdateAgent', () => {
       const { restore } = withFetch(() => Promise.resolve(new Response(held, { status: 502 })));
       const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
 
         expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_not_answering', message: 'HTTP 502' });
         expect(errorSpy.mock.calls.map((call) => String(call[0])).some((line) => line.includes('HTTP 502 (body read timed out): <html>'))).toBe(true);
@@ -1476,7 +1493,7 @@ describe('handleUpdateAgent', () => {
           else init.signal?.addEventListener('abort', fail);
         })) as unknown as typeof fetch;
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
 
         expect(deadlines).toEqual([30_000]);
         expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_unreachable', message: 'The operation timed out.' });
@@ -1489,7 +1506,7 @@ describe('handleUpdateAgent', () => {
     it.each(['X-Homelab-Agent', 'x-homelab-agent', 'X-HOMELAB-AGENT'])('trusts the header written as %s', async (name) => {
       const { restore } = withFetch(() => Promise.resolve(new Response('Bad Gateway', { status: 502, headers: { [name]: '0.4.0' } })));
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
         expect(result).toMatchObject({ healthy: false, code: 'agent_reported_error' });
       } finally {
         restore();
@@ -1501,7 +1518,7 @@ describe('handleUpdateAgent', () => {
       const { restore } = withFetch(() => Promise.resolve(new Response('Bad Gateway', { status: 502, headers: { 'X-Homelab-Agent': hostile } })));
       const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
         expect(result).toMatchObject({ healthy: false, code: 'agent_reported_error' });
         expect(errorSpy.mock.calls.flat().join(' ')).not.toContain('<script>');
       } finally {
@@ -1513,7 +1530,7 @@ describe('handleUpdateAgent', () => {
     it('trusts the header even when the body is an HTML page, which is an agent bug and not a proxy', async () => {
       const { restore } = withFetch(() => Promise.resolve(agentResponse('<html>oops</html>', { status: 500, headers: { 'content-type': 'text/html' } })));
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
         expect(result).toEqual({ hostId: 1, healthy: false, code: 'agent_reported_error', message: '' });
       } finally {
         restore();
@@ -1523,7 +1540,7 @@ describe('handleUpdateAgent', () => {
     it('leaves a redirect to the redirect failure', async () => {
       const { restore } = withFetch(() => Promise.resolve(new Response(null, { status: 302, headers: { location: 'http://elsewhere/' } })));
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
         expect(result).toMatchObject({ healthy: false, code: 'unexpected_redirect' });
       } finally {
         restore();
@@ -1533,7 +1550,7 @@ describe('handleUpdateAgent', () => {
     it('leaves a network failure as unreachable, since nothing answered', async () => {
       const { restore } = withFetch(() => Promise.reject(new TypeError('connect ECONNREFUSED')));
       try {
-        const result = await handleUpdateAgent(updateDeps(), { hostId: 1 });
+        const result = await updateAndConfirm(updateDeps(), { hostId: 1 });
         expect(result).toMatchObject({ healthy: false, code: 'agent_unreachable', message: 'connect ECONNREFUSED' });
       } finally {
         restore();
@@ -1543,3 +1560,210 @@ describe('handleUpdateAgent', () => {
 
 });
 
+describe('handleUpdateAgent in the background', () => {
+  const DIGEST = 'sha256:' + 'b'.repeat(64);
+  const STARTED = new Date('2026-11-27T10:00:00.000Z');
+  const ENDED = new Date('2026-11-27T10:00:40.000Z');
+
+  function withAgent(status: number): { restore: () => void; fetchMock: ReturnType<typeof mock> } {
+    const fetchMock = mock(() => Promise.resolve(agentResponse(JSON.stringify({ started: true }), { status })));
+    const original = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    return { restore: () => { globalThis.fetch = original; }, fetchMock };
+  }
+
+  function backgroundDeps(overrides: Partial<UpdateAgentDeps> & { repo?: HostRepo } = {}) {
+    const tasks: Array<() => Promise<void>> = [];
+    const clock = [STARTED, ENDED];
+    let polls = 0;
+    const deps: UpdateAgentDeps = {
+      repo: mockRepo(),
+      getSigner: mock(async () => async () => 'jwt-token'),
+      checkHealth: mock(() => {
+        polls += 1;
+        return Promise.resolve({ healthy: true as const, version: polls === 1 ? '1.0.0' : '2.0.0' });
+      }),
+      resolveAgentImageRelease: async () => ({ digest: DIGEST, sourceHash: null }),
+      sleep: () => Promise.resolve(),
+      now: () => clock.shift() ?? ENDED,
+      runDetached: (task) => { tasks.push(task); },
+      ...overrides,
+    };
+    return { deps, tasks };
+  }
+
+  it('answers once the agent accepts, before the confirmation polls, and records the outcome on the row when it ends', async () => {
+    const { restore, fetchMock } = withAgent(202);
+    try {
+      const { deps, tasks } = backgroundDeps();
+      const answer = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(answer).toEqual({ hostId: 1, at: STARTED.toISOString(), healthy: true, outcome: 'started' });
+      expect(deps.repo.claimAgentUpdate).toHaveBeenCalledWith(1, STARTED);
+      expect(deps.checkHealth).toHaveBeenCalledTimes(1);
+      expect(deps.repo.settleAgentUpdate).not.toHaveBeenCalled();
+      expect(tasks).toHaveLength(1);
+
+      await tasks[0]();
+      expect(deps.repo.settleAgentUpdate).toHaveBeenCalledTimes(1);
+      expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(
+        1,
+        STARTED,
+        { state: 'done', result: { healthy: true, outcome: 'updated', version: '2.0.0' } },
+        ENDED,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('refuses with the already-running copy, without calling the agent, while another update holds the row', async () => {
+    const { restore, fetchMock } = withAgent(202);
+    try {
+      const { deps, tasks } = backgroundDeps({ repo: mockRepo({ claimAgentUpdate: mock(() => Promise.resolve(false)) }) });
+      const answer = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(answer).toEqual({ hostId: 1, at: STARTED.toISOString(), healthy: false, code: 'update_already_running', message: '' });
+      if (!answer.healthy) {
+        expect(updateFailureMessage(answer.code, answer.message)).toBe(
+          'An update is already running for this host. Wait for it to finish.',
+        );
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(deps.checkHealth).not.toHaveBeenCalled();
+      expect(deps.repo.settleAgentUpdate).not.toHaveBeenCalled();
+      expect(tasks).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it('calls the agent once when a second copy of the request arrives while the first runs', async () => {
+    const { restore, fetchMock } = withAgent(202);
+    try {
+      let held = false;
+      const repo = mockRepo({
+        claimAgentUpdate: mock(() => {
+          const free = !held;
+          held = true;
+          return Promise.resolve(free);
+        }),
+      });
+      const { deps } = backgroundDeps({ repo });
+      const [first, second] = await Promise.all([handleUpdateAgent(deps, { hostId: 1 }), handleUpdateAgent(deps, { hostId: 1 })]);
+      expect([first, second].map((answer) => (answer.healthy ? answer.outcome : answer.code)).sort()).toEqual([
+        'started',
+        'update_already_running',
+      ]);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it('answers already current at once, without calling the agent, and records it on the row', async () => {
+    const { restore, fetchMock } = withAgent(202);
+    try {
+      const hash = 'e'.repeat(64);
+      const { deps, tasks } = backgroundDeps({
+        checkHealth: mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0', agentSourceHash: hash })),
+        resolveAgentImageRelease: async () => ({ digest: DIGEST, sourceHash: hash }),
+      });
+      const answer = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(answer).toEqual({ hostId: 1, at: ENDED.toISOString(), healthy: true, outcome: 'already_current' });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(tasks).toHaveLength(0);
+      expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(1, STARTED, { state: 'done', result: { healthy: true, outcome: 'already_current' } }, ENDED);
+    } finally {
+      restore();
+    }
+  });
+
+  it('answers a refusal before the swap directly and records it on the row', async () => {
+    const { restore } = withAgent(202);
+    try {
+      const { deps, tasks } = backgroundDeps({
+        checkHealth: mock(() => Promise.resolve({ healthy: false as const, reason: 'offline' as const, error: 'connection refused' })),
+      });
+      const answer = await handleUpdateAgent(deps, { hostId: 1 });
+      expect(answer).toMatchObject({ healthy: false, code: 'offline', message: 'connection refused' });
+      expect(tasks).toHaveLength(0);
+      expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(
+        1,
+        STARTED,
+        { state: 'done', result: { healthy: false, code: 'offline', message: 'connection refused' } },
+        ENDED,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('records a failed confirmation on the row with the message the page showed before', async () => {
+    const { restore } = withAgent(202);
+    try {
+      let polls = 0;
+      const { deps, tasks } = backgroundDeps({
+        checkHealth: mock(() => {
+          polls += 1;
+          return Promise.resolve(polls === 1
+            ? { healthy: true as const, version: '1.0.0' }
+            : { healthy: false as const, reason: 'offline' as const, error: 'connection refused' });
+        }),
+      });
+      await handleUpdateAgent(deps, { hostId: 1 });
+      await tasks[0]();
+      const settled = (deps.repo.settleAgentUpdate as ReturnType<typeof mock>).mock.calls[0]?.[2] as SettledAgentUpdate;
+      expect(settled).toEqual({ state: 'done', result: { healthy: false, code: 'agent_did_not_restart', message: 'Agent did not restart after update' } });
+      if (settled.state === 'done' && !settled.result.healthy) {
+        expect(updateFailureMessage(settled.result.code, settled.result.message)).toBe(
+          'The agent did not come back after the update. Check that the agent container is running on the host, then retry the update. Agent did not restart after update',
+        );
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it('marks the row interrupted when the confirmation crashes, so it never stays running', async () => {
+    const { restore } = withAgent(202);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      let polls = 0;
+      const { deps, tasks } = backgroundDeps({
+        checkHealth: mock(() => {
+          polls += 1;
+          if (polls === 1) return Promise.resolve({ healthy: true as const, version: '1.0.0' });
+          return Promise.reject(new Error('pool exhausted'));
+        }),
+      });
+      await handleUpdateAgent(deps, { hostId: 1 });
+      await tasks[0]();
+      expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(1, STARTED, { state: 'interrupted' }, ENDED);
+    } finally {
+      errorSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('clears the row and rethrows when the request fails before it reaches the agent', async () => {
+    const { deps } = backgroundDeps({ resolveAgentImageRelease: () => Promise.reject(new Error('registry client bug')) });
+    await expect(handleUpdateAgent(deps, { hostId: 1 })).rejects.toThrow('registry client bug');
+    expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(1, STARTED, null, ENDED);
+  });
+});
+
+describe('recoverInterruptedAgentUpdates', () => {
+  it('marks every update that started before this process as interrupted', async () => {
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      const interruptAgentUpdates = mock(() => Promise.resolve([3, 4]));
+      const processStartedAt = new Date('2026-11-27T10:00:00Z');
+      const now = new Date('2026-11-27T10:00:05Z');
+      await recoverInterruptedAgentUpdates({ interruptAgentUpdates }, processStartedAt, now);
+      expect(interruptAgentUpdates).toHaveBeenCalledWith(processStartedAt, now);
+      expect(infoSpy).toHaveBeenCalledWith('[Server] Marked 2 agent update(s) interrupted by the restart');
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+});

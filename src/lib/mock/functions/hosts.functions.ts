@@ -4,6 +4,8 @@ import type {
   UpdateAgentResult,
   AgentInventoryEntry,
 } from '@/data/hosts/functions';
+import type { AgentUpdateStatus } from '@/lib/hosts/agent-inventory';
+import { agentInventoryUpdates } from '@/lib/mock/live-updates';
 
 /**
  * Build a plausible managed host from partial enrollment input. Pass `id` to
@@ -139,6 +141,7 @@ export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
       agentImageDigest: 'sha256:' + 'a'.repeat(64),
       agentOutOfDate: false,
       failure: null,
+      update: mockAgentUpdates.get(mockHosts[0].id) ?? null,
       checkedAt: new Date().toISOString(),
     },
     {
@@ -148,6 +151,7 @@ export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
       agentImageDigest: 'sha256:' + 'a'.repeat(64),
       agentOutOfDate: false,
       failure: { code: 'offline', message: 'Health check timed out after 5000ms' },
+      update: mockAgentUpdates.get(mockHosts[1].id) ?? null,
       checkedAt: new Date().toISOString(),
     },
   ];
@@ -166,9 +170,36 @@ export async function checkHostHealth(_data: {
   };
 }
 
+export const MOCK_AGENT_UPDATE_MS = 2500;
+
+const mockAgentUpdates = new Map<number, AgentUpdateStatus>();
+
+/** Clears the demo's update state, for tests. */
+export function resetMockAgentUpdates(): void {
+  mockAgentUpdates.clear();
+}
+
+async function publishAgentInventory(): Promise<void> {
+  agentInventoryUpdates.emit({ entries: await listAgentsInventory(), sweptAt: new Date().toISOString() });
+}
+
 export async function updateAgent(data: {
   hostId: number;
 }): Promise<UpdateAgentResult> {
-  return { hostId: data.hostId, healthy: true, outcome: 'updated', version: '0.1.0' };
+  const at = new Date().toISOString();
+  if (mockAgentUpdates.get(data.hostId)?.state === 'running') {
+    return { hostId: data.hostId, at, healthy: false, code: 'update_already_running', message: '' };
+  }
+  mockAgentUpdates.set(data.hostId, { state: 'running', at });
+  void publishAgentInventory();
+  setTimeout(() => {
+    mockAgentUpdates.set(data.hostId, {
+      state: 'done',
+      at: new Date().toISOString(),
+      result: { healthy: true, outcome: 'updated', version: '0.1.0' },
+    });
+    void publishAgentInventory();
+  }, MOCK_AGENT_UPDATE_MS);
+  return { hostId: data.hostId, at, healthy: true, outcome: 'started' };
 }
 

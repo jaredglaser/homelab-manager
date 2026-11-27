@@ -23,6 +23,7 @@ function mockRow(overrides?: Partial<ManagedHost>): ManagedHost {
     createdAt: NOW,
     updatedAt: NOW,
     lastSweptAt: null,
+    agentUpdate: null,
     ...overrides,
   } as ManagedHost;
 }

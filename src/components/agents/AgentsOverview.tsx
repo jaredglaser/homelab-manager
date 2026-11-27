@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Server, TriangleAlert } from 'lucide-react'
 import { listAgentsInventory, updateAgent } from '@/data/hosts/functions'
-import type { AgentInventoryEntry } from '@/data/hosts/functions'
+import type { AgentInventoryEntry, UpdateAgentResult } from '@/data/hosts/functions'
+import type { AgentUpdateResult } from '@/lib/hosts/agent-inventory'
 import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy'
 import { isAgentUpdateFailureCode } from '@homelab-manager/agent/types'
 import { hostFailureDetail, hostFailureMessage, isHostFailureCode } from '@/lib/errors/host-failure-copy'
@@ -23,6 +24,11 @@ export const AGENT_UPDATE_AVAILABLE_MESSAGE =
 
 export const AGENT_STORED_VERSION_MESSAGE =
   'Last version the agent reported. It is not online right now, so this may be out of date.'
+
+export const AGENT_UPDATE_RUNNING_MESSAGE = 'Updating the agent. This takes up to a minute.'
+
+export const AGENT_UPDATE_INTERRUPTED_MESSAGE =
+  "The dashboard restarted during this update, so its result was not recorded. Check the agent's version here, and update again if it did not change."
 
 export type AgentRowFeedback = {
   severity: 'success' | 'info' | 'error'
@@ -231,13 +237,16 @@ export function AgentsOverviewView({
   )
 }
 
-function isUpdateResult(value: unknown): value is Awaited<ReturnType<typeof updateAgent>> {
+function isUpdateResult(value: unknown): value is UpdateAgentResult {
   if (typeof value !== 'object' || value === null || !('healthy' in value)) return false
-  if (value.healthy === true) return 'outcome' in value && (value.outcome === 'updated' || value.outcome === 'already_current')
+  if (!('at' in value) || typeof value.at !== 'string') return false
+  if (value.healthy === true) {
+    return 'outcome' in value && (value.outcome === 'started' || value.outcome === 'updated' || value.outcome === 'already_current')
+  }
   return value.healthy === false && 'code' in value && (isAgentUpdateFailureCode(value.code) || isHostFailureCode(value.code))
 }
 
-function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): AgentRowFeedback {
+function describeUpdateResult(result: AgentUpdateResult): AgentRowFeedback {
   if (result.healthy && result.outcome === 'already_current') {
     return { severity: 'info', message: 'Already up to date. The agent runs the latest image, so nothing was changed.' }
   }
@@ -255,11 +264,32 @@ function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): 
 
 const UPDATE_CALL_FAILED_MESSAGE = "Couldn't start the update. Reload the page and try again."
 
+/** `at` is server time only: a browser clock would misorder it against the row's update. */
+type TimedFeedback = AgentRowFeedback & { at: string }
+
+/** A finished update only shows when it ended after this tab first saw the row, so a reload shows the row as usual. */
+function rowUpdateFeedback(agent: AgentInventoryEntry, baselineAt: string | null): TimedFeedback | null {
+  const update = agent.update
+  if (!update) return null
+  if (update.state === 'running') return { severity: 'info', message: AGENT_UPDATE_RUNNING_MESSAGE, at: update.at }
+  if (update.at === baselineAt) return null
+  if (update.state === 'interrupted') return { severity: 'error', message: AGENT_UPDATE_INTERRUPTED_MESSAGE, at: update.at }
+  return { ...describeUpdateResult(update.result), at: update.at }
+}
+
+function withRunningUpdate(entries: AgentInventoryEntry[] | undefined, hostId: number, at: string) {
+  return entries?.map((entry) =>
+    entry.id === hostId && (entry.update === null || entry.update.at < at) ? { ...entry, update: { state: 'running' as const, at } } : entry,
+  )
+}
+
 export default function AgentsOverview() {
   const queryClient = useQueryClient()
   const { showToast } = useToast()
-  const [busyByHost, setBusyByHost] = useState<Record<number, 'update' | undefined>>({})
-  const [feedbackByHost, setFeedbackByHost] = useState<Record<number, AgentRowFeedback>>({})
+  const [pendingByHost, setPendingByHost] = useState<Partial<Record<number, true>>>({})
+  const [localByHost, setLocalByHost] = useState<Partial<Record<number, TimedFeedback>>>({})
+  const [baselineByHost, setBaselineByHost] = useState<Partial<Record<number, string | null>>>({})
+  const startedHereRef = useRef<Partial<Record<number, string>>>({})
 
   const { data: agents = [], isLoading, isError } = useQuery({
     queryKey: AGENTS_INVENTORY_QUERY_KEY,
@@ -271,11 +301,37 @@ export default function AgentsOverview() {
     onData: useCallback(
       (snapshot: { entries: AgentInventoryEntry[] }) => {
         queryClient.setQueryData(AGENTS_INVENTORY_QUERY_KEY, snapshot.entries)
+        for (const { id, update } of snapshot.entries) {
+          const startedAt = startedHereRef.current[id]
+          if (startedAt === undefined || !update || update.state === 'running' || update.at <= startedAt) continue
+          delete startedHereRef.current[id]
+          if (update.state === 'done' && !update.result.healthy) showToast(describeUpdateResult(update.result).message, 'error')
+        }
       },
-      [queryClient],
+      [queryClient, showToast],
     ),
     serviceErrorMessage: 'Agent inventory stream unavailable',
   })
+
+  const unseen = agents.filter((agent) => !(agent.id in baselineByHost))
+  if (unseen.length > 0) {
+    setBaselineByHost((prev) => ({ ...prev, ...Object.fromEntries(unseen.map((agent) => [agent.id, agent.update?.at ?? null])) }))
+  }
+
+  const busyByHost: Record<number, 'update' | undefined> = {}
+  const feedbackByHost: Record<number, AgentRowFeedback> = {}
+  for (const agent of agents) {
+    const baselineAt = agent.id in baselineByHost ? (baselineByHost[agent.id] ?? null) : (agent.update?.at ?? null)
+    const fromRow = rowUpdateFeedback(agent, baselineAt)
+    const local = localByHost[agent.id]
+    const shown = local && (!fromRow || local.at >= fromRow.at) ? local : fromRow
+    if (shown) feedbackByHost[agent.id] = { severity: shown.severity, message: shown.message }
+    if (pendingByHost[agent.id] || agent.update?.state === 'running') busyByHost[agent.id] = 'update'
+  }
+
+  const setLocal = (hostId: number, feedback: TimedFeedback) => setLocalByHost((prev) => ({ ...prev, [hostId]: feedback }))
+  const currentRowAt = (hostId: number) =>
+    queryClient.getQueryData<AgentInventoryEntry[]>(AGENTS_INVENTORY_QUERY_KEY)?.find((entry) => entry.id === hostId)?.update?.at ?? ''
 
   const updateMutation = useMutation({
     mutationFn: async (hostId: number) => {
@@ -285,25 +341,25 @@ export default function AgentsOverview() {
       return result
     },
     onMutate: (hostId) => {
-      setBusyByHost((prev) => ({ ...prev, [hostId]: 'update' }))
-      setFeedbackByHost((prev) => {
-        if (!(hostId in prev)) return prev
-        const next = { ...prev }
-        delete next[hostId]
-        return next
-      })
+      setPendingByHost((prev) => ({ ...prev, [hostId]: true }))
+      setLocalByHost(({ [hostId]: _cleared, ...rest }) => rest)
     },
     onSuccess: (result, hostId) => {
-      setBusyByHost(({ [hostId]: _done, ...rest }) => rest)
+      setPendingByHost(({ [hostId]: _done, ...rest }) => rest)
+      if (result.healthy && result.outcome === 'started') {
+        queryClient.setQueryData<AgentInventoryEntry[]>(AGENTS_INVENTORY_QUERY_KEY, (entries) => withRunningUpdate(entries, hostId, result.at))
+        startedHereRef.current[hostId] = result.at
+        return
+      }
       void queryClient.invalidateQueries({ queryKey: AGENTS_INVENTORY_QUERY_KEY })
       const feedback = describeUpdateResult(result)
-      setFeedbackByHost((prev) => ({ ...prev, [hostId]: feedback }))
+      setLocal(hostId, { ...feedback, at: result.at })
       if (feedback.severity === 'error') showToast(feedback.message, 'error')
     },
     onError: (err: unknown, hostId) => {
-      setBusyByHost(({ [hostId]: _done, ...rest }) => rest)
+      setPendingByHost(({ [hostId]: _done, ...rest }) => rest)
       const message = serverFnErrorMessage(err, UPDATE_CALL_FAILED_MESSAGE)
-      setFeedbackByHost((prev) => ({ ...prev, [hostId]: { severity: 'error', message } }))
+      setLocal(hostId, { severity: 'error', message, at: currentRowAt(hostId) })
       showToast(message, 'error')
     },
   })

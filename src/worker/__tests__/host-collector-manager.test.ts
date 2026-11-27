@@ -42,6 +42,7 @@ function makeHost(name: string, overrides?: Partial<ManagedHost>): ManagedHost {
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSweptAt: null,
+    agentUpdate: null,
     ...overrides,
   };
 }

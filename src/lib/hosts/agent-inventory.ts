@@ -1,5 +1,8 @@
+import { z } from 'zod';
+import { isAgentUpdateFailureCode } from '@homelab-manager/agent/types';
 import type { HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
+import { isHostFailureCode, type HostProbeFailureCode } from '@/lib/errors/host-failure-copy';
+import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 
 /** The wire schema reads its members from this list: a status it rejects drops the client's whole snapshot. */
 export const AGENT_INVENTORY_STATUSES = [
@@ -26,6 +29,31 @@ export interface AgentInventoryFailure {
   message: string;
 }
 
+const zUpdateFailureCode = z.custom<UpdateFailureCode>(
+  (value) => isHostFailureCode(value) || isAgentUpdateFailureCode(value),
+);
+
+/** Also the JSONB stored on the host row, so a change must still read rows an older build wrote. */
+export const zAgentUpdateResult = z.union([
+  z.object({ healthy: z.literal(true), outcome: z.literal('updated'), version: z.string().optional() }),
+  z.object({ healthy: z.literal(true), outcome: z.literal('already_current') }),
+  z.object({ healthy: z.literal(false), code: zUpdateFailureCode, message: z.string() }),
+]);
+export type AgentUpdateResult = z.infer<typeof zAgentUpdateResult>;
+
+export const zAgentUpdateStatus = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('running'), at: z.string() }),
+  z.object({ state: z.literal('done'), at: z.string(), result: zAgentUpdateResult }),
+  z.object({ state: z.literal('interrupted'), at: z.string() }),
+]);
+/** `at` is an ISO timestamp: when a running update started, or when it ended. */
+export type AgentUpdateStatus = z.infer<typeof zAgentUpdateStatus>;
+
+export type StoredAgentUpdate =
+  | { state: 'running'; at: Date }
+  | { state: 'done'; at: Date; result: AgentUpdateResult }
+  | { state: 'interrupted'; at: Date };
+
 export interface AgentInventoryEntry {
   id: number;
   name: string;
@@ -41,6 +69,7 @@ export interface AgentInventoryEntry {
   /** True when the last sweep found the running digest different from the manager's own agent image. */
   agentOutOfDate: boolean;
   failure: AgentInventoryFailure | null;
+  update: AgentUpdateStatus | null;
   /** ISO timestamp of the inventory pass that produced this entry. */
   checkedAt: string;
 }
@@ -87,6 +116,7 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
     agentImageDigest: host.agentImageDigest,
     agentOutOfDate: host.agentOutOfDate,
     failure: host.failure === null ? null : { code: host.failure.code, message: host.failure.detail ?? '' },
+    update: host.agentUpdate === null ? null : { ...host.agentUpdate, at: host.agentUpdate.at.toISOString() },
     // Not updatedAt: every writer to managed_hosts bumps that column (rename,
     // URL edit, key rotation, a single-host health check), so it reports a
     // fresher sweep than actually ran. A host created but not yet swept falls

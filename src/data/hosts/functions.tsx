@@ -246,7 +246,7 @@ export const rotateHostTls = createServerFn()
     }, data);
   });
 
-export const updateAgent = createServerFn()
+export const updateAgent = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, roleMiddleware('admin')])
   .validator(updateAgentSchema)
   .handler(async ({ data }): Promise<UpdateAgentResult> => {
