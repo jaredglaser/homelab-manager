@@ -33,6 +33,7 @@ A PR is approval-ready only when every acceptance criterion has a recorded resul
 **Everything runs in this cloud box.** Agents, reviewers, and verifiers never use the maintainer's computer. Setup of the box is described in `docs/cloud-environment.md`.
 
 ## 0. Start of session
+- After a summary, load this skill again and read the handoff before anything else. The summary is a note, not the record. Then, for each PR, compare its current head commit with the one the handoff records. Where they differ, read the diff between the two before acting on that PR.
 - **Base clone:** the session's checkout of this repo. A session with more than one repository starts in their parent directory and does not run this repo's SessionStart hook, so do not rely on the working directory or on Docker already running. Find the checkout (`git rev-parse --show-toplevel`, or the directory that holds this skill's `.claude/`) and `cd` into it.
 - `mkdir -p /home/claude/work`, then start Docker and check the box from the base clone: `bash scripts/cloud/session-start.sh && bash scripts/cloud/env-check.sh`. The check reports the Bun pin, Docker, which stack images are cached, and which hosts are reachable. The proof types the box can produce today follow from it (section 2).
 - Run `nproc` and `free -g`. The memory rules in sections 4 and 5 assume a small box. Loosen them only if the box clearly has room.
@@ -192,7 +193,7 @@ designs/                          design plans and the decisions made on them
 
 - The first line of `handoff.md` is the status line: `ACTIVE: <session URL>, since <date>` or `IDLE`.
 - Run `git pull --ff-only` before every write. Commit straight to `main` and push. If the pull shows that another session changed `handoff.md` while this one holds the role, stop and tell the maintainer.
-- Keep `handoff.md` current throughout, so a new session can resume without the old context. It carries the task, the merge order, each PR's tier, criteria and current results, open questions for the maintainer, and links to the evidence.
+- Keep `handoff.md` current throughout, so a new session can resume without the old context. It carries the task, the merge order, each PR's tier, head commit, criteria and current results, open questions for the maintainer, and links to the evidence.
 - At the wrap-up, copy `handoff.md` to `archive/`, then set its status line to `IDLE`.
 - Questions and findings go to the maintainer in the session first. For a decision, a follow-up or an environment problem that is still open when the session ends, open an issue in the records repo from its matching template and link it from `handoff.md`.
 - Check `designs/` for a plan that covers the work before writing criteria for it.
