@@ -114,6 +114,8 @@ export interface AgentImageRelease {
    * sweep, the last hash read successfully, or undefined when no read has succeeded yet.
    */
   sourceHash: string | null | undefined;
+  /** Set when this resolve could not read the label, so sourceHash is an earlier read or undefined. */
+  sourceHashReadFailed?: true;
 }
 
 const SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/;
@@ -229,7 +231,7 @@ export function createAgentImageReleaseResolver(): (imageRef: string) => Promise
     } catch {
       sourceHash = undefined;
     }
-    if (sourceHash === undefined) return { digest: index.digest, sourceHash: lastReadSourceHash };
+    if (sourceHash === undefined) return { digest: index.digest, sourceHash: lastReadSourceHash, sourceHashReadFailed: true };
     if (sourceHashByDigest.size >= MAX_CACHED_DIGESTS) sourceHashByDigest.clear();
     sourceHashByDigest.set(index.digest, sourceHash);
     lastReadSourceHash = sourceHash;

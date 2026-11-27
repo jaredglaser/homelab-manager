@@ -232,7 +232,7 @@ describe('resolveAgentImageRelease', () => {
     }
     const failing = await registry({ label: SOURCE_HASH, tamper: true, indexDigest: 'sha256:' + '7'.repeat(64) });
     try {
-      expect(await resolve(`${REPO}:main`)).toEqual({ digest: 'sha256:' + '7'.repeat(64), sourceHash: SOURCE_HASH });
+      expect(await resolve(`${REPO}:main`)).toEqual({ digest: 'sha256:' + '7'.repeat(64), sourceHash: SOURCE_HASH, sourceHashReadFailed: true });
     } finally {
       failing.restore();
     }
@@ -245,6 +245,7 @@ describe('resolveAgentImageRelease', () => {
       const release = await resolve(`${REPO}:main`);
       expect(release?.digest).toBe('sha256:' + '8'.repeat(64));
       expect(release && 'sourceHash' in release ? release.sourceHash : 'missing').toBeUndefined();
+      expect(release?.sourceHashReadFailed).toBe(true);
     } finally {
       restore();
     }

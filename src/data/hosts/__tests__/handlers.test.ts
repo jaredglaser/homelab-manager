@@ -711,7 +711,10 @@ describe('handleUpdateAgent', () => {
       ...baseDeps(repo),
       getSigner,
       checkHealth: checkHealth ?? mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0' })),
-      resolveAgentImageDigest: resolveAgentImageDigest ?? mock(async (_imageRef: string) => TEST_DIGEST),
+      resolveAgentImageRelease: async (imageRef: string) => {
+        const digest = await (resolveAgentImageDigest ?? (() => Promise.resolve(TEST_DIGEST)))(imageRef);
+        return digest ? { digest, sourceHash: null } : null;
+      },
     };
   }
 
@@ -725,6 +728,53 @@ describe('handleUpdateAgent', () => {
   it('throws when host not found', async () => {
     const deps = updateDeps({ findById: mock(() => Promise.resolve(null)) });
     await expect(handleUpdateAgent(deps, { hostId: 99 })).rejects.toThrow('not found');
+  });
+
+  describe('when the source hashes are known', () => {
+    const HASH = 'e'.repeat(64);
+
+    function hashDeps(agentSourceHash: string | undefined, release: { sourceHash: string | null | undefined; sourceHashReadFailed?: true }) {
+      const checkHealth = mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0', agentSourceHash }));
+      return {
+        ...updateDeps(undefined, checkHealth),
+        resolveAgentImageRelease: () => Promise.resolve({ digest: TEST_DIGEST, ...release }),
+        sleep: () => Promise.resolve(),
+      };
+    }
+
+    function agentAnswersCurrent() {
+      return withFetch(() => Promise.resolve(new Response(JSON.stringify({ updateAvailable: false }), { status: 200 })));
+    }
+
+    it('answers already current without calling the agent when both hashes are equal', async () => {
+      const { restore, fetchMock } = agentAnswersCurrent();
+      try {
+        const deps = hashDeps(HASH, { sourceHash: HASH });
+        const result = await handleUpdateAgent(deps, { hostId: 1 });
+        expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'already_current' });
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(deps.repo.updateAgentInfo).toHaveBeenCalledWith(1, { outOfDate: false });
+      } finally {
+        restore();
+      }
+    });
+
+    it.each([
+      ['the hashes differ', 'a'.repeat(64), { sourceHash: HASH }],
+      ['the agent reports no hash', undefined, { sourceHash: HASH }],
+      ['the image has no hash label', HASH, { sourceHash: null }],
+      ['no label read has succeeded', HASH, { sourceHash: undefined, sourceHashReadFailed: true as const }],
+      ['the label read failed and only an earlier hash is known', HASH, { sourceHash: HASH, sourceHashReadFailed: true as const }],
+    ])('calls the agent when %s', async (_case, agentHash, release) => {
+      const { restore, fetchMock } = agentAnswersCurrent();
+      try {
+        const result = await handleUpdateAgent(hashDeps(agentHash, release), { hostId: 1 });
+        expect(result).toEqual({ hostId: 1, healthy: true, outcome: 'already_current' });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      } finally {
+        restore();
+      }
+    });
   });
 
   it('resolves the build-time image to a digest and sends it as the trigger target', async () => {

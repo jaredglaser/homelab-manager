@@ -6,7 +6,7 @@ import { isAgentUpdateFailureCode, zAgentRouteErrorBodyFromAnyAgent, type TlsFai
 import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failure-copy';
 import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
-import { resolveAgentImageDigest, type AgentImageRelease } from '@/lib/hosts/agent-image-digest';
+import { resolveAgentImageRelease, type AgentImageRelease } from '@/lib/hosts/agent-image-digest';
 import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
 import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agent-identity';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
@@ -352,7 +352,7 @@ export async function handleUpdateAgent(
   deps: HostHandlerDeps & {
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
     checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
-    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+    resolveAgentImageRelease?: (imageRef: string) => Promise<AgentImageRelease | null>;
     /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
     getCaCert?: (hostname: string) => Promise<string | null>;
     sleep?: (ms: number) => Promise<void>;
@@ -377,10 +377,10 @@ export async function handleUpdateAgent(
   // other cause would make a later version read look like a change that never happened.
   const preInfoUnsupported = preCheck.infoSupported === false;
 
-  const resolveDigest = deps.resolveAgentImageDigest ?? resolveAgentImageDigest;
+  const resolveRelease = deps.resolveAgentImageRelease ?? resolveAgentImageRelease;
   const imageRef = getAgentImage();
-  const digest = await resolveDigest(imageRef);
-  if (!digest) {
+  const release = await resolveRelease(imageRef);
+  if (!release) {
     return {
       hostId: host.id,
       healthy: false,
@@ -388,6 +388,12 @@ export async function handleUpdateAgent(
       message: 'Could not resolve the agent image digest from the registry',
     };
   }
+  // The agent decides by digest alone, so without this a rebuild of unchanged source swaps the container for nothing.
+  if (!release.sourceHashReadFailed && release.sourceHash && preCheck.agentSourceHash === release.sourceHash) {
+    await deps.repo.updateAgentInfo(host.id, { outOfDate: false });
+    return { hostId: host.id, healthy: true, outcome: 'already_current' };
+  }
+  const digest = release.digest;
   const targetImage = digestPinnedImageRef(imageRef, digest);
 
   let signer: () => Promise<string>;
