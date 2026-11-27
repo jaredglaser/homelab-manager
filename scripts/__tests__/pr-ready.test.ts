@@ -8,20 +8,20 @@ import {
   acceptanceSha,
   checkPull,
   checkState,
-  checkSummary,
   COULD_NOT_CHECK,
   couldNotCheck,
   criteriaApply,
   evaluate,
-  parseArgs,
-  publish,
+  lintBody,
+  parseNumbers,
   realApi,
   realGit,
+  reasons,
   requiredChecksFromRules,
+  runBodyLint,
   runCli,
-  selectPulls,
   sessionLine,
-  type CheckRunWrite,
+  staleCriteria,
   type Facts,
   type GhApi,
   type GhCheckRun,
@@ -44,8 +44,8 @@ function rules(contexts: string[]): unknown[] {
   ];
 }
 
-function run(name: string, status: string, conclusion: string | null, id = 1, extra: Partial<GhCheckRun> = {}): GhCheckRun {
-  return { id, name, status, conclusion, appId: 15368, appSlug: 'github-actions', externalId: '', ...extra };
+function run(name: string, status: string, conclusion: string | null, id = 1, appId: number | null = 15368): GhCheckRun {
+  return { id, name, status, conclusion, appId };
 }
 
 function pull(overrides: Partial<GhPull> = {}): GhPull {
@@ -86,15 +86,7 @@ interface FakeOpts {
   fail?: keyof GhApi | 'fetchCommits' | 'conflictingFiles';
 }
 
-function fakes(opts: FakeOpts = {}): {
-  api: GhApi;
-  git: GitApi;
-  created: Array<{ sha: string; run: CheckRunWrite }>;
-  updated: Array<{ id: number; run: CheckRunWrite }>;
-  rulesFor: string[];
-} {
-  const created: Array<{ sha: string; run: CheckRunWrite }> = [];
-  const updated: Array<{ id: number; run: CheckRunWrite }> = [];
+function fakes(opts: FakeOpts = {}): { api: GhApi; git: GitApi; rulesFor: string[] } {
   const rulesFor: string[] = [];
   const guard = (name: string): void => {
     if (opts.fail === name) throw new Error(`GET ${name} failed: HTTP 403`);
@@ -125,12 +117,6 @@ function fakes(opts: FakeOpts = {}): {
       guard('listStatuses');
       return [];
     },
-    createCheckRun: async (_repo, sha, r) => {
-      created.push({ sha, run: r });
-    },
-    updateCheckRun: async (_repo, id, r) => {
-      updated.push({ id, run: r });
-    },
   };
   const git: GitApi = {
     fetchCommits: async () => {
@@ -141,25 +127,23 @@ function fakes(opts: FakeOpts = {}): {
       return opts.conflicts ?? 0;
     },
   };
-  return { api, git, created, updated, rulesFor };
+  return { api, git, rulesFor };
 }
 
 describe('the Ready line, word for word', () => {
   test('w1: everything holds and the branch is up to date', () => {
-    expect(evaluate(facts())).toEqual({ conclusion: 'success', line: 'Ready', reasons: [] });
+    expect(evaluate(facts())).toEqual({ line: 'Ready' });
   });
 
-  test('w2: behind main with no conflicts is green and states the count (AC3)', () => {
-    const v = evaluate(facts({ behindBy: 3 }));
-    expect(v.conclusion).toBe('success');
-    expect(v.line).toBe('Ready. 3 commits behind main, no conflicts.');
+  test('w2: behind main with no conflicts states the count (AC3)', () => {
+    expect(evaluate(facts({ behindBy: 3 })).line).toBe('Ready. 3 commits behind main, no conflicts.');
     expect(evaluate(facts({ behindBy: 1 })).line).toBe('Ready. 1 commit behind main, no conflicts.');
   });
 
   test('w3: a required check is still running', () => {
-    const v = evaluate(facts({ checks: [{ name: BUILD, state: 'running' }] }));
-    expect(v.conclusion).toBe('failure');
-    expect(v.line).toBe('Not ready: Build, Test & License Check is still running.');
+    expect(evaluate(facts({ checks: [{ name: BUILD, state: 'running' }] })).line).toBe(
+      'Not ready: Build, Test & License Check is still running.',
+    );
   });
 
   test('w4: a required check failed', () => {
@@ -175,33 +159,29 @@ describe('the Ready line, word for word', () => {
   });
 
   test('w6: the PR conflicts with current main', () => {
-    const v = evaluate(facts({ conflictFiles: 2, behindBy: 4 }));
-    expect(v.conclusion).toBe('failure');
-    expect(v.line).toBe('Not ready: conflicts with main in 2 files.');
+    expect(evaluate(facts({ conflictFiles: 2, behindBy: 4 })).line).toBe('Not ready: conflicts with main in 2 files.');
     expect(evaluate(facts({ conflictFiles: 1 })).line).toBe('Not ready: conflicts with main in 1 file.');
   });
 
   test('w7: the base is another open PR (AC4)', () => {
-    const v = evaluate(facts({ stackedOn: 676 }));
-    expect(v.conclusion).toBe('failure');
-    expect(v.line).toBe('Not ready: stacked on #676. Merge #676 first.');
+    expect(evaluate(facts({ stackedOn: 676 })).line).toBe('Not ready: stacked on #676. Merge #676 first.');
   });
 
   test('w8: the Acceptance table is at an older commit', () => {
-    const v = evaluate(facts({ acceptanceSha: '1a2b3c4d5e' }));
-    expect(v.conclusion).toBe('failure');
-    expect(v.line).toBe('Not ready: criteria were verified at 1a2b3c4 and the PR has moved since.');
+    expect(evaluate(facts({ acceptanceSha: '1a2b3c4d5e' })).line).toBe(
+      'Not ready: criteria were verified at 1a2b3c4 and the PR has moved since.',
+    );
   });
 
-  test('w9: a draft is red', () => {
-    const v = evaluate(facts({ draft: true }));
-    expect(v.conclusion).toBe('failure');
-    expect(v.line).toBe('Not ready: this PR is a draft.');
+  test('w9: a draft', () => {
+    expect(evaluate(facts({ draft: true })).line).toBe('Not ready: this PR is a draft.');
   });
 
-  test('w11: could not check is neutral, never success (AC8)', () => {
-    const v = couldNotCheck(new Error('GET x failed: HTTP 502'));
-    expect(v).toEqual({ conclusion: 'neutral', line: 'Could not check. Re-run this check.', reasons: [], error: 'GET x failed: HTTP 502' });
+  test('w11: could not check is never Ready (AC8)', () => {
+    expect(couldNotCheck(new Error('GET x failed: HTTP 502'))).toEqual({
+      line: 'Could not check. Re-run this check.',
+      error: 'GET x failed: HTTP 502',
+    });
     expect(couldNotCheck('boom').error).toBe('boom');
   });
 
@@ -211,21 +191,19 @@ describe('the Ready line, word for word', () => {
     );
   });
 
-  test('the first reason is the line and every reason is in the summary', () => {
-    const v = evaluate(
-      facts({
-        draft: true,
-        stackedOn: 676,
-        conflictFiles: 2,
-        acceptanceSha: '1a2b3c4',
-        checks: [
-          { name: BUILD, state: 'failed' },
-          { name: LINT, state: 'running' },
-          { name: 'Other', state: 'missing' },
-        ],
-      }),
-    );
-    expect(v.reasons).toEqual([
+  test('the first reason is the line', () => {
+    const f = facts({
+      draft: true,
+      stackedOn: 676,
+      conflictFiles: 2,
+      acceptanceSha: '1a2b3c4',
+      checks: [
+        { name: BUILD, state: 'failed' },
+        { name: LINT, state: 'running' },
+        { name: 'Other', state: 'missing' },
+      ],
+    });
+    expect(reasons(f)).toEqual([
       'Not ready: this PR is a draft.',
       'Not ready: stacked on #676. Merge #676 first.',
       'Not ready: conflicts with main in 2 files.',
@@ -234,12 +212,7 @@ describe('the Ready line, word for word', () => {
       'Not ready: Other has not run on this commit.',
       'Not ready: criteria were verified at 1a2b3c4 and the PR has moved since.',
     ]);
-    const summary = checkSummary({ number: 1, headSha: HEAD, verdict: v });
-    expect(summary).toStartWith('Not ready: this PR is a draft.\n\nWorked out at abcdef1.');
-    expect(summary).toContain('- Not ready: Other has not run on this commit.');
-    expect(checkSummary({ number: 1, headSha: HEAD, verdict: couldNotCheck(new Error('HTTP 502')) })).toContain(
-      'GitHub did not answer: HTTP 502',
-    );
+    expect(evaluate(f).line).toBe('Not ready: this PR is a draft.');
   });
 });
 
@@ -251,12 +224,12 @@ describe('required checks come from the ruleset (AC11)', () => {
     ]);
   });
 
-  test('a renamed or added check is followed and duplicates or Ready itself are dropped', () => {
+  test('a renamed or added check is followed and duplicates are dropped', () => {
     const extra = [
       ...rules(['Build & Test', LINT]),
       {
         type: 'required_status_checks',
-        parameters: { required_status_checks: [{ context: 'Lint' }, { context: LINT }, { context: 'Ready' }, { nope: 1 }] },
+        parameters: { required_status_checks: [{ context: 'Lint' }, { context: LINT }, { nope: 1 }] },
       },
       { type: 'required_status_checks', parameters: {} },
     ];
@@ -291,10 +264,8 @@ describe('checkState', () => {
   });
 
   test('a run from another app does not count', () => {
-    expect(checkState(build, [run(BUILD, 'completed', 'success', 1, { appId: 999 })], [])).toBe('missing');
-    expect(checkState({ context: BUILD, integrationId: null }, [run(BUILD, 'completed', 'success', 1, { appId: 999 })], [])).toBe(
-      'passed',
-    );
+    expect(checkState(build, [run(BUILD, 'completed', 'success', 1, 999)], [])).toBe('missing');
+    expect(checkState({ context: BUILD, integrationId: null }, [run(BUILD, 'completed', 'success', 1, 999)], [])).toBe('passed');
   });
 
   test('commit statuses are read when there is no check run', () => {
@@ -321,8 +292,11 @@ describe('Acceptance table', () => {
     expect(acceptanceIsCurrent('<head SHA>', HEAD)).toBe(false);
   });
 
-  test('a non-SHA value is quoted as written', () => {
-    expect(evaluate(facts({ acceptanceSha: '<head SHA>' })).line).toBe(
+  test('staleCriteria quotes a short SHA, or a non-SHA value as written', () => {
+    expect(staleCriteria(null, HEAD)).toBeNull();
+    expect(staleCriteria('abcdef1', HEAD)).toBeNull();
+    expect(staleCriteria('1a2b3c4d5e6f', HEAD)).toBe('Not ready: criteria were verified at 1a2b3c4 and the PR has moved since.');
+    expect(staleCriteria('<head SHA>', HEAD)).toBe(
       'Not ready: criteria were verified at <head SHA> and the PR has moved since.',
     );
   });
@@ -336,10 +310,10 @@ describe('Acceptance table', () => {
   test('a PR with no Acceptance table is not failed for it (AC6)', async () => {
     const { api, git } = fakes();
     const r = await checkPull(REPO, pull({ body: 'fix: a small fix\n\nNo criteria here.' }), [], api, git);
-    expect(r.verdict).toEqual({ conclusion: 'success', line: 'Ready', reasons: [] });
+    expect(r.verdict).toEqual({ line: 'Ready' });
   });
 
-  test('release and Dependabot PRs get only the four facts (AC7)', async () => {
+  test('release and Dependabot PRs are not judged on a table', async () => {
     const stale = '## Acceptance (verified at 1111111)\n';
     expect(criteriaApply(pull({ author: 'dependabot[bot]' }))).toBe(false);
     expect(criteriaApply(pull({ headRef: 'release-please--branches--main--components--homelab-manager' }))).toBe(false);
@@ -348,10 +322,6 @@ describe('Acceptance table', () => {
     expect((await checkPull(REPO, pull({ author: 'dependabot[bot]', body: stale }), [], api, git)).verdict.line).toBe('Ready');
     expect((await checkPull(REPO, pull({ body: stale }), [], api, git)).verdict.line).toBe(
       'Not ready: criteria were verified at 1111111 and the PR has moved since.',
-    );
-    const failing = fakes({ runs: [run(BUILD, 'completed', 'failure', 1), run(LINT, 'completed', 'success', 2)] });
-    expect((await checkPull(REPO, pull({ author: 'dependabot[bot]' }), [], failing.api, failing.git)).verdict.line).toBe(
-      'Not ready: Build, Test & License Check failed.',
     );
   });
 });
@@ -366,99 +336,91 @@ describe('checkPull', () => {
     expect(rulesFor).toEqual(['parent-branch']);
   });
 
-  test('once the parent merges and the child points at main it is worked out again (AC5 logic)', async () => {
-    const child = pull({ number: 677, baseRef: 'main' });
-    const { api, git } = fakes({ behindBy: 1 });
-    const r = await checkPull(REPO, child, [child], api, git);
-    expect(r.verdict.line).toBe('Ready. 1 commit behind main, no conflicts.');
-  });
-
   test('behind and conflicting is red with the file count', async () => {
     const { api, git } = fakes({ behindBy: 5, conflicts: 2 });
     expect((await checkPull(REPO, pull(), [], api, git)).verdict.line).toBe('Not ready: conflicts with main in 2 files.');
   });
 
-  test('a running check at the head is red (AC1 logic)', async () => {
+  test('a running check at the head is not ready', async () => {
     const { api, git } = fakes({ runs: [run(BUILD, 'in_progress', null, 1), run(LINT, 'completed', 'success', 2)] });
     const r = await checkPull(REPO, pull(), [], api, git);
-    expect(r.verdict.conclusion).toBe('failure');
     expect(r.verdict.line).toBe('Not ready: Build, Test & License Check is still running.');
   });
 
   test.each(['getBranchRules', 'listCheckRuns', 'listStatuses', 'compare', 'fetchCommits', 'conflictingFiles'] as const)(
-    'GitHub or git failing at %s reads "Could not check" and is never green (AC8)',
+    'GitHub or git failing at %s reads "Could not check" (AC8)',
     async (fail) => {
       const { api, git } = fakes({ fail });
       const r = await checkPull(REPO, pull(), [], api, git);
-      expect(r.verdict.conclusion).toBe('neutral');
       expect(r.verdict.line).toBe(COULD_NOT_CHECK);
       expect(r.headSha).toBe(HEAD);
     },
   );
 });
 
-describe('publish', () => {
-  const result = { number: 700, headSha: HEAD, verdict: evaluate(facts()) };
-
-  test('creates the Ready check run at the head commit', async () => {
-    const { api, created } = fakes({ runs: [] });
-    expect(await publish(REPO, result, 1000, api, 'https://example.test/run')).toBe('created');
-    expect(created).toEqual([
-      {
-        sha: HEAD,
-        run: {
-          conclusion: 'success',
-          title: 'Ready',
-          summary: 'Ready\n\nWorked out at abcdef1.',
-          externalId: '1000',
-          detailsUrl: 'https://example.test/run',
-        },
+describe('PR Body Lint', () => {
+  function event(body: string | null, overrides: { sha?: string; ref?: string; login?: string } = {}): unknown {
+    return {
+      pull_request: {
+        number: 7,
+        body,
+        user: { login: overrides.login ?? 'someone' },
+        head: { ref: overrides.ref ?? 'feature', sha: overrides.sha ?? HEAD },
+        base: { ref: 'main' },
       },
+    };
+  }
+
+  test('no Acceptance table passes', () => {
+    expect(lintBody(event('A small fix.'))).toEqual({ ok: true, message: 'OK: the description has no Acceptance table.' });
+    expect(lintBody(event(null)).ok).toBe(true);
+  });
+
+  test('a table at the head passes, short or full SHA', () => {
+    expect(lintBody(event('## Acceptance (verified at abcdef1)\n'))).toEqual({
+      ok: true,
+      message: 'OK: criteria were verified at the head commit abcdef1.',
+    });
+    expect(lintBody(event(`## Acceptance (verified at ${HEAD})\n`)).ok).toBe(true);
+  });
+
+  test('a stale table fails with message w8 and an error annotation', () => {
+    expect(lintBody(event('## Acceptance (verified at 1a2b3c4)\n'))).toEqual({
+      ok: false,
+      message: 'Not ready: criteria were verified at 1a2b3c4 and the PR has moved since.',
+    });
+    const out: string[] = [];
+    expect(runBodyLint(JSON.stringify(event('## Acceptance (verified at 1a2b3c4)\n')), (l) => out.push(l))).toBe(1);
+    expect(out).toEqual([
+      '::error title=PR Body Lint::Not ready: criteria were verified at 1a2b3c4 and the PR has moved since.',
+      'Not ready: criteria were verified at 1a2b3c4 and the PR has moved since.',
     ]);
   });
 
-  test('updates the existing line so each commit has one (AC10 logic)', async () => {
-    const runs = [run('Ready', 'completed', 'failure', 5, { externalId: '900' }), run('Ready', 'completed', 'failure', 9, { externalId: '950' })];
-    const { api, created, updated } = fakes({ runs });
-    expect(await publish(REPO, result, 1000, api)).toBe('updated');
-    expect(created).toEqual([]);
-    expect(updated.map((u) => u.id)).toEqual([9]);
+  test('the annotation escapes workflow command characters', () => {
+    const out: string[] = [];
+    runBodyLint(JSON.stringify(event('## Acceptance (verified at 100% done)\n')), (l) => out.push(l));
+    expect(out[0]).toBe('::error title=PR Body Lint::Not ready: criteria were verified at 100%25 done and the PR has moved since.');
   });
 
-  test('an older run never overwrites a newer result (AC10 logic)', async () => {
-    const { api, created, updated } = fakes({ runs: [run('Ready', 'completed', 'success', 9, { externalId: '2000' })] });
-    expect(await publish(REPO, result, 1000, api)).toBe('skipped');
-    expect([...created, ...updated]).toEqual([]);
+  test('release-please and Dependabot heads pass even with a stale table', () => {
+    const stale = '## Acceptance (verified at 1a2b3c4)\n';
+    expect(lintBody(event(stale, { ref: 'release-please--branches--main' })).ok).toBe(true);
+    expect(lintBody(event(stale, { login: 'dependabot[bot]' }))).toEqual({
+      ok: true,
+      message: 'OK: release-please and Dependabot PRs carry no Acceptance table.',
+    });
   });
 
-  test('a Ready run from another app is not treated as ours', async () => {
-    const { api, created } = fakes({ runs: [run('Ready', 'completed', 'success', 9, { appSlug: 'other', externalId: '9999' })] });
-    expect(await publish(REPO, result, 1000, api)).toBe('created');
-    expect(created).toHaveLength(1);
+  test('a passing run prints its message and exits 0', () => {
+    const out: string[] = [];
+    expect(runBodyLint(JSON.stringify(event('')), (l) => out.push(l))).toBe(0);
+    expect(out).toEqual(['OK: the description has no Acceptance table.']);
   });
 
-  test('a could-not-check result publishes as neutral', async () => {
-    const { api, created } = fakes({ runs: [] });
-    await publish(REPO, { number: 700, headSha: HEAD, verdict: couldNotCheck(new Error('x')) }, 1, api);
-    expect(created[0].run.conclusion).toBe('neutral');
-    expect(created[0].run.title).toBe('Could not check. Re-run this check.');
-  });
-});
-
-describe('arguments and selection', () => {
-  test('parseArgs', () => {
-    expect(parseArgs([])).toEqual({ publish: false, headSha: null, numbers: [] });
-    expect(parseArgs(['--publish', '694', '#693'])).toEqual({ publish: true, headSha: null, numbers: [694, 693] });
-    expect(parseArgs([`--head-sha=${HEAD.toUpperCase()}`]).headSha).toBe(HEAD);
-    expect(() => parseArgs(['--head-sha=abc'])).toThrow('--head-sha needs a full commit SHA');
-    expect(() => parseArgs(['--nope'])).toThrow('Unknown argument: --nope');
-  });
-
-  test('selectPulls', () => {
-    const open = [pull({ number: 1 }), pull({ number: 3, headSha: 'f'.repeat(40) }), pull({ number: 2 })];
-    expect(selectPulls(parseArgs([]), open).map((p) => p.number)).toEqual([3, 2, 1]);
-    expect(selectPulls(parseArgs([`--head-sha=${HEAD}`]), open).map((p) => p.number)).toEqual([1, 2]);
-    expect(selectPulls(parseArgs(['5']), open)).toEqual([]);
+  test('a payload with no pull_request fails', () => {
+    expect(lintBody({})).toEqual({ ok: false, message: 'FAIL: the event payload has no pull_request.' });
+    expect(lintBody(null).ok).toBe(false);
   });
 });
 
@@ -466,15 +428,21 @@ describe('runCli', () => {
   function deps(f: ReturnType<typeof fakes>): { out: string[]; err: string[]; d: Parameters<typeof runCli>[1] } {
     const out: string[] = [];
     const err: string[] = [];
-    return { out, err, d: { repo: REPO, api: f.api, git: f.git, startedAtMs: 5, out: (l) => out.push(l), err: (l) => err.push(l) } };
+    return { out, err, d: { repo: REPO, api: f.api, git: f.git, out: (l) => out.push(l), err: (l) => err.push(l) } };
   }
 
-  test('prints one session line per PR and publishes on request', async () => {
-    const f = fakes({ runs: [run(BUILD, 'completed', 'success', 1), run(LINT, 'completed', 'success', 2)] });
-    const { out, d } = deps(f);
-    expect(await runCli(['--publish', '700', '701'], d)).toBe(0);
-    expect(out).toEqual(['Ready #700 at abcdef1', '  check run created', 'Ready #701 at abcdef1', '  check run created']);
-    expect(f.created).toHaveLength(2);
+  test('parseNumbers', () => {
+    expect(parseNumbers(['694', '#693'])).toEqual([694, 693]);
+    expect(() => parseNumbers(['--publish'])).toThrow('Unknown argument: --publish');
+  });
+
+  test('prints one session line per PR, every open PR when none is named', async () => {
+    const { out, d } = deps(fakes());
+    expect(await runCli(['700', '701'], d)).toBe(0);
+    expect(out).toEqual(['Ready #700 at abcdef1', 'Ready #701 at abcdef1']);
+    const all = deps(fakes());
+    expect(await runCli([], all.d)).toBe(0);
+    expect(all.out).toEqual(['Ready #700 at abcdef1']);
   });
 
   test('prints the error under a could-not-check line', async () => {
@@ -524,7 +492,7 @@ describe('realApi', () => {
       [`${REPO}/rules/branches/bot%2Fx`]: rules([BUILD]),
       [`${REPO}/compare/main...${HEAD}`]: { behind_by: 3, base_commit: { sha: 'b' }, merge_base_commit: { sha: 'm' } },
       [`${REPO}/commits/${HEAD}/check-runs`]: {
-        check_runs: [{ id: 4, name: BUILD, status: 'completed', conclusion: 'success', external_id: null, app: null }],
+        check_runs: [{ id: 4, name: BUILD, status: 'completed', conclusion: 'success', app: null }],
       },
       [`${REPO}/commits/${HEAD}/status`]: { statuses: [{ context: 'c', state: 'success', extra: 1 }] },
     });
@@ -542,7 +510,7 @@ describe('realApi', () => {
     expect(await api.getBranchRules(REPO, 'bot/x')).toEqual(rules([BUILD]));
     expect(await api.compare(REPO, 'main', HEAD)).toEqual({ baseSha: 'b', mergeBaseSha: 'm', behindBy: 3 });
     expect(await api.listCheckRuns(REPO, HEAD)).toEqual([
-      { id: 4, name: BUILD, status: 'completed', conclusion: 'success', appId: null, appSlug: '', externalId: '' },
+      { id: 4, name: BUILD, status: 'completed', conclusion: 'success', appId: null },
     ]);
     expect(await api.listStatuses(REPO, HEAD)).toEqual([{ context: 'c', state: 'success' }]);
     expect((f.calls[0].init.headers as Record<string, string>).Authorization).toBe('Bearer tok');
@@ -557,7 +525,7 @@ describe('realApi', () => {
         return Response.json(Array.from({ length: pullPage === 1 ? 100 : 1 }, (_, i) => rawPull(pullPage * 1000 + i)));
       }
       runPage++;
-      const r = { id: runPage, name: 'n', status: 'queued', conclusion: null, external_id: 'e', app: { id: 1, slug: 's' } };
+      const r = { id: runPage, name: 'n', status: 'queued', conclusion: null, app: { id: 1 } };
       return Response.json({ check_runs: Array.from({ length: runPage === 1 ? 100 : 0 }, () => r) });
     };
     const api = realApi(undefined, impl);
@@ -566,40 +534,17 @@ describe('realApi', () => {
     expect(runPage).toBe(2);
   });
 
-  test('creates and updates check runs', async () => {
-    const f = fakeFetch({});
-    const api = realApi(undefined, f.impl);
-    const write: CheckRunWrite = { conclusion: 'failure', title: 't', summary: 's', externalId: '1', detailsUrl: 'u' };
-    await api.createCheckRun(REPO, HEAD, write);
-    await api.updateCheckRun(REPO, 9, { ...write, detailsUrl: undefined });
-    expect(f.calls.map((c) => [c.init.method, c.url])).toEqual([
-      ['POST', `https://api.github.com/repos/${REPO}/check-runs`],
-      ['PATCH', `https://api.github.com/repos/${REPO}/check-runs/9`],
-    ]);
-    expect(JSON.parse(f.calls[0].init.body as string)).toEqual({
-      name: 'Ready',
-      head_sha: HEAD,
-      status: 'completed',
-      conclusion: 'failure',
-      external_id: '1',
-      details_url: 'u',
-      output: { title: 't', summary: 's' },
-    });
-    expect(JSON.parse(f.calls[1].init.body as string).details_url).toBeUndefined();
-    expect((f.calls[0].init.headers as Record<string, string>).Authorization).toBeUndefined();
-  });
-
-  test('a refused or rate-limited request throws so the check reads "Could not check"', async () => {
-    const api = realApi('t', fakeFetch({}, 403).impl);
-    await expect(api.getPull(REPO, 1)).rejects.toThrow(`GET ${REPO}/pulls/1 failed: HTTP 403`);
-    await expect(api.createCheckRun(REPO, HEAD, { conclusion: 'neutral', title: 't', summary: 's', externalId: '1' })).rejects.toThrow(
-      `POST ${REPO}/check-runs failed: HTTP 403`,
-    );
+  test('a refused or rate-limited request throws so the line reads "Could not check"', async () => {
+    const refused = fakeFetch({}, 403);
+    await expect(realApi(undefined, refused.impl).getPull(REPO, 1)).rejects.toThrow(`GET ${REPO}/pulls/1 failed: HTTP 403`);
+    expect((refused.calls[0].init.headers as Record<string, string>).Authorization).toBeUndefined();
     const limited = realApi('t', fakeFetch({}, 429).impl, async () => {});
     const { git } = fakes();
     const r = await checkPull(REPO, pull(), [], limited, git);
-    expect(r.verdict.conclusion).toBe('neutral');
-    expect(r.verdict.error).toBe(`GET ${REPO}/rules/branches/main?per_page=100 failed: HTTP 429`);
+    expect(r.verdict).toEqual({
+      line: COULD_NOT_CHECK,
+      error: `GET ${REPO}/rules/branches/main?per_page=100 failed: HTTP 429`,
+    });
   });
 });
 
