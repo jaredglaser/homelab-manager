@@ -90,7 +90,7 @@ interface ManagedHostRow {
   updated_at: Date;
   last_swept_at: Date | null;
   agent_update_state: string | null;
-  agent_update_result: unknown;
+  agent_update_result: Record<string, unknown> | null;
   agent_update_at: Date | null;
 }
 
