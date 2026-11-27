@@ -67,7 +67,7 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Lint the PR description
-        run: bun scripts/pr-ready.ts --lint-body
+        run: bun scripts/pr-body-lint.ts
 
   version-impact:
     name: Version Impact Comment
