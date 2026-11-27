@@ -1,0 +1,20 @@
+# Overlay for docker-compose.local.yml on a cloud box. Run it through scripts/cloud/docker.sh compose.
+# Build steps reach the network only through the box's proxy, which listens on the host's loopback.
+x-proxy-build: &proxy-build
+  network: host
+  args:
+    - HTTPS_PROXY
+    - https_proxy
+
+services:
+  worker:
+    build: *proxy-build
+  agent:
+    build: *proxy-build
+  socket-proxy:
+    environment:
+      # The box has no IPv6, and haproxy exits when it cannot bind [::]:2375.
+      DISABLE_IPV6: "1"
+  pocket-id-seeder:
+    # The checkout is owned by root, and the image's curl user cannot write the seeded env and login files into it.
+    user: "0:0"

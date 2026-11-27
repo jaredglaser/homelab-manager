@@ -39,3 +39,10 @@ if [ -n "$HLM_RECORDS_REPO" ]; then
 else
   row "records repo" "HLM_RECORDS_REPO is not set"
 fi
+
+echo "== Branches"
+if branches="$(bash "$REPO/scripts/cloud/branches-without-pr.sh")"; then
+  [ -n "$branches" ] && echo "$branches" || row "ahead of main with no open PR" "none"
+else
+  row "ahead of main with no open PR" "FAILED (GitHub REST)"
+fi
