@@ -111,12 +111,12 @@ AC3 [e2e, must-not-change] Cancel still discards the edit and leaves the row unc
 - **After a session restart,** earlier agents may not be resumable. Start a fresh owner agent with the full context: PR, branch, base, head, criteria, the findings to fix, and stack position.
 
 ## 4. Independent review (run by the orchestrator)
-- When an owner reports, dispatch `pr-reviewer` with the PR number, its base and the criteria. Never give it the owner's report.
+- When an owner reports, dispatch `pr-reviewer` with the PR number or its clone path, its base and the criteria. Never give it the owner's report.
 - Trivial and Low tier: one reviewer. Higher tier: two that do not see each other's output, the second dispatched on Opus. More only for a large PR with several separate data flows, or one that needs an angle the reviewer file does not cover: one more reviewer per flow or angle, with the reason in its prompt.
-- A test-only PR also gets a mutation run: which mutations does `main` catch, and which does the PR.
+- A test-only PR also gets a mutation run, by the `verifier` in its own clone: which mutations does `main` catch, and which does the PR.
 - Reproduce a finding before you send it on, or label it "agent reported, not reproduced". Send the owner one list, and keep the maintainer's decisions out of it.
 - The owner fixes every valid finding, minor ones included, before the PR goes to the maintainer. Nothing unfixed is listed in the PR body. A round with no serious finding ends review once its minor findings are fixed.
-- After a fix round, one reviewer reads only the new commits. After three rounds that each found something serious, stop and bring the PR to the maintainer.
+- After a fix round, one reviewer reads only the new commits. A Sonnet owner is replaced after two serious rounds (section 3). After three rounds that each found something serious, stop and bring the PR to the maintainer.
 - Review reads the code. It is not proof for any criterion.
 
 ## 5. Behavioural verification (run by the orchestrator, one PR at a time)

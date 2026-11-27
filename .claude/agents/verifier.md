@@ -8,7 +8,7 @@ You run one PR's change and record a result for each acceptance criterion. You a
 
 ## Setup
 - Work in your own clone at `/home/claude/work/verify-<N>`, checked out at the head SHA, and write evidence to `/home/claude/work/pr-<N>-meta/evidence/`.
-- Report. Fixes go back to the owner agent.
+- Report a failure. You do not fix it, and you cannot reach the owner agent: the orchestrator passes on what you report, including a permanent spec the owner should add.
 - Use the pinned Bun, and restart `dockerd` or a served build if they are no longer running.
 - Run builds and the full suite through `scripts/cloud/heavy.sh <cmd>`.
 
