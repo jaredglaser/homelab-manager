@@ -201,6 +201,18 @@ describe('EditDialog', () => {
     expect(onConfirm).not.toHaveBeenCalled()
   })
 
+  it('holds the footer space of the Agent URL reason whether or not it shows, so the buttons stay put', async () => {
+    const user = setupUser()
+    render(<EditDialog {...defaultProps} host={makeHost({ agentUrl: '', status: 'pending' })} />)
+    const footer = screen.getByRole('button', { name: 'Save' }).parentElement!
+    const message = 'Enter the full agent URL, such as https://192.168.1.10:9090.'
+    expect(footer.querySelector('[data-slot="action-reason"]')?.textContent).toBe(message)
+    expect(footer.querySelector('[aria-hidden="true"]')?.textContent).toBe(message)
+    await user.type(screen.getByLabelText('Edit Agent URL'), 'https://10.0.0.1:9090')
+    expect(footer.querySelector('[data-slot="action-reason"]')?.textContent).toBe('')
+    expect(footer.querySelector('[aria-hidden="true"]')?.textContent).toBe(message)
+  })
+
   it('clears the Agent URL message once the URL is valid', async () => {
     const user = setupUser()
     render(<EditDialog {...defaultProps} />)

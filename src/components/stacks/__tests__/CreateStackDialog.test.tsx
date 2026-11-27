@@ -168,12 +168,14 @@ describe('CreateStackDialog', () => {
     expect(footer?.textContent).not.toContain('Enter a name for this stack.');
   });
 
-  it('asks for a target host when there is none to pick', async () => {
+  it('says where to add a host when there is none to pick', async () => {
     const user = setupUser();
     render(<CreateStackDialog {...defaultProps} hosts={[]} />);
-    await user.type(screen.getByLabelText('Stack Name'), 'my-app');
     const footer = screen.getByRole('button', { name: 'Create Stack' }).parentElement;
-    expect(footer?.textContent).toContain('Select a target host.');
+    expect(footer?.querySelector('[data-slot="action-reason"]')?.textContent).toBe('Add a host under Settings, then Managed Hosts.');
+    await user.type(screen.getByLabelText('Stack Name'), 'my-app');
+    expect(footer?.querySelector('[data-slot="action-reason"]')?.textContent).toBe('Add a host under Settings, then Managed Hosts.');
+    expect(screen.queryByText('Select a target host.')).toBeNull();
     expect(screen.getByRole('button', { name: 'Create Stack' }).hasAttribute('disabled')).toBe(true);
   });
 

@@ -24,6 +24,8 @@ const createStackFormSchema = createStackSchema.extend({
 });
 type CreateStackInput = z.infer<typeof createStackFormSchema>;
 
+const NO_HOSTS_REASON = 'Add a host under Settings, then Managed Hosts.';
+
 interface CreateStackDialogProps {
   open: boolean;
   onClose: () => void;
@@ -62,7 +64,7 @@ export default function CreateStackDialog({
 
   const check = createStackFormSchema.safeParse(values);
   const isValid = check.success && !nameError;
-  const reason = blockedReason(fieldIssues(check), {
+  const reason = hosts.length === 0 ? NO_HOSTS_REASON : blockedReason(fieldIssues(check), {
     isTouched: (field) => Boolean(touchedFields[field as keyof CreateStackInput]),
     isEmpty: (field) => String(values[field as keyof CreateStackInput]).trim() === '',
   });

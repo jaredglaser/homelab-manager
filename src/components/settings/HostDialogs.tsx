@@ -55,6 +55,8 @@ interface EditDialogProps {
 
 const editHostFormSchema = z.object({ agentUrl: z.string().trim().pipe(agentUrlSchema) })
 type EditHostFormValues = z.infer<typeof editHostFormSchema>
+// Every reason this footer can show is the empty-URL one, so reserving its wrapped height keeps the buttons from moving when it clears.
+const AGENT_URL_REASON = fieldIssues(editHostFormSchema.safeParse({ agentUrl: '' }))[0]?.message ?? ''
 
 export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogProps) {
   const form = useForm<EditHostFormValues>({
@@ -93,7 +95,10 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
           </Field>
         </DialogBody>
         <DialogFooter>
-          {reason && <ActionReason className="mr-auto min-w-0 pl-4">{reason}</ActionReason>}
+          <div className="mr-auto grid min-w-0 pl-4">
+            <span aria-hidden="true" className="invisible col-start-1 row-start-1 text-xs">{AGENT_URL_REASON}</span>
+            <ActionReason className="col-start-1 row-start-1">{reason}</ActionReason>
+          </div>
           <Button variant="ghost" className="shrink-0" onClick={onClose}>Cancel</Button>
           <Button className="shrink-0" onClick={() => { void handleSave() }} disabled={!check.success}>
             {isUpdating ? <Spinner className="size-4" /> : 'Save'}

@@ -38,18 +38,20 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     return (liveHost?.status ?? host.status) === 'pending'
   }
 
-  // Renaming after the Compose step drops the stale pending record and creates a new one.
+  // A rename creates the new pending record before dropping the stale one, so a refused new name leaves the stale record and its keypair intact.
   // The stale id rides the mutate variables because a pendingHost closure goes stale once onMutate clears it mid-mutation.
   const createHostMutation = useMutation({
     mutationFn: async ({ name, capabilities, staleHostId, resumeHostId }: { name: string; capabilities: { docker: boolean; zfs: boolean }; staleHostId: number | null; resumeHostId?: number }) => {
-      if (staleHostId != null) {
-        await removeHost({ data: { hostId: staleHostId, expectStatus: 'pending' } }).catch((err: unknown) => {
-          // The stale record is gone or no longer pending, so creation proceeds and
-          // get-or-create returns the enrolled host with its keypair.
-          if (!isRemovalNoOp(err)) throw Object.assign(err instanceof Error ? err : new Error(String(err)), { staleRemovalFailed: true })
-        })
-      }
-      return createPendingHost({ data: { name, capabilities, resumeHostId } })
+      const result = await createPendingHost({ data: { name, capabilities, resumeHostId } })
+      const staleRemovalFailed = staleHostId != null && await removeHost({ data: { hostId: staleHostId, expectStatus: 'pending' } }).then(
+        () => false,
+        (err: unknown) => {
+          if (isRemovalNoOp(err)) return false
+          console.error(err)
+          return true
+        },
+      )
+      return { ...result, staleRemovalFailed }
     },
     onMutate: ({ staleHostId }) => {
       if (staleHostId != null) {
@@ -62,16 +64,17 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
     },
-    onSuccess: (result) => {
+    onSuccess: (result, _variables, context) => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setPendingHost({ id: result.host.id, name: result.host.name, status: result.host.status, publicJwk: result.publicJwk })
       setCreateError(null)
+      if (result.staleRemovalFailed && context.replacedHost) {
+        showToast(`The old pending host "${context.replacedHost.name}" could not be removed. Remove it from the host list.`, 'warning')
+      }
     },
     onError: (err: unknown, variables, context) => {
-      // A failed stale removal leaves the old record alive, so re-target it instead of duplicating it.
-      if (variables?.staleHostId != null
-        && (err as { staleRemovalFailed?: boolean }).staleRemovalFailed === true
-        && context?.replacedHost?.id === variables.staleHostId) {
+      // A failed create never reaches the stale removal, so the old record is alive: re-target it instead of duplicating it.
+      if (variables.staleHostId != null && context?.replacedHost?.id === variables.staleHostId) {
         setPendingHost(context.replacedHost)
       }
       setCreateError(serverFailureCopy(err, {
