@@ -22,6 +22,7 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
     services['socket-proxy'] = buildSocketProxy();
   }
 
+  services[STACKS_DIR_INIT_SERVICE] = buildStacksDirInit(config);
   services['agent'] = buildAgent(config);
 
   const doc: Record<string, unknown> = { services };
@@ -127,6 +128,52 @@ export function hostTlsKeyPath(): string {
 }
 
 const HEALTH_CHECK_RETRIES = 3;
+const STACKS_MOUNT = '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks';
+const STACKS_DIR_INIT_SERVICE = 'stacks-dir-init';
+
+function agentIds(config: AgentStackConfig): { uid: string; gid: string } {
+  return config.capabilities.zfs
+    ? { uid: '${HLM_ZFS_UID}', gid: '${HLM_ZFS_GID}' }
+    : { uid: 'agent', gid: 'agent' };
+}
+
+function agentRunAs(config: AgentStackConfig): string {
+  const { uid, gid } = agentIds(config);
+  return `${uid}:${gid}`;
+}
+
+// Docker creates a missing bind-mount source as root, and the agent runs unprivileged.
+function buildStacksDirInit(config: AgentStackConfig): Record<string, unknown> {
+  const { uid, gid } = agentIds(config);
+  const owner = `${uid}:${gid}`;
+  // Same uid, gid and supplementary groups as the agent service, so the test matches what the agent can do.
+  const groups = config.capabilities.docker && config.capabilities.zfs ? '--groups=${DOCKER_GID}' : '--clear-groups';
+  // $$ is compose's escape for a literal $, so these reach sh as $1.
+  // Never recursive on ".": deployed stacks keep their own data there under other owners.
+  // Exits 0 even when chown fails: blocking the agent would also hide its own not-writable warning.
+  const script = `can_use() { setpriv --reuid=${uid} --regid=${gid} ${groups} test -r "$$1" -a -w "$$1" -a -x "$$1"; }
+warn() { echo "Could not give the agent (${owner}) read and write access to $$1. Fix its ownership on the host." >&2; }
+
+if ! can_use .; then
+  chown ${owner} . && chmod u+rwx . || warn "${AGENT_STACKS_DIR}"
+fi
+if [ -d ${TLS_DIR_NAME} ] && ! can_use ${TLS_DIR_NAME}; then
+  chown -R ${owner} ${TLS_DIR_NAME} && chmod u+rwx ${TLS_DIR_NAME} || warn "${hostTlsDir()}"
+fi
+exit 0
+`;
+  return {
+    image: '${AGENT_IMAGE}',
+    user: '0:0',
+    restart: 'no',
+    working_dir: AGENT_STACKS_DIR,
+    entrypoint: ['sh', '-c', script],
+    volumes: [STACKS_MOUNT],
+    network_mode: 'none',
+    // The agent leaves this role out of its container inventory (AGENT_INIT_ROLE).
+    labels: ['hlm.managed=true', 'hlm.role=agent-init'],
+  };
+}
 
 function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const { docker, zfs } = config.capabilities;
@@ -162,11 +209,9 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     volumes: [] as string[],
   };
 
-  const volumes: string[] = [
-    // An agent update replaces this container, so stack files in the container's
-    // writable layer would be lost.
-    '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks',
-  ];
+  // An agent update replaces this container, so stack files in the container's
+  // writable layer would be lost.
+  const volumes: string[] = [STACKS_MOUNT];
 
   if (zfs) {
     volumes.push(
@@ -174,7 +219,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
       '/dev/zfs:/dev/zfs'
     );
-    agent['user'] = '${HLM_ZFS_UID}:${HLM_ZFS_GID}';
+    agent['user'] = agentRunAs(config);
   }
 
   agent['volumes'] = volumes;
@@ -194,10 +239,14 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     agent['group_add'] = ['${DOCKER_GID}'];
   }
 
+  const dependsOn: Record<string, { condition: string }> = {
+    [STACKS_DIR_INIT_SERVICE]: { condition: 'service_completed_successfully' },
+  };
   if (docker) {
     agent['networks'] = ['agent-internal', 'agent-public'];
-    agent['depends_on'] = ['socket-proxy'];
+    dependsOn['socket-proxy'] = { condition: 'service_started' };
   }
+  agent['depends_on'] = dependsOn;
 
   agent['labels'] = ['hlm.managed=true', 'hlm.role=agent'];
 
