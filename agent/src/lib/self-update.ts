@@ -64,6 +64,7 @@ function buildContainerOptions(
     HostConfig: info.HostConfig,
     ExposedPorts: info.Config.ExposedPorts,
     Labels: info.Config.Labels,
+    Healthcheck: info.Config.Healthcheck,
     NetworkingConfig: {
       EndpointsConfig: info.NetworkSettings.Networks as Record<
         string,
@@ -154,13 +155,16 @@ export async function runAgentHandover(
     console.info(`Pulling new agent image: ${opts.targetImage}`);
     await pullImage(docker, opts.targetImage);
 
-    let wait = { maxAttempts: 10, intervalMs: 3000 };
-    try {
-      const imageInfo = await docker.getImage(opts.targetImage).inspect();
-      wait = deriveHealthWaitParams(imageInfo.Config?.Healthcheck);
-    } catch {
-      // Default wait params.
+    let healthcheck = containerInfo.Config.Healthcheck;
+    if (!healthcheck) {
+      try {
+        const imageInfo = await docker.getImage(opts.targetImage).inspect();
+        healthcheck = imageInfo.Config.Healthcheck;
+      } catch {
+        // Default wait params.
+      }
     }
+    const wait = deriveHealthWaitParams(healthcheck);
 
     console.info(`Stopping agent container: ${opts.containerName}`);
     await agent.stop();

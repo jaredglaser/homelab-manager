@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeAll, afterEach } from 'bun:test';
+import { describe, expect, test, mock, spyOn, beforeAll, beforeEach, afterEach } from 'bun:test';
 import Dockerode from 'dockerode';
 import { deriveHealthWaitParams, runAgentHandover, spawnUpdateHelper } from '../lib/self-update';
 
@@ -16,12 +16,14 @@ interface HandoverCapture {
   removed: boolean;
   created: Record<string, unknown>[];
   started: number;
+  inspected?: number;
   stopError?: Error;
 }
 
 interface InspectState {
   healthStatus?: string;
   running?: boolean;
+  containerHealthcheck?: Dockerode.HealthConfig;
 }
 
 function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {}) {
@@ -36,6 +38,7 @@ function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {
           Entrypoint: undefined,
           ExposedPorts: undefined,
           Labels: { 'hlm.managed': 'true' },
+          Healthcheck: inspectState.containerHealthcheck,
         },
         HostConfig: { RestartPolicy: { Name: 'unless-stopped' } },
         NetworkSettings: { Networks: { 'agent-internal': { Aliases: ['hlm-agent'], IPAddress: '172.20.0.5' } } },
@@ -74,12 +77,13 @@ function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {
         }),
         stop: mock(() => Promise.resolve()),
         remove: mock(() => Promise.resolve()),
-        inspect: mock(() =>
-          Promise.resolve({
+        inspect: mock(() => {
+          capture.inspected = (capture.inspected ?? 0) + 1;
+          return Promise.resolve({
             State: { Running: inspectState.running ?? true, Health: inspectState.healthStatus ? { Status: inspectState.healthStatus } : undefined },
             NetworkSettings: { Networks: { 'agent-internal': { IPAddress: '172.20.0.9' } } },
-          }),
-        ),
+          });
+        }),
       });
     }),
   } as never as Dockerode;
@@ -155,6 +159,50 @@ describe('runAgentHandover', () => {
     expect(capture.created).toHaveLength(2);
     expect((capture.created[1] as { Image?: string }).Image).toBe(PREVIOUS_DIGEST_REF);
     expect(capture.started).toBe(2);
+  });
+
+  test('keeps the container healthcheck instead of falling back to the image one', async () => {
+    const httpsHealthcheck: Dockerode.HealthConfig = {
+      Test: ['CMD-SHELL', "bun -e \"fetch('https://localhost:9090/health')\""],
+      Interval: 30_000_000_000,
+      Timeout: 5_000_000_000,
+      StartPeriod: 15_000_000_000,
+      Retries: 3,
+    };
+    const capture: HandoverCapture = { pulled: [], stopped: false, removed: false, created: [], started: 0 };
+    const docker = handoverDocker(capture, { healthStatus: 'unhealthy', containerHealthcheck: httpsHealthcheck });
+
+    await runAgentHandover(docker, { containerName: 'hlm-agent', targetImage: TARGET, agentPort: 9090 });
+
+    expect(capture.created).toHaveLength(2);
+    expect((capture.created[0] as { Healthcheck?: unknown }).Healthcheck).toEqual(httpsHealthcheck);
+    expect((capture.created[1] as { Healthcheck?: unknown }).Healthcheck).toEqual(httpsHealthcheck);
+  });
+
+  describe('health wait window', () => {
+    let timeoutSpy: ReturnType<typeof spyOn<typeof globalThis, 'setTimeout'>>;
+    beforeEach(() => {
+      timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void) => {
+        cb();
+        return 0;
+      }) as never);
+    });
+    afterEach(() => {
+      timeoutSpy.mockRestore();
+    });
+
+    test('sizes the wait from the container healthcheck the replacement runs', async () => {
+      const capture: HandoverCapture = { pulled: [], stopped: false, removed: false, created: [], started: 0 };
+      const docker = handoverDocker(capture, {
+        healthStatus: 'starting',
+        containerHealthcheck: { Interval: 1_000_000_000, StartPeriod: 0, Retries: 3 },
+      });
+
+      const result = await runAgentHandover(docker, { containerName: 'hlm-agent', targetImage: TARGET, agentPort: 9090 });
+
+      expect(result.rolledBack).toBe(true);
+      expect(capture.inspected).toBe(Math.ceil((1_000 * 4 + 10_000) / 1_000));
+    });
   });
 
   test('verifies a healthcheck-less image over the internal /health endpoint', async () => {
