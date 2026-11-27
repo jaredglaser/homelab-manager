@@ -495,18 +495,19 @@ describe('HostRepository', () => {
       }
     });
 
-    it('claims a host only while no update is running on it, and announces the claim on the inventory channel', async () => {
+    it('claims a host only while no live update is running on it, and announces the claim on the inventory channel', async () => {
+      const runningBefore = new Date('2026-11-27T09:50:00Z');
       mock.pushResult([{ id: 1 }]);
-      expect(await repo.claimAgentUpdate(1, STARTED)).toBe(true);
-      expect(mock.queries[0].sql).toContain("agent_update_state IS DISTINCT FROM 'running'");
-      expect(mock.queries[0].params).toEqual([1, STARTED]);
+      expect(await repo.claimAgentUpdate(1, STARTED, runningBefore)).toBe(true);
+      expect(mock.queries[0].sql).toContain("(agent_update_state IS DISTINCT FROM 'running' OR agent_update_at < $3)");
+      expect(mock.queries[0].params).toEqual([1, STARTED, runningBefore]);
       expect(notifies()).toHaveLength(1);
       expect(notifies()[0].params).toEqual(['agent_inventory_change', JSON.stringify({ hostIds: [1] })]);
     });
 
     it('reports a refused claim without announcing anything', async () => {
       mock.pushResult([]);
-      expect(await repo.claimAgentUpdate(1, STARTED)).toBe(false);
+      expect(await repo.claimAgentUpdate(1, STARTED, STARTED)).toBe(false);
       expect(notifies()).toHaveLength(0);
     });
 
@@ -517,6 +518,19 @@ describe('HostRepository', () => {
       expect(mock.queries[0].sql).toContain("agent_update_state = 'running' AND agent_update_at = $2");
       expect(mock.queries[0].params).toEqual([1, STARTED, 'done', JSON.stringify(result), ENDED]);
       expect(notifies()).toHaveLength(1);
+    });
+
+    it('cuts a stored refusal message to the failure detail limit, since every viewer receives it', async () => {
+      mock.pushResult([{ id: 1 }]);
+      const result = { healthy: false as const, code: 'agent_reported_error' as const, message: 'x'.repeat(MAX_FAILURE_DETAIL_LENGTH + 300) };
+      await repo.settleAgentUpdate(1, STARTED, { state: 'done', result }, ENDED);
+      expect(JSON.parse(mock.queries[0].params[3] as string)).toEqual({ ...result, message: 'x'.repeat(MAX_FAILURE_DETAIL_LENGTH) });
+    });
+
+    it('stores an errored update with no result', async () => {
+      mock.pushResult([{ id: 1 }]);
+      await repo.settleAgentUpdate(1, STARTED, { state: 'errored' }, ENDED);
+      expect(mock.queries[0].params).toEqual([1, STARTED, 'errored', null, ENDED]);
     });
 
     it('does not announce a settle that matched no running update', async () => {

@@ -51,7 +51,7 @@ export interface ManagedHost {
   agentUpdate: StoredAgentUpdate | null;
 }
 
-export type SettledAgentUpdate = { state: 'done'; result: AgentUpdateResult } | { state: 'interrupted' };
+export type SettledAgentUpdate = { state: 'done'; result: AgentUpdateResult } | { state: 'interrupted' } | { state: 'errored' };
 
 export interface CreateHostInput {
   name: string;
@@ -107,7 +107,7 @@ function toFailureRecord(row: ManagedHostRow): HostFailureRecord | null {
   return code === null ? null : { code, detail: row.failure_detail };
 }
 
-const AGENT_UPDATE_STATES = ['running', 'done', 'interrupted'] as const;
+const AGENT_UPDATE_STATES = ['running', 'done', 'interrupted', 'errored'] as const;
 
 // A row a newer build wrote reads as no update, so one unknown value cannot blank the whole Hosts page.
 function toAgentUpdate(row: ManagedHostRow): StoredAgentUpdate | null {
@@ -121,6 +121,11 @@ function toAgentUpdate(row: ManagedHostRow): StoredAgentUpdate | null {
     return null;
   }
   return { state, at: row.agent_update_at, result: result.data };
+}
+
+/** The agent's own refusal text is broadcast to every viewer, so it is cut like a probe's failure detail. */
+function boundedResult(result: AgentUpdateResult): AgentUpdateResult {
+  return result.healthy ? result : { ...result, message: result.message.slice(0, MAX_FAILURE_DETAIL_LENGTH) };
 }
 
 function toManagedHost(row: ManagedHostRow): ManagedHost {
@@ -189,13 +194,16 @@ export class HostRepository {
     }
   }
 
-  /** False when an update is already running on the host: the claim is what keeps a second request from reaching the agent. */
-  async claimAgentUpdate(id: number, startedAt: Date): Promise<boolean> {
+  /**
+   * False when an update is already running on the host: the claim is what keeps a second request from reaching the agent.
+   * A running row that started before `runningBefore` has no live update behind it and is taken over.
+   */
+  async claimAgentUpdate(id: number, startedAt: Date, runningBefore: Date): Promise<boolean> {
     const result = await this.pool.query<HostIdRow>(
       `UPDATE managed_hosts SET agent_update_state = 'running', agent_update_result = NULL, agent_update_at = $2
-       WHERE id = $1 AND agent_update_state IS DISTINCT FROM 'running'
+       WHERE id = $1 AND (agent_update_state IS DISTINCT FROM 'running' OR agent_update_at < $3)
        RETURNING id`,
-      [id, startedAt],
+      [id, startedAt, runningBefore],
     );
     if (result.rows.length === 0) return false;
     await this.notifyInventoryChange([id]);
@@ -212,7 +220,7 @@ export class HostRepository {
         id,
         startedAt,
         settled.state,
-        settled.state === 'done' ? JSON.stringify(settled.result) : null,
+        settled.state === 'done' ? JSON.stringify(boundedResult(settled.result)) : null,
         at,
       ],
     );

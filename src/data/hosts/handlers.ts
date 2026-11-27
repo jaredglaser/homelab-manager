@@ -11,7 +11,7 @@ import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine }
 import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agent-identity';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-import type { AgentInventoryEntry, AgentUpdateResult } from '@/lib/hosts/agent-inventory';
+import { AGENT_UPDATE_STALE_AFTER_MS, type AgentInventoryEntry, type AgentUpdateResult } from '@/lib/hosts/agent-inventory';
 import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
@@ -90,7 +90,7 @@ export interface HostRepo {
   updateLastSweptAt(id: number, at: Date): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null; imageDigest?: string | null; outOfDate?: boolean }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
-  claimAgentUpdate(id: number, startedAt: Date): Promise<boolean>;
+  claimAgentUpdate(id: number, startedAt: Date, runningBefore: Date): Promise<boolean>;
   settleAgentUpdate(id: number, startedAt: Date, settled: SettledAgentUpdate, at: Date): Promise<void>;
 }
 
@@ -358,20 +358,34 @@ export type UpdateAgentDeps = HostHandlerDeps & {
   getCaCert?: (hostname: string) => Promise<string | null>;
   sleep?: (ms: number) => Promise<void>;
   now?: () => Date;
+  /** Recovery runs on the first live-page connection, so a claim must not wait for it to clear an update this process never ran. */
+  processStartedAt?: Date;
   runDetached?: (task: () => Promise<void>) => void;
 };
 
+const SETTLE_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
+
 async function settleUpdate(
-  repo: HostRepo,
+  deps: UpdateAgentDeps,
   host: ManagedHost,
   startedAt: Date,
   settled: SettledAgentUpdate,
   at: Date,
 ): Promise<void> {
-  try {
-    await repo.settleAgentUpdate(host.id, startedAt, settled, at);
-  } catch (err) {
-    console.error(`[hosts] Could not record the end of the agent update on ${host.name}:`, err instanceof Error ? err.message : err);
+  const sleep = deps.sleep ?? sleepMs;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await deps.repo.settleAgentUpdate(host.id, startedAt, settled, at);
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : err;
+      if (attempt >= SETTLE_RETRY_DELAYS_MS.length) {
+        console.error(`[hosts] Could not record the end of the agent update on ${host.name}, the row reads as stopped after ${AGENT_UPDATE_STALE_AFTER_MS / 60_000} minutes:`, message);
+        return;
+      }
+      console.error(`[hosts] Recording the end of the agent update on ${host.name} failed, retrying:`, message);
+      await sleep(SETTLE_RETRY_DELAYS_MS[attempt]);
+    }
   }
 }
 
@@ -382,7 +396,9 @@ export async function handleUpdateAgent(deps: UpdateAgentDeps, data: { hostId: n
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   const startedAt = now();
-  if (!(await deps.repo.claimAgentUpdate(host.id, startedAt))) {
+  const processStartedAt = deps.processStartedAt ?? new Date(performance.timeOrigin);
+  const runningBefore = new Date(Math.max(startedAt.getTime() - AGENT_UPDATE_STALE_AFTER_MS, processStartedAt.getTime()));
+  if (!(await deps.repo.claimAgentUpdate(host.id, startedAt, runningBefore))) {
     return { hostId: host.id, at: startedAt.toISOString(), healthy: false, code: 'update_already_running', message: '' };
   }
 
@@ -393,9 +409,9 @@ export async function handleUpdateAgent(deps: UpdateAgentDeps, data: { hostId: n
       settled = { state: 'done', result: await runAgentUpdate(deps, host) };
     } catch (err) {
       console.error(`[hosts] The agent update on ${host.name} crashed:`, err);
-      settled = { state: 'interrupted' };
+      settled = { state: 'errored' };
     }
-    await settleUpdate(deps.repo, host, startedAt, settled, now());
+    await settleUpdate(deps, host, startedAt, settled, now());
   });
   return { hostId: host.id, at: startedAt.toISOString(), healthy: true, outcome: 'started' };
 }
@@ -665,5 +681,5 @@ export async function handleListAgentsInventorySnapshot(
   deps: HostHandlerDeps,
 ): Promise<AgentInventoryEntry[]> {
   const hosts = await deps.repo.findAll();
-  return hosts.map(buildStoredAgentInventoryEntry);
+  return hosts.map((host) => buildStoredAgentInventoryEntry(host));
 }

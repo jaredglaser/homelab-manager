@@ -14,7 +14,7 @@ BEGIN
     ALTER TABLE managed_hosts ADD CONSTRAINT managed_hosts_agent_update_check
       CHECK (
         (agent_update_state IS NULL AND agent_update_result IS NULL AND agent_update_at IS NULL)
-        OR (agent_update_state IN ('running', 'interrupted') AND agent_update_result IS NULL AND agent_update_at IS NOT NULL)
+        OR (agent_update_state IN ('running', 'interrupted', 'errored') AND agent_update_result IS NULL AND agent_update_at IS NOT NULL)
         OR (agent_update_state = 'done' AND agent_update_result IS NOT NULL AND agent_update_at IS NOT NULL)
       );
   END IF;

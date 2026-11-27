@@ -174,7 +174,6 @@ export const MOCK_AGENT_UPDATE_MS = 2500;
 
 const mockAgentUpdates = new Map<number, AgentUpdateStatus>();
 
-/** Clears the demo's update state, for tests. */
 export function resetMockAgentUpdates(): void {
   mockAgentUpdates.clear();
 }

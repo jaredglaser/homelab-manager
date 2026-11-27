@@ -29,6 +29,9 @@ export const AGENT_UPDATE_RUNNING_MESSAGE = 'Updating the agent. This takes up t
 export const AGENT_UPDATE_INTERRUPTED_MESSAGE =
   "The dashboard restarted during this update, so its result was not recorded. Check the agent's version here, and update again if it did not change."
 
+export const AGENT_UPDATE_ERRORED_MESSAGE =
+  "The update stopped with an error before its result was known. Check the agent's version here, and update again if it did not change."
+
 export type AgentRowFeedback = {
   severity: 'success' | 'info' | 'error'
   message: string
@@ -271,7 +274,17 @@ function rowUpdateFeedback(agent: AgentInventoryEntry, baselineAt: string | null
   if (update.state === 'running') return { severity: 'info', message: AGENT_UPDATE_RUNNING_MESSAGE, at: update.at }
   if (update.at === baselineAt) return null
   if (update.state === 'interrupted') return { severity: 'error', message: AGENT_UPDATE_INTERRUPTED_MESSAGE, at: update.at }
+  if (update.state === 'errored') return { severity: 'error', message: AGENT_UPDATE_ERRORED_MESSAGE, at: update.at }
   return { ...describeUpdateResult(update.result), at: update.at }
+}
+
+/** The toast an update owes the tab that started it, once it has ended after `startedAt`. Undefined while it has not ended. */
+function endedUpdateToast(entry: AgentInventoryEntry | undefined, startedAt: string): string | null | undefined {
+  const update = entry?.update
+  if (!update || update.state === 'running' || update.at <= startedAt) return undefined
+  if (update.state === 'errored') return AGENT_UPDATE_ERRORED_MESSAGE
+  if (update.state === 'done' && !update.result.healthy) return describeUpdateResult(update.result).message
+  return null
 }
 
 function withRunningUpdate(entries: AgentInventoryEntry[] | undefined, hostId: number, at: string) {
@@ -288,32 +301,40 @@ export default function AgentsOverview() {
   const [baselineByHost, setBaselineByHost] = useState<Partial<Record<number, string | null>>>({})
   const startedHereRef = useRef<Partial<Record<number, string>>>({})
 
+  const recordBaseline = useCallback((entries: AgentInventoryEntry[]) => {
+    setBaselineByHost((prev) => {
+      const unseen = entries.filter((entry) => !(entry.id in prev))
+      return unseen.length === 0 ? prev : { ...prev, ...Object.fromEntries(unseen.map((entry) => [entry.id, entry.update?.at ?? null])) }
+    })
+  }, [])
+
   const { data: agents = [], isLoading, isError } = useQuery({
     queryKey: AGENTS_INVENTORY_QUERY_KEY,
-    queryFn: () => listAgentsInventory(),
+    queryFn: async () => {
+      const entries = await listAgentsInventory()
+      recordBaseline(entries)
+      return entries
+    },
   })
 
   // The worker sweep publishes a fresh snapshot over the WebSocket, so the table updates without polling.
   useMuxChannel(agentInventoryChannel, {
     onData: useCallback(
       (snapshot: { entries: AgentInventoryEntry[] }) => {
+        recordBaseline(snapshot.entries)
         queryClient.setQueryData(AGENTS_INVENTORY_QUERY_KEY, snapshot.entries)
-        for (const { id, update } of snapshot.entries) {
-          const startedAt = startedHereRef.current[id]
-          if (startedAt === undefined || !update || update.state === 'running' || update.at <= startedAt) continue
-          delete startedHereRef.current[id]
-          if (update.state === 'done' && !update.result.healthy) showToast(describeUpdateResult(update.result).message, 'error')
+        for (const entry of snapshot.entries) {
+          const startedAt = startedHereRef.current[entry.id]
+          const toast = startedAt === undefined ? undefined : endedUpdateToast(entry, startedAt)
+          if (toast === undefined) continue
+          delete startedHereRef.current[entry.id]
+          if (toast !== null) showToast(toast, 'error')
         }
       },
-      [queryClient, showToast],
+      [queryClient, recordBaseline, showToast],
     ),
     serviceErrorMessage: 'Agent inventory stream unavailable',
   })
-
-  const unseen = agents.filter((agent) => !(agent.id in baselineByHost))
-  if (unseen.length > 0) {
-    setBaselineByHost((prev) => ({ ...prev, ...Object.fromEntries(unseen.map((agent) => [agent.id, agent.update?.at ?? null])) }))
-  }
 
   const busyByHost: Record<number, 'update' | undefined> = {}
   const feedbackByHost: Record<number, AgentRowFeedback> = {}
@@ -327,8 +348,8 @@ export default function AgentsOverview() {
   }
 
   const setLocal = (hostId: number, feedback: TimedFeedback) => setLocalByHost((prev) => ({ ...prev, [hostId]: feedback }))
-  const currentRowAt = (hostId: number) =>
-    queryClient.getQueryData<AgentInventoryEntry[]>(AGENTS_INVENTORY_QUERY_KEY)?.find((entry) => entry.id === hostId)?.update?.at ?? ''
+  const currentEntry = (hostId: number) =>
+    queryClient.getQueryData<AgentInventoryEntry[]>(AGENTS_INVENTORY_QUERY_KEY)?.find((entry) => entry.id === hostId)
 
   const updateMutation = useMutation({
     mutationFn: async (hostId: number) => {
@@ -340,12 +361,20 @@ export default function AgentsOverview() {
     onMutate: (hostId) => {
       setPendingByHost((prev) => ({ ...prev, [hostId]: true }))
       setLocalByHost(({ [hostId]: _cleared, ...rest }) => rest)
+      const shownAt = currentEntry(hostId)?.update?.at ?? null
+      setBaselineByHost((prev) => ({ ...prev, [hostId]: shownAt }))
     },
     onSuccess: (result, hostId) => {
       setPendingByHost(({ [hostId]: _done, ...rest }) => rest)
       if (result.healthy) {
-        queryClient.setQueryData<AgentInventoryEntry[]>(AGENTS_INVENTORY_QUERY_KEY, (entries) => withRunningUpdate(entries, hostId, result.at))
-        startedHereRef.current[hostId] = result.at
+        // The result can reach this tab on the live channel before this answer does.
+        const toast = endedUpdateToast(currentEntry(hostId), result.at)
+        if (toast === undefined) {
+          queryClient.setQueryData<AgentInventoryEntry[]>(AGENTS_INVENTORY_QUERY_KEY, (entries) => withRunningUpdate(entries, hostId, result.at))
+          startedHereRef.current[hostId] = result.at
+        } else if (toast !== null) {
+          showToast(toast, 'error')
+        }
         return
       }
       void queryClient.invalidateQueries({ queryKey: AGENTS_INVENTORY_QUERY_KEY })
@@ -356,7 +385,7 @@ export default function AgentsOverview() {
     onError: (err: unknown, hostId) => {
       setPendingByHost(({ [hostId]: _done, ...rest }) => rest)
       const message = serverFnErrorMessage(err, UPDATE_CALL_FAILED_MESSAGE)
-      setLocal(hostId, { severity: 'error', message, at: currentRowAt(hostId) })
+      setLocal(hostId, { severity: 'error', message, at: currentEntry(hostId)?.update?.at ?? '' })
       showToast(message, 'error')
     },
   })

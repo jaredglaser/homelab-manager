@@ -1564,6 +1564,8 @@ describe('handleUpdateAgent in the background', () => {
   const DIGEST = 'sha256:' + 'b'.repeat(64);
   const STARTED = new Date('2026-11-27T10:00:00.000Z');
   const ENDED = new Date('2026-11-27T10:00:40.000Z');
+  const PROCESS_STARTED = new Date('2026-11-27T09:00:00.000Z');
+  const STALE_BOUND = new Date('2026-11-27T09:50:00.000Z');
 
   function withAgent(status: number): { restore: () => void; fetchMock: ReturnType<typeof mock> } {
     const fetchMock = mock(() => Promise.resolve(agentResponse(JSON.stringify({ started: true }), { status })));
@@ -1586,6 +1588,7 @@ describe('handleUpdateAgent in the background', () => {
       resolveAgentImageRelease: async () => ({ digest: DIGEST, sourceHash: null }),
       sleep: () => Promise.resolve(),
       now: () => clock.shift() ?? ENDED,
+      processStartedAt: PROCESS_STARTED,
       runDetached: (task) => { tasks.push(task); },
       ...overrides,
     };
@@ -1600,7 +1603,7 @@ describe('handleUpdateAgent in the background', () => {
       const { deps, tasks } = backgroundDeps();
       const answer = await handleUpdateAgent(deps, { hostId: 1 });
       expect(answer).toEqual(STARTED_ANSWER);
-      expect(deps.repo.claimAgentUpdate).toHaveBeenCalledWith(1, STARTED);
+      expect(deps.repo.claimAgentUpdate).toHaveBeenCalledWith(1, STARTED, STALE_BOUND);
       expect(deps.checkHealth).not.toHaveBeenCalled();
       expect(fetchMock).not.toHaveBeenCalled();
       expect(deps.repo.settleAgentUpdate).not.toHaveBeenCalled();
@@ -1726,10 +1729,57 @@ describe('handleUpdateAgent in the background', () => {
     }
   });
 
+  it('lets a new click take over a running row older than the stale bound, or one that started before this process', async () => {
+    const { deps } = backgroundDeps({ processStartedAt: new Date('2026-11-27T09:55:00.000Z') });
+    await handleUpdateAgent(deps, { hostId: 1 });
+    expect(deps.repo.claimAgentUpdate).toHaveBeenCalledWith(1, STARTED, new Date('2026-11-27T09:55:00.000Z'));
+
+    const { deps: longRunning } = backgroundDeps();
+    await handleUpdateAgent(longRunning, { hostId: 1 });
+    expect(longRunning.repo.claimAgentUpdate).toHaveBeenCalledWith(1, STARTED, STALE_BOUND);
+  });
+
+  it('retries the final row write, so one failed write does not leave the row running', async () => {
+    const { restore } = withAgent(202);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      let writes = 0;
+      const delays: number[] = [];
+      const settleAgentUpdate = mock(() => (++writes < 3 ? Promise.reject(new Error('connection reset')) : Promise.resolve()));
+      const { deps, tasks } = backgroundDeps({
+        repo: mockRepo({ settleAgentUpdate }),
+        sleep: (ms) => { delays.push(ms); return Promise.resolve(); },
+      });
+      await handleUpdateAgent(deps, { hostId: 1 });
+      await tasks[0]();
+      expect(settleAgentUpdate).toHaveBeenCalledTimes(3);
+      expect(delays.slice(-2)).toEqual([1000, 2000]);
+    } finally {
+      errorSpy.mockRestore();
+      restore();
+    }
+  });
+
+  it('gives up after the retries without throwing, leaving the stale bound to free the row', async () => {
+    const { restore } = withAgent(202);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const settleAgentUpdate = mock(() => Promise.reject(new Error('connection reset')));
+      const { deps, tasks } = backgroundDeps({ repo: mockRepo({ settleAgentUpdate }) });
+      await handleUpdateAgent(deps, { hostId: 1 });
+      await tasks[0]();
+      expect(settleAgentUpdate).toHaveBeenCalledTimes(4);
+      expect(errorSpy.mock.calls.at(-1)?.[0]).toBe('[hosts] Could not record the end of the agent update on test-host, the row reads as stopped after 10 minutes:');
+    } finally {
+      errorSpy.mockRestore();
+      restore();
+    }
+  });
+
   it.each([
     ['before it reaches the agent', 1],
     ['while it confirms the swap', 2],
-  ])('marks the row interrupted when the update crashes %s, so it never stays running', async (_label, crashOnPoll) => {
+  ])('marks the row errored, not interrupted, when the update crashes %s', async (_label, crashOnPoll) => {
     const { restore } = withAgent(202);
     const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
     try {
@@ -1743,7 +1793,7 @@ describe('handleUpdateAgent in the background', () => {
       });
       await handleUpdateAgent(deps, { hostId: 1 });
       await tasks[0]();
-      expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(1, STARTED, { state: 'interrupted' }, ENDED);
+      expect(deps.repo.settleAgentUpdate).toHaveBeenCalledWith(1, STARTED, { state: 'errored' }, ENDED);
     } finally {
       errorSpy.mockRestore();
       restore();

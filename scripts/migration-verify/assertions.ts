@@ -146,6 +146,7 @@ async function assertManagedHostAgentUpdate(pool: Pool, checks: Checks): Promise
     checks.equal('managed_hosts accepts a row with no agent update', await accepts(null, null, null), true);
     checks.equal('managed_hosts accepts a running agent update', await accepts('running', null, NOW), true);
     checks.equal('managed_hosts accepts an interrupted agent update', await accepts('interrupted', null, NOW), true);
+    checks.equal('managed_hosts accepts an errored agent update', await accepts('errored', null, NOW), true);
     checks.equal('managed_hosts accepts a finished agent update with its result', await accepts('done', RESULT, NOW), true);
     checks.equal('managed_hosts rejects a finished agent update with no result', await accepts('done', null, NOW), false);
     checks.equal('managed_hosts rejects a running agent update carrying a result', await accepts('running', RESULT, NOW), false);
@@ -156,8 +157,9 @@ async function assertManagedHostAgentUpdate(pool: Pool, checks: Checks): Promise
     const id = Number(((await client.query(`SELECT id FROM managed_hosts WHERE name = 'agent-update-host'`)).rows[0] as { id: number }).id);
     const startedAt = new Date('2026-11-27T10:00:00.123Z');
     const endedAt = new Date('2026-11-27T10:00:40.456Z');
-    checks.equal('an agent update claims a host with none running', await repo.claimAgentUpdate(id, startedAt), true);
-    checks.equal('a second agent update is refused while the first runs', await repo.claimAgentUpdate(id, endedAt), false);
+    const longAgo = new Date('2026-11-27T09:00:00Z');
+    checks.equal('an agent update claims a host with none running', await repo.claimAgentUpdate(id, startedAt, longAgo), true);
+    checks.equal('a second agent update is refused while the first runs', await repo.claimAgentUpdate(id, endedAt, longAgo), false);
     await repo.settleAgentUpdate(id, endedAt, { state: 'interrupted' }, endedAt);
     checks.equal('a settle for another start time leaves the running update alone', (await repo.findById(id))?.agentUpdate?.state, 'running');
     await repo.settleAgentUpdate(id, startedAt, { state: 'done', result: { healthy: true, outcome: 'updated', version: '2.0.0' } }, endedAt);
@@ -167,7 +169,15 @@ async function assertManagedHostAgentUpdate(pool: Pool, checks: Checks): Promise
       JSON.stringify(settled),
       JSON.stringify({ state: 'done', at: endedAt, result: { healthy: true, outcome: 'updated', version: '2.0.0' } })
     );
-    await repo.claimAgentUpdate(id, startedAt);
+    await repo.claimAgentUpdate(id, startedAt, longAgo);
+    checks.equal('a running update that started before the given bound is taken over', await repo.claimAgentUpdate(id, endedAt, endedAt), true);
+    await repo.settleAgentUpdate(id, endedAt, { state: 'done', result: { healthy: false, code: 'agent_reported_error', message: 'x'.repeat(2000) } }, endedAt);
+    checks.equal(
+      'a stored refusal message is cut to the failure detail limit',
+      Number(((await client.query(`SELECT char_length(agent_update_result->>'message') AS n FROM managed_hosts WHERE id = ${id}`)).rows[0] as { n: number }).n),
+      MAX_FAILURE_DETAIL_LENGTH
+    );
+    await repo.claimAgentUpdate(id, startedAt, longAgo);
     checks.equal('recovery leaves an update that started after the process alone', (await repo.interruptAgentUpdates(new Date('2026-11-27T09:00:00Z'), endedAt)).length, 0);
     checks.equal('recovery marks an update that started before the process', JSON.stringify(await repo.interruptAgentUpdates(endedAt, endedAt)), JSON.stringify([id]));
     checks.equal('a recovered agent update reads as interrupted', (await repo.findById(id))?.agentUpdate?.state, 'interrupted');

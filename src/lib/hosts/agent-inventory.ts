@@ -45,6 +45,7 @@ export const zAgentUpdateStatus = z.discriminatedUnion('state', [
   z.object({ state: z.literal('running'), at: z.string() }),
   z.object({ state: z.literal('done'), at: z.string(), result: zAgentUpdateResult }),
   z.object({ state: z.literal('interrupted'), at: z.string() }),
+  z.object({ state: z.literal('errored'), at: z.string() }),
 ]);
 /** `at` is an ISO timestamp: when a running update started, or when it ended. */
 export type AgentUpdateStatus = z.infer<typeof zAgentUpdateStatus>;
@@ -52,7 +53,18 @@ export type AgentUpdateStatus = z.infer<typeof zAgentUpdateStatus>;
 export type StoredAgentUpdate =
   | { state: 'running'; at: Date }
   | { state: 'done'; at: Date; result: AgentUpdateResult }
-  | { state: 'interrupted'; at: Date };
+  | { state: 'interrupted'; at: Date }
+  | { state: 'errored'; at: Date };
+
+/** The longest update is about 3 minutes (a 30 s trigger, six polls and the digest re-reads, each probe up to 10 s), so a running row older than this belongs to no live update. */
+export const AGENT_UPDATE_STALE_AFTER_MS = 10 * 60_000;
+
+function wireUpdate(update: StoredAgentUpdate | null, now: Date): AgentUpdateStatus | null {
+  if (update === null) return null;
+  const staleAt = update.at.getTime() + AGENT_UPDATE_STALE_AFTER_MS;
+  if (update.state === 'running' && staleAt <= now.getTime()) return { state: 'errored', at: new Date(staleAt).toISOString() };
+  return { ...update, at: update.at.toISOString() };
+}
 
 export interface AgentInventoryEntry {
   id: number;
@@ -103,7 +115,7 @@ function inventoryStatus(host: ManagedHost, failure: HostProbeFailureCode | null
  * persists status/agent info into managed_hosts, so the stored row already
  * reflects the last sweep. Its lastSweptAt doubles as the per-host checkedAt.
  */
-export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventoryEntry {
+export function buildStoredAgentInventoryEntry(host: ManagedHost, now: Date = new Date()): AgentInventoryEntry {
   return {
     id: host.id,
     name: host.name,
@@ -116,7 +128,7 @@ export function buildStoredAgentInventoryEntry(host: ManagedHost): AgentInventor
     agentImageDigest: host.agentImageDigest,
     agentOutOfDate: host.agentOutOfDate,
     failure: host.failure === null ? null : { code: host.failure.code, message: host.failure.detail ?? '' },
-    update: host.agentUpdate === null ? null : { ...host.agentUpdate, at: host.agentUpdate.at.toISOString() },
+    update: wireUpdate(host.agentUpdate, now),
     // Not updatedAt: every writer to managed_hosts bumps that column (rename,
     // URL edit, key rotation, a single-host health check), so it reports a
     // fresher sweep than actually ran. A host created but not yet swept falls
@@ -134,7 +146,7 @@ export function buildAgentInventorySnapshot(hosts: ManagedHost[]): AgentInventor
   }, null);
 
   return {
-    entries: hosts.map(buildStoredAgentInventoryEntry),
+    entries: hosts.map((host) => buildStoredAgentInventoryEntry(host)),
     sweptAt: sweptAt ? sweptAt.toISOString() : null,
   };
 }

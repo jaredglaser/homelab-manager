@@ -619,6 +619,8 @@ describe('AgentsOverview (connected)', () => {
     const W3 = 'An update is already running for this host. Wait for it to finish.'
     const W4 =
       "The dashboard restarted during this update, so its result was not recorded. Check the agent's version here, and update again if it did not change."
+    const W5 =
+      "The update stopped with an error before its result was known. Check the agent's version here, and update again if it did not change."
     const STARTED_AT = '2026-11-27T10:00:00.000Z'
     const ENDED_AT = '2026-11-27T10:00:40.000Z'
     const running = { state: 'running' as const, at: STARTED_AT }
@@ -718,6 +720,52 @@ describe('AgentsOverview (connected)', () => {
 
       pushSnapshot(makeAgent({ update: { state: 'done', at: ENDED_AT, result: { healthy: true, outcome: 'updated' } } }), media)
       await waitFor(() => expect(within(row()).getByText('Update confirmed, agent restarted on the new image')).toBeDefined())
+    })
+
+    it('shows the stopped-with-an-error copy, not the restart copy, for an update that errored', async () => {
+      const { AGENT_UPDATE_ERRORED_MESSAGE } = await import('@/components/agents/AgentsOverview')
+      expect(AGENT_UPDATE_ERRORED_MESSAGE).toBe(W5)
+      inventoryResponse = [makeAgent({ update: running }), media]
+      await renderConnected()
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      pushSnapshot(makeAgent({ update: { state: 'errored', at: ENDED_AT } }), media)
+      await waitFor(() => expect(within(row()).getByText(W5)).toBeDefined())
+      expect(within(row()).queryByText(W4)).toBeNull()
+      expect(button().hasAttribute('disabled')).toBe(false)
+    })
+
+    it('toasts a failed update once when its result arrives before the answer to the click', async () => {
+      let answer: (value: OpResult) => void = () => {}
+      updateResult = new Promise<OpResult>((resolve) => { answer = resolve })
+      await renderConnected()
+      await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+      fireEvent.click(button())
+      const failed = makeAgent({ update: { state: 'errored', at: ENDED_AT } })
+      pushSnapshot(failed, media)
+      await act(async () => answer({ hostId: 1, at: STARTED_AT, healthy: true, outcome: 'started' }))
+      await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1))
+      expect(mockShowToast).toHaveBeenCalledWith(W5, 'error')
+      expect(within(row()).getByText(W5)).toBeDefined()
+      pushSnapshot(failed, media)
+      pushSnapshot(makeAgent({ version: '9.9.9', update: { state: 'errored', at: ENDED_AT } }), media)
+      await waitFor(() => expect(screen.getByText('Agent v9.9.9')).toBeDefined())
+      expect(mockShowToast).toHaveBeenCalledTimes(1)
+    })
+
+    it('clears the previous result from the row as soon as Update is clicked', async () => {
+      let answer: (value: OpResult) => void = () => {}
+      updateResult = new Promise<OpResult>((resolve) => { answer = resolve })
+      inventoryResponse = [makeAgent({ update: running }), media]
+      await renderConnected()
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      pushSnapshot(makeAgent({ update: { state: 'done', at: ENDED_AT, result: { healthy: true, outcome: 'already_current' } } }), media)
+      const previous = 'Already up to date. The agent runs the latest image, so nothing was changed.'
+      await waitFor(() => expect(within(row()).getByText(previous)).toBeDefined())
+      fireEvent.click(button())
+      await waitFor(() => expect(within(row()).queryByText(previous)).toBeNull())
+      expect(button().hasAttribute('disabled')).toBe(true)
+      await act(async () => answer({ hostId: 1, at: '2026-11-27T10:05:00.000Z', healthy: true, outcome: 'started' }))
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
     })
 
     it('toasts a failed update once, in the tab that started it', async () => {
