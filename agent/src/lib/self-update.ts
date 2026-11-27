@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type Dockerode from 'dockerode';
 
 // The agent cannot replace its own container in-process: the stop kills this process and the replacement cannot bind the published port while the old one runs, so a short-lived helper container performs the swap.
@@ -52,6 +53,7 @@ function buildContainerOptions(
   image: string,
   info: Dockerode.ContainerInspectInfo,
   containerName: string,
+  healthcheck: Dockerode.HealthConfig | undefined,
 ): Dockerode.ContainerCreateOptions {
   return {
     name: containerName,
@@ -64,7 +66,7 @@ function buildContainerOptions(
     HostConfig: info.HostConfig,
     ExposedPorts: info.Config.ExposedPorts,
     Labels: info.Config.Labels,
-    Healthcheck: info.Config.Healthcheck,
+    Healthcheck: healthcheck,
     NetworkingConfig: {
       EndpointsConfig: info.NetworkSettings.Networks as Record<
         string,
@@ -108,6 +110,7 @@ async function rollback(
   failedContainer: Dockerode.Container | undefined,
   previousInfo: Dockerode.ContainerInspectInfo,
   previousImage: string,
+  healthcheck: Dockerode.HealthConfig | undefined,
 ): Promise<boolean> {
   try {
     if (failedContainer) {
@@ -115,7 +118,7 @@ async function rollback(
       await failedContainer.remove({ force: true }).catch(() => {});
     }
     const rolledBackContainer = await docker.createContainer(
-      buildContainerOptions(previousImage, previousInfo, previousInfo.Name.replace(/^\//, '')),
+      buildContainerOptions(previousImage, previousInfo, previousInfo.Name.replace(/^\//, ''), healthcheck),
     );
     await rolledBackContainer.start();
     console.info(`Rolled back to previous image: ${previousImage}`);
@@ -138,6 +141,7 @@ export async function runAgentHandover(
   let containerInfo: Dockerode.ContainerInspectInfo | undefined;
   let teardownCompleted = false;
   let replacement: Dockerode.Container | undefined;
+  let carriedHealthcheck: Dockerode.HealthConfig | undefined;
 
   try {
     const agent = docker.getContainer(opts.containerName);
@@ -145,17 +149,23 @@ export async function runAgentHandover(
     // Pin by digest or image ID: after the pull the old tag resolves to the
     // new image, which would make rollback a no-op.
     previousImage = containerInfo.Image;
+    let previousImageHealthcheck: Dockerode.HealthConfig | undefined;
     try {
       const imageInfo = await docker.getImage(containerInfo.Image).inspect();
       previousImage = imageInfo.RepoDigests?.[0] ?? containerInfo.Image;
+      previousImageHealthcheck = imageInfo.Config.Healthcheck;
     } catch {
       // Keep the image ID fallback.
     }
+    // Docker resolves the image's HEALTHCHECK into the container config, and carrying that would pin the old probe onto every later image.
+    carriedHealthcheck = isDeepStrictEqual(containerInfo.Config.Healthcheck, previousImageHealthcheck)
+      ? undefined
+      : containerInfo.Config.Healthcheck;
 
     console.info(`Pulling new agent image: ${opts.targetImage}`);
     await pullImage(docker, opts.targetImage);
 
-    let healthcheck = containerInfo.Config.Healthcheck;
+    let healthcheck = carriedHealthcheck;
     if (!healthcheck) {
       try {
         const imageInfo = await docker.getImage(opts.targetImage).inspect();
@@ -173,13 +183,13 @@ export async function runAgentHandover(
 
     console.info(`Creating agent container: ${opts.containerName}`);
     replacement = await docker.createContainer(
-      buildContainerOptions(opts.targetImage, containerInfo, opts.containerName),
+      buildContainerOptions(opts.targetImage, containerInfo, opts.containerName, carriedHealthcheck),
     );
     await replacement.start();
 
     if (!(await waitForHealthy(replacement, opts.agentPort, wait))) {
       console.info('Agent health check failed after update, rolling back');
-      const rolledBack = await rollback(docker, replacement, containerInfo, previousImage);
+      const rolledBack = await rollback(docker, replacement, containerInfo, previousImage, carriedHealthcheck);
       return { previousImage, newImage: opts.targetImage, rolledBack };
     }
 
@@ -189,7 +199,7 @@ export async function runAgentHandover(
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Agent handover failed: ${message}`);
     if (teardownCompleted && previousImage && containerInfo) {
-      const rolledBack = await rollback(docker, replacement, containerInfo, previousImage);
+      const rolledBack = await rollback(docker, replacement, containerInfo, previousImage, carriedHealthcheck);
       return { previousImage, newImage: opts.targetImage, rolledBack };
     }
     throw error;

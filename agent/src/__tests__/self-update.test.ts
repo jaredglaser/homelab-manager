@@ -24,6 +24,8 @@ interface InspectState {
   healthStatus?: string;
   running?: boolean;
   containerHealthcheck?: Dockerode.HealthConfig;
+  previousImageHealthcheck?: Dockerode.HealthConfig;
+  targetImageHealthcheck?: Dockerode.HealthConfig;
 }
 
 function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {}) {
@@ -59,7 +61,9 @@ function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {
       inspect: mock(() =>
         Promise.resolve({
           RepoDigests: [_id === TARGET ? [] : [PREVIOUS_DIGEST_REF]].flat(),
-          Config: { Healthcheck: undefined },
+          Config: {
+            Healthcheck: _id === TARGET ? inspectState.targetImageHealthcheck : inspectState.previousImageHealthcheck,
+          },
         }),
       ),
     })),
@@ -202,6 +206,43 @@ describe('runAgentHandover', () => {
 
       expect(result.rolledBack).toBe(true);
       expect(capture.inspected).toBe(Math.ceil((1_000 * 4 + 10_000) / 1_000));
+    });
+
+    test('lets the target image healthcheck apply when the container only inherited its image one', async () => {
+      const imageHealthcheck: Dockerode.HealthConfig = {
+        Test: ['CMD-SHELL', "bun -e \"fetch('http://localhost:9090/health')\""],
+        Interval: 30_000_000_000,
+        Timeout: 5_000_000_000,
+        StartPeriod: 15_000_000_000,
+        Retries: 3,
+      };
+      const capture: HandoverCapture = { pulled: [], stopped: false, removed: false, created: [], started: 0 };
+      const docker = handoverDocker(capture, {
+        healthStatus: 'starting',
+        containerHealthcheck: { ...imageHealthcheck },
+        previousImageHealthcheck: imageHealthcheck,
+        targetImageHealthcheck: { Interval: 1_000_000_000, StartPeriod: 0, Retries: 3 },
+      });
+
+      const result = await runAgentHandover(docker, { containerName: 'hlm-agent', targetImage: TARGET, agentPort: 9090 });
+
+      expect(result.rolledBack).toBe(true);
+      expect((capture.created[0] as { Healthcheck?: unknown }).Healthcheck).toBeUndefined();
+      expect((capture.created[1] as { Healthcheck?: unknown }).Healthcheck).toBeUndefined();
+      expect(capture.inspected).toBe(Math.ceil((1_000 * 4 + 10_000) / 1_000));
+    });
+
+    test('sizes the wait from the target image healthcheck when the container has none', async () => {
+      const capture: HandoverCapture = { pulled: [], stopped: false, removed: false, created: [], started: 0 };
+      const docker = handoverDocker(capture, {
+        healthStatus: 'starting',
+        targetImageHealthcheck: { Interval: 1_000_000_000, StartPeriod: 0, Retries: 1 },
+      });
+
+      const result = await runAgentHandover(docker, { containerName: 'hlm-agent', targetImage: TARGET, agentPort: 9090 });
+
+      expect(result.rolledBack).toBe(true);
+      expect(capture.inspected).toBe(Math.ceil((1_000 * 2 + 10_000) / 1_000));
     });
   });
 
