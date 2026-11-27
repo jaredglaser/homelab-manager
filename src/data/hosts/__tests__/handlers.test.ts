@@ -733,7 +733,7 @@ describe('handleUpdateAgent', () => {
   describe('when the source hashes are known', () => {
     const HASH = 'e'.repeat(64);
 
-    function hashDeps(agentSourceHash: string | undefined, release: { sourceHash: string | null | undefined; sourceHashReadFailed?: true }) {
+    function hashDeps(agentSourceHash: string | undefined, release: { sourceHash: string | null | undefined }) {
       const checkHealth = mock(() => Promise.resolve({ healthy: true as const, version: '1.0.0', agentSourceHash }));
       return {
         ...updateDeps(undefined, checkHealth),
@@ -763,8 +763,7 @@ describe('handleUpdateAgent', () => {
       ['the hashes differ', 'a'.repeat(64), { sourceHash: HASH }],
       ['the agent reports no hash', undefined, { sourceHash: HASH }],
       ['the image has no hash label', HASH, { sourceHash: null }],
-      ['no label read has succeeded', HASH, { sourceHash: undefined, sourceHashReadFailed: true as const }],
-      ['the label read failed and only an earlier hash is known', HASH, { sourceHash: HASH, sourceHashReadFailed: true as const }],
+      ['the label read failed', HASH, { sourceHash: undefined }],
     ])('calls the agent when %s', async (_case, agentHash, release) => {
       const { restore, fetchMock } = agentAnswersCurrent();
       try {

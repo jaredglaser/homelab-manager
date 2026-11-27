@@ -389,7 +389,7 @@ export async function handleUpdateAgent(
     };
   }
   // The agent decides by digest alone, so without this a rebuild of unchanged source swaps the container for nothing.
-  if (!release.sourceHashReadFailed && release.sourceHash && preCheck.agentSourceHash === release.sourceHash) {
+  if (release.sourceHash && preCheck.agentSourceHash === release.sourceHash) {
     await deps.repo.updateAgentInfo(host.id, { outOfDate: false });
     return { hostId: host.id, healthy: true, outcome: 'already_current' };
   }
@@ -559,10 +559,7 @@ export interface AgentsInventoryDeps extends HostHandlerDeps {
 // CI republishes the agent on every merge, so a digest alone flags rebuilds of unchanged source. The digest is the fallback for unstamped images.
 function agentOutOfDateFor(outcome: HealthCheckOutcome, expected: AgentImageRelease | null): boolean {
   if (!outcome.healthy || !expected) return false;
-  if (outcome.agentSourceHash) {
-    if (expected.sourceHash === undefined) return false;
-    if (expected.sourceHash) return outcome.agentSourceHash !== expected.sourceHash;
-  }
+  if (expected.sourceHash && outcome.agentSourceHash) return outcome.agentSourceHash !== expected.sourceHash;
   return !!outcome.agentImageDigest && outcome.agentImageDigest !== expected.digest;
 }
 
@@ -602,6 +599,8 @@ export async function handleSweepAgentInventory(
       }),
     ),
   ]);
+  // A failed label read keeps the stored verdict. Digests would flag every rebuild, and a stale hash would hide a real update.
+  const labelUnread = expectedAgentRelease !== null && expectedAgentRelease.sourceHash === undefined;
   await Promise.all(
     hosts.map(async (host, i) => {
       const outcome = probeOutcomes[i];
@@ -610,7 +609,6 @@ export async function handleSweepAgentInventory(
         // checkedAt answers "when did the sweep last look at this agent", not "when did its status last change".
         await deps.repo.updateLastSweptAt(host.id, now);
         await deps.repo.updateHealth(host.id, probeVerdict(host, outcome), host.agentUrl);
-        const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentRelease);
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
           await deps.repo.updateAgentInfo(host.id, {
             version: outcome.version,
@@ -619,7 +617,7 @@ export async function handleSweepAgentInventory(
                   image: outcome.agentImage ?? null,
                   imageTag: outcome.agentImageTag ?? null,
                   imageDigest: outcome.agentImageDigest ?? null,
-                  outOfDate: agentOutOfDate,
+                  ...(labelUnread ? {} : { outOfDate: agentOutOfDateFor(outcome, expectedAgentRelease) }),
                 }
               : {}),
           });

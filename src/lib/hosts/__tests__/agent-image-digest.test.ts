@@ -141,14 +141,14 @@ async function sha256Of(text: string): Promise<string> {
 const PLATFORM_DIGEST = 'sha256:' + 'b'.repeat(64);
 const SOURCE_HASH = 'e'.repeat(64);
 
-async function registry(opts: { label?: string; tamper?: boolean; indexDigest?: string; padding?: number; blob?: () => Response } = {}) {
+async function registry(opts: { tag?: string; label?: string; tamper?: boolean; indexDigest?: string; padding?: number; blob?: () => Response } = {}) {
   const labels = opts.label === undefined ? {} : { [AGENT_SOURCE_HASH_LABEL]: opts.label };
   const config = JSON.stringify({ config: { Labels: labels }, padding: 'x'.repeat(opts.padding ?? 0) });
   const configDigest = await sha256Of(config);
   const indexDigest = opts.indexDigest ?? DIGEST;
   return withFetch((url) => {
     const u = String(url);
-    if (u.endsWith('/manifests/main')) {
+    if (u.endsWith(`/manifests/${opts.tag ?? 'main'}`)) {
       return Promise.resolve(manifestResponse(200, { 'Docker-Content-Digest': indexDigest }, JSON.stringify({
         manifests: [
           { digest: 'sha256:' + '9'.repeat(64), platform: { os: 'unknown', architecture: 'unknown' } },
@@ -222,30 +222,29 @@ describe('resolveAgentImageRelease', () => {
     }
   });
 
-  test('keeps the last hash it read when a later label read fails', async () => {
+  test('never lets a hash read for one reference stand in for another whose read failed', async () => {
     const resolve = createAgentImageReleaseResolver();
     const first = await registry({ label: SOURCE_HASH, indexDigest: 'sha256:' + '6'.repeat(64) });
     try {
-      await resolve(`${REPO}:main`);
+      expect((await resolve(`${REPO}:main`))?.sourceHash).toBe(SOURCE_HASH);
     } finally {
       first.restore();
     }
-    const failing = await registry({ label: SOURCE_HASH, tamper: true, indexDigest: 'sha256:' + '7'.repeat(64) });
+    const failing = await registry({ tag: 'v1.2.3', label: SOURCE_HASH, tamper: true, indexDigest: 'sha256:' + '7'.repeat(64) });
     try {
-      expect(await resolve(`${REPO}:main`)).toEqual({ digest: 'sha256:' + '7'.repeat(64), sourceHash: SOURCE_HASH, sourceHashReadFailed: true });
+      expect(await resolve(`${REPO}:v1.2.3`)).toEqual({ digest: 'sha256:' + '7'.repeat(64), sourceHash: undefined });
     } finally {
       failing.restore();
     }
   });
 
-  test('reports the hash as unknown, not absent, when no label read has ever succeeded', async () => {
+  test('reports the hash as unknown, not absent, when the label read fails', async () => {
     const resolve = createAgentImageReleaseResolver();
     const { restore } = await registry({ label: SOURCE_HASH, tamper: true, indexDigest: 'sha256:' + '8'.repeat(64) });
     try {
       const release = await resolve(`${REPO}:main`);
       expect(release?.digest).toBe('sha256:' + '8'.repeat(64));
       expect(release && 'sourceHash' in release ? release.sourceHash : 'missing').toBeUndefined();
-      expect(release?.sourceHashReadFailed).toBe(true);
     } finally {
       restore();
     }
@@ -258,6 +257,26 @@ describe('resolveAgentImageRelease', () => {
       const release = await resolve(`${REPO}:main`);
       expect(release?.digest).toBe('sha256:' + 'f'.repeat(64));
       expect(release?.sourceHash).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+
+  test('refuses a config blob that declares a length over 1 MiB without reading its body', async () => {
+    const resolve = createAgentImageReleaseResolver();
+    let pulls = 0;
+    const declared = () => new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(new Uint8Array(1024));
+      },
+    }, { highWaterMark: 0 }), { status: 200, headers: { 'Content-Length': String(1024 * 1024 + 1) } });
+    const { restore } = await registry({ label: SOURCE_HASH, blob: declared, indexDigest: 'sha256:' + 'd'.repeat(64) });
+    try {
+      expect(declared().headers.get('content-length')).toBe(String(1024 * 1024 + 1));
+      pulls = 0;
+      expect((await resolve(`${REPO}:main`))?.sourceHash).toBeUndefined();
+      expect(pulls).toBe(0);
     } finally {
       restore();
     }

@@ -109,13 +109,8 @@ export async function resolveAgentImageDigest(imageRef: string): Promise<string 
 
 export interface AgentImageRelease {
   digest: string;
-  /**
-   * The image's AGENT_SOURCE_HASH_LABEL, or null when it has none. When the label cannot be read this
-   * sweep, the last hash read successfully, or undefined when no read has succeeded yet.
-   */
+  /** The image's AGENT_SOURCE_HASH_LABEL, null when it has none, or undefined when this read of it failed. */
   sourceHash: string | null | undefined;
-  /** Set when this resolve could not read the label, so sourceHash is an earlier read or undefined. */
-  sourceHashReadFailed?: true;
 }
 
 const SOURCE_HASH_PATTERN = /^[0-9a-f]{64}$/;
@@ -209,8 +204,6 @@ const MAX_CACHED_DIGESTS = 32;
 export function createAgentImageReleaseResolver(): (imageRef: string) => Promise<AgentImageRelease | null> {
   // An index digest names immutable content, so its label never changes. Bounded because `main` moves on every merge.
   const sourceHashByDigest = new Map<string, string | null>();
-  // A failed read that fell back to digests would flag every host on a rebuild of unchanged source.
-  let lastReadSourceHash: string | null | undefined;
 
   return async (imageRef) => {
     const parts = splitImageRef(imageRef);
@@ -231,10 +224,10 @@ export function createAgentImageReleaseResolver(): (imageRef: string) => Promise
     } catch {
       sourceHash = undefined;
     }
-    if (sourceHash === undefined) return { digest: index.digest, sourceHash: lastReadSourceHash, sourceHashReadFailed: true };
-    if (sourceHashByDigest.size >= MAX_CACHED_DIGESTS) sourceHashByDigest.clear();
-    sourceHashByDigest.set(index.digest, sourceHash);
-    lastReadSourceHash = sourceHash;
+    if (sourceHash !== undefined) {
+      if (sourceHashByDigest.size >= MAX_CACHED_DIGESTS) sourceHashByDigest.clear();
+      sourceHashByDigest.set(index.digest, sourceHash);
+    }
     return { digest: index.digest, sourceHash };
   };
 }

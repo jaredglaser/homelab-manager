@@ -297,11 +297,11 @@ describe('handleSweepAgentInventory', () => {
     expect(updateAgentInfo.mock.calls[1]?.[1]).toMatchObject({ outOfDate: true });
   });
 
-  it('does not flag an agent that reports a hash when the expected hash could not be read', async () => {
+  it('keeps a stored out-of-date verdict through a sweep whose label read failed', async () => {
     const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
     const d = {
       ...deps(
-        [mockRow({ id: 1, name: 'rebuilt' })],
+        [mockRow({ id: 1, name: 'behind', agentOutOfDate: true })],
         [{ healthy: true, infoSupported: true, agentImageDigest: 'sha256:' + 'c'.repeat(64), agentSourceHash: 'a'.repeat(64) }],
         { updateAgentInfo },
       ),
@@ -310,7 +310,8 @@ describe('handleSweepAgentInventory', () => {
 
     await handleSweepAgentInventory(d, NOW);
 
-    expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({ outOfDate: false });
+    expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({ imageDigest: 'sha256:' + 'c'.repeat(64) });
+    expect(updateAgentInfo.mock.calls[0]?.[1]).not.toHaveProperty('outOfDate');
   });
 
   it('falls back to the digest when the agent reports no source hash', async () => {

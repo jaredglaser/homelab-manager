@@ -286,6 +286,12 @@ describe('agent image channel', () => {
   );
 });
 
+function localCopySources(dockerfile: string): string[] {
+  return [...dockerfile.matchAll(/^COPY\s+((?:--\S+\s+)*)(\S+)\s/gm)]
+    .filter((m) => !/--from=/.test(m[1]))
+    .map((m) => m[2]);
+}
+
 describe('agent source hash stamping', () => {
   test('the agent image labels the hash under the name the manager reads, and exposes it to the agent', () => {
     const agentDockerfile = read('agent/Dockerfile');
@@ -296,9 +302,14 @@ describe('agent source hash stamping', () => {
   test('the hash covers the Dockerfile, the dockerignore and every file the Dockerfile copies', () => {
     const step = /git ls-tree -r HEAD -- ([^\\\n]+)/.exec(read(WORKFLOW));
     const hashed = new Set(step?.[1]?.trim().split(/\s+/));
-    const copied = [...read('agent/Dockerfile').matchAll(/^COPY\s+(?!--from)(\S+)\s/gm)].map((m) => `agent/${m[1]}`);
+    const copied = localCopySources(read('agent/Dockerfile')).map((source) => `agent/${source}`);
     expect(copied.length).toBeGreaterThan(0);
     for (const path of ['agent/Dockerfile', 'agent/.dockerignore', ...copied]) expect(hashed).toContain(path);
+  });
+
+  test('reads the source of a flagged COPY and skips a copy from another stage', () => {
+    const sample = ['COPY --chown=bun:bun src ./src', 'COPY --link --from=toolchain /bin/docker /bin/docker', 'COPY bun.lock ./bun.lock'].join('\n');
+    expect(localCopySources(sample)).toEqual(['src', 'bun.lock']);
   });
 
   test('CI passes the hash to the agent build', () => {
