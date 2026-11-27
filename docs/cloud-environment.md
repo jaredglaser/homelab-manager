@@ -31,14 +31,14 @@ REPO=/home/claude/homelab-manager
 exit 0
 ```
 
-`scripts/cloud/setup.sh` installs the Bun version from `.bun-version` over the preinstalled one, installs dependencies, and pulls the images in `docker-compose.local.yml`.
+`scripts/cloud/setup.sh` runs the start script below, pulls the images in `docker-compose.local.yml`, and prepares the base images for builds.
 
 ## What is cached and what is not
 
 The setup script runs when the environment's cache is built: on the first session, after the script or the allowed hosts change, and about weekly. Later sessions start from a snapshot of the disk.
 
 - **Kept:** the pinned Bun, Bun's package cache, pulled images.
-- **Not kept:** running processes. `scripts/cloud/session-start.sh` starts `dockerd` in each session, through the SessionStart hook in `.claude/settings.json`. A session with more than one repository attached starts in their parent directory and does not load repo hooks, so Docker is not running there until something runs the script. The `orchestrate` skill runs it as its first step.
+- **Not kept:** running processes. `scripts/cloud/session-start.sh` starts `dockerd`, puts Bun on the pin and installs dependencies when they are missing or older than the lockfile, then prints one status line. The SessionStart hook in `.claude/settings.json` runs it. A session with more than one repository attached starts in their parent directory and does not load repo hooks, so run the script first there, from any directory. The `orchestrate` skill runs it as its first step.
 - **Possibly stale:** the clone the setup script made. Sessions work in their own fresh checkout.
 
 ## Checking a box
@@ -47,7 +47,16 @@ The setup script runs when the environment's cache is built: on the first sessio
 bash scripts/cloud/env-check.sh
 ```
 
-It reports the Bun pin, whether Docker is running, which stack images are cached, and which hosts are reachable.
+It reports the Bun pin, whether Docker is running, which stack images are cached, which hosts are reachable, and every branch ahead of main with no open PR.
+
+## Building images
+
+The box reaches the network only through a proxy that re-signs TLS, so builds go through `scripts/cloud/docker.sh`. It takes the base images from `mirror.gcr.io`, adds the proxy's certificate to the local `oven/bun` tag, and gives build steps the proxy. The Dockerfiles stay unchanged.
+
+```bash
+bash scripts/cloud/docker.sh build -t hlm-agent ./agent
+bash scripts/cloud/docker.sh compose up -d --build   # the local stack, management and oidc profiles
+```
 
 ## What a box can prove
 
@@ -63,4 +72,4 @@ It reports the Bun pin, whether Docker is running, which stack images are cached
 
 - GitHub GraphQL is unavailable, so `gh pr` and `gh issue` fail. Use REST through `gh api`.
 - The box runs as root (`AGENTS.md#root-container`).
-- Memory is limited. Run `test:all`, `typecheck:all`, full `eslint .`, `vite build` and `e2e:build*` one at a time when several agents share a box: `flock /home/claude/work/heavy.lock <cmd>`.
+- Memory is limited. Run `test:all`, `typecheck:all`, full `eslint .`, `vite build` and `e2e:build*` one at a time when several agents share a box: `scripts/cloud/heavy.sh <cmd>`. It waits up to 10 minutes for the lock and stops a command after 20.
