@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import git from 'isomorphic-git';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
-import { initBareRepo, commitFiles } from '../repo';
+import { initBareRepo, commitFiles } from '@/lib/git/repo';
 import { handleInfoRefs, handleUploadPack, handleReceivePack, getHeadOid } from '../git-server';
 
 describe('handleInfoRefs', () => {

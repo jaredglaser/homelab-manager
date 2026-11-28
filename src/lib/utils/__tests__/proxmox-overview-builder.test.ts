@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { buildProxmoxOverview } from '../proxmox-overview-builder';
-import { snapshotToRows } from '../proxmox-overview-converter';
+import { snapshotToRows } from '@/lib/utils/proxmox-overview-converter';
 import type { ProxmoxClusterSnapshot, ProxmoxStatsRow } from '@/types/proxmox';
 import type { NewProxmoxStat } from '@/lib/database/repositories/stats-repository';
 

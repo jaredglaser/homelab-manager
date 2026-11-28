@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import { HOST_PROBE_FAILURE_CODES } from '@/lib/errors/host-failure-copy';
-import { buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import { AGENT_UPDATE_STALE_AFTER_MS, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
 const NOW = new Date('2026-03-01T00:00:00Z');
 
@@ -21,6 +21,7 @@ function host(overrides: Partial<ManagedHost> = {}): ManagedHost {
     createdAt: NOW,
     updatedAt: NOW,
     lastSweptAt: NOW,
+    agentUpdate: null,
     ...overrides,
   };
 }
@@ -52,5 +53,30 @@ describe('inventory status for a failure', () => {
 
     expect(stored.status).toBe('unreachable');
     expect(uncaused.status).toBe('unknown');
+  });
+});
+
+describe('agent update on the inventory entry', () => {
+  it('sends the stored update with its time as an ISO string, and leaves the update badge to the sweep', () => {
+    const at = new Date('2026-11-27T10:00:00.123Z');
+    const now = new Date('2026-11-27T10:01:00Z');
+    const running = buildStoredAgentInventoryEntry(host({ status: 'healthy', agentOutOfDate: true, agentUpdate: { state: 'running', at } }), now);
+    expect(running.update).toEqual({ state: 'running', at: '2026-11-27T10:00:00.123Z' });
+    expect(running.agentOutOfDate).toBe(true);
+
+    const done = buildStoredAgentInventoryEntry(
+      host({ agentUpdate: { state: 'done', at, result: { healthy: true, outcome: 'already_current' } } }),
+      now,
+    );
+    expect(done.update).toEqual({ state: 'done', at: '2026-11-27T10:00:00.123Z', result: { healthy: true, outcome: 'already_current' } });
+    expect(buildStoredAgentInventoryEntry(host()).update).toBeNull();
+  });
+
+  it('reads a running update older than the stale bound as errored, ending at the bound', () => {
+    const at = new Date('2026-11-27T10:00:00.000Z');
+    const entry = (now: string) => buildStoredAgentInventoryEntry(host({ agentUpdate: { state: 'running', at } }), new Date(now)).update;
+    expect(AGENT_UPDATE_STALE_AFTER_MS).toBe(10 * 60_000);
+    expect(entry('2026-11-27T10:09:59.999Z')).toEqual({ state: 'running', at: '2026-11-27T10:00:00.000Z' });
+    expect(entry('2026-11-27T10:10:00.000Z')).toEqual({ state: 'errored', at: '2026-11-27T10:10:00.000Z' });
   });
 });

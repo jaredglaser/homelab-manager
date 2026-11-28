@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { TLS_FAILURE_CODES } from '@homelab-manager/agent/types';
-import { hostFailureMessage } from '../host-failure-copy';
+import { hostFailureMessage } from '@/lib/errors/host-failure-copy';
 import { tlsFailureCopy, tlsFailureGuidance, tlsFailureMessage } from '../tls-failure-copy';
 
 describe('tlsFailureCopy', () => {

@@ -18,6 +18,7 @@ function snapshot(overrides: Record<string, unknown> = {}) {
         agentImageDigest: null,
         agentOutOfDate: false,
         failure: null,
+        update: null,
         checkedAt: '2026-03-01T00:00:00.000Z',
         ...overrides,
       },
@@ -27,6 +28,29 @@ function snapshot(overrides: Record<string, unknown> = {}) {
 }
 
 describe('agent inventory wire schema', () => {
+  it('carries a running, finished and interrupted update, and rejects one this build cannot show', () => {
+    const at = '2026-11-27T10:00:00.000Z';
+    const accepted = [
+      { state: 'running', at },
+      { state: 'interrupted', at },
+      { state: 'done', at, result: { healthy: true, outcome: 'updated', version: '2.0.0' } },
+      { state: 'done', at, result: { healthy: true, outcome: 'already_current' } },
+      { state: 'done', at, result: { healthy: false, code: 'update_in_progress', message: '' } },
+      { state: 'done', at, result: { healthy: false, code: 'agent_did_not_restart', message: 'detail' } },
+    ];
+    for (const update of accepted) {
+      expect(zAgentInventorySnapshotWire.safeParse(snapshot({ update })).success, JSON.stringify(update)).toBe(true);
+    }
+    const rejected = [
+      { state: 'paused', at },
+      { state: 'done', at },
+      { state: 'done', at, result: { healthy: false, code: 'from_a_newer_build', message: '' } },
+    ];
+    for (const update of rejected) {
+      expect(zAgentInventorySnapshotWire.safeParse(snapshot({ update })).success, JSON.stringify(update)).toBe(false);
+    }
+  });
+
   it('accepts every status the inventory can report', () => {
     for (const status of AGENT_INVENTORY_STATUSES) {
       const parsed = zAgentInventorySnapshotWire.safeParse(snapshot({ status }));

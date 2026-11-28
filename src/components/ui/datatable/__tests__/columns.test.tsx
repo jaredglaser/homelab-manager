@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import { flexRender, useTable } from '@tanstack/react-table';
-import { dataTableFeatures, type DataTableFeatures } from '../tableFeatures';
+import { dataTableFeatures, type DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import type { ColumnDef, RowData } from '@tanstack/react-table';
 import { createStore, Provider } from 'jotai';
 import { metricColumn, nameColumn, statusColumn, progressColumn } from '../columns';
