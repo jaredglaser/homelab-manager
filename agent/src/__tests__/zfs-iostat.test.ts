@@ -52,6 +52,11 @@ describe('zpool iostat arguments', () => {
   });
 });
 
+test.each(['2.3.3', '2.3.4'] as const)('reads every line of the OpenZFS %s fixture', (version) => {
+  samples(fixture(version));
+  expect(console.error).not.toHaveBeenCalled();
+});
+
 describe('parseIostatSample on OpenZFS 2.3.3 output (Proxmox VE 9.0)', () => {
   const parsed = samples(fixture('2.3.3'));
 
@@ -124,12 +129,14 @@ describe('parseIostatSample edge cases', () => {
     const [pool] = parseIostatSample([
       'huge  9007199254740993  18446744073709551615  0  0  0  0',
       '  sda  9007199254740993  18446744073709551615  0  0  0  0',
-    ]);
+    ]).pools;
     expect(pool.capacity).toEqual({ allocBytes: '9007199254740993', freeBytes: '18446744073709551615' });
   });
 
-  test('rejects a rate a JSON number cannot carry exactly', () => {
-    expect(() => parseIostatSample(['tank  1  1  9007199254740993  0  0  0'])).toThrow('rate out of range');
+  test('leaves out a pool whose rate a JSON number cannot carry exactly', () => {
+    const { pools, problems } = parseIostatSample(['tank  1  1  9007199254740993  0  0  0', '  sda  0  0  0  0  0  0']);
+    expect(pools).toEqual([]);
+    expect(problems).toEqual([{ pool: 'tank', reason: 'rate out of range', line: 'tank  1  1  9007199254740993  0  0  0' }]);
   });
 
   test('reads a pool named like a group as a pool, because a pool line carries numbers', () => {
@@ -137,7 +144,7 @@ describe('parseIostatSample edge cases', () => {
       'cache  100  200  1  2  3  4',
       '  sda  100  200  1  2  3  4',
       SEPARATOR,
-    ]);
+    ]).pools;
     expect(pools.map((pool) => pool.name)).toEqual(['cache']);
     expect(names(pools[0].children)).toEqual(['sda']);
   });
@@ -148,7 +155,7 @@ describe('parseIostatSample edge cases', () => {
       '  logs  100  200  1  2  3  4',
       'logs  -  -  -  -  -  -',
       '  nvme0n1  0  50  0  1  0  4096',
-    ]);
+    ]).pools;
     expect(names(pool.children)).toEqual(['logs', '@logs']);
   });
 
@@ -156,7 +163,7 @@ describe('parseIostatSample edge cases', () => {
     const [pool] = parseIostatSample([
       'my pool  100  200  1  2  3  4',
       '  /var/lib/zfs/disk 1.img  100  200  1  2  3  4',
-    ]);
+    ]).pools;
     expect(pool.name).toBe('my pool');
     expect(names(pool.children)).toEqual(['/var/lib/zfs/disk 1.img']);
   });
@@ -169,7 +176,7 @@ describe('parseIostatSample edge cases', () => {
       '      sdb  0  0  1  2  3  4',
       '      sdz  0  0  1  2  3  4',
       '    sda  0  0  1  2  3  4',
-    ]);
+    ]).pools;
     const mirror = pool.children[0];
     expect(mirror.kind).toBe('vdev');
     if (mirror.kind !== 'vdev') return;
@@ -178,19 +185,21 @@ describe('parseIostatSample edge cases', () => {
   });
 
   test('returns no pools for a sample with none', () => {
-    expect(parseIostatSample([SEPARATOR])).toEqual([]);
+    expect(parseIostatSample([SEPARATOR])).toEqual({ pools: [], problems: [] });
   });
 
   test.each([
-    ['a device before any pool', ['  sda  0  0  1  2  3  4']],
-    ['a device below a skipped level', ['tank  1  1  1  1  1  1', '      sda  0  0  1  2  3  4']],
-    ['an odd indent', ['tank  1  1  1  1  1  1', '   sda  0  0  1  2  3  4']],
-    ['a rounded value from a run without -p', ['tank  1.81T  2.00T  1  2  1.2K  3']],
-    ['an unknown group header', ['tank  1  1  1  1  1  1', 'mystery  -  -  -  -  -  -']],
-    ['a group header outside a pool', ['special  -  -  -  -  -  -']],
-    ['a repeated group header', ['tank  1  1  1  1  1  1', 'logs  -  -  -  -  -  -', '  a  0  1  0  0  0  0', 'logs  -  -  -  -  -  -']],
-  ])('throws on %s', (_label, lines) => {
-    expect(() => parseIostatSample(lines)).toThrow();
+    ['a device before any pool', ['  sda  0  0  1  2  3  4'], null, 'device outside a pool'],
+    ['a device below a skipped level', ['tank  1  1  1  1  1  1', '      sda  0  0  1  2  3  4'], 'tank', 'device without a parent'],
+    ['an odd indent', ['tank  1  1  1  1  1  1', '   sda  0  0  1  2  3  4'], 'tank', 'odd indent'],
+    ['a rounded value from a run without -p', ['tank  1.81T  2.00T  1  2  1.2K  3'], null, 'unrecognized line'],
+    ['an unknown group header', ['tank  1  1  1  1  1  1', 'mystery  -  -  -  -  -  -'], 'tank', 'unrecognized line'],
+    ['a group header outside a pool', ['special  -  -  -  -  -  -'], null, 'group outside a pool'],
+    ['a repeated group header', ['tank  1  1  1  1  1  1', 'logs  -  -  -  -  -  -', '  a  0  1  0  0  0  0', 'logs  -  -  -  -  -  -'], 'tank', 'repeated group'],
+  ])('reports %s and keeps no pool with it', (_label, lines, pool, reason) => {
+    const sample = parseIostatSample(lines);
+    expect(sample.pools).toEqual([]);
+    expect(sample.problems).toEqual([expect.objectContaining({ pool, reason })]);
   });
 });
 
@@ -216,15 +225,24 @@ describe('IostatSampleReader', () => {
     expect(emitted).toEqual([]);
   });
 
-  test('drops a malformed sample whole and logs it, then reads the next one', () => {
+  test('sends the rest of a sample with a stray line and logs each problem once per five minutes', () => {
     const emitted: ZfsPool[][] = [];
-    const reader = new IostatSampleReader((pools) => emitted.push(pools));
-    for (const line of [...HEADER, 'tank  1  2  3  4  5  6', '  garbled line']) reader.push(line);
-    for (const line of [...HEADER, 'tank  1  2  3  4  5  6']) reader.push(line);
+    let clock = 0;
+    const reader = new IostatSampleReader((pools) => emitted.push(pools), () => clock);
+    const sampleWithStray = [...HEADER, 'tank  1  2  3  4  5  6', '  garbled line', SEPARATOR, 'backup  1  2  3  4  5  6', SEPARATOR];
+
+    for (const at of [0, 1000, 2000, 301_000]) {
+      clock = at;
+      for (const line of sampleWithStray) reader.push(line);
+    }
+    clock = 302_000;
     reader.push(HEADER[0]);
 
-    expect(emitted).toHaveLength(1);
-    expect(console.error).toHaveBeenCalledWith('Dropped a zpool iostat sample:', 'unrecognized line:   garbled line');
+    expect(emitted.map((pools) => pools.map((pool) => pool.name))).toEqual([['backup'], ['backup'], ['backup'], ['backup']]);
+    expect(console.error).toHaveBeenCalledTimes(2);
+    expect(console.error).toHaveBeenCalledWith(
+      'Could not read a zpool iostat line in pool tank, which is left out of the sample (unrecognized line):   garbled line',
+    );
   });
 });
 
