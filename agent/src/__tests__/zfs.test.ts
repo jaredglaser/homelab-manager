@@ -249,7 +249,7 @@ describe('handleZfsStatsStream', () => {
   });
 
   test('closes the stream without a partial sample when zpool iostat exits', async () => {
-    const { iostats } = fakeZpool();
+    const { iostats } = fakeZpool(() => ({ exitCode: 0, text: statusText({ tank: {} }) }));
     const response = handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream'), zfsAvailable, options({ now: 0 }));
     const { frames, done } = collectFrames(response);
 
@@ -285,28 +285,121 @@ describe('handleZfsStatsStream', () => {
   });
 
   test('kills a zpool status that outlives its timeout', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const timeouts: Array<{ cb: () => void; ms: number }> = [];
+    let resolveArmed!: () => void;
+    const armed = new Promise<void>((resolve) => { resolveArmed = resolve; });
+    globalThis.setTimeout = mock((cb: () => void, ms: number) => {
+      timeouts.push({ cb, ms });
+      if (ms === 10_000) resolveArmed();
+      return timeouts.length as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout;
     const statusKill = mock(() => {});
-    fakeZpool();
-    const iostatSpawn = Bun.spawn;
-    let resolveKilled!: () => void;
-    const killed = new Promise<void>((resolve) => { resolveKilled = resolve; });
-    Bun.spawn = mock((args: string[], opts: unknown) => {
-      if (args[1] !== 'status') return (iostatSpawn as any)(args, opts);
-      let exit!: (code: number) => void;
-      return {
-        stdout: new Response('').body!,
-        stderr: new Response('').body!,
-        exited: new Promise<number>((resolve) => { exit = resolve; }),
-        kill: mock(() => { statusKill(); exit(143); resolveKilled(); }),
-      };
-    }) as any;
-    const ac = new AbortController();
-    handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, { ...options({ now: 0 }), statusTimeoutMs: 1 });
+    try {
+      fakeZpool();
+      const iostatSpawn = Bun.spawn;
+      Bun.spawn = mock((args: string[], opts: unknown) => {
+        if (args[1] !== 'status') return (iostatSpawn as any)(args, opts);
+        let exit!: (code: number) => void;
+        return {
+          stdout: new Response('').body!,
+          stderr: new Response('').body!,
+          exited: new Promise<number>((resolve) => { exit = resolve; }),
+          kill: mock(() => { statusKill(); exit(143); }),
+        };
+      }) as any;
+      const ac = new AbortController();
+      handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options({ now: 0 }));
 
-    await killed;
-    const killsBeforeDisconnect = statusKill.mock.calls.length;
+      await armed;
+      expect(statusKill).not.toHaveBeenCalled();
+      timeouts.find((entry) => entry.ms === 10_000)!.cb();
+      const killsBeforeDisconnect = statusKill.mock.calls.length;
+      ac.abort();
+      expect(killsBeforeDisconnect).toBe(1);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
+  test('arms no status poll when the first zpool iostat cannot be spawned', async () => {
+    Bun.spawn = mock(() => { throw new Error('zpool: not found'); }) as any;
+
+    const response = handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream'), zfsAvailable, options({ now: 0 }));
+    await collectFrames(response).done;
+
+    expect(intervals.some((entry) => entry.ms === 60_000)).toBe(false);
+    expect((Bun.spawn as any).mock.calls).toHaveLength(1);
+  });
+
+  test('closes the stream when zpool iostat cannot be spawned again for a restart', async () => {
+    let status = statusText({ tank: {} });
+    const { iostats } = fakeZpool(() => ({ exitCode: 0, text: status }));
+    const working = Bun.spawn;
+    const clock = { now: 0 };
+    const response = handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream'), zfsAvailable, options(clock));
+    const { done } = collectFrames(response);
+    iostats[0].push(sample('tank  1  1  1  1  1  1') + HEADER);
+    await startNextPoll();
+
+    Bun.spawn = mock((args: string[], opts: unknown) => {
+      if (args[1] === 'status') return (working as any)(args, opts);
+      throw new Error('fork failed');
+    }) as any;
+    status = statusText({ tank: {}, imported: {} });
+    clock.now = 10_000;
+    await startNextPoll();
+    await done;
+
+    expect(console.error).toHaveBeenCalledWith('Could not restart zpool iostat, closing the ZFS stats stream:', expect.any(Error));
+  });
+
+  test('sends an empty frame while no pool is imported, so the last exported pool drops off', async () => {
+    const { iostats } = fakeZpool(() => ({ exitCode: 0, text: statusText({}) }));
+    const clock = { now: 7000 };
+    const ac = new AbortController();
+    const response = handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options(clock));
+    const { frames } = collectFrames(response);
+
+    await waitForCondition(() => frames.length === 1);
     ac.abort();
-    expect(killsBeforeDisconnect).toBe(1);
+
+    expect(frames).toEqual([{ v: 1, time: 7000, pools: [] }]);
+    expect(iostats).toHaveLength(1);
+  });
+
+  test('restarts iostat again when an exported pool is imported again under the same name', async () => {
+    let status = statusText({ tank: {} });
+    const { iostats } = fakeZpool(() => ({ exitCode: 0, text: status }));
+    const clock = { now: 0 };
+    const ac = new AbortController();
+    const response = handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options(clock));
+    const { frames } = collectFrames(response);
+    const report = async (fake: FakeIostat, ...pools: string[]) => {
+      const before = frames.length;
+      fake.push(sample(...pools.flatMap((pool, i) => (i === 0 ? [`${pool}  1  1  1  1  1  1`] : [SEP.trimEnd(), `${pool}  1  1  1  1  1  1`]))) + HEADER);
+      await waitForCondition(() => frames.length > before);
+    };
+
+    await report(iostats[0], 'tank');
+    status = statusText({ tank: {}, imp: {} });
+    clock.now = 10_000;
+    await startNextPoll();
+    await waitForCondition(() => iostats.length === 2);
+    await report(iostats[1], 'imp', 'tank');
+    await startNextPoll();
+
+    status = statusText({ tank: {} });
+    await report(iostats[1], 'tank');
+    await startNextPoll();
+
+    status = statusText({ tank: {}, imp: {} });
+    clock.now = 30_000;
+    await startNextPoll();
+    await waitForCondition(() => iostats.length === 3);
+    ac.abort();
+
+    expect(iostats[2].args).toContain('-y');
   });
 
   test('pipes subprocess stderr and drains it into the log', async () => {
@@ -321,7 +414,7 @@ describe('handleZfsStatsStream', () => {
       spawnOptions = opts;
       return {
         stdout: new ReadableStream<Uint8Array>({ start() {} }),
-        stderr: new ReadableStream<Uint8Array>({ start(c) { c.enqueue(encoder.encode('no pools available\n')); } }),
+        stderr: new ReadableStream<Uint8Array>({ start(c) { c.enqueue(encoder.encode("no pools available\ncannot open 'tank': I/O error\n")); } }),
         kill: mock(() => {}),
         exited: new Promise(() => {}),
       };
@@ -330,9 +423,10 @@ describe('handleZfsStatsStream', () => {
     const ac = new AbortController();
     handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options({ now: 0 }));
 
-    expect(await logged).toBe('no pools available');
+    expect(await logged).toBe("cannot open 'tank': I/O error");
     ac.abort();
     expect(spawnOptions).toMatchObject({ stderr: 'pipe' });
+    expect(console.error).not.toHaveBeenCalledWith('zpool iostat:', 'no pools available');
   });
 
   test('logs when the stdout reader throws and closes the stream', async () => {

@@ -53,6 +53,8 @@ export interface ZfsStatsStreamOptions {
 const DEFAULT_STATUS_INTERVAL_MS = 5000;
 const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
 const DEFAULT_RESTART_GRACE_MS = 10_000;
+/** zpool iostat prints this every interval while no pool is imported. The status poll reports that state instead. */
+const IOSTAT_EXPECTED_STDERR: ReadonlySet<string> = new Set(['no pools available']);
 
 /**
  * Drain a subprocess's stderr into the agent log. Reading it is not optional:
@@ -62,10 +64,11 @@ async function drainErrors(
   label: string,
   stderr: ReadableStream<Uint8Array>,
   isStopped: () => boolean,
+  expected: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   try {
     await readLines(stderr, isStopped, (line) => {
-      console.error(`${label}:`, line);
+      if (!expected.has(line.trim())) console.error(`${label}:`, line);
     });
   } catch (err) {
     if (!isStopped()) {
@@ -140,7 +143,7 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
         if (!isDone()) emit.close();
       }
     })();
-    void drainErrors('zpool iostat', proc.stderr as ReadableStream<Uint8Array>, isDone);
+    void drainErrors('zpool iostat', proc.stderr as ReadableStream<Uint8Array>, isDone, IOSTAT_EXPECTED_STDERR);
   };
 
   const restartIfPoolMissing = (reportable: Set<string>): void => {
@@ -154,7 +157,12 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
     console.info(`Restarting zpool iostat to pick up pool(s): ${key.split('\n').join(', ')}`);
     run.replaced = true;
     run.proc.kill();
-    startIostat();
+    try {
+      startIostat();
+    } catch (err) {
+      console.error('Could not restart zpool iostat, closing the ZFS stats stream:', err);
+      emit.close();
+    }
   };
 
   const pollStatus = async (): Promise<void> => {
@@ -166,6 +174,11 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
       });
       if (stopped || !summary) return;
       sparesByPool = summary.sparesByPool;
+      if (summary.reportablePools.size === 0) {
+        // iostat prints nothing at all without a pool, so this frame is what moves the host's newest sample on.
+        reportedPools = new Set();
+        emit.data({ v: 1, time: now(), pools: [] } satisfies ZfsStatsFrame);
+      }
       restartIfPoolMissing(summary.reportablePools);
     } catch (err) {
       if (!stopped) console.error('zpool status failed:', err);
@@ -174,17 +187,16 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
     }
   };
 
+  // Spawned before the timer is armed: a spawn that throws here must not leave a status poll running.
+  startIostat();
   const statusTimer = setInterval(() => void pollStatus(), options.statusIntervalMs ?? DEFAULT_STATUS_INTERVAL_MS);
-  const cleanup = (): void => {
+  void pollStatus();
+  return () => {
     stopped = true;
     clearInterval(statusTimer);
     run?.proc.kill();
     statusProc?.kill();
   };
-
-  startIostat();
-  void pollStatus();
-  return cleanup;
 }
 
 /**
