@@ -23,23 +23,29 @@ CREATE TABLE zfs_nodes (
   created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- A refresh job holds an aggregate and then waits on zfs_stats. Taking the locks in that order here keeps
--- this migration from deadlocking against one.
+-- A refresh locks an aggregate's materialization before its source. Taking these locks in another
+-- order deadlocks with a running refresh policy.
 DO $$
 DECLARE
-  mat REGCLASS;
+  cagg text;
+  materialization regclass;
 BEGIN
-  FOR mat IN
+  IF to_regclass('zfs_stats_1h_avg') IS NOT NULL THEN
+    LOCK TABLE zfs_stats_1h_avg IN ACCESS EXCLUSIVE MODE;
+  END IF;
+  FOREACH cagg IN ARRAY ARRAY['zfs_stats_1h', 'zfs_stats_1m'] LOOP
+    CONTINUE WHEN to_regclass(cagg) IS NULL;
+    EXECUTE format('LOCK TABLE %I IN ACCESS EXCLUSIVE MODE', cagg);
     SELECT format('%I.%I', materialization_hypertable_schema, materialization_hypertable_name)::regclass
-    FROM timescaledb_information.continuous_aggregates
-    WHERE view_name IN ('zfs_stats_1h', 'zfs_stats_1m')
-    ORDER BY view_name
-  LOOP
-    EXECUTE format('LOCK TABLE %s IN ACCESS EXCLUSIVE MODE', mat);
+      INTO materialization
+      FROM timescaledb_information.continuous_aggregates
+      WHERE view_schema = current_schema() AND view_name = cagg;
+    IF materialization IS NOT NULL THEN
+      EXECUTE format('LOCK TABLE %s IN ACCESS EXCLUSIVE MODE', materialization);
+    END IF;
   END LOOP;
-END
-$$;
-LOCK TABLE zfs_stats IN ACCESS EXCLUSIVE MODE;
+  LOCK TABLE zfs_stats IN ACCESS EXCLUSIVE MODE;
+END $$;
 
 DROP VIEW IF EXISTS zfs_stats_1h_avg;
 DROP MATERIALIZED VIEW IF EXISTS zfs_stats_1h;

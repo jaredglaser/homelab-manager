@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ZFS_NODE_STATES } from '@/lib/zfs/node-state';
 
 const migrationsDir = join(import.meta.dir, '..', '..', '..', '..', 'migrations');
 const FILE = '054_zfs_ssh_nodes.sql';
@@ -49,5 +50,25 @@ describe(FILE, () => {
 
   test('decompresses raw chunks before rewriting entity, a segmentby column', () => {
     expect(sql.indexOf('decompress_chunk')).toBeLessThan(sql.indexOf('UPDATE zfs_stats'));
+  });
+
+  test('takes its locks in refresh order before dropping anything: the views, each materialization, then zfs_stats', () => {
+    const order = [
+      'LOCK TABLE zfs_stats_1h_avg IN ACCESS EXCLUSIVE MODE',
+      "ARRAY['zfs_stats_1h', 'zfs_stats_1m']",
+      'LOCK TABLE zfs_stats IN ACCESS EXCLUSIVE MODE',
+      'DROP VIEW IF EXISTS zfs_stats_1h_avg;',
+    ].map((statement) => sql.indexOf(statement));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  test('adds the node table and the nullable state and error counter columns', () => {
+    expect(sql).toContain('CREATE TABLE zfs_nodes');
+    expect(sql).toContain('private_key_jwe           TEXT NOT NULL');
+    expect(sql).toContain(ZFS_NODE_STATES.map((state) => `'${state}'`).join(', '));
+    for (const column of ['ADD COLUMN state TEXT', 'ADD COLUMN read_errors BIGINT', 'ADD COLUMN write_errors BIGINT', 'ADD COLUMN checksum_errors BIGINT']) {
+      expect(sql).toContain(column);
+    }
   });
 });

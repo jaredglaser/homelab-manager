@@ -44,9 +44,6 @@ interface PublicKeyRow {
   allowed_from: string | null;
 }
 
-const SUMMARY_COLUMNS = `id, name, address, port, allowed_from, state, host_key_fingerprint,
-  seen_host_key_fingerprint, last_success_at`;
-
 function toSummary(row: ZfsNodeRow): ZfsNodeSummary {
   return {
     id: row.id,
@@ -84,12 +81,12 @@ export class ZfsNodeRepository {
   }
 
   async list(): Promise<ZfsNodeSummary[]> {
-    const result = await this.pool.query<ZfsNodeRow>(`SELECT ${SUMMARY_COLUMNS} FROM zfs_nodes ORDER BY name`);
+    const result = await this.pool.query<ZfsNodeRow>(`SELECT id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at FROM zfs_nodes ORDER BY name`);
     return result.rows.map(toSummary);
   }
 
   async findById(id: number): Promise<ZfsNodeSummary | null> {
-    const result = await this.pool.query<ZfsNodeRow>(`SELECT ${SUMMARY_COLUMNS} FROM zfs_nodes WHERE id = $1`, [id]);
+    const result = await this.pool.query<ZfsNodeRow>(`SELECT id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at FROM zfs_nodes WHERE id = $1`, [id]);
     return result.rows[0] ? toSummary(result.rows[0]) : null;
   }
 
@@ -100,7 +97,7 @@ export class ZfsNodeRepository {
       const result = await this.pool.query<ZfsNodeRow>(
         `INSERT INTO zfs_nodes (name, address, port, allowed_from, private_key_jwe, public_key)
          VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING ${SUMMARY_COLUMNS}`,
+         RETURNING id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at`,
         [input.name, input.address, input.port, input.allowedFrom, privateKeyJwe, input.publicKey],
       );
       row = result.rows[0];
@@ -114,7 +111,7 @@ export class ZfsNodeRepository {
   }
 
   async remove(id: number): Promise<ZfsNodeSummary | null> {
-    const result = await this.pool.query<ZfsNodeRow>(`DELETE FROM zfs_nodes WHERE id = $1 RETURNING ${SUMMARY_COLUMNS}`, [id]);
+    const result = await this.pool.query<ZfsNodeRow>(`DELETE FROM zfs_nodes WHERE id = $1 RETURNING id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at`, [id]);
     const row = result.rows[0];
     if (!row) return null;
     await this.notifyChange(row.name);
@@ -142,7 +139,7 @@ export class ZfsNodeRepository {
 
   async getConnection(id: number): Promise<ZfsNodeConnection | null> {
     const result = await this.pool.query<ZfsNodeKeyRow>(
-      `SELECT ${SUMMARY_COLUMNS}, username, private_key_jwe FROM zfs_nodes WHERE id = $1`,
+      `SELECT id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at, username, private_key_jwe FROM zfs_nodes WHERE id = $1`,
       [id],
     );
     return result.rows[0] ? this.toConnection(result.rows[0]) : null;
@@ -151,7 +148,7 @@ export class ZfsNodeRepository {
   /** Every node with a confirmed host key, which is every node the worker collects from. */
   async listConfirmedConnections(): Promise<ZfsNodeConnection[]> {
     const result = await this.pool.query<ZfsNodeKeyRow>(
-      `SELECT ${SUMMARY_COLUMNS}, username, private_key_jwe FROM zfs_nodes
+      `SELECT id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at, username, private_key_jwe FROM zfs_nodes
        WHERE host_key_fingerprint IS NOT NULL ORDER BY name`,
     );
     return Promise.all(result.rows.map((row) => this.toConnection(row)));

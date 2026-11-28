@@ -30,8 +30,8 @@ function node(state: ZfsNodeState): ZfsNodeSummary {
 test('adds a ZFS node: setup script, host key confirm, connected', async ({ page }) => {
   await page.goto('/hosts');
   await page.getByRole('button', { name: 'Add ZFS node' }).click();
-  await page.getByLabel('Name').fill('pve1');
-  await page.getByLabel('Address').fill('192.168.1.40');
+  await page.getByLabel('Name', { exact: true }).fill('pve1');
+  await page.getByLabel('Address', { exact: true }).fill('192.168.1.40');
   await page.getByRole('button', { name: 'Next' }).click();
 
   await expect(page.getByTestId('zfs-setup-intro')).toHaveText(W1);

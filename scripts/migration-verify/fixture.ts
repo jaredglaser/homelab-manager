@@ -231,6 +231,7 @@ export const EXPECTED_TABLES = [
   'stack_secrets',
   'user_settings',
   'users',
+  'zfs_nodes',
   'zfs_stats',
 ];
 
