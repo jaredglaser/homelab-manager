@@ -38,7 +38,7 @@ async function harness(overrides: Partial<AgentFetchDeps> = {}) {
     restrictedPlainHttp: false,
     dockerAvailable: true,
     matchRoute: (request, url) => {
-      if (url.pathname === '/health') return handleHealth(null, undefined);
+      if (url.pathname === '/health') return handleHealth(null);
       if (url.pathname === '/json') return Response.json({ ok: true });
       if (url.pathname === '/refused') return Response.json({ error: 'nope', code: 'invalid_json' }, { status: 400 });
       if (url.pathname === '/stream') return createSseStream(request, { onStart: (emit) => emit.data({ n: 1 }) });

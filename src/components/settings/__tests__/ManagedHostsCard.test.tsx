@@ -145,7 +145,6 @@ describe('ManagedHostsCard', () => {
 
     it('renders capability chips for zfs', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { zfs: true } })] })} />)
-      // The wizard also renders a ZFS checkbox label, so match the badge, not the text.
       const chips = document.querySelectorAll('[data-slot="badge"]')
       const zfsChip = Array.from(chips).find((c) => c.textContent === 'ZFS')
       expect(zfsChip).toBeDefined()
@@ -274,44 +273,15 @@ describe('ManagedHostsCard', () => {
     it('renders capability checkboxes on first step', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       expect(screen.getByLabelText('Docker capability')).toBeDefined()
-      expect(screen.getByLabelText('ZFS capability')).toBeDefined()
+      expect(screen.queryByLabelText('ZFS capability')).toBeNull()
     })
 
-    it('Next button advances to compose step (no ZFS)', async () => {
+    it('Next button advances to compose step', async () => {
       const user = setupUser()
       render(<ManagedHostsCardView {...makeProps()} />)
-      // Docker is checked by default, ZFS is not, skip ZFS Setup
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-compose')).toBeDefined()
-    })
-
-    it('Next button advances to ZFS setup when ZFS is selected', async () => {
-      const user = setupUser()
-      render(<ManagedHostsCardView {...makeProps()} />)
-      await enterHostName(user)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
-    })
-
-    it('ZFS setup step shows UID/GID fields', async () => {
-      const user = setupUser()
-      render(<ManagedHostsCardView {...makeProps()} />)
-      await enterHostName(user)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByLabelText('HLM_ZFS_UID')).toBeDefined()
-      expect(screen.getByLabelText('HLM_ZFS_GID')).toBeDefined()
-    })
-
-    it('ZFS setup shows DOCKER_GID when Docker is also selected', async () => {
-      const user = setupUser()
-      render(<ManagedHostsCardView {...makeProps()} />)
-      await enterHostName(user)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByLabelText('DOCKER_GID')).toBeDefined()
     })
 
     it('Next is disabled on capabilities step when no capability selected', async () => {
@@ -962,7 +932,7 @@ describe('ManagedHostsCard host actions', () => {
       await enterHostName(user, 'newbox')
       await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(onCreateHost).toHaveBeenCalledTimes(1)
-      expect(onCreateHost).toHaveBeenCalledWith('newbox', { docker: true, zfs: false })
+      expect(onCreateHost).toHaveBeenCalledWith('newbox', { docker: true })
     })
 
     it('discards the pending host when the wizard is reset', async () => {

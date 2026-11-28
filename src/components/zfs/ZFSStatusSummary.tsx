@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { ZFSStatsRow } from '@/types/zfs';
+import { latestSampleRows } from '@/lib/utils/zfs-hierarchy-builder';
 
 interface ZFSStatusSummaryProps {
   latestByEntity: Map<string, ZFSStatsRow>;
@@ -30,9 +31,7 @@ export default function ZFSStatusSummary({ latestByEntity }: Readonly<ZFSStatusS
     let disks = 0;
     const hosts = new Set<string>();
 
-    for (const row of latestByEntity.values()) {
-      // Only count hosts that contribute to displayed segments (pools/disks).
-      // Intermediate 'vdev' rows shouldn't inflate the host count.
+    for (const row of latestSampleRows(latestByEntity.values())) {
       if (row.entity_type === 'pool') {
         pools++;
         hosts.add(row.host);

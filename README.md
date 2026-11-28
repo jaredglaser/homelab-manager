@@ -36,7 +36,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 ## Features
 
 - **Docker Dashboard** - Real-time CPU, memory, block I/O, and network metrics for all containers with inline sparkline charts
-- **ZFS Dashboard** - Hierarchical view of pools, vdevs, and disks with capacity, IOPS, and bandwidth metrics via agent sidecar
+- **ZFS Dashboard** - Hierarchical view of pools, vdevs, device groups and disks with capacity, IOPS, and bandwidth metrics, read from each node over SSH with two read-only commands
 - **Proxmox Dashboard** - Cluster overview with per-node CPU, memory, and disk metrics via REST API polling
 - **Stack Management** - GitOps-style Docker Compose stack management with in-app editor (Monaco + YAML validation), deploy, teardown, rollback, and deploy history
 - **Image Update Checks** - Per-container update detection against the registry tag matching the compose pin (digest comparison for floating tags like `latest`), with release notes pulled from the image's source repository

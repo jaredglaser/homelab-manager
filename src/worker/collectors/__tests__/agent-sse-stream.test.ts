@@ -51,7 +51,7 @@ describe('connectAgentSseStream', () => {
 
     await connectAgentSseStream({
       agentUrl: 'http://192.168.1.10:9090/',
-      path: '/zfs/stats/stream',
+      path: '/stats/stream',
       signer: async () => 'tok',
       signal: new AbortController().signal,
       fetchFn,
@@ -59,7 +59,7 @@ describe('connectAgentSseStream', () => {
 
     const mockFn = fetchFn as unknown as { mock: { calls: unknown[][] } };
     const [url] = mockFn.mock.calls[0] as [string];
-    expect(url).toBe('http://192.168.1.10:9090/zfs/stats/stream');
+    expect(url).toBe('http://192.168.1.10:9090/stats/stream');
   });
 
   it('falls back to naive concatenation when the agent URL fails to parse', async () => {

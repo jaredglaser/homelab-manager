@@ -55,7 +55,14 @@ const EXPECTED: Record<string, readonly Role[] | typeof SIGNED_OUT> = {
   'src/data/stacks/functions.tsx:setVariableValue': ['admin', 'operator'],
   'src/data/stacks/functions.tsx:triggerDeploy': ['admin', 'operator'],
   'src/data/stacks/functions.tsx:updateStackSettings': ['admin', 'operator'],
+  'src/data/zfs/functions.tsx:confirmZfsNodeHostKey': ['admin'],
+  'src/data/zfs/functions.tsx:createZfsNode': ['admin'],
   'src/data/zfs/functions.tsx:getHistoricalZFSStats': ['admin', 'operator', 'viewer'],
+  'src/data/zfs/functions.tsx:getZfsNodeSetupScript': ['admin'],
+  'src/data/zfs/functions.tsx:listZfsNodes': ['admin', 'operator', 'viewer'],
+  'src/data/zfs/functions.tsx:removeZfsNode': ['admin'],
+  'src/data/zfs/functions.tsx:scanZfsNodeHostKey': ['admin'],
+  'src/data/zfs/functions.tsx:verifyZfsNode': ['admin', 'operator'],
 };
 
 const repoRoot = `${import.meta.dir}/../../../..`;

@@ -3,9 +3,9 @@ import { render, screen } from '@testing-library/react';
 import ZFSStatusSummary from '../ZFSStatusSummary';
 import type { ZFSStatsRow } from '@/types/zfs';
 
-function makeRow(overrides: Partial<ZFSStatsRow> & { host: string; entity_type: string }): ZFSStatsRow {
+function makeRow(overrides: Partial<ZFSStatsRow> & Pick<ZFSStatsRow, 'host' | 'entity_type'>): ZFSStatsRow {
   return {
-    time: Date.now(),
+    time: 1000,
     pool: 'tank',
     entity: 'tank',
     indent: 0,
@@ -27,6 +27,10 @@ function makeMap(rows: ZFSStatsRow[]): Map<string, ZFSStatsRow> {
     map.set(key, row);
   }
   return map;
+}
+
+function segment(label: string): string | null | undefined {
+  return screen.getByText(label).parentElement?.textContent;
 }
 
 describe('ZFSStatusSummary', () => {
@@ -109,5 +113,31 @@ describe('ZFSStatusSummary', () => {
     render(<ZFSStatusSummary latestByEntity={map} />);
     const dots = screen.getAllByText('·');
     expect(dots.length).toBeGreaterThan(0);
+  });
+
+  it('counts only the newest sample of each host, so an exported pool drops out', () => {
+    render(
+      <ZFSStatusSummary
+        latestByEntity={makeMap([
+          makeRow({ host: 'h1', entity_type: 'pool', entity: 'old', pool: 'old', time: 1000 }),
+          makeRow({ host: 'h1', entity_type: 'pool', entity: 'tank', time: 2000 }),
+          makeRow({ host: 'h1', entity_type: 'disk', entity: 'tank/sda', time: 2000 }),
+        ])}
+      />,
+    );
+    expect(segment('pools')).toBe('1 pools');
+    expect(segment('disks')).toBe('1 disks');
+  });
+
+  it('shows no pools once the host reports a sample with none', () => {
+    render(
+      <ZFSStatusSummary
+        latestByEntity={makeMap([
+          makeRow({ host: 'h1', entity_type: 'pool', entity: 'tank', time: 1000 }),
+          makeRow({ host: 'h1', entity_type: 'host', entity: '', pool: '', time: 2000 }),
+        ])}
+      />,
+    );
+    expect(segment('pools')).toBe('0 pools');
   });
 });

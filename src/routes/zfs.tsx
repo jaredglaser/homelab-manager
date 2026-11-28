@@ -9,6 +9,7 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useGeneralSettings } from '@/hooks/useSettings'
 import { ZFS_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadZFSStats } from '@/lib/constants/preload-queries'
 import { zfsStatsChannel } from '@/lib/channels/zfs-stats'
+import { useZfsNodeNotices } from '@/hooks/useZfsNodes'
 
 export const Route = createFileRoute('/zfs')({
   ssr: false,
@@ -19,6 +20,7 @@ function ZFSPageContent() {
   const { general } = useGeneralSettings()
 
   const preloadFn = useCallback(preloadZFSStats, [])
+  const nodeNotices = useZfsNodeNotices()
 
   const { data: initialData } = useQuery({
     queryKey: ZFS_PRELOAD_KEY,
@@ -46,6 +48,7 @@ function ZFSPageContent() {
         isConnected={stream.isConnected}
         error={stream.error}
         isStale={stream.isStale}
+        nodeNotices={nodeNotices}
       />
       <ZFSPoolSpeedCharts rows={stream.rows} />
     </div>

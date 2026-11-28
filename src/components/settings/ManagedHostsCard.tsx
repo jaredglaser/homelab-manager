@@ -18,7 +18,7 @@ export interface ManagedHostsCardProps {
   createError: string | null
   provisionError: TlsFailureGuidance | null
   pendingHost: { id: number; name: string; status: string; publicJwk: unknown } | null
-  onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onCreateHost: (name: string, capabilities: { docker: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
   onCancelVerify: () => void
   onDiscard: () => void

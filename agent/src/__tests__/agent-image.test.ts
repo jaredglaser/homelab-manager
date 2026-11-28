@@ -80,7 +80,7 @@ describe('resolveAgentImage', () => {
     expect(result.tag).toBe('dev');
   });
 
-  test('reports nothing on a ZFS-only host with no Docker and no AGENT_IMAGE', async () => {
+  test('reports nothing with no Docker and no AGENT_IMAGE', async () => {
     expect(await resolveAgentImage(null, 'hlm-agent', undefined)).toEqual({ image: null, tag: null });
   });
 
@@ -274,7 +274,7 @@ describe('resolveRunningAgentDigest', () => {
     }
   });
 
-  test('reports nothing on a ZFS-only host with no Docker', async () => {
+  test('reports nothing with no Docker', async () => {
     expect(await resolveRunningAgentDigest(null, 'hlm-agent')).toBeNull();
   });
 

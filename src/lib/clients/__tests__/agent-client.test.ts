@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { AgentClient, AgentClientError, type ZfsPool } from '../agent-client';
+import { AgentClient, AgentClientError } from '../agent-client';
 import { NOT_ANSWERING_BODY_TIMEOUT_MS } from '../agent-identity';
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 import type { AgentDeployResponse } from '@/lib/deploy/types';
@@ -115,7 +115,7 @@ describe('AgentClient', () => {
     it('appends the body detail to the message', async () => {
       fetchMock.mockResolvedValueOnce(
         agentResponse(
-          JSON.stringify({ error: 'Failed to list ZFS pools', code: 'zfs_pool_list_failed', detail: 'no such command' }),
+          JSON.stringify({ error: 'Failed to restart container', code: 'container_control_failed', detail: 'no such container' }),
           { status: 500 }
         )
       );
@@ -133,8 +133,8 @@ describe('AgentClient', () => {
       }
 
       expect(thrown).toBeInstanceOf(AgentClientError);
-      expect((thrown as AgentClientError).message).toBe('Agent returned 500: Failed to list ZFS pools: no such command');
-      expect((thrown as AgentClientError).code).toBe('zfs_pool_list_failed');
+      expect((thrown as AgentClientError).message).toBe('Agent returned 500: Failed to restart container: no such container');
+      expect((thrown as AgentClientError).code).toBe('container_control_failed');
     });
 
     it('keeps a code this manager does not know off the error, and the body text on it', async () => {
@@ -1021,71 +1021,6 @@ describe('AgentClient', () => {
     });
   });
 
-  describe('getZfsPools', () => {
-    it('returns parsed pool list from agent', async () => {
-      const pools: ZfsPool[] = [
-        {
-          name: 'tank',
-          size: 1000000000,
-          allocated: 500000000,
-          free: 500000000,
-          fragmentation: 5,
-          capacity: 50,
-          dedup: 1,
-          health: 'ONLINE',
-        },
-      ];
-
-      fetchMock.mockResolvedValueOnce(
-        agentResponse(JSON.stringify({ pools }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-
-      const result = await client.getZfsPools();
-      expect(result).toEqual(pools);
-
-      const [url, options] = fetchMock.mock.calls[0];
-      expect(url).toBe('http://agent:9090/zfs/pools');
-      expect(options.method).toBe('GET');
-      expect(options.headers['Authorization']).toBe('Bearer mock-jwt');
-    });
-
-    it('handles null fragmentation', async () => {
-      const pools: ZfsPool[] = [
-        {
-          name: 'data',
-          size: 2000000000,
-          allocated: 100000000,
-          free: 1900000000,
-          fragmentation: null,
-          capacity: 5,
-          dedup: 1,
-          health: 'ONLINE',
-        },
-      ];
-
-      fetchMock.mockResolvedValueOnce(
-        agentResponse(JSON.stringify({ pools }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-
-      const result = await client.getZfsPools();
-      expect(result[0].fragmentation).toBeNull();
-    });
-
-    it('throws AgentClientError on non-200 response', async () => {
-      fetchMock.mockResolvedValueOnce(
-        agentResponse('Forbidden', { status: 403 })
-      );
-
-      await expect(client.getZfsPools()).rejects.toThrow(AgentClientError);
-    });
-  });
-
   describe('a failure without the agent identity header', () => {
     let timers: TimerMock;
     let errorSpy: ReturnType<typeof spyOn<Console, 'error'>>;
@@ -1160,8 +1095,8 @@ describe('AgentClient', () => {
       fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ status: 'ok' }), { status: 200 }));
       await client.restartContainer('abc123');
 
-      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ pools: [] }), { status: 200 }));
-      expect(await client.getZfsPools()).toEqual([]);
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ stacks: [] }), { status: 200 }));
+      expect(await client.getStackInventory()).toEqual({ stacks: [], errors: [] });
     });
 
     it('recovers when a retry reaches the agent', async () => {
@@ -1329,7 +1264,7 @@ describe('AgentClient', () => {
     it('applies to the read routes as well', async () => {
       fetchMock.mockImplementation(() => Promise.resolve(new Response('Forbidden', { status: 403 })));
 
-      const reads = [() => client.health(), () => client.getZfsPools(), () => client.getStackInventory(), () => client.getStackCompose('plex')];
+      const reads = [() => client.health(), () => client.getStackInventory(), () => client.getStackCompose('plex')];
       for (const read of reads) {
         const thrown = await failureOf(read);
         expect(thrown.code).toBe('agent_not_answering');

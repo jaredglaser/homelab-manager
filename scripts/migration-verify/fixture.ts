@@ -127,6 +127,26 @@ export const ZFS_ENTITIES = [
 ] as const;
 
 export const ZFS_POOL = 'ci-tank';
+
+/**
+ * Rows as the text-line ZFS collector wrote them before 054: entities behind the agent address, and
+ * a device group header (`special`) stored as a pool with no capacity. `cache` is a real pool that
+ * shares a group's name and must survive. `expected` is the entity after 054, or null when it is dropped.
+ */
+export const ZFS_LEGACY = {
+  host: 'ci-zfs-legacy',
+  migration: '054_zfs_ssh_nodes.sql',
+  samples: 10,
+  rows: [
+    { pool: 'legacy-tank', entity: '10.0.0.5:9090/legacy-tank', entityType: 'pool', alloc: 1000, free: 1000, expected: 'legacy-tank' },
+    { pool: 'legacy-tank', entity: '10.0.0.5:9090/legacy-tank/mirror-0', entityType: 'vdev', alloc: 1000, free: 1000, expected: 'legacy-tank/mirror-0' },
+    { pool: 'legacy-tank', entity: '10.0.0.5:9090/legacy-tank/mirror-0/sda', entityType: 'disk', alloc: 0, free: 0, expected: 'legacy-tank/mirror-0/sda' },
+    { pool: 'legacy-tank', entity: 'legacy-tank/mirror-0/sdb', entityType: 'disk', alloc: 0, free: 0, expected: 'legacy-tank/mirror-0/sdb' },
+    { pool: 'special', entity: '10.0.0.5:9090/special', entityType: 'pool', alloc: 0, free: 0, expected: null },
+    { pool: 'special', entity: '10.0.0.5:9090/special/mirror-1', entityType: 'vdev', alloc: 100, free: 900, expected: null },
+    { pool: 'cache', entity: 'nas.lan:9443/cache', entityType: 'pool', alloc: 10, free: 10, expected: 'cache' },
+  ],
+} as const;
 export const ZFS_RECENT_SAMPLES = 300;
 export const ZFS_DECIMATED_SAMPLES = 288;
 export const ZFS_DECIMATED_GAP_MINUTES = 5;

@@ -5,13 +5,11 @@ import { Label } from '@/components/ui/label'
 interface CapabilitiesStepProps {
   name: string
   docker: boolean
-  zfs: boolean
   onNameChange: (value: string) => void
   onDockerChange: (value: boolean) => void
-  onZfsChange: (value: boolean) => void
 }
 
-export default function CapabilitiesStep({ name, docker, zfs, onNameChange, onDockerChange, onZfsChange }: CapabilitiesStepProps) {
+export default function CapabilitiesStep({ name, docker, onNameChange, onDockerChange }: CapabilitiesStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-capabilities">
       <div className="flex flex-col gap-1">
@@ -38,15 +36,6 @@ export default function CapabilitiesStep({ name, docker, zfs, onNameChange, onDo
           aria-label="Docker capability"
         />
         <Label htmlFor="capability-docker" className="cursor-pointer">Docker</Label>
-      </div>
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="capability-zfs"
-          checked={zfs}
-          onCheckedChange={(checked) => onZfsChange(checked)}
-          aria-label="ZFS capability"
-        />
-        <Label htmlFor="capability-zfs" className="cursor-pointer">ZFS</Label>
       </div>
     </div>
   )

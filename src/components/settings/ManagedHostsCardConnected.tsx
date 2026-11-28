@@ -40,7 +40,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   // Renaming after the Compose step drops the stale pending record and creates a new one.
   // The stale id rides the mutate variables because a pendingHost closure goes stale once onMutate clears it mid-mutation.
   const createHostMutation = useMutation({
-    mutationFn: async ({ name, capabilities, staleHostId }: { name: string; capabilities: { docker: boolean; zfs: boolean }; staleHostId: number | null }) => {
+    mutationFn: async ({ name, capabilities, staleHostId }: { name: string; capabilities: { docker: boolean }; staleHostId: number | null }) => {
       if (staleHostId != null) {
         await removeHost({ data: { hostId: staleHostId, expectStatus: 'pending' } }).catch((err: unknown) => {
           // The stale record is gone or no longer pending, so creation proceeds and

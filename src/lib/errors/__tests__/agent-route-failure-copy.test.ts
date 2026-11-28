@@ -38,7 +38,7 @@ describe('agentRouteFailureCopy', () => {
       expect(isAgentRouteFailureCode(code)).toBe(true);
     }
     expect(isAgentUpdateFailureCode('stack_not_found')).toBe(false);
-    expect(isAgentUpdateFailureCode('zfs_unavailable')).toBe(false);
+    expect(isAgentUpdateFailureCode('container_not_found')).toBe(false);
     expect(isAgentUpdateFailureCode('agent_reported_error')).toBe(false);
     expect(isAgentUpdateFailureCode(undefined)).toBe(false);
     expect(isAgentRouteFailureCode('not_a_route_code')).toBe(false);
@@ -97,10 +97,6 @@ describe('agentRouteFailureCopy', () => {
         'The container no longer exists on this host. Refresh the container list, then run the operation on a container that still exists.',
       container_state_unchanged: `Docker refused the action, possibly because the container was already in the state the operation asked for. Refresh the container list to see its current state, and act on it again only if it still differs. ${detail}`,
       container_control_failed: `Docker could not carry out the action on the container. Fix the cause that Docker reports on the agent host, then run the operation again. ${detail}`,
-      zfs_unavailable:
-        'ZFS is not available on this agent host. Make sure the ZFS tools are installed where the agent runs and restart the agent. If this host has no ZFS pools, stop collecting ZFS data from it.',
-      zfs_pool_list_failed:
-        'The agent could not list the ZFS pools on its host. Run zpool list on the agent host to see why it fails, then run the operation again.',
     };
     for (const code of AGENT_ROUTE_FAILURE_CODES) {
       expect(agentRouteOperatorMessage(code, detail)).toBe(expected[code]);
@@ -134,7 +130,7 @@ describe('agentRouteFailureCopy', () => {
       "The manager rejected the agent's TLS certificate: it does not match the pinned one, has expired, or does not cover the host name in the URL. If the URL uses an address the certificate does not cover, change it to a host name the certificate does cover. Otherwise follow the agent TLS recovery steps in the self-hosting guide to enroll a fresh certificate, then check again. self signed certificate",
     );
     expect(updateFailureMessage('agent-unhealthy', 'probe detail')).toBe(
-      'The agent answered but reports that it is unhealthy, because it can reach neither Docker nor ZFS. Check that the Docker socket or daemon on the agent host is running and mounted into the agent container, then check again.',
+      'The agent answered but reports that it is unhealthy, because it cannot reach Docker. Check that the Docker socket or daemon on the agent host is running and mounted into the agent container, then check again.',
     );
   });
 

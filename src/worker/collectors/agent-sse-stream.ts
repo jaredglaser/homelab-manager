@@ -1,6 +1,6 @@
 /**
  * Owns the full agent SSE ingest loop shared by every streaming worker collector
- * (Docker stats, ZFS iostat, container inventory events): URL join, auth header,
+ * (Docker stats, container inventory events): URL join, auth header,
  * response validation, redirect guard, frame assembly, heartbeat/comment
  * tolerance, named-event skipping, JSON parsing, and abort handling.
  *

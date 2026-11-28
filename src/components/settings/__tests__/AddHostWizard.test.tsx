@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { seedSession } from '@/lib/test/session'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import '@/lib/test/testing-library'
@@ -12,7 +12,7 @@ interface WizardProps {
   createError: string | null
   provisionError: TlsFailureGuidance | null
   pendingHost: PendingHostState | null
-  onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onCreateHost: (name: string, capabilities: { docker: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
   onCancelVerify: () => void
   onDiscard: () => void
@@ -63,22 +63,16 @@ describe('AddHostWizard', () => {
       expect(screen.getByLabelText('Host Name')).toBeDefined()
     })
 
-    it('shows Docker and ZFS checkboxes', () => {
+    it('offers Docker and no ZFS checkbox, since ZFS nodes are added on the Hosts page', () => {
       render(<AddHostWizard {...makeProps()} />)
       expect(screen.getByLabelText('Docker capability')).toBeDefined()
-      expect(screen.getByLabelText('ZFS capability')).toBeDefined()
+      expect(screen.queryByLabelText('ZFS capability')).toBeNull()
     })
 
     it('Docker is checked by default', () => {
       render(<AddHostWizard {...makeProps()} />)
       const dockerCheckbox = screen.getByLabelText('Docker capability')
       expect(dockerCheckbox.getAttribute('aria-checked')).toBe('true')
-    })
-
-    it('ZFS is unchecked by default', () => {
-      render(<AddHostWizard {...makeProps()} />)
-      const zfsCheckbox = screen.getByLabelText('ZFS capability')
-      expect(zfsCheckbox.getAttribute('aria-checked')).toBe('false')
     })
 
     it('Next is disabled until a host name is entered', async () => {
@@ -89,13 +83,12 @@ describe('AddHostWizard', () => {
       expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
     })
 
-    it('shows stepper with correct steps (no ZFS)', () => {
+    it('shows stepper with correct steps', () => {
       render(<AddHostWizard {...makeProps()} />)
       expect(screen.getByText('Capabilities')).toBeDefined()
       expect(screen.getByText('Compose File')).toBeDefined()
       expect(screen.getByText('Configuration')).toBeDefined()
       expect(screen.getByText('Verify Connection')).toBeDefined()
-      expect(screen.queryByText('ZFS Setup')).toBeNull()
     })
   })
 
@@ -122,21 +115,7 @@ describe('AddHostWizard', () => {
       render(<AddHostWizard {...makeProps({ onCreateHost })} />)
       await enterHostName(user, '  dev-machine  ')
       await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(onCreateHost).toHaveBeenCalledWith('dev-machine', { docker: true, zfs: false })
-    })
-
-    it('creates the pending host with ZFS capabilities when leaving the ZFS Setup step', async () => {
-      const user = setupUser()
-      const onCreateHost = mock(() => undefined)
-      render(<AddHostWizard {...makeProps({ onCreateHost })} />)
-      await enterHostName(user)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(onCreateHost).toHaveBeenCalledWith('dev-machine', { docker: true, zfs: true })
+      expect(onCreateHost).toHaveBeenCalledWith('dev-machine', { docker: true })
     })
 
     it('shows Back button after advancing past first step', async () => {
@@ -195,63 +174,6 @@ describe('AddHostWizard', () => {
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
-    })
-  })
-
-  describe('ZFS step', () => {
-    it('shows ZFS Setup step in stepper when ZFS is checked', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      expect(screen.getByText('ZFS Setup')).toBeDefined()
-    })
-
-    it('shows ZFS Setup content when navigating to that step with ZFS enabled', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await enterHostName(user)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
-    })
-
-    it('Next is disabled on ZFS Setup step until UID and GID are filled', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await enterHostName(user)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      const nextBtn = screen.getByRole('button', { name: 'Next' })
-      expect(nextBtn.hasAttribute('disabled')).toBe(true)
-    })
-
-    it('Next is enabled on ZFS Setup once UID, GID, and Docker GID are filled', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await enterHostName(user)
-      // Enable ZFS (Docker already checked)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      // Go to ZFS Setup step
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
-      const nextBtn = screen.getByRole('button', { name: 'Next' })
-      expect(nextBtn.hasAttribute('disabled')).toBe(false)
-    })
-
-    it('does not show DOCKER_GID field when Docker is unchecked', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await enterHostName(user)
-      // Uncheck Docker, check ZFS
-      await user.click(screen.getByLabelText('Docker capability'))
-      await user.click(screen.getByLabelText('ZFS capability'))
-      // Go to ZFS Setup step
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
-      expect(screen.getByLabelText('HLM_ZFS_UID')).toBeDefined()
-      expect(screen.queryByLabelText('DOCKER_GID')).toBeNull()
     })
   })
 
@@ -478,7 +400,7 @@ describe('AddHostWizard', () => {
       render(<AddHostWizard {...makeProps({ onCreateHost })} />)
       await enterHostName(user, '  my-host  ')
       await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(onCreateHost).toHaveBeenCalledWith('my-host', { docker: true, zfs: false })
+      expect(onCreateHost).toHaveBeenCalledWith('my-host', { docker: true })
       expect(screen.getByTestId('step-compose').textContent).toMatch(/AGENT_HOST_NAME: my-host$/m)
     })
 
@@ -615,15 +537,6 @@ describe('AddHostWizard', () => {
       expect((screen.getByLabelText('Host Name') as HTMLInputElement).value).toBe('')
     })
 
-    it('resets ZFS checkbox to unchecked', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      expect(screen.getByLabelText('ZFS capability').getAttribute('aria-checked')).toBe('true')
-      await user.click(screen.getByRole('button', { name: 'Reset' }))
-      expect(screen.getByLabelText('ZFS capability').getAttribute('aria-checked')).toBe('false')
-    })
-
     it('resets Docker back to checked', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
@@ -631,25 +544,6 @@ describe('AddHostWizard', () => {
       expect(screen.getByLabelText('Docker capability').getAttribute('aria-checked')).toBe('false')
       await user.click(screen.getByRole('button', { name: 'Reset' }))
       expect(screen.getByLabelText('Docker capability').getAttribute('aria-checked')).toBe('true')
-    })
-
-    it('clears the ZFS UID, GID and Docker GID', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await enterHostName(user)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1002')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
-      await user.click(screen.getByRole('button', { name: 'Reset' }))
-      await enterHostName(user)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
-      expect(screen.getByLabelText<HTMLInputElement>('HLM_ZFS_UID').value).toBe('')
-      expect(screen.getByLabelText<HTMLInputElement>('HLM_ZFS_GID').value).toBe('')
-      expect(screen.getByLabelText<HTMLInputElement>('DOCKER_GID').value).toBe('')
     })
 
     it('clears the agent host and restores the default port', async () => {
@@ -690,14 +584,6 @@ describe('AddHostWizard', () => {
       expect(screen.getByTestId('step-verify')).toBeDefined()
     }
 
-    async function openZfsStep(user: TestUser, options: { docker: boolean } = { docker: true }) {
-      await enterHostName(user)
-      if (!options.docker) await user.click(screen.getByLabelText('Docker capability'))
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(nextButton())
-      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
-    }
-
     it('keeps Next disabled for a whitespace-only host name', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
@@ -705,83 +591,12 @@ describe('AddHostWizard', () => {
       expect(nextButton().hasAttribute('disabled')).toBe(true)
     })
 
-    it('keeps Next disabled when neither Docker nor ZFS is selected', async () => {
+    it('keeps Next disabled when Docker is not selected', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user)
       expect(nextButton().hasAttribute('disabled')).toBe(false)
       await user.click(screen.getByLabelText('Docker capability'))
-      expect(nextButton().hasAttribute('disabled')).toBe(true)
-      await user.click(screen.getByLabelText('ZFS capability'))
-      expect(nextButton().hasAttribute('disabled')).toBe(false)
-    })
-
-    it('requires HLM_ZFS_UID on the ZFS step', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
-      expect(nextButton().hasAttribute('disabled')).toBe(true)
-    })
-
-    it('requires HLM_ZFS_GID on the ZFS step', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
-      expect(nextButton().hasAttribute('disabled')).toBe(true)
-    })
-
-    it('requires DOCKER_GID on the ZFS step when Docker is selected', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
-      expect(nextButton().hasAttribute('disabled')).toBe(true)
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
-      expect(nextButton().hasAttribute('disabled')).toBe(false)
-    })
-
-    it('needs only HLM_ZFS_UID and HLM_ZFS_GID on the ZFS step when Docker is not selected', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await openZfsStep(user, { docker: false })
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      expect(nextButton().hasAttribute('disabled')).toBe(true)
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1001')
-      expect(nextButton().hasAttribute('disabled')).toBe(false)
-    })
-
-    it.each(['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID'])('rejects a negative or fractional value in %s', async (field) => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await openZfsStep(user)
-      const fill = async (name: string, value: string) => {
-        await user.clear(screen.getByLabelText(name))
-        await user.type(screen.getByLabelText(name), value)
-      }
-      for (const name of ['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID']) await fill(name, '1001')
-      expect(nextButton().hasAttribute('disabled')).toBe(false)
-      for (const bad of ['-1', '1.5']) {
-        await fill(field, bad)
-        expect(nextButton().hasAttribute('disabled')).toBe(true)
-      }
-      await fill(field, '0')
-      expect(nextButton().hasAttribute('disabled')).toBe(false)
-    })
-
-    it.each(['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID'])('accepts a value padded with whitespace in %s', async (field) => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await openZfsStep(user)
-      for (const name of ['HLM_ZFS_UID', 'HLM_ZFS_GID', 'DOCKER_GID']) await user.type(screen.getByLabelText(name), '1001')
-      expect(nextButton().hasAttribute('disabled')).toBe(false)
-      fireEvent.change(screen.getByLabelText(field), { target: { value: '1001 ' } })
-      expect(nextButton().hasAttribute('disabled')).toBe(false)
-      fireEvent.change(screen.getByLabelText(field), { target: { value: ' ' } })
       expect(nextButton().hasAttribute('disabled')).toBe(true)
     })
 
@@ -985,26 +800,6 @@ describe('AddHostWizard', () => {
         expect(screen.getByText('Connection refused')).toBeDefined()
         expect(screen.queryAllByText('Use Re-run provisioning below to try again.').length).toBe(0)
       })
-    })
-
-    it('keeps values from a previous ZFS choice out of the generated .env', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await openZfsStep(user)
-      await user.type(screen.getByLabelText('HLM_ZFS_UID'), '1001')
-      await user.type(screen.getByLabelText('HLM_ZFS_GID'), '1002')
-      await user.type(screen.getByLabelText('DOCKER_GID'), '999')
-      await user.click(nextButton())
-      await user.click(screen.getByRole('button', { name: 'Back' }))
-      await user.click(screen.getByRole('button', { name: 'Back' }))
-      await user.click(screen.getByLabelText('ZFS capability'))
-      await user.click(nextButton())
-      await user.click(nextButton())
-      const env = screen.getByTestId('step-env').textContent
-      expect(env).toContain('AGENT_TRUSTED_PUBKEY=')
-      expect(env).not.toContain('HLM_ZFS_UID')
-      expect(env).not.toContain('HLM_ZFS_GID')
-      expect(env).not.toContain('DOCKER_GID')
     })
   })
 

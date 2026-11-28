@@ -5,7 +5,7 @@ import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
 import { EMPTY_CELL } from '@/components/ui/table';
-import type { ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
+import type { ZFSStatsRow, ZFSHostHierarchy, ZFSHostStats } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
 import { useGeneralSettings, useZfsSettings } from '@/hooks/useSettings';
@@ -13,10 +13,11 @@ import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 import PoolSubTable from '@/components/zfs/subtables/PoolSubTable';
 import { buildHostRow } from '@/components/zfs/utils/zfs-row-builders';
 import { Spinner } from '@/components/ui/spinner';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 /** Flattened row model for the DataTable tree structure */
 export interface ZFSTableRow {
-  type: 'host' | 'pool' | 'vdev' | 'disk';
+  type: 'host' | 'pool' | 'group' | 'vdev' | 'disk';
   id: string;
   name: string;
   indent: number;
@@ -30,6 +31,8 @@ export interface ZFSTableRow {
   utilizationPercent?: number;
   /** Display helpers */
   badge?: { label: string; tooltip?: string };
+  /** Shown in the host's panel, above its pools. */
+  notice?: string;
   canExpand: boolean;
   /** Counts needed for auto-expand logic */
   totalHosts?: number;
@@ -65,6 +68,18 @@ interface ZFSPoolsTableProps {
   isConnected: boolean;
   error: Error | null;
   isStale: boolean;
+  /** Notices by node name, for nodes whose collection is not running normally. */
+  nodeNotices?: ReadonlyMap<string, string>;
+}
+
+const NO_NOTICES: ReadonlyMap<string, string> = new Map();
+
+function emptyHost(hostName: string): ZFSHostStats {
+  return {
+    hostName,
+    aggregated: { capacityAlloc: 0, capacityFree: 0, readOpsPerSec: 0, writeOpsPerSec: 0, readBytesPerSec: 0, writeBytesPerSec: 0, poolCount: 0 },
+    pools: new Map(),
+  };
 }
 
 export default function ZFSPoolsTable({
@@ -73,6 +88,7 @@ export default function ZFSPoolsTable({
   isConnected,
   error,
   isStale,
+  nodeNotices = NO_NOTICES,
 }: Readonly<ZFSPoolsTableProps>) {
   const {
     isZfsHostExpanded,
@@ -92,20 +108,24 @@ export default function ZFSPoolsTable({
 
   /** Convert the ZFS hierarchy Maps into a flat host array for DataTable */
   const tableData = useMemo<ZFSTableRow[]>(() => {
-    const totalHosts = hostHierarchy.size;
-    const sortedHosts = Array.from(hostHierarchy.values()).sort((a, b) =>
+    const hosts = new Map(hostHierarchy);
+    for (const name of nodeNotices.keys()) {
+      if (!hosts.has(name)) hosts.set(name, emptyHost(name));
+    }
+    const totalHosts = hosts.size;
+    const sortedHosts = Array.from(hosts.values()).sort((a, b) =>
       a.hostName.localeCompare(b.hostName),
     );
 
-    return sortedHosts.map((host) => buildHostRow(host, totalHosts));
-  }, [hostHierarchy]);
+    return sortedHosts.map((host) => buildHostRow(host, totalHosts, nodeNotices.get(host.hostName)));
+  }, [hostHierarchy, nodeNotices]);
 
   /** Host-level expansion state only */
   const expandedState = useMemo<ExpandedState>(() => {
     const state: Record<string, boolean> = {};
     for (const hostRow of tableData) {
       if (hostRow.type === 'host' && hostRow.totalHosts != null) {
-        state[hostRow.id] = isZfsHostExpanded(hostRow.name, hostRow.totalHosts);
+        state[hostRow.id] = hostRow.notice !== undefined || isZfsHostExpanded(hostRow.name, hostRow.totalHosts);
       }
     }
     return state;
@@ -221,16 +241,25 @@ export default function ZFSPoolsTable({
   /** Host detail panel: a nested DataTable of pool rows */
   const renderDetailPanel = useCallback(
     (row: ZFSTableRow) => {
-      if (row.type !== 'host' || !row.children?.length) return null;
+      if (row.type !== 'host') return null;
+      const notice = row.notice && (
+        <Alert variant="warning" className="my-2" data-testid={`zfs-node-notice-${row.name}`}>
+          <AlertDescription>{row.notice}</AlertDescription>
+        </Alert>
+      );
+      if (!row.children?.length) return notice || null;
       return (
-        <PoolSubTable
-          pools={row.children}
-          columns={columns}
-          isPoolExpanded={isPoolExpanded}
-          togglePoolExpanded={togglePoolExpanded}
-          isVdevExpanded={isVdevExpanded}
-          toggleVdevExpanded={toggleVdevExpanded}
-        />
+        <>
+          {notice}
+          <PoolSubTable
+            pools={row.children}
+            columns={columns}
+            isPoolExpanded={isPoolExpanded}
+            togglePoolExpanded={togglePoolExpanded}
+            isVdevExpanded={isVdevExpanded}
+            toggleVdevExpanded={toggleVdevExpanded}
+          />
+        </>
       );
     },
     [columns, isPoolExpanded, togglePoolExpanded, isVdevExpanded, toggleVdevExpanded],

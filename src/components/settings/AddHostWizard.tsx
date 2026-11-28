@@ -7,12 +7,11 @@ import { Stepper } from '@/components/ui/stepper'
 import { getAgentImage } from '@/lib/hosts/host-utils'
 import { generateAgentStackCompose, generateAgentStackEnv } from '@/lib/templates/agent-stack-compose'
 import CapabilitiesStep from '@/components/settings/wizard-steps/CapabilitiesStep'
-import ZfsSetupStep from '@/components/settings/wizard-steps/ZfsSetupStep'
 import ComposeFileStep from '@/components/settings/wizard-steps/ComposeFileStep'
 import ConfigurationStep from '@/components/settings/wizard-steps/ConfigurationStep'
 import VerifyConnectionStep from '@/components/settings/wizard-steps/VerifyConnectionStep'
 
-const WIZARD_STEPS = ['Capabilities', 'ZFS Setup', 'Compose File', 'Configuration', 'Verify Connection'] as const
+const WIZARD_STEPS = ['Capabilities', 'Compose File', 'Configuration', 'Verify Connection'] as const
 
 export interface PendingHostState {
   id: number
@@ -27,15 +26,10 @@ interface AddHostWizardProps {
   createError: string | null
   provisionError: TlsFailureGuidance | null
   pendingHost: PendingHostState | null
-  onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onCreateHost: (name: string, capabilities: { docker: boolean }) => void
   onVerify: (hostId: number, agentUrl: string) => void
   onCancelVerify: () => void
   onDiscard: () => void
-}
-
-function parseGatedId(enabled: boolean, raw: string): number | undefined {
-  if (!enabled || raw === '') return undefined
-  return Number(raw)
 }
 
 export default function AddHostWizard({
@@ -51,18 +45,11 @@ export default function AddHostWizard({
 }: AddHostWizardProps) {
   const [activeStep, setActiveStep] = useState(0)
   const [docker, setDocker] = useState(true)
-  const [zfs, setZfs] = useState(false)
-  const [hlmZfsUid, setHlmZfsUid] = useState('')
-  const [hlmZfsGid, setHlmZfsGid] = useState('')
-  const [dockerGid, setDockerGid] = useState('')
   const [name, setName] = useState('')
   const [agentHost, setAgentHost] = useState('')
   const [agentPort, setAgentPort] = useState('9090')
 
-  const visibleSteps = useMemo(() => {
-    if (zfs) return [...WIZARD_STEPS]
-    return [WIZARD_STEPS[0], WIZARD_STEPS[2], WIZARD_STEPS[3], WIZARD_STEPS[4]]
-  }, [zfs])
+  const visibleSteps = WIZARD_STEPS
 
   const currentStepName = visibleSteps[activeStep]
 
@@ -70,18 +57,15 @@ export default function AddHostWizard({
     hostName: name.trim(),
     agentTrustedPubkey: pendingHost ? JSON.stringify(pendingHost.publicJwk) : '',
     agentImage: getAgentImage(),
-    capabilities: { docker, zfs },
-    hlmZfsUid: parseGatedId(zfs, hlmZfsUid),
-    hlmZfsGid: parseGatedId(zfs, hlmZfsGid),
-    dockerGid: parseGatedId(docker && zfs, dockerGid),
-  }), [name, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid, pendingHost])
+    capabilities: { docker },
+  }), [name, docker, pendingHost])
 
   const composeYaml = useMemo(() => {
     if (!pendingHost) return null
     try {
       return generateAgentStackCompose(agentStackConfig)
     } catch {
-      return '# Error generating compose file. Check ZFS UID/GID values.'
+      return '# Error generating compose file.'
     }
   }, [agentStackConfig, pendingHost])
 
@@ -90,14 +74,14 @@ export default function AddHostWizard({
     try {
       return generateAgentStackEnv(agentStackConfig)
     } catch {
-      return '# Error generating .env file. Check ZFS UID/GID values.'
+      return '# Error generating .env file.'
     }
   }, [agentStackConfig, pendingHost])
 
   function handleNext() {
     const targetStep = visibleSteps[activeStep + 1]
     if (targetStep === 'Compose File') {
-      onCreateHost(name.trim(), { docker, zfs })
+      onCreateHost(name.trim(), { docker })
     }
     setActiveStep((prev) => Math.min(prev + 1, visibleSteps.length - 1))
   }
@@ -115,19 +99,12 @@ export default function AddHostWizard({
     onDiscard()
     setActiveStep(0)
     setDocker(true)
-    setZfs(false)
-    setHlmZfsUid('')
-    setHlmZfsGid('')
-    setDockerGid('')
     setName('')
     setAgentHost('')
     setAgentPort('9090')
   }
 
-  const canProceedFromCapabilities = (docker || zfs) && name.trim().length > 0
-  const isNonNegativeInt = (v: string) => /^\d+$/.test(v.trim())
-  const canProceedFromZfs = isNonNegativeInt(hlmZfsUid) && isNonNegativeInt(hlmZfsGid)
-    && (!docker || isNonNegativeInt(dockerGid))
+  const canProceedFromCapabilities = docker && name.trim().length > 0
 
   // First contact is always plain HTTP: the scheme is not an operator choice, so the URL is composed here.
   // Bracketed IPv6 literals are accepted and stay bracketed in the URL so new URL() parses the host.
@@ -151,22 +128,8 @@ export default function AddHostWizard({
           <CapabilitiesStep
             name={name}
             docker={docker}
-            zfs={zfs}
             onNameChange={setName}
             onDockerChange={setDocker}
-            onZfsChange={setZfs}
-          />
-        )}
-
-        {currentStepName === 'ZFS Setup' && (
-          <ZfsSetupStep
-            docker={docker}
-            hlmZfsUid={hlmZfsUid}
-            hlmZfsGid={hlmZfsGid}
-            dockerGid={dockerGid}
-            onHlmZfsUidChange={setHlmZfsUid}
-            onHlmZfsGidChange={setHlmZfsGid}
-            onDockerGidChange={setDockerGid}
           />
         )}
 
@@ -229,7 +192,6 @@ export default function AddHostWizard({
               disabled={
                 isCreating
                 || (currentStepName === 'Capabilities' && !canProceedFromCapabilities)
-                || (currentStepName === 'ZFS Setup' && !canProceedFromZfs)
                 || (currentStepName === 'Compose File' && !pendingHost)
               }
             >

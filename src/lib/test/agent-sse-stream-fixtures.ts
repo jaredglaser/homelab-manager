@@ -1,6 +1,6 @@
 /**
  * Shared test fixtures for the worker's agent-SSE-backed collectors
- * (AgentStatsCollector, ZFSCollector, ContainerInventoryCollector). All three
+ * (AgentStatsCollector, ContainerInventoryCollector). Both
  * take an injectable `connectAgentSseStream`-shaped connector; these helpers
  * build one from a fixed list of already-parsed frames instead of standing up
  * a real byte-level SSE stream.

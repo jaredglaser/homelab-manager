@@ -14,7 +14,7 @@ export interface AgentInfoDetail {
  * Why a health check failed. `offline` means nothing answered at the network level. `unreachable`
  * means something answered but is not a healthy agent. `awaiting-enrollment` means the agent
  * answered on plain HTTP because it holds no certificate, so no https pin can match it.
- * `agent-unhealthy` means the agent answered /health and reported itself unhealthy (no Docker and no ZFS).
+ * `agent-unhealthy` means the agent answered /health and reported itself unhealthy (it cannot reach Docker).
  * `certificate-rejected` means TLS verification refused the agent's certificate (pin mismatch, expired, or a name the URL uses that it does not cover).
  */
 export type AgentHealthFailureReason =

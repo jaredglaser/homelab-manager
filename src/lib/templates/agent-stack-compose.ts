@@ -6,11 +6,7 @@ export interface AgentStackConfig {
   agentImage: string;
   capabilities: {
     docker: boolean;
-    zfs: boolean;
   };
-  hlmZfsUid?: number;
-  hlmZfsGid?: number;
-  dockerGid?: number;
 }
 
 /** Generate a Docker Compose YAML string for the agent stack based on host capabilities. */
@@ -22,7 +18,7 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
     services['socket-proxy'] = buildSocketProxy();
   }
 
-  services[STACKS_DIR_INIT_SERVICE] = buildStacksDirInit(config);
+  services[STACKS_DIR_INIT_SERVICE] = buildStacksDirInit();
   services['agent'] = buildAgent(config);
 
   const doc: Record<string, unknown> = { services };
@@ -50,17 +46,6 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
 
 /** Generate a .env file content string for the agent stack. */
 export function generateAgentStackEnv(config: AgentStackConfig): string {
-  const { docker, zfs } = config.capabilities;
-
-  if (zfs) {
-    if (config.hlmZfsUid === undefined || config.hlmZfsGid === undefined) {
-      throw new Error('hlmZfsUid and hlmZfsGid are required when zfs capability is enabled');
-    }
-    if (docker && config.dockerGid === undefined) {
-      throw new Error('dockerGid is required when both docker and zfs capabilities are enabled');
-    }
-  }
-
   const lines: string[] = [
     `AGENT_IMAGE=${config.agentImage}`,
     `HLM_AGENT_PORT=9090`,
@@ -69,15 +54,6 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
     // compose dotenv takes a '{'-led value literally to end of line.
     `AGENT_TRUSTED_PUBKEY=${config.agentTrustedPubkey}`,
   ];
-
-  if (zfs) {
-    lines.push(`HLM_ZFS_UID=${config.hlmZfsUid}`);
-    lines.push(`HLM_ZFS_GID=${config.hlmZfsGid}`);
-  }
-
-  if (docker && zfs) {
-    lines.push(`DOCKER_GID=${config.dockerGid}`);
-  }
 
   return lines.join('\n') + '\n';
 }
@@ -131,23 +107,16 @@ const HEALTH_CHECK_RETRIES = 3;
 const STACKS_MOUNT = '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks';
 const STACKS_DIR_INIT_SERVICE = 'stacks-dir-init';
 
-function agentIds(config: AgentStackConfig): { uid: string; gid: string } {
-  return config.capabilities.zfs
-    ? { uid: '${HLM_ZFS_UID}', gid: '${HLM_ZFS_GID}' }
-    : { uid: 'agent', gid: 'agent' };
-}
-
-function agentRunAs(config: AgentStackConfig): string {
-  const { uid, gid } = agentIds(config);
-  return `${uid}:${gid}`;
-}
+const AGENT_UID = 'agent';
+const AGENT_GID = 'agent';
 
 // Docker creates a missing bind-mount source as root, and the agent runs unprivileged.
-function buildStacksDirInit(config: AgentStackConfig): Record<string, unknown> {
-  const { uid, gid } = agentIds(config);
+function buildStacksDirInit(): Record<string, unknown> {
+  const uid = AGENT_UID;
+  const gid = AGENT_GID;
   const owner = `${uid}:${gid}`;
   // Same uid, gid and supplementary groups as the agent service, so the test matches what the agent can do.
-  const groups = config.capabilities.docker && config.capabilities.zfs ? '--groups=${DOCKER_GID}' : '--clear-groups';
+  const groups = '--clear-groups';
   // $$ is compose's escape for a literal $, so these reach sh as $1.
   // Never recursive on ".": deployed stacks keep their own data there under other owners.
   // Exits 0 even when chown fails: blocking the agent would also hide its own not-writable warning.
@@ -176,7 +145,7 @@ exit 0
 }
 
 function buildAgent(config: AgentStackConfig): Record<string, unknown> {
-  const { docker, zfs } = config.capabilities;
+  const { docker } = config.capabilities;
   const tlsCertPath = hostTlsCertPath();
   const tlsKeyPath = hostTlsKeyPath();
 
@@ -186,7 +155,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     AGENT_TRUSTED_PUBKEY: '${AGENT_TRUSTED_PUBKEY}',
     // Must match the managed host name: manager JWTs carry it as the aud claim.
     AGENT_HOST_NAME: config.hostName,
-    // The only way a ZFS-only host can report its tag: no Docker socket to inspect itself.
+    // Lets the agent report its tag while the Docker socket is unreachable.
     AGENT_IMAGE: '${AGENT_IMAGE}',
     // Contractual: the manager restarts the agent over /containers/hlm-agent/restart.
     AGENT_CONTAINER_NAME: 'hlm-agent',
@@ -213,15 +182,6 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   // writable layer would be lost.
   const volumes: string[] = [STACKS_MOUNT];
 
-  if (zfs) {
-    volumes.push(
-      '/usr/sbin/zpool:/usr/sbin/zpool:ro',
-      '/usr/sbin/zfs:/usr/sbin/zfs:ro',
-      '/dev/zfs:/dev/zfs'
-    );
-    agent['user'] = agentRunAs(config);
-  }
-
   agent['volumes'] = volumes;
 
   agent['healthcheck'] = {
@@ -234,10 +194,6 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     start_period: '15s',
     retries: HEALTH_CHECK_RETRIES,
   };
-
-  if (docker && zfs) {
-    agent['group_add'] = ['${DOCKER_GID}'];
-  }
 
   const dependsOn: Record<string, { condition: string }> = {
     [STACKS_DIR_INIT_SERVICE]: { condition: 'service_completed_successfully' },

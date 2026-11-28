@@ -19,8 +19,7 @@ interface ZFSPoolSpeedChartsProps {
 
 export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
   const pools = useMemo<PoolTimeSeriesData[]>(() => {
-    // Filter to pool-level entities only (no '/' in entity path)
-    const poolRows = rows.filter((r) => !r.entity.includes('/'));
+    const poolRows = rows.filter((r) => r.entity_type === 'pool');
 
     // Check if there are multiple hosts
     const hosts = new Set(poolRows.map(r => r.host));

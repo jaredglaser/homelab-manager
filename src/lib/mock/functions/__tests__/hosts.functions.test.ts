@@ -6,7 +6,7 @@ describe('mock updateHost', () => {
     const [, stored] = await listHosts()
     const updated = await updateHost({ hostId: stored.id, name: stored.name, agentUrl: 'http://10.0.0.9:9090' })
     expect(updated).toEqual({ ...stored, agentUrl: 'http://10.0.0.9:9090', updatedAt: updated.updatedAt })
-    expect(updated.capabilities).toEqual({ docker: true, zfs: true })
+    expect(updated.capabilities).toEqual({ docker: true })
     expect(updated.createdAt).toBe(stored.createdAt)
   })
 

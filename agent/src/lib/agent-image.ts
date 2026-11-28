@@ -72,7 +72,7 @@ export function createAgentImageResolver(
   };
 }
 
-/** `AGENT_IMAGE` wins: it is the only source on a ZFS-only host, which has no Docker socket. */
+/** `AGENT_IMAGE` wins: it is the only source while the Docker socket is unreachable. */
 export async function resolveAgentImage(
   docker: Dockerode | null,
   containerName: string,

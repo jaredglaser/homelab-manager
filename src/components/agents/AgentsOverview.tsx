@@ -10,6 +10,7 @@ import { serverFnErrorMessage } from '@/lib/errors/server-fn-error-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
 import { useToast } from '@/hooks/toastAtom'
+import { AGENT_ZFS_MOVED_MESSAGE } from '@/lib/zfs/node-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -126,6 +127,9 @@ function AgentRow({
           </div>
           <span className="text-xs font-mono text-muted-foreground block truncate">{agent.agentUrl}</span>
           {agent.status !== 'online' && agent.failure && <AgentFailure failure={agent.failure} />}
+          {agent.capabilities.zfs && (
+            <p className="text-xs text-muted-foreground break-words" data-testid={`agent-zfs-moved-${agent.name}`}>{AGENT_ZFS_MOVED_MESSAGE}</p>
+          )}
         </div>
         <div className="flex items-center gap-4 shrink-0 ml-auto">
           <Button

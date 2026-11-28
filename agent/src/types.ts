@@ -125,8 +125,6 @@ export const AGENT_ROUTE_FAILURE_CODES = [
   'container_not_found',
   'container_state_unchanged',
   'container_control_failed',
-  'zfs_unavailable',
-  'zfs_pool_list_failed',
 ] as const;
 export const zAgentRouteFailureCode = z.enum(AGENT_ROUTE_FAILURE_CODES);
 export type AgentRouteFailureCode = z.infer<typeof zAgentRouteFailureCode>;
@@ -178,13 +176,6 @@ export interface AgentDockerCapability {
   apiVersion?: string;
 }
 
-export interface AgentZfsCapability {
-  available: boolean;
-  version?: string;
-  tier?: number;
-  permissions?: string[];
-}
-
 /** Detail response from the authenticated /info endpoint (HTTP 200 when healthy, 503 when unhealthy). */
 export interface AgentInfoResponse {
   status: 'healthy' | 'unhealthy';
@@ -192,10 +183,9 @@ export interface AgentInfoResponse {
   // Absent on agents predating image reporting; null means the agent looked and could not tell.
   agentImage?: string | null;
   agentImageTag?: string | null;
-  // Absent on agents predating digest reporting. Null covers ZFS-only hosts and "could not tell".
+  // Absent on agents predating digest reporting. Null means the agent could not tell.
   agentImageDigest?: string | null;
   capabilities: {
     docker: AgentDockerCapability;
-    zfs: AgentZfsCapability;
   };
 }
