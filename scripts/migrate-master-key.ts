@@ -19,7 +19,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
-import { AGENT_KEYPAIRS, GIT_TOKENS, STACK_SECRETS, ZFS_NODES, migrateTable, type KeyContext } from './master-key-tables';
+import { migrateAllTables, type KeyContext } from './master-key-tables';
 
 // ---- CLI arg parsing -------------------------------------------------------
 
@@ -131,12 +131,8 @@ async function main(): Promise<void> {
 
     const keys: KeyContext = { fromKid, toKid, fromKey, toKey };
 
-    const secretsMigrated = await migrateTable(pool, keys, STACK_SECRETS);
-    const keypairsMigrated = await migrateTable(pool, keys, AGENT_KEYPAIRS);
-    const tokensMigrated = await migrateTable(pool, keys, GIT_TOKENS);
-    const zfsNodesMigrated = await migrateTable(pool, keys, ZFS_NODES);
-
-    console.info(`Migration complete: ${secretsMigrated} secret(s), ${keypairsMigrated} keypair(s), ${tokensMigrated} git token(s), ${zfsNodesMigrated} ZFS node key(s) migrated.`);
+    const counts = await migrateAllTables(pool, keys);
+    console.info(`Migration complete: ${Object.entries(counts).map(([table, count]) => `${count} row(s) in ${table}`).join(', ')}.`);
   } catch (err) {
     console.error('Migration failed:', err);
     process.exit(1);

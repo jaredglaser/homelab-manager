@@ -16,7 +16,7 @@ CREATE TABLE zfs_nodes (
   host_key_fingerprint      TEXT,
   seen_host_key_fingerprint TEXT,
   state                     TEXT NOT NULL DEFAULT 'pending' CHECK (state IN (
-    'pending', 'ok', 'unreachable', 'host_key_changed', 'key_refused', 'influxdb_missing', 'timeout', 'error'
+    'pending', 'ok', 'unreachable', 'host_key_changed', 'key_refused', 'influxdb_missing', 'timeout', 'error', 'key_unreadable'
   )),
   state_changed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_success_at           TIMESTAMPTZ,

@@ -139,3 +139,11 @@ export const ZFS_NODES: TableMigration<{ id: number; private_key_jwe: string }> 
 };
 
 export const TABLE_MIGRATIONS = [STACK_SECRETS, AGENT_KEYPAIRS, GIT_TOKENS, ZFS_NODES] as const;
+
+export async function migrateAllTables(pool: Pool, keys: KeyContext): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const spec of TABLE_MIGRATIONS) {
+    counts[spec.table] = await migrateTable(pool, keys, spec as TableMigration<QueryResultRow>);
+  }
+  return counts;
+}

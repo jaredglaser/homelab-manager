@@ -71,10 +71,10 @@ export class ZfsNodeRepository {
     private readonly keyring: MasterKeyring,
   ) {}
 
-  /** Tells the worker to reconcile its collectors. A missed notify only delays pickup until the next one. */
-  private async notifyChange(name: string): Promise<void> {
+  /** Tells the worker to reconcile its collectors and retry this node now. A missed notify only delays pickup until the next one. */
+  private async notifyChange(op: 'add' | 'update' | 'remove', name: string): Promise<void> {
     try {
-      await this.pool.query('SELECT pg_notify($1, $2)', [ZFS_NODES_NOTIFY_CHANNEL, name]);
+      await this.pool.query('SELECT pg_notify($1, $2)', [ZFS_NODES_NOTIFY_CHANNEL, JSON.stringify({ op, name })]);
     } catch (err) {
       console.error(`[ZfsNodeRepository] pg_notify failed for ${name}:`, err instanceof Error ? err.message : err);
     }
@@ -106,7 +106,7 @@ export class ZfsNodeRepository {
       throw err;
     }
     if (!row) throw new Error(`zfs_nodes insert for ${input.name} returned no row`);
-    await this.notifyChange(input.name);
+    await this.notifyChange('add', input.name);
     return toSummary(row);
   }
 
@@ -114,7 +114,7 @@ export class ZfsNodeRepository {
     const result = await this.pool.query<ZfsNodeRow>(`DELETE FROM zfs_nodes WHERE id = $1 RETURNING id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at`, [id]);
     const row = result.rows[0];
     if (!row) return null;
-    await this.notifyChange(row.name);
+    await this.notifyChange('remove', row.name);
     return toSummary(row);
   }
 
@@ -145,13 +145,25 @@ export class ZfsNodeRepository {
     return result.rows[0] ? this.toConnection(result.rows[0]) : null;
   }
 
-  /** Every node with a confirmed host key, which is every node the worker collects from. */
-  async listConfirmedConnections(): Promise<ZfsNodeConnection[]> {
+  /**
+   * Every node with a confirmed host key and a key this keyring can decrypt. A node whose key it
+   * cannot decrypt is marked `key_unreadable` and left out, so it never blocks the others.
+   */
+  async listCollectable(): Promise<ZfsNodeConnection[]> {
     const result = await this.pool.query<ZfsNodeKeyRow>(
       `SELECT id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at, username, private_key_jwe FROM zfs_nodes
        WHERE host_key_fingerprint IS NOT NULL ORDER BY name`,
     );
-    return Promise.all(result.rows.map((row) => this.toConnection(row)));
+    const nodes: ZfsNodeConnection[] = [];
+    for (const row of result.rows) {
+      try {
+        nodes.push(await this.toConnection(row));
+      } catch (err) {
+        console.error(`[ZfsNodeRepository] ${err instanceof Error ? err.message : err}, skipping the node`);
+        if (row.state !== 'key_unreadable') await this.recordFailure(row.id, 'key_unreadable');
+      }
+    }
+    return nodes;
   }
 
   /** Records the key a node presented without trusting it. */
@@ -176,7 +188,7 @@ export class ZfsNodeRepository {
     );
     const row = result.rows[0];
     if (!row) return false;
-    await this.notifyChange(row.name);
+    await this.notifyChange('update', row.name);
     return true;
   }
 
@@ -203,14 +215,17 @@ export class ZfsNodeRepository {
     );
   }
 
-  /** The verify step read both commands, so the node is working before the worker's first sample. */
+  /** The verify step read both commands. The notify makes the worker retry the node now instead of after its backoff. */
   async recordVerified(id: number): Promise<void> {
-    await this.pool.query(
+    const result = await this.pool.query<{ name: string }>(
       `UPDATE zfs_nodes
           SET state = 'ok',
               state_changed_at = CASE WHEN state = 'ok' THEN state_changed_at ELSE now() END
-        WHERE id = $1`,
+        WHERE id = $1
+        RETURNING name`,
       [id],
     );
+    const row = result.rows[0];
+    if (row) await this.notifyChange('update', row.name);
   }
 }

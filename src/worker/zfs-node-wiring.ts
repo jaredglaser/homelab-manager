@@ -3,11 +3,10 @@ import type { MasterKeyring } from '@/lib/crypto/master-key';
 import { StatsRepository } from '@/lib/database/repositories/stats-repository';
 import { ZFS_NODES_NOTIFY_CHANNEL, ZfsNodeRepository } from '@/lib/database/repositories/zfs-node-repository';
 import { createSsh2Transport } from '@/lib/zfs/ssh-transport';
-import { ZfsNodeCollector } from './collectors/zfs-node-collector';
-import { HostsListener } from './hosts-listener';
-import { ZfsNodeManager } from './zfs-node-manager';
+import { ZfsNodeCollector } from '@/worker/collectors/zfs-node-collector';
+import { HostsListener } from '@/worker/hosts-listener';
+import { ZfsNodeManager } from '@/worker/zfs-node-manager';
 
-/** Starts one collector per confirmed ZFS node and reconciles them on every `zfs_nodes_change` notify. */
 export async function startZfsNodeCollection(
   db: DatabaseClient,
   dbConfig: DatabaseConfig,
@@ -21,11 +20,11 @@ export async function startZfsNodeCollection(
   const manager = stack.use(
     new ZfsNodeManager(
       signal,
-      () => nodes.listConfirmedConnections(),
+      () => nodes.listCollectable(),
       (node, controller) => new ZfsNodeCollector(node, { transport, states: nodes, insertRows: (rows) => stats.insertZFSStats(rows) }, controller),
     ),
   );
-  const listener = stack.use(new HostsListener(dbConfig, () => manager.reconcile(), signal, ZFS_NODES_NOTIFY_CHANNEL));
+  const listener = stack.use(new HostsListener(dbConfig, (payload) => manager.reconcile(payload?.name), signal, ZFS_NODES_NOTIFY_CHANNEL));
   await listener.start();
   await manager.reconcile();
   return manager;

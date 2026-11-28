@@ -3,7 +3,7 @@ import type { Pool } from 'pg';
 import type { MasterKeyring } from '@/lib/crypto/master-key';
 import { decryptValue, encryptValue } from '@/lib/crypto/encrypted-value';
 import { ZfsNodeRepository } from '@/lib/database/repositories/zfs-node-repository';
-import { TABLE_MIGRATIONS, ZFS_NODES, migrateTable } from '../master-key-tables';
+import { TABLE_MIGRATIONS, ZFS_NODES, migrateAllTables, migrateTable } from '../master-key-tables';
 
 async function aesKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', crypto.getRandomValues(new Uint8Array(32)), { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
@@ -45,7 +45,7 @@ describe('migrate-master-key', () => {
         }],
       }),
     } as unknown as Pool;
-    const [connection] = await new ZfsNodeRepository(repoPool, newRing).listConfirmedConnections();
+    const [connection] = await new ZfsNodeRepository(repoPool, newRing).listCollectable();
     expect(connection.privateKey).toBe(privateKey);
   });
 
@@ -94,6 +94,36 @@ describe('migrate-master-key', () => {
     } as unknown as Pool;
     await expect(migrateTable(pool, keys, ZFS_NODES)).rejects.toThrow('Failed to migrate zfs_nodes(7)');
     expect(statements).toEqual(['BEGIN', 'ROLLBACK']);
+  });
+
+  test('the CLI path re-encrypts the ZFS node keys along with every other table', async () => {
+    const v1 = await aesKey();
+    const v2 = await aesKey();
+    const oldRing: MasterKeyring = { activeKid: 'v1', keys: new Map([['v1', v1]]) };
+    const jwe = await encryptValue('node key', oldRing);
+    const rowsByTable: Record<string, Record<string, unknown>[]> = {
+      stack_secrets: [{ stack_name: 's', variable_name: 'v', ciphertext_jwe: jwe }],
+      agent_keypairs: [{ host_name: 'h', private_jwk_jwe: jwe }],
+      git_tokens: [{ id: 1, encrypted_token: jwe }],
+      zfs_nodes: [{ id: 4, private_key_jwe: jwe }],
+    };
+    const updated: string[] = [];
+    const pool = {
+      query: async (sql: string) => ({ rows: rowsByTable[/FROM (\w+)/.exec(sql)![1]] }),
+      connect: async () => ({
+        query: async (sql: string) => {
+          const table = /^UPDATE (\w+)/.exec(sql.trim())?.[1];
+          if (table) updated.push(table);
+          return { rows: [] };
+        },
+        release: () => {},
+      }),
+    } as unknown as Pool;
+
+    expect(await migrateAllTables(pool, { fromKid: 'v1', toKid: 'v2', fromKey: v1, toKey: v2 })).toEqual({
+      stack_secrets: 1, agent_keypairs: 1, git_tokens: 1, zfs_nodes: 1,
+    });
+    expect(updated).toContain('zfs_nodes');
   });
 
   test('covers every encrypted column the app stores', () => {

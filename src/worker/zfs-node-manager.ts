@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { ZfsNodeConnection } from '@/lib/database/repositories/zfs-node-repository';
-import type { BaseCollector } from './collectors/base-collector';
+import type { BaseCollector } from '@/worker/collectors/base-collector';
 
 export type ZfsNodeCollectorFactory = (node: ZfsNodeConnection, controller: AbortController) => BaseCollector;
+
+/** A runner stuck in a database call that has no statement timeout must not hold up adding or removing other nodes. */
+export const ZFS_NODE_STOP_WAIT_MS = 5000;
 
 interface Entry {
   controller: AbortController;
@@ -18,7 +21,6 @@ function identityFor(node: ZfsNodeConnection): string {
   return JSON.stringify([node.name, node.address, node.port, node.username, node.hostKeyFingerprint, keyHash]);
 }
 
-/** One collector per ZFS node with a confirmed host key. `reconcile` serialises through a chain, so back-to-back notifies cannot race. */
 export class ZfsNodeManager implements AsyncDisposable {
   private readonly entries = new Map<number, Entry>();
   private chain: Promise<void> = Promise.resolve();
@@ -27,6 +29,7 @@ export class ZfsNodeManager implements AsyncDisposable {
     private readonly globalSignal: AbortSignal,
     private readonly listNodes: () => Promise<ZfsNodeConnection[]>,
     private readonly createCollector: ZfsNodeCollectorFactory,
+    private readonly stopWaitMs = ZFS_NODE_STOP_WAIT_MS,
   ) {}
 
   collectors(): BaseCollector[] {
@@ -41,13 +44,14 @@ export class ZfsNodeManager implements AsyncDisposable {
     return [...this.entries.values()].map((entry) => entry.collector.name);
   }
 
-  reconcile(): Promise<void> {
-    const next = this.chain.then(() => this.reconcileOnce());
+  /** `changedName` is the node a user just confirmed or checked: its collector retries now instead of after its backoff. */
+  reconcile(changedName?: string): Promise<void> {
+    const next = this.chain.then(() => this.reconcileOnce(changedName));
     this.chain = next.catch(() => {});
     return next;
   }
 
-  private async reconcileOnce(): Promise<void> {
+  private async reconcileOnce(changedName: string | undefined): Promise<void> {
     if (this.globalSignal.aborted) return;
     let desired: ZfsNodeConnection[];
     try {
@@ -62,7 +66,9 @@ export class ZfsNodeManager implements AsyncDisposable {
       if (!node || identityFor(node) !== entry.identity) await this.remove(id);
     }
     for (const node of desired) {
-      if (!this.entries.has(node.id)) this.add(node);
+      const entry = this.entries.get(node.id);
+      if (!entry) this.add(node);
+      else if (node.name === changedName) entry.collector.wake();
     }
   }
 
@@ -86,7 +92,13 @@ export class ZfsNodeManager implements AsyncDisposable {
     console.info(`[ZfsNodeManager] stopping ${entry.collector.name}`);
     this.globalSignal.removeEventListener('abort', entry.onGlobalAbort);
     entry.controller.abort(new DOMException('ZFS node removed', 'AbortError'));
-    await entry.runner;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stuck = new Promise<'stuck'>((resolve) => {
+      timer = setTimeout(() => resolve('stuck'), this.stopWaitMs);
+    });
+    const outcome = await Promise.race([entry.runner.then(() => 'stopped' as const), stuck]);
+    clearTimeout(timer);
+    if (outcome === 'stuck') console.error(`[ZfsNodeManager] ${entry.collector.name} did not stop within ${this.stopWaitMs}ms, moving on`);
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

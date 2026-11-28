@@ -21,6 +21,7 @@ const STATE_BADGE: Record<ZfsNodeState, { label: string; variant: 'success' | 'd
   influxdb_missing: { label: 'zpool_influxdb missing', variant: 'warning' },
   timeout: { label: 'Not answering', variant: 'warning' },
   error: { label: 'Read failed', variant: 'destructive' },
+  key_unreadable: { label: 'Key unreadable', variant: 'destructive' },
 }
 
 export const ZFS_NODE_REMOVE_FAILED_MESSAGE = "Couldn't remove the node. Reload the page and try again."
