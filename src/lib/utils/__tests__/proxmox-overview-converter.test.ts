@@ -435,6 +435,24 @@ describe('ProxmoxRateTracker', () => {
     expect(tracker.rates(guest(resumed), 'qemu', 80_000).netInBytesPerSec).toBe(20);
   });
 
+  it.each(['stopped', 'paused'])('blanks a %s guest even while its uptime and counters keep moving', (status) => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    let sample = start;
+    for (let poll = 1; poll <= 3; poll++) {
+      sample = advance(sample, 10, [100, 200, 300, 400]);
+      expect(tracker.rates(guest({ ...sample, status }), 'qemu', poll * 10_000)).toEqual(allNull);
+    }
+  });
+
+  it('starts a guest blank when it runs again after being stopped', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const stopped = advance(start, 10, [100, 100, 100, 100]);
+    tracker.rates(guest({ ...stopped, status: 'stopped' }), 'qemu', 10_000);
+    expect(tracker.rates(guest(advance(stopped, 10, [100, 100, 100, 100])), 'qemu', 20_000)).toEqual(allNull);
+  });
+
   it('blanks a guest Proxmox reports without counters', () => {
     const tracker = new ProxmoxRateTracker();
     const bare: ProxmoxResource = { id: 'qemu/100', type: 'qemu', vmid: 100, status: 'running', uptime: 10 };
