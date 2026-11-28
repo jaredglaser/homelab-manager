@@ -1,10 +1,10 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { OPERATOR_DENIED_COPY, VIEWER_DENIED_COPY } from '@/hooks/useAuth'
 import { findOpenTooltip, seedSession } from '@/lib/test/session'
 import { setupUser } from '@/lib/test/user-event'
-import type { AgentInventoryEntry, AgentInventoryFailure } from '@/lib/hosts/agent-inventory'
+import type { AgentInventoryEntry, AgentInventoryFailure, AgentUpdateResult } from '@/lib/hosts/agent-inventory'
 import { AGENT_INVENTORY_STATUSES, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory'
 import type { ManagedHost } from '@/lib/database/repositories/host-repository'
 
@@ -20,6 +20,7 @@ const makeAgent = (overrides?: Partial<AgentInventoryEntry>): AgentInventoryEntr
   agentImageDigest: 'sha256:' + 'a'.repeat(64),
   agentOutOfDate: false,
   failure: null,
+  update: null,
   checkedAt: '2026-09-25T23:00:00.000Z',
   ...overrides,
 })
@@ -39,6 +40,7 @@ const makeStoredHost = (overrides?: Partial<ManagedHost>): ManagedHost => ({
   createdAt: new Date('2026-09-25T00:00:00Z'),
   updatedAt: new Date('2026-09-25T00:00:00Z'),
   lastSweptAt: new Date('2026-09-25T23:00:00Z'),
+  agentUpdate: null,
   ...overrides,
 })
 
@@ -57,9 +59,12 @@ function makeProps(overrides?: Partial<import('@/components/agents/AgentsOvervie
   }
 }
 
+const ANSWERED_AT = '2026-11-27T10:00:00.000Z'
 let inventoryResponse: AgentInventoryEntry[] = []
 type OpResult = import('@/data/hosts/handlers').UpdateAgentResult
-let updateResult: Promise<OpResult> = Promise.resolve({ hostId: 1, healthy: true, outcome: 'updated' })
+const STARTED: Promise<OpResult> = Promise.resolve({ hostId: 1, at: ANSWERED_AT, healthy: true, outcome: 'started' })
+let updateResult: Promise<OpResult> = STARTED
+let rowResult: AgentUpdateResult = { healthy: true, outcome: 'updated' }
 let offContractResult: Promise<unknown> | null = null
 let updateCalls: Array<{ data: { hostId: number } }> = []
 const listAgentsInventory = (): Promise<AgentInventoryEntry[]> => Promise.resolve(inventoryResponse)
@@ -386,7 +391,8 @@ describe('AgentsOverview (connected)', () => {
 
   beforeEach(() => {
     inventoryResponse = [makeAgent(), makeAgent({ id: 2, name: 'media-server' })]
-    updateResult = Promise.resolve({ hostId: 1, healthy: true, outcome: 'updated', version: '0.3.0' })
+    updateResult = STARTED
+    rowResult = { healthy: true, outcome: 'updated', version: '0.3.0' }
     offContractResult = null
     updateCalls = []
     mockShowToast.mockClear()
@@ -403,6 +409,12 @@ describe('AgentsOverview (connected)', () => {
     )
   }
 
+  async function finishUpdate() {
+    await waitFor(() => expect(within(screen.getByTestId('agent-row-homeserver')).getByText('Updating the agent. This takes up to a minute.')).toBeDefined())
+    const [first, ...rest] = inventoryResponse
+    act(() => sseHandler!({ entries: [{ ...first, update: { state: 'done', at: '2026-11-27T10:00:40.000Z', result: rowResult } }, ...rest] }))
+  }
+
   it('applies a live snapshot to the rendered rows', async () => {
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
@@ -416,6 +428,7 @@ describe('AgentsOverview (connected)', () => {
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() => expect(screen.getByText('Update confirmed, agent now on v0.3.0')).toBeDefined())
     expect(updateCalls).toHaveLength(1)
     expect(updateCalls[0]).toEqual({ data: { hostId: 1 } })
@@ -506,15 +519,15 @@ describe('AgentsOverview (connected)', () => {
   })
 
   it('maps a failed update result to its code copy', async () => {
-    updateResult = Promise.resolve({
-      hostId: 1,
+    rowResult = {
       healthy: false,
       code: 'offline',
       message: 'Health check timed out after 5000ms',
-    })
+    }
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() =>
       expect(screen.getByText(/The host did not answer the health check\./)).toBeDefined(),
     )
@@ -525,15 +538,15 @@ describe('AgentsOverview (connected)', () => {
   })
 
   it('renders an agent route refusal by its own code where the generic sentence used to stand', async () => {
-    updateResult = Promise.resolve({
-      hostId: 1,
+    rowResult = {
       healthy: false,
       code: 'update_in_progress',
       message: 'the guard rejected a second update',
-    })
+    }
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() =>
       expect(screen.getByText(/The agent started an update recently and is not accepting another yet\./)).toBeDefined(),
     )
@@ -543,15 +556,15 @@ describe('AgentsOverview (connected)', () => {
   })
 
   it('keeps the generic refusal sentence and the agent detail when the refusal carries no route code', async () => {
-    updateResult = Promise.resolve({
-      hostId: 1,
+    rowResult = {
       healthy: false,
       code: 'agent_reported_error',
       message: 'a refusal from an older agent',
-    })
+    }
     await renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -569,15 +582,15 @@ describe('AgentsOverview (connected)', () => {
         failure: { code: 'unreachable', message: 'stored cause 6120' },
       }),
     ]
-    updateResult = Promise.resolve({
-      hostId: 1,
+    rowResult = {
       healthy: false,
       code: 'update_in_progress',
       message: 'the guard rejected a second update',
-    })
+    }
     await renderConnected()
     await waitFor(() => expect(screen.getByText('Unreachable')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() =>
       expect(screen.getAllByText(/The agent started an update recently and is not accepting another yet\./)).toHaveLength(1),
     )
@@ -591,19 +604,21 @@ describe('AgentsOverview (connected)', () => {
   })
 
   it('pins the success copy when the update is confirmed by image digest without a new version', async () => {
-    updateResult = Promise.resolve({ hostId: 1, healthy: true, outcome: 'updated' })
+    rowResult = { healthy: true, outcome: 'updated' }
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() => expect(screen.getByText('Update confirmed, agent restarted on the new image')).toBeDefined())
     expect(mockShowToast).not.toHaveBeenCalled()
   })
 
   it('says nothing was changed when the agent already runs the latest image', async () => {
-    updateResult = Promise.resolve({ hostId: 1, healthy: true, outcome: 'already_current' })
+    rowResult = { healthy: true, outcome: 'already_current' }
     renderConnected()
     await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
     fireEvent.click(screen.getByLabelText('Update agent on homeserver'))
+    await finishUpdate()
     await waitFor(() => expect(screen.getByText('Already up to date. The agent runs the latest image, so nothing was changed.')).toBeDefined())
     expect(screen.queryByText(/Update (succeeded|confirmed)/)).toBeNull()
     expect(mockShowToast).not.toHaveBeenCalled()
@@ -628,5 +643,177 @@ describe('AgentsOverview (connected)', () => {
     await user.click(updateButton)
     expect(await findOpenTooltip()).toBe(OPERATOR_DENIED_COPY)
     expect(updateCalls).toEqual([])
+  })
+  describe('while an update runs in the background', () => {
+    const W1 = 'Updating the agent. This takes up to a minute.'
+    const W3 = 'An update is already running for this host. Wait for it to finish.'
+    const W4 =
+      "The dashboard restarted during this update, so its result was not recorded. Check the agent's version here, and update again if it did not change."
+    const W5 =
+      "The update stopped with an error before its result was known. Check the agent's version here, and update again if it did not change."
+    const STARTED_AT = '2026-11-27T10:00:00.000Z'
+    const ENDED_AT = '2026-11-27T10:00:40.000Z'
+    const running = { state: 'running' as const, at: STARTED_AT }
+    const media = makeAgent({ id: 2, name: 'media-server' })
+    const row = () => screen.getByTestId('agent-row-homeserver')
+    const button = () => screen.getByLabelText('Update agent on homeserver')
+
+    function pushSnapshot(...entries: AgentInventoryEntry[]) {
+      act(() => sseHandler!({ entries }))
+    }
+
+    it('pins the running and restart copy', async () => {
+      const { AGENT_UPDATE_RUNNING_MESSAGE, AGENT_UPDATE_INTERRUPTED_MESSAGE } = await import('@/components/agents/AgentsOverview')
+      expect(AGENT_UPDATE_RUNNING_MESSAGE).toBe(W1)
+      expect(AGENT_UPDATE_INTERRUPTED_MESSAGE).toBe(W4)
+    })
+
+    it('shows the running message and turns the button off as soon as the update starts, then the result without a reload', async () => {
+      updateResult = Promise.resolve({ hostId: 1, at: STARTED_AT, healthy: true, outcome: 'started' })
+      await renderConnected()
+      await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+      fireEvent.click(button())
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      expect(button().hasAttribute('disabled')).toBe(true)
+      expect(screen.getByTestId('agent-row-media-server').textContent).not.toContain(W1)
+
+      pushSnapshot(makeAgent({ update: running }), media)
+      expect(within(row()).getByText(W1)).toBeDefined()
+
+      pushSnapshot(
+        makeAgent({ version: '0.3.0', update: { state: 'done', at: ENDED_AT, result: { healthy: true, outcome: 'updated', version: '0.3.0' } } }),
+        media,
+      )
+      await waitFor(() => expect(within(row()).getByText('Update confirmed, agent now on v0.3.0')).toBeDefined())
+      expect(within(row()).queryByText(W1)).toBeNull()
+      expect(button().hasAttribute('disabled')).toBe(false)
+      expect(updateCalls).toHaveLength(1)
+      expect(mockShowToast).not.toHaveBeenCalled()
+    })
+
+    it('shows the running message with the button off after a reload during the update', async () => {
+      inventoryResponse = [makeAgent({ update: running }), media]
+      await renderConnected()
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      expect(button().hasAttribute('disabled')).toBe(true)
+      expect(screen.getByLabelText('Update agent on media-server').hasAttribute('disabled')).toBe(false)
+    })
+
+    it('shows the result in a tab that did not start the update, without a toast', async () => {
+      inventoryResponse = [makeAgent({ update: running }), media]
+      await renderConnected()
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      pushSnapshot(
+        makeAgent({ update: { state: 'done', at: ENDED_AT, result: { healthy: false, code: 'update_interrupted', message: 'old image' } } }),
+        media,
+      )
+      await waitFor(() =>
+        expect(within(row()).getByText('The agent is still running its previous image, so the update did not complete. Retry the update, and restart the agent container on the host if it repeats.')).toBeDefined(),
+      )
+      expect(mockShowToast).not.toHaveBeenCalled()
+    })
+
+    it('shows the row as usual after a reload once the update has ended', async () => {
+      inventoryResponse = [
+        makeAgent({ update: { state: 'done', at: ENDED_AT, result: { healthy: true, outcome: 'updated', version: '0.2.0' } } }),
+        makeAgent({ id: 2, name: 'media-server', update: { state: 'interrupted', at: ENDED_AT } }),
+      ]
+      await renderConnected()
+      await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+      expect(within(row()).getByText('Agent v0.2.0')).toBeDefined()
+      expect(screen.queryByRole('status')).toBeNull()
+      expect(button().hasAttribute('disabled')).toBe(false)
+    })
+
+    it('shows the restart message when the dashboard restarted during the update', async () => {
+      inventoryResponse = [makeAgent({ update: running }), media]
+      await renderConnected()
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      pushSnapshot(makeAgent({ update: { state: 'interrupted', at: ENDED_AT } }), media)
+      await waitFor(() => expect(within(row()).getByText(W4)).toBeDefined())
+      expect(button().hasAttribute('disabled')).toBe(false)
+    })
+
+    it('shows the already-running refusal on the row and in a toast, until the running update ends', async () => {
+      updateResult = Promise.resolve({ hostId: 1, at: '2026-11-27T10:00:05.000Z', healthy: false, code: 'update_already_running', message: '' })
+      await renderConnected()
+      await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+      inventoryResponse = [makeAgent({ update: running }), media]
+      fireEvent.click(button())
+      await waitFor(() => expect(within(row()).getByText(W3)).toBeDefined())
+      expect(mockShowToast).toHaveBeenCalledTimes(1)
+      expect(mockShowToast).toHaveBeenCalledWith(W3, 'error')
+
+      pushSnapshot(makeAgent({ update: running }), media)
+      await waitFor(() => expect(button().hasAttribute('disabled')).toBe(true))
+      expect(within(row()).getByText(W3)).toBeDefined()
+
+      pushSnapshot(makeAgent({ update: { state: 'done', at: ENDED_AT, result: { healthy: true, outcome: 'updated' } } }), media)
+      await waitFor(() => expect(within(row()).getByText('Update confirmed, agent restarted on the new image')).toBeDefined())
+    })
+
+    it('shows the stopped-with-an-error copy, not the restart copy, for an update that errored', async () => {
+      const { AGENT_UPDATE_ERRORED_MESSAGE } = await import('@/components/agents/AgentsOverview')
+      expect(AGENT_UPDATE_ERRORED_MESSAGE).toBe(W5)
+      inventoryResponse = [makeAgent({ update: running }), media]
+      await renderConnected()
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      pushSnapshot(makeAgent({ update: { state: 'errored', at: ENDED_AT } }), media)
+      await waitFor(() => expect(within(row()).getByText(W5)).toBeDefined())
+      expect(within(row()).queryByText(W4)).toBeNull()
+      expect(button().hasAttribute('disabled')).toBe(false)
+    })
+
+    it('toasts a failed update once when its result arrives before the answer to the click', async () => {
+      let answer: (value: OpResult) => void = () => {}
+      updateResult = new Promise<OpResult>((resolve) => { answer = resolve })
+      await renderConnected()
+      await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+      fireEvent.click(button())
+      const failed = makeAgent({ update: { state: 'errored', at: ENDED_AT } })
+      pushSnapshot(failed, media)
+      await act(async () => answer({ hostId: 1, at: STARTED_AT, healthy: true, outcome: 'started' }))
+      await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1))
+      expect(mockShowToast).toHaveBeenCalledWith(W5, 'error')
+      expect(within(row()).getByText(W5)).toBeDefined()
+      pushSnapshot(failed, media)
+      pushSnapshot(makeAgent({ version: '9.9.9', update: { state: 'errored', at: ENDED_AT } }), media)
+      await waitFor(() => expect(screen.getByText('Agent v9.9.9')).toBeDefined())
+      expect(mockShowToast).toHaveBeenCalledTimes(1)
+    })
+
+    it('clears the previous result from the row as soon as Update is clicked', async () => {
+      let answer: (value: OpResult) => void = () => {}
+      updateResult = new Promise<OpResult>((resolve) => { answer = resolve })
+      inventoryResponse = [makeAgent({ update: running }), media]
+      await renderConnected()
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      pushSnapshot(makeAgent({ update: { state: 'done', at: ENDED_AT, result: { healthy: true, outcome: 'already_current' } } }), media)
+      const previous = 'Already up to date. The agent runs the latest image, so nothing was changed.'
+      await waitFor(() => expect(within(row()).getByText(previous)).toBeDefined())
+      fireEvent.click(button())
+      await waitFor(() => expect(within(row()).queryByText(previous)).toBeNull())
+      expect(button().hasAttribute('disabled')).toBe(true)
+      await act(async () => answer({ hostId: 1, at: '2026-11-27T10:05:00.000Z', healthy: true, outcome: 'started' }))
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+    })
+
+    it('toasts a failed update once, in the tab that started it', async () => {
+      updateResult = Promise.resolve({ hostId: 1, at: STARTED_AT, healthy: true, outcome: 'started' })
+      await renderConnected()
+      await waitFor(() => expect(screen.getByText('homeserver')).toBeDefined())
+      fireEvent.click(button())
+      await waitFor(() => expect(within(row()).getByText(W1)).toBeDefined())
+      const failed = makeAgent({
+        update: { state: 'done', at: ENDED_AT, result: { healthy: false, code: 'agent_did_not_restart', message: 'Agent did not restart after update' } },
+      })
+      const copy =
+        'The agent did not come back after the update. Check that the agent container is running on the host, then retry the update. Agent did not restart after update'
+      pushSnapshot(failed, media)
+      await waitFor(() => expect(within(row()).getByText(copy)).toBeDefined())
+      pushSnapshot(failed, media)
+      await waitFor(() => expect(mockShowToast).toHaveBeenCalledTimes(1))
+      expect(mockShowToast).toHaveBeenCalledWith(copy, 'error')
+    })
   })
 })

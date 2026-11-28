@@ -566,7 +566,7 @@ describe('controlStackForHost', () => {
 
 describe('resolveDeleteStack', () => {
   test('teardown branch: calls triggerDeploy with postSuccess=removeFromManifest and returns teardown-pending', async () => {
-    const { resolveDeleteStack } = await import('../delete-stack-resolver');
+    const { resolveDeleteStack } = await import('@/lib/stacks/delete-stack-resolver');
     const triggerDeploy = mock().mockResolvedValue({ deployId: 123 });
     const commitRemove = mock();
     const result = await resolveDeleteStack('plex', 'homeserver', true, {
@@ -586,7 +586,7 @@ describe('resolveDeleteStack', () => {
   });
 
   test('unmanage branch: commits manifest removal and returns removed', async () => {
-    const { resolveDeleteStack } = await import('../delete-stack-resolver');
+    const { resolveDeleteStack } = await import('@/lib/stacks/delete-stack-resolver');
     const triggerDeploy = mock();
     const commitRemove = mock().mockResolvedValue({ commitSha: 'sha-xyz' });
     const result = await resolveDeleteStack('plex', 'homeserver', false, {

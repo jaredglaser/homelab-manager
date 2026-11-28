@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateKeyPair } from 'jose';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
-import * as repo from '../repo';
-import { initBareRepo, commitFiles } from '../repo';
-import { processPostReceive } from '../post-receive-handler';
+import * as repo from '@/lib/git/repo';
+import { initBareRepo, commitFiles } from '@/lib/git/repo';
+import { processPostReceive } from '@/lib/git/post-receive-handler';
 import { MANIFEST } from '@/lib/stacks/stack-repo-layout';
 
 // Pre-load all infrastructure modules that processPostReceive dynamically
@@ -53,6 +53,7 @@ const TEST_HOST: ManagedHost = {
   createdAt: new Date(),
   updatedAt: new Date(),
   lastSweptAt: null,
+  agentUpdate: null,
 };
 
 async function buildPlexChangeCommits(repoPath: string): Promise<{ sha1: string; sha2: string }> {

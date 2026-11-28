@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { AgentClient, AgentClientError } from '../agent-client';
-import { NOT_ANSWERING_BODY_TIMEOUT_MS } from '../agent-identity';
+import { NOT_ANSWERING_BODY_TIMEOUT_MS } from '@/lib/clients/agent-identity';
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 import type { AgentDeployResponse } from '@/lib/deploy/types';
 import { agentResponse } from '@/lib/test/agent-response';

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { CompactEncrypt } from 'jose';
-import { encryptValue, decryptValue } from './encrypted-value';
-import type { MasterKeyring } from './master-key';
+import { encryptValue, decryptValue } from '../encrypted-value';
+import type { MasterKeyring } from '@/lib/crypto/master-key';
 
 async function makeKeyring(byte: number = 9): Promise<MasterKeyring> {
   const key = await crypto.subtle.importKey(

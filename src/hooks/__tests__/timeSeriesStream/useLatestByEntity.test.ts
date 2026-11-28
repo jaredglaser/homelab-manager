@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { useRef } from 'react';
 import { renderHook } from '@testing-library/react';
 import { useLatestByEntity } from '../../timeSeriesStream/useLatestByEntity';
-import type { RowAccessors } from '../../timeSeriesStream/types';
+import type { RowAccessors } from '@/hooks/timeSeriesStream/types';
 
 interface Row {
   key: string;

@@ -21,7 +21,7 @@ export const getHostPublicJwkSchema = z.object({ hostId: z.number().int().positi
 export const rotateHostKeypairSchema = z.object({ hostId: z.number().int().positive() });
 export const rotateHostTlsSchema = z.object({
   hostId: z.number().int().positive(),
-  agentUrl: z.string().url().optional(),
+  agentUrl: z.url().optional(),
   /** The operator has accepted that a plaintext enrollment trusts whatever certificate the agent presents. */
   acceptPlaintextEnrollment: z.boolean().optional(),
 });
@@ -30,7 +30,7 @@ export const updateAgentSchema = z.object({ hostId: z.number().int().positive() 
 export const updateHostSchema = z.object({
   hostId: z.number().int().positive(),
   name: hostNameSchema.optional(),
-  agentUrl: z.string().url().optional(),
+  agentUrl: z.url().optional(),
 }).refine(
   (data) => data.name !== undefined || data.agentUrl !== undefined,
   { error: 'At least one of name or agentUrl must be provided' },

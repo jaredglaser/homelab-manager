@@ -16,10 +16,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "outDir": "dist",
-    "types": ["bun"],
-    "paths": {
-      "@/*": ["./src/*"]
-    }
+    "types": ["bun"]
   },
   "include": ["src", "package.json"]
 }

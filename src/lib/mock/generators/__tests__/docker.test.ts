@@ -7,7 +7,7 @@ import {
   generateContainerLogBatch,
   generateContainerLogHistory,
 } from '../docker';
-import { DOCKER_ENTITIES } from '../../entities';
+import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 
 describe('generateDockerSnapshot', () => {
   const time = new Date('2025-06-15T12:00:00Z');

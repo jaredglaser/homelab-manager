@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { generateZFSSnapshot, generateZFSHistory } from '../zfs';
-import { ZFS_ENTITIES } from '../../entities';
+import { ZFS_ENTITIES } from '@/lib/mock/entities';
 
 describe('generateZFSSnapshot', () => {
   const time = new Date('2025-06-15T12:00:00Z');
