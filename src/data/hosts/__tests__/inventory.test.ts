@@ -54,6 +54,7 @@ function deps(
   outcomes: HealthCheckOutcome[],
   repoOverrides?: Partial<HostRepo>,
   resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>,
+  expectedSourceHash: string | null = null,
 ): AgentsInventoryDeps & { repo: HostRepo } {
   let call = 0;
   return {
@@ -63,7 +64,14 @@ function deps(
       call += 1;
       return Promise.resolve(outcome);
     }),
-    ...(resolveAgentImageDigest ? { resolveAgentImageDigest } : {}),
+    ...(resolveAgentImageDigest
+      ? {
+          resolveAgentImageRelease: async (imageRef: string) => {
+            const digest = await resolveAgentImageDigest(imageRef);
+            return digest ? { digest, sourceHash: expectedSourceHash } : null;
+          },
+        }
+      : {}),
   };
 }
 
@@ -263,6 +271,62 @@ describe('handleSweepAgentInventory', () => {
       outOfDate: true,
     });
     expect(updateAgentInfo.mock.calls[1]?.[1]).toMatchObject({ outOfDate: false });
+  });
+
+  it('compares source hashes when both sides have one, so a rebuild of unchanged source is not flagged', async () => {
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
+    const expectedHash = 'a'.repeat(64);
+    const hosts = [
+      mockRow({ id: 1, name: 'rebuilt' }),
+      mockRow({ id: 2, name: 'changed' }),
+    ];
+    const d = deps(
+      hosts,
+      [
+        { healthy: true, infoSupported: true, agentImageDigest: 'sha256:' + 'c'.repeat(64), agentSourceHash: expectedHash },
+        { healthy: true, infoSupported: true, agentImageDigest: 'sha256:' + 'c'.repeat(64), agentSourceHash: 'b'.repeat(64) },
+      ],
+      { updateAgentInfo },
+      mock(async (_imageRef: string) => 'sha256:' + 'd'.repeat(64)),
+      expectedHash,
+    );
+
+    await handleSweepAgentInventory(d, NOW);
+
+    expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({ outOfDate: false });
+    expect(updateAgentInfo.mock.calls[1]?.[1]).toMatchObject({ outOfDate: true });
+  });
+
+  it('keeps a stored out-of-date verdict through a sweep whose label read failed', async () => {
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
+    const d = {
+      ...deps(
+        [mockRow({ id: 1, name: 'behind', agentOutOfDate: true })],
+        [{ healthy: true, infoSupported: true, agentImageDigest: 'sha256:' + 'c'.repeat(64), agentSourceHash: 'a'.repeat(64) }],
+        { updateAgentInfo },
+      ),
+      resolveAgentImageRelease: () => Promise.resolve({ digest: 'sha256:' + 'd'.repeat(64), sourceHash: undefined }),
+    };
+
+    await handleSweepAgentInventory(d, NOW);
+
+    expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({ imageDigest: 'sha256:' + 'c'.repeat(64) });
+    expect(updateAgentInfo.mock.calls[0]?.[1]).not.toHaveProperty('outOfDate');
+  });
+
+  it('falls back to the digest when the agent reports no source hash', async () => {
+    const updateAgentInfo = mock<(id: number, fields: UpdateAgentInfoInput) => Promise<void>>(() => Promise.resolve());
+    const d = deps(
+      [mockRow({ id: 1, name: 'old-agent' })],
+      [{ healthy: true, infoSupported: true, agentImageDigest: 'sha256:' + 'c'.repeat(64) }],
+      { updateAgentInfo },
+      mock(async (_imageRef: string) => 'sha256:' + 'd'.repeat(64)),
+      'a'.repeat(64),
+    );
+
+    await handleSweepAgentInventory(d, NOW);
+
+    expect(updateAgentInfo.mock.calls[0]?.[1]).toMatchObject({ outOfDate: true });
   });
 
   it('clears the stored digest and the verdict when the probe could not read the digest', async () => {

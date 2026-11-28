@@ -233,16 +233,19 @@ export function AgentsOverviewView({
 
 function isUpdateResult(value: unknown): value is Awaited<ReturnType<typeof updateAgent>> {
   if (typeof value !== 'object' || value === null || !('healthy' in value)) return false
-  if (value.healthy === true) return true
+  if (value.healthy === true) return 'outcome' in value && (value.outcome === 'updated' || value.outcome === 'already_current')
   return value.healthy === false && 'code' in value && (isAgentUpdateFailureCode(value.code) || isHostFailureCode(value.code))
 }
 
 function describeUpdateResult(result: Awaited<ReturnType<typeof updateAgent>>): AgentRowFeedback {
+  if (result.healthy && result.outcome === 'already_current') {
+    return { severity: 'info', message: 'Already up to date. The agent runs the latest image, so nothing was changed.' }
+  }
   if (result.healthy && result.version) {
     return { severity: 'success', message: `Update confirmed, agent now on v${result.version}` }
   }
   if (result.healthy) {
-    return { severity: 'success', message: 'Update succeeded, agent is healthy' }
+    return { severity: 'success', message: 'Update confirmed, agent restarted on the new image' }
   }
   return {
     severity: 'error',
