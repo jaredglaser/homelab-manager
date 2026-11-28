@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ClientChannel, ConnectConfig } from 'ssh2';
+import type { ClientChannel, ConnectConfig, ServerHostKeyAlgorithm } from 'ssh2';
 
 /** Schedules `fn` after `ms` and returns its cancel. Tests pass one they control. */
 export type ZfsTimer = (fn: () => void, ms: number) => () => void;
@@ -25,7 +25,7 @@ export class ZfsSshError extends Error {
     /** The fingerprint the node presented, when the failure is about it. */
     readonly fingerprint: string | null = null,
   ) {
-    super(message);
+    super(printableNodeText(message));
     this.name = 'ZfsSshError';
   }
 }
@@ -73,6 +73,14 @@ export interface ZfsSshTransport {
   connect(target: ZfsSshTarget, options: ZfsSshConnectOptions): Promise<ZfsSshSession>;
 }
 
+/** The key type a raw host key blob starts with, such as `ssh-ed25519`. */
+export function hostKeyType(key: Buffer): string | null {
+  if (key.length < 4) return null;
+  const length = key.readUInt32BE(0);
+  if (length > 64 || key.length < 4 + length) return null;
+  return key.subarray(4, 4 + length).toString('latin1');
+}
+
 /** OpenSSH's SHA256 fingerprint of a raw host key blob, as `ssh-keygen -lf` prints it. */
 export function hostKeyFingerprint(key: Buffer): string {
   return `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`;
@@ -84,12 +92,10 @@ const SSH_LIVENESS_MISSES = 3;
 
 const UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT', 'ECONNRESET', 'EPIPE']);
 
-/** `sawHostKey` is false when the handshake ended before a host key was offered, which with only ed25519 allowed means the node has none. */
-export function classifyConnectError(err: unknown, sawHostKey = true): ZfsSshFailureKind {
+export function classifyConnectError(err: unknown): ZfsSshFailureKind {
   const level = (err as { level?: string }).level;
   const code = (err as { code?: string }).code;
   if (level === 'client-authentication') return 'key_refused';
-  if (level === 'handshake' && !sawHostKey) return 'no_ed25519_key';
   if (level === 'client-timeout' || level === 'client-socket') return 'unreachable';
   if (code !== undefined && UNREACHABLE_CODES.has(code)) return 'unreachable';
   return 'error';
@@ -131,6 +137,12 @@ function channelSession(channel: ClientChannel): ZfsSshStream {
 }
 
 /** The ssh2 transport. Only the ed25519 host key is negotiated, so the fingerprint matches the one the setup script prints. */
+/**
+ * ed25519 first, so a node that has one always negotiates it. The others are offered only so a node
+ * without one shows its key type, which is refused, instead of failing the handshake like any mismatch.
+ */
+const HOST_KEY_PREFERENCE: ServerHostKeyAlgorithm[] = ['ssh-ed25519', 'ecdsa-sha2-nistp256', 'ecdsa-sha2-nistp384', 'ecdsa-sha2-nistp521', 'rsa-sha2-512', 'rsa-sha2-256', 'ssh-rsa'];
+
 export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTransport {
   return {
     async connect(target, { acceptHostKey, timeoutMs, signal }) {
@@ -138,7 +150,10 @@ export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTrans
       return new Promise<ZfsSshSession>((resolve, reject) => {
         const client = new Client();
         let presented: string | null = null;
-        let rejectedKey = false;
+        let rejectedKind: 'host_key' | 'no_ed25519_key' | null = null;
+        const rejectedError = () => rejectedKind === 'no_ed25519_key'
+          ? new ZfsSshError('no_ed25519_key', 'The node offered no ed25519 host key', presented)
+          : new ZfsSshError('host_key', 'The node presented a host key that is not confirmed', presented);
         let settled = false;
         let closed = false;
         const closeListeners: (() => void)[] = [];
@@ -158,17 +173,15 @@ export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTrans
         signal?.addEventListener('abort', onAbort, { once: true });
 
         client.on('error', (err: Error) => {
-          if (rejectedKey) {
-            fail(new ZfsSshError('host_key', 'The node presented a host key that is not confirmed', presented));
+          if (rejectedKind) {
+            fail(rejectedError());
             return;
           }
-          fail(new ZfsSshError(classifyConnectError(err, presented !== null), err.message));
+          fail(new ZfsSshError(classifyConnectError(err), printableNodeText(err.message)));
         });
         client.on('close', () => {
           if (!settled) {
-            fail(rejectedKey
-              ? new ZfsSshError('host_key', 'The node presented a host key that is not confirmed', presented)
-              : new ZfsSshError('unreachable', 'The connection closed before it was ready'));
+            fail(rejectedKind ? rejectedError() : new ZfsSshError('unreachable', 'The connection closed before it was ready'));
             return;
           }
           if (closed) return;
@@ -186,7 +199,7 @@ export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTrans
             exec: (command, execTimeoutMs) => new Promise<ZfsExecResult>((resolveExec, rejectExec) => {
               client.exec(command, (err, channel) => {
                 if (err) {
-                  rejectExec(new ZfsSshError('error', err.message));
+                  rejectExec(new ZfsSshError('error', printableNodeText(err.message)));
                   return;
                 }
                 const stream = channelSession(channel);
@@ -235,7 +248,7 @@ export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTrans
             }),
             stream: (command) => new Promise<ZfsSshStream>((resolveStream, rejectStream) => {
               client.exec(command, (err, channel) => {
-                if (err) rejectStream(new ZfsSshError('error', err.message));
+                if (err) rejectStream(new ZfsSshError('error', printableNodeText(err.message)));
                 else resolveStream(channelSession(channel));
               });
             }),
@@ -255,11 +268,15 @@ export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTrans
           readyTimeout: timeoutMs,
           keepaliveInterval: SSH_LIVENESS_PROBE_MS,
           keepaliveCountMax: SSH_LIVENESS_MISSES,
-          algorithms: { serverHostKey: ['ssh-ed25519'] },
+          algorithms: { serverHostKey: HOST_KEY_PREFERENCE },
           hostVerifier: (key: Buffer) => {
             presented = hostKeyFingerprint(key);
+            if (hostKeyType(key) !== 'ssh-ed25519') {
+              rejectedKind = 'no_ed25519_key';
+              return false;
+            }
             const accepted = acceptHostKey(presented);
-            rejectedKey = !accepted;
+            rejectedKind = accepted ? null : 'host_key';
             return accepted;
           },
         };
@@ -269,17 +286,23 @@ export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTrans
   };
 }
 
-/** Node output goes to the worker log, so terminal escapes, newlines and carriage returns in it must not reach the terminal. */
+const INVISIBLE_FORMAT = /[\p{Cf}\p{Zl}\p{Zp}]/u;
+
+/** Node and network text goes to the worker log, so escapes, line breaks and invisible or bidi controls in it must not reach the terminal. */
 export function printableNodeText(text: string, maxLength = 500): string {
   let out = '';
-  for (let i = 0; i < text.length && out.length < maxLength; i++) {
-    const code = text.charCodeAt(i);
-    if (code === 0x1b && text[i + 1] === '[') {
+  const chars = [...text];
+  for (let i = 0; i < chars.length && out.length < maxLength; i++) {
+    const char = chars[i];
+    const code = char.codePointAt(0)!;
+    if (code === 0x1b && chars[i + 1] === '[') {
       i += 2;
-      while (i < text.length && !(text.charCodeAt(i) >= 0x40 && text.charCodeAt(i) <= 0x7e)) i++;
+      while (i < chars.length && !(chars[i].charCodeAt(0) >= 0x40 && chars[i].charCodeAt(0) <= 0x7e)) i++;
       continue;
     }
-    out += code === 0x09 || (code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f)) ? text[i] : '?';
+    const control = code < 0x20 && code !== 0x09;
+    const deleteOrC1 = code === 0x7f || (code >= 0x80 && code <= 0x9f);
+    out += control || deleteOrC1 || INVISIBLE_FORMAT.test(char) ? '?' : char;
   }
   return out;
 }

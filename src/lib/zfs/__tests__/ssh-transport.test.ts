@@ -10,6 +10,7 @@ import {
   classifyConnectError,
   createSsh2Transport,
   hostKeyFingerprint,
+  hostKeyType,
   printableNodeText,
   type ZfsSshSession,
 } from '../ssh-transport';
@@ -186,9 +187,16 @@ describe('ssh2 transport', () => {
     expect(await answer).toBe(false);
   });
 
-  test('strips terminal escapes and control characters from node text', () => {
+  test('strips terminal escapes, control characters and invisible or bidi format characters from node text', () => {
     expect(printableNodeText('a\u001b[31mred\u001b[0m\r\nb\u0007', 100)).toBe('ared??b?');
     expect(printableNodeText('x'.repeat(10), 4)).toBe('xxxx');
+    expect(printableNodeText('a\u2028b\u2029c\u202ed\u2066e\u200bf\ufeffg\u00adh')).toBe('a?b?c?d?e?f?g?h');
+    expect(printableNodeText('pool \u00e9 \u{1f600}')).toBe('pool \u00e9 \u{1f600}');
+  });
+
+  test('cleans every error message built from node or network text', () => {
+    const error = new ZfsSshError('error', 'Remote said: \u001b[2Jfake\nERROR forged line\u2028more');
+    expect(error.message).toBe('Remote said: fake?ERROR forged line?more');
   });
 
   test('tells the caller when the connection drops', async () => {
@@ -214,17 +222,47 @@ describe('ssh2 transport', () => {
     expect(error.kind).toBe('unreachable');
   });
 
-  test('reports a node without an ed25519 host key as such, not as a generic failure', async () => {
+  test('refuses a node that offers no ed25519 host key, with the key it did offer, and never accepts that key', async () => {
     const rsaOnly = new Server({ hostKeys: [rsaHostKey.private] }, (client) => {
       client.on('error', () => {});
     });
     await new Promise<void>((resolve) => rsaOnly.listen(0, '127.0.0.1', () => resolve()));
+    const rsaParsed = utils.parseKey(rsaHostKey.private);
+    if (rsaParsed instanceof Error) throw rsaParsed;
     try {
-      const error = await failure(transport.connect({ ...target(), port: (rsaOnly.address() as AddressInfo).port }, trustPinned));
+      let asked = 0;
+      const error = await failure(transport.connect({ ...target(), port: (rsaOnly.address() as AddressInfo).port }, {
+        acceptHostKey: () => {
+          asked++;
+          return true;
+        },
+        timeoutMs: 1500,
+      }));
       expect(error.kind).toBe('no_ed25519_key');
+      expect(error.fingerprint).toBe(hostKeyFingerprint(rsaParsed.getPublicSSH()));
+      expect(asked).toBe(0);
     } finally {
       rsaOnly.close();
     }
+  });
+
+  test('reports any other handshake mismatch as a generic failure, not as a missing ed25519 key', async () => {
+    const cbcOnly = new Server({ hostKeys: [hostKey.private], algorithms: { cipher: ['aes128-cbc'] } }, (client) => {
+      client.on('error', () => {});
+    });
+    await new Promise<void>((resolve) => cbcOnly.listen(0, '127.0.0.1', () => resolve()));
+    try {
+      const error = await failure(transport.connect({ ...target(), port: (cbcOnly.address() as AddressInfo).port }, trustPinned));
+      expect(error.kind).toBe('error');
+    } finally {
+      cbcOnly.close();
+    }
+  });
+
+  test('reads the key type from a host key blob', () => {
+    expect(hostKeyType(parsedHost.getPublicSSH())).toBe('ssh-ed25519');
+    expect(hostKeyType(Buffer.from([0, 0, 0]))).toBeNull();
+    expect(hostKeyType(Buffer.from([0, 0, 1, 0, 1]))).toBeNull();
   });
 
   test('does not connect when already cancelled, and stops when cancelled mid-handshake', async () => {
@@ -250,7 +288,6 @@ describe('ssh2 transport', () => {
     expect(classifyConnectError({ code: 'ENOTFOUND' })).toBe('unreachable');
     expect(classifyConnectError({ code: 'EHOSTUNREACH' })).toBe('unreachable');
     expect(classifyConnectError(new Error('protocol'))).toBe('error');
-    expect(classifyConnectError(Object.assign(new Error('Handshake failed'), { level: 'handshake' }), false)).toBe('no_ed25519_key');
-    expect(classifyConnectError(Object.assign(new Error('Handshake failed'), { level: 'handshake' }), true)).toBe('error');
+    expect(classifyConnectError(Object.assign(new Error('Handshake failed: no matching host key format'), { level: 'handshake' }))).toBe('error');
   });
 });

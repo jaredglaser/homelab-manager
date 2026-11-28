@@ -15,6 +15,8 @@ export const EMPTY_STATUS = '{"output_version":{"command":"zpool status","vers_m
 /** A node as the fake transport presents it. Every field can change between connects. */
 export interface FakeNodeBehaviour {
   fingerprint: string;
+  /** Anything but ssh-ed25519 is refused before the host key check, as the real transport does. */
+  keyType: string;
   /** Thrown from connect after the host key was accepted. */
   connectError: ZfsSshError | null;
   /** Connect never completes until the caller aborts. */
@@ -144,6 +146,7 @@ export class FakeZfsTransport implements ZfsSshTransport {
   constructor(behaviour: Partial<FakeNodeBehaviour> = {}) {
     this.behaviour = {
       fingerprint: 'SHA256:node-key',
+      keyType: 'ssh-ed25519',
       connectError: null,
       connectHangs: false,
       status: { code: 0, stdout: EMPTY_STATUS, stderr: '' },
@@ -162,6 +165,9 @@ export class FakeZfsTransport implements ZfsSshTransport {
       return new Promise((_resolve, reject) => {
         options.signal?.addEventListener('abort', () => reject(new ZfsSshError('error', 'Connection cancelled')), { once: true });
       });
+    }
+    if (behaviour.keyType !== 'ssh-ed25519') {
+      return Promise.reject(new ZfsSshError('no_ed25519_key', 'The node offered no ed25519 host key', behaviour.fingerprint));
     }
     if (!options.acceptHostKey(behaviour.fingerprint)) {
       return Promise.reject(new ZfsSshError('host_key', 'The node presented a host key that is not confirmed', behaviour.fingerprint));

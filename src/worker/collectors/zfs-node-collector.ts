@@ -42,7 +42,7 @@ export interface ZfsNodeCollectorDeps {
 
 export class ZfsNodeReadError extends Error {
   constructor(readonly state: ZfsNodeFailure, message: string) {
-    super(message);
+    super(printableNodeText(message));
     this.name = 'ZfsNodeReadError';
   }
 }
@@ -118,7 +118,7 @@ export class ZfsNodeCollector extends BaseCollector {
       );
     } catch (err) {
       if (this.signal.aborted) return null;
-      if (err instanceof ZfsSshError && err.kind === 'host_key') {
+      if (err instanceof ZfsSshError && (err.kind === 'host_key' || err.kind === 'no_ed25519_key')) {
         console.error(`[${this.name}] host key ${err.fingerprint ?? 'unknown'} does not match the confirmed key, reading nothing`);
         await this.recordFailure('host_key_changed', err.fingerprint);
         throw new ZfsNodeReadError('host_key_changed', 'The node presented a host key that is not the confirmed one');

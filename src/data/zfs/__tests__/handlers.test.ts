@@ -181,6 +181,25 @@ describe('ZFS node handlers', () => {
     expect(await handleConfirmZfsNodeHostKey(d, { id, fingerprint: 'SHA256:k' })).toEqual({ ok: true, pools: [] });
   });
 
+  test('says a new node has no ed25519 key, but treats it as a changed key once a key is pinned', async () => {
+    const transport = new FakeZfsTransport({ fingerprint: 'SHA256:k' });
+    const d = deps(transport);
+    const id = await addNode(d);
+    transport.behaviour.keyType = 'ssh-rsa';
+    transport.behaviour.fingerprint = 'SHA256:rsa';
+    expect(await handleScanZfsNodeHostKey(d, { id })).toEqual({ ok: false, failure: 'no_ed25519_key' });
+
+    transport.behaviour.keyType = 'ssh-ed25519';
+    transport.behaviour.fingerprint = 'SHA256:k';
+    await handleScanZfsNodeHostKey(d, { id });
+    await handleConfirmZfsNodeHostKey(d, { id, fingerprint: 'SHA256:k' });
+    transport.behaviour.keyType = 'ssh-rsa';
+    transport.behaviour.fingerprint = 'SHA256:rsa';
+    expect(await handleScanZfsNodeHostKey(d, { id })).toEqual({ ok: false, failure: 'host_key_changed' });
+    expect(await handleVerifyZfsNode(d, { id })).toEqual({ ok: false, failure: 'host_key_changed', fingerprint: 'SHA256:rsa' });
+    expect(d.repo.rows.get(id)?.hostKeyFingerprint).toBe('SHA256:k');
+  });
+
   test('will not verify a node whose key was never confirmed', async () => {
     const d = deps();
     const id = await addNode(d);

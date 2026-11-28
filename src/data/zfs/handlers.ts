@@ -72,6 +72,7 @@ export async function handleScanZfsNodeHostKey(deps: ZfsNodeHandlerDeps, data: {
   const node = await deps.repo.getConnection(data.id);
   if (!node) return { ok: false, failure: 'not_found' };
   const scan = await scanHostKey(deps.transport, target(node));
+  if (!scan.ok && scan.failure === 'no_ed25519_key' && node.hostKeyFingerprint !== null) return { ok: false, failure: 'host_key_changed' };
   if (!scan.ok) return scan;
   if (scan.fingerprint === node.hostKeyFingerprint) return { ok: true, fingerprint: scan.fingerprint, confirmed: true };
   await deps.repo.recordSeenHostKey(node.id, scan.fingerprint);

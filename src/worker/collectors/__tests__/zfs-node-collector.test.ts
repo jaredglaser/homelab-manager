@@ -238,6 +238,18 @@ describe('ZfsNodeCollector', () => {
     h.controller.abort();
   });
 
+  test('treats a pinned node that now offers no ed25519 key as a changed key, never as one to regenerate', async () => {
+    const transport = new FakeZfsTransport({ keyType: 'ssh-rsa', fingerprint: 'SHA256:rsa-impostor' });
+    const h = harness(transport);
+    const failed = h.nextFailure();
+    const timer = await captureBackoff(() => void h.collector.run());
+    await failed;
+    expect(h.failures).toEqual([['host_key_changed', 'SHA256:rsa-impostor']]);
+    expect(timer.delayMs).toBe(ZFS_SLOW_RETRY_MS);
+    expect(transport.sessions).toHaveLength(0);
+    h.controller.abort();
+  });
+
   test('stops reading at the next connect when the host key changes mid-session, writing nothing after it', async () => {
     const transport = new FakeZfsTransport({ status: OK(TANK_STATUS), influx: (request) => poolSample('tank', request + 1, request * 10) });
     const h = harness(transport);

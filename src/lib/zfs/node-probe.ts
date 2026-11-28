@@ -118,7 +118,9 @@ export async function verifyNode(
       timeoutMs: PROBE_TIMEOUT_MS,
     });
   } catch (err) {
-    return { ok: false, failure: failureFromError(err), fingerprint: err instanceof ZfsSshError ? err.fingerprint : null };
+    const failure = failureFromError(err);
+    const fingerprint = err instanceof ZfsSshError ? err.fingerprint : null;
+    return { ok: false, failure: failure === 'no_ed25519_key' ? 'host_key_changed' : failure, fingerprint };
   }
   try {
     return await runBothReads(session, timer);
