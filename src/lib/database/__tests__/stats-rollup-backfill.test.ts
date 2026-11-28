@@ -219,6 +219,18 @@ describe('runStatsRollupBackfill', () => {
     expect(client.releaseCount).toBe(1);
   });
 
+  test('waits for the lock instead of skipping when asked to', async () => {
+    const client = createFakeClient({ lockAcquired: false });
+
+    await runStatsRollupBackfill(createFakeDb(client), { waitForLock: true });
+
+    const lock = client.calls.find((call) => call.text.includes('advisory_lock('));
+    expect(lock).toEqual({ text: 'SELECT pg_advisory_lock($1)', values: [STATS_BACKFILL_ADVISORY_LOCK_KEY] });
+    expect(texts(client).some((text) => text.includes('pg_try_advisory_lock'))).toBe(false);
+    expect(refreshCalls(client, 'zfs_stats_1m').length).toBeGreaterThan(0);
+    expect(texts(client).at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+  });
+
   test('releases the lock and the connection after a failing source', async () => {
     const client = createFakeClient({ failOn: (text) => text.startsWith('SELECT min(time)') });
 

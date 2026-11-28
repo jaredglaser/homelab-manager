@@ -31,15 +31,21 @@ interface RefreshWindow {
 }
 
 /**
+ * `waitForLock` blocks until another process's run ends instead of skipping, for a caller whose
+ * migrations may have rebuilt an aggregate after that run read it.
+ *
  * Materializes the `_1m` and `_1h` continuous aggregates over all existing history, then
  * puts the raw and `_1m` retention policies in place. Migration 007 removed retention
  * entirely, so an upgraded deployment holds months of raw rows that a retention policy
  * would drop before they were ever rolled up.
  */
-export async function runStatsRollupBackfill(db: DatabaseClient): Promise<void> {
+export async function runStatsRollupBackfill(
+  db: DatabaseClient,
+  options: { waitForLock?: boolean } = {},
+): Promise<void> {
   const client = await db.getPool().connect();
   try {
-    const acquired = await tryAcquireLock(client);
+    const acquired = options.waitForLock ? await acquireLock(client) : await tryAcquireLock(client);
     if (!acquired) {
       console.info('[StatsBackfill] Another process holds the lock, skipping');
       return;
@@ -55,6 +61,11 @@ export async function runStatsRollupBackfill(db: DatabaseClient): Promise<void> 
   } finally {
     client.release();
   }
+}
+
+async function acquireLock(client: PoolClient): Promise<true> {
+  await client.query('SELECT pg_advisory_lock($1)', [STATS_BACKFILL_ADVISORY_LOCK_KEY]);
+  return true;
 }
 
 async function tryAcquireLock(client: PoolClient): Promise<boolean> {
