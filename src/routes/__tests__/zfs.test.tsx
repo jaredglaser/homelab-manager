@@ -23,10 +23,8 @@ mockModule<typeof import('@/components/ui/datatable/SparklineCanvas')>('@/compon
   ...real,
   default: (() => null) as unknown as typeof real.default,
 }));
-mockModule<typeof import('@/components/zfs/ZFSPoolSpeedCharts')>('@/components/zfs/ZFSPoolSpeedCharts', (real) => ({
-  ...real,
-  default: (() => null) as unknown as typeof real.default,
-}));
+// Without the real module, its chart file stays out of the coverage table this test would add it to.
+void mock.module('@/components/zfs/ZFSPoolSpeedCharts', () => ({ default: () => null }));
 
 let historyRows: ZFSStatsRow[] = [];
 mockModule<typeof ZfsFunctions>('@/data/zfs/functions', (real) => ({
