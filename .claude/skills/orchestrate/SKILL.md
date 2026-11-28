@@ -106,40 +106,20 @@ AC3 [e2e, must-not-change] Cancel still discards the edit and leaves the row unc
 - **After a session restart,** earlier agents may not be resumable. Start a fresh owner agent with the full context: PR, branch, base, head, criteria, the findings to fix, and stack position.
 
 ## 4. Independent review (run by the orchestrator)
-Per-PR agents cannot spawn subagents, so they cannot run a multi-agent review themselves. When an agent reports:
-- **Every reviewer gets the acceptance criteria.** Its first job is to say, per criterion, whether the diff and its tests can satisfy it. Breaking the change comes second.
-- **Large or non-trivial PR:**
-  - the `pr-review-toolkit:code-reviewer` agent, plus `pr-review-toolkit:pr-test-analyzer` for test-heavy PRs. If the session does not have the toolkit, use `general-purpose` reviewers, one per angle: code, silent failures, types, tests, comments, simplification.
-  - at least two independent adversarial `general-purpose` reviewers that have not seen each other's output, each told to try to break the change with concrete scenarios
-  - for test-only PRs, mutation testing that compares which mutations are caught on `main` against the PR
-- **Small PR:** one review pass plus one adversarial pass.
-- **All reviewers are read-only.** They must not run builds, the full test suite, or full-repo eslint, because the box runs out of memory when many agents run. They run targeted `bun test --isolate <file>` only. Never print a whole DOM.
-- **The orchestrator verifies findings itself** before passing them on (for example, by reproducing a claimed Bun behavior). It sends the valid ones back to the owning agent as one list, and keeps decisions that belong to the maintainer out of that list.
-- **After a substantial round of fixes,** run one more adversarial pass on just the new commits. Repeat until a pass finds nothing serious.
-
-Review reads the code. It does not count as proof for any criterion.
+- When an owner reports, dispatch `pr-reviewer` with the PR number or its clone path, its base and the criteria. Never give it the owner's report.
+- Trivial and Low tier: one reviewer. Higher tier: two that do not see each other's output, the second dispatched on Opus. More only for a large PR with several separate data flows, or one that needs an angle the reviewer file does not cover: one more reviewer per flow or angle, with the reason in its prompt.
+- A test-only PR also gets a mutation run, by the `verifier` in its own clone: which mutations does `main` catch, and which does the PR.
+- Reproduce a finding before you send it on, or label it "agent reported, not reproduced". Send the owner one list, and keep the maintainer's decisions out of it.
+- The owner fixes every valid finding, minor ones included, before the PR goes to the maintainer. Nothing unfixed is listed in the PR body. A round with no serious finding ends review once its minor findings are fixed.
+- After a fix round, one reviewer reads only the new commits. A Sonnet owner is replaced after two serious rounds (section 3). After three rounds that each found something serious, stop and bring the PR to the maintainer.
+- Review reads the code. It is not proof for any criterion.
 
 ## 5. Behavioural verification (run by the orchestrator, one PR at a time)
-This step runs the change. It starts for a PR once its review findings are resolved and CI is green.
-
-- **One verifier at a time, and only while no other agent is building or running the full suite.** Builds and the stack need the memory that parallel agents use up. Queue PRs bottom of each stack first.
-- **The verifier is a fresh `general-purpose` agent.** It gets the PR number, the head SHA, and the criteria. It does not get the owner agent's report or the review findings, so it tests what was asked for, not what the author says was built.
-- **It works in its own clone** at `/home/claude/work/verify-<N>`, checked out at the head SHA, and writes evidence to `/home/claude/work/pr-<N>-meta/evidence/`.
-- **It never edits the PR.** It reports. Fixes go back to the owner agent.
-- **It uses the pinned Bun,** and restarts `dockerd` or a served build if they are no longer running.
-
-**How each proof type is produced**
-- `unit`: run the named test on the PR head and confirm it passes. Then revert the source change in the scratch clone (keep the test) and confirm the test fails. A test that passes both ways proves nothing, and is reported as a failed criterion.
-- `e2e`: `bun run e2e:build:app` (or `:demo`), serve it, and drive the flow with Playwright on the installed Chrome (`channel: 'chrome'`, `--no-sandbox`). Save one screenshot per criterion at the moment that shows the result, plus the trace on failure. Use a throwaway script in the meta folder unless the flow meets the AGENTS.md rule for a permanent e2e spec, in which case hand the spec to the owner agent to add.
-- `stack`: bring up `docker-compose.local.yml` with the management and oidc profiles and exercise the criterion against it. Save the request and response, the relevant log lines, and a screenshot when there is UI. If the stack cannot start in the box, do not substitute a mock and do not move the check to the maintainer's computer. Record the criterion as `not run` with the reason (for example a blocked registry host). If a CI job exercises the same thing, record that as `ci` proof instead.
-- `ci`: record the job, step, run URL, and the log lines that show it.
-- `run`: record the command and its output, trimmed to the lines that matter. For a guard or lint rule, show it failing on a violating input and passing on a clean one.
-
-**Results**
-- Each criterion ends as `pass`, `fail`, or `not run`, with a pointer to its proof. There is no "looks fine".
-- A `fail` goes to the owner agent with the evidence. After the fix, the verifier re-runs the failed criteria and every criterion that touches the files the fix changed, on the new head SHA.
-- Anything the verifier notices outside the criteria (a console error, a broken neighbouring flow) is reported as an observation, with a screenshot, and the orchestrator decides whether it is in scope.
-- Evidence is tied to a head SHA. A push after verification makes it stale. Re-run the criteria the new commits could affect, and say which were re-run.
+- Once review has ended and CI is green, dispatch `verifier` with the PR number, the head commit and the criteria, on the model of the PR's tier. Give it nothing from the owner or the reviewers.
+- One verifier at a time, and only while no agent is building or running the full suite. Bottom of each stack first.
+- A `fail` goes to the owner with the evidence. After the fix, the verifier runs the failed criteria again, and every criterion that touches the files the fix changed.
+- What it reports outside the criteria is an observation. You decide whether it is in scope.
+- A push after verification makes the evidence stale. Run again the criteria the new commits could affect, and say which.
 
 ## 6. Evidence bundle (one per PR)
 The maintainer reviews the evidence, not a summary of it.

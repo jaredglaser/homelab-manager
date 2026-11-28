@@ -30,7 +30,7 @@
 - When the maintainer asks a session for a change and has not confirmed it as orchestrator, the session follows the light lane. He can ask for the full process instead: then follow the `orchestrate` skill.
 - Work from criteria: a plan page when the plan-page rule calls for one, otherwise one to three lines at the top of the PR body.
 - State any design choice you made, and the alternative you did not take, at the top of the PR body.
-- Before calling it done, have one fresh agent review the diff against the criteria, and check the change by real use. Fix a serious finding and have it reviewed once more. List minor ones in the PR body. A trivial change (a typo, a comment, a dependency bump) skips the review.
+- Before calling it done, have one fresh `pr-reviewer` agent review the diff against the criteria, and check the change by real use. Fix every valid finding, minor ones included, before the PR goes to the maintainer. After fixing a serious one, have the fix reviewed once more. A trivial change (a typo, a comment, a dependency bump) skips the review.
 - Open the PR for that change without asking. Touch no other PR, and report a second problem instead of fixing it.
 - Fix your own PR until its checks pass, or say what blocks it.
 - End with the PR number, the state of its checks, and what was not checked and why.
@@ -288,5 +288,5 @@ Env vars documented in `.env.example`. `.env` sets `POSTGRES_HOST=localhost` for
 
 ## Agent-Specific Notes
 
-- **Claude Code** reads `CLAUDE.md`, which imports this file. Shared config lives under `.claude/`: the `orchestrate` and `plan-page` skills, the `pr-owner` agent, and a SessionStart hook that only acts in cloud sessions. Before writing code for a change with a design choice, user-visible text or more than one file, publish a plan page with the `plan-page` skill and start from the criteria the maintainer sets on it. Everything else in `.claude/` is gitignored. Cloud environment setup is in [docs/cloud-environment.md](docs/cloud-environment.md).
+- **Claude Code** reads `CLAUDE.md`, which imports this file. Shared config lives under `.claude/`: the `orchestrate` and `plan-page` skills, the `pr-owner`, `pr-reviewer` and `verifier` agents, and a SessionStart hook that only acts in cloud sessions. Before writing code for a change with a design choice, user-visible text or more than one file, publish a plan page with the `plan-page` skill and start from the criteria the maintainer sets on it. Everything else in `.claude/` is gitignored. Cloud environment setup is in [docs/cloud-environment.md](docs/cloud-environment.md).
 - **Zed** reads this file natively as project instructions. Project settings and tasks live under `.zed/`. MCP servers are the one exception Zed configures at the user level, not per project; the snippet in [docs/development.md](docs/development.md) matches your local `.mcp.json` (gitignored, not committed).
