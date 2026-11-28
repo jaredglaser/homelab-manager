@@ -52,6 +52,14 @@ describe('image_unconfirmed', () => {
   });
 });
 
+describe('update_already_running', () => {
+  it('pins the sentence the operator reads, with no detail after it', () => {
+    expect(hostFailureMessage('update_already_running', 'ignored')).toBe(
+      'An update is already running for this host. Wait for it to finish.',
+    );
+  });
+});
+
 describe('agent_not_answering', () => {
   it('pins the sentence the operator reads, with the status named in the headline', () => {
     expect(hostFailureMessage('agent_not_answering', 'HTTP 502')).toBe(

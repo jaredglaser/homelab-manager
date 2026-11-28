@@ -19,7 +19,8 @@ export type HostFailureCode =
   | 'restart_unconfirmed'
   | 'version_unconfirmed'
   | 'image_unconfirmed'
-  | 'agent_did_not_restart';
+  | 'agent_did_not_restart'
+  | 'update_already_running';
 
 /** The codes a host row can carry. The CHECK in migration 045 lists the same members, so a new one needs a migration. */
 export const HOST_PROBE_FAILURE_CODES = [
@@ -143,6 +144,11 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
     headline: 'The agent did not come back after the update.',
     fix: 'Check that the agent container is running on the host, then retry the update.',
     includeDetail: true,
+  },
+  update_already_running: {
+    headline: 'An update is already running for this host.',
+    fix: 'Wait for it to finish.',
+    includeDetail: false,
   },
 };
 
