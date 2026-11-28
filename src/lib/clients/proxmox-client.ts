@@ -2,8 +2,9 @@ import type { z } from 'zod';
 import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
 import { isCertificateRejectionError } from '@/lib/clients/agent-http';
 import {
-  zProxmoxClusterStatusResponse,
-  zProxmoxResourcesResponse,
+  zProxmoxClusterStatus,
+  zProxmoxListEnvelope,
+  zProxmoxResource,
   type ProxmoxClusterStatus,
   type ProxmoxResource,
   type ProxmoxClusterSnapshot,
@@ -11,11 +12,21 @@ import {
 
 export type ProxmoxFailureKind = 'unreachable' | 'token_rejected' | 'certificate_refused';
 
-/** A failed Proxmox request, sorted into what the operator has to fix. `message` is log detail, never UI copy. */
+const MAX_REASON_CHARS = 300;
+const DROPPED_ENTRY_LOG_INTERVAL_MS = 60_000;
+
+/**
+ * A failed Proxmox request, sorted into what the operator has to fix. `message` is `<path>: <detail>`,
+ * log detail capped at MAX_REASON_CHARS and never UI copy.
+ */
 export class ProxmoxRequestError extends Error {
-  constructor(readonly kind: ProxmoxFailureKind, message: string) {
-    super(message);
+  readonly detail: string;
+
+  constructor(readonly kind: ProxmoxFailureKind, path: string, detail: string) {
+    const bounded = detail.slice(0, MAX_REASON_CHARS);
+    super(`${path}: ${bounded}`);
     this.name = 'ProxmoxRequestError';
+    this.detail = bounded;
   }
 
   /** Read by BaseCollector's error log line. */
@@ -24,16 +35,19 @@ export class ProxmoxRequestError extends Error {
   }
 }
 
-const MAX_ERROR_BODY_CHARS = 300;
+function firstIssue(error: z.ZodError): string {
+  const issue = error.issues[0];
+  return issue ? `${issue.path.join('.') || '(root)'} ${issue.code}` : 'unknown';
+}
 
 function classifyFetchFailure(path: string, err: unknown): ProxmoxRequestError {
   if (err instanceof ProxmoxRequestError) return err;
   const cause = (err as { cause?: unknown } | null)?.cause;
   const detail = err instanceof Error ? err.message : String(err);
   if (isCertificateRejectionError(err) || isCertificateRejectionError(cause)) {
-    return new ProxmoxRequestError('certificate_refused', `${path}: ${detail}`);
+    return new ProxmoxRequestError('certificate_refused', path, detail);
   }
-  return new ProxmoxRequestError('unreachable', `${path}: ${detail}`);
+  return new ProxmoxRequestError('unreachable', path, detail);
 }
 
 // Covers both Bun's native fetch (`tls`) and Node.js-compat/undici fetch (`dispatcher`)
@@ -87,7 +101,9 @@ export class ProxmoxClient {
       .catch(() => {});
   }
 
-  private async get<S extends z.ZodType<{ data: unknown }>>(path: string, schema: S): Promise<z.infer<S>['data']> {
+  private readonly droppedLoggedAt = new Map<string, number>();
+
+  private async getList<T>(path: string, entry: z.ZodType<T>): Promise<T[]> {
     let body: unknown;
     try {
       await this.dispatcherReady;
@@ -100,9 +116,9 @@ export class ProxmoxClient {
       });
 
       if (!response.ok) {
-        const text = (await response.text().catch(() => '')).slice(0, MAX_ERROR_BODY_CHARS);
+        const text = await response.text().catch(() => '');
         const kind = response.status === 401 || response.status === 403 ? 'token_rejected' : 'unreachable';
-        throw new ProxmoxRequestError(kind, `${path}: HTTP ${response.status} ${response.statusText} ${text}`.trim());
+        throw new ProxmoxRequestError(kind, path, `HTTP ${response.status} ${response.statusText} ${text}`.trim());
       }
 
       body = await response.json();
@@ -110,20 +126,42 @@ export class ProxmoxClient {
       throw classifyFetchFailure(path, err);
     }
 
-    const parsed = schema.safeParse(body);
-    if (!parsed.success) {
-      throw new ProxmoxRequestError('unreachable', `${path}: unexpected response shape: ${parsed.error.message}`);
+    const envelope = zProxmoxListEnvelope.safeParse(body);
+    if (!envelope.success) {
+      throw new ProxmoxRequestError('unreachable', path, `unexpected response shape: ${firstIssue(envelope.error)}`);
     }
-    return parsed.data.data;
+
+    const entries: T[] = [];
+    let dropped = 0;
+    let firstDrop = '';
+    for (const [index, raw] of envelope.data.data.entries()) {
+      const parsed = entry.safeParse(raw);
+      if (parsed.success) {
+        entries.push(parsed.data);
+      } else {
+        dropped++;
+        firstDrop ||= `data.${index}.${firstIssue(parsed.error)}`;
+      }
+    }
+    if (dropped > 0) this.logDropped(path, dropped, firstDrop);
+    return entries;
+  }
+
+  // One malformed entry repeats on every poll, so a line per poll would bury the log.
+  private logDropped(path: string, dropped: number, firstDrop: string): void {
+    const now = Date.now();
+    const last = this.droppedLoggedAt.get(path);
+    if (last !== undefined && now - last < DROPPED_ENTRY_LOG_INTERVAL_MS) return;
+    this.droppedLoggedAt.set(path, now);
+    console.error(`[ProxmoxClient] ${path}: skipped ${dropped} entr${dropped === 1 ? 'y' : 'ies'} off the expected shape, first at ${firstDrop}`);
   }
 
   async getClusterStatus(): Promise<ProxmoxClusterStatus[]> {
-    return this.get('/cluster/status', zProxmoxClusterStatusResponse);
+    return this.getList('/cluster/status', zProxmoxClusterStatus);
   }
 
-  /** Every node, guest and storage entry in one call. */
   async getClusterResources(): Promise<ProxmoxResource[]> {
-    return this.get('/cluster/resources', zProxmoxResourcesResponse);
+    return this.getList('/cluster/resources', zProxmoxResource);
   }
 
   /**

@@ -32,7 +32,7 @@ export class ProxmoxCollector extends BaseCollector {
   private readonly rateTracker = new ProxmoxRateTracker();
   private readonly injectedStateStore: ProxmoxStateStore | undefined;
   private _stateStore: ProxmoxStateStore | undefined;
-  private recorded: { state: ProxmoxCollectorStateKind; reason: string | null; at: number } | null = null;
+  private recorded: { state: ProxmoxCollectorStateKind; detail: string | null; at: number } | null = null;
   private lastSuccessAt: Date | null = null;
 
   constructor(
@@ -79,8 +79,8 @@ export class ProxmoxCollector extends BaseCollector {
         if (this.signal.aborted) return;
         const failure = err instanceof ProxmoxRequestError
           ? err
-          : new ProxmoxRequestError('unreachable', err instanceof Error ? err.message : String(err));
-        await this.recordState(failure.kind, failure.message);
+          : new ProxmoxRequestError('unreachable', 'poll', err instanceof Error ? err.message : String(err));
+        await this.recordState(failure.kind, failure.message, failure.detail);
         throw failure;
       }
 
@@ -94,7 +94,7 @@ export class ProxmoxCollector extends BaseCollector {
       await this.repository.insertProxmoxStats(rows);
       this.lastSuccessAt = new Date();
       this.resetBackoff();
-      await this.recordState('collecting', null);
+      await this.recordState('collecting', null, null);
 
       const elapsed = performance.now() - t0;
       const sleepMs = Math.max(0, this._pollIntervalMs - elapsed);
@@ -111,10 +111,14 @@ export class ProxmoxCollector extends BaseCollector {
     }
   }
 
-  private async recordState(state: ProxmoxCollectorStateKind, reason: string | null): Promise<void> {
+  /**
+   * `detail` is the reason without its request path: the two requests of a poll run together and
+   * either can fail first, so comparing the full reason would rewrite and rebroadcast on every retry.
+   */
+  private async recordState(state: ProxmoxCollectorStateKind, reason: string | null, detail: string | null): Promise<void> {
     const now = Date.now();
     const prev = this.recorded;
-    const unchanged = prev !== null && prev.state === state && prev.reason === reason;
+    const unchanged = prev !== null && prev.state === state && prev.detail === detail;
     if (unchanged && (state !== 'collecting' || now - prev.at < LAST_SUCCESS_REFRESH_MS)) return;
 
     try {
@@ -126,7 +130,7 @@ export class ProxmoxCollector extends BaseCollector {
         reason,
         lastSuccessAt: this.lastSuccessAt,
       });
-      this.recorded = { state, reason, at: now };
+      this.recorded = { state, detail, at: now };
     } catch (err) {
       console.error(`[${this.name}] Failed to record Proxmox state ${state}:`, err instanceof Error ? err.message : err);
     }

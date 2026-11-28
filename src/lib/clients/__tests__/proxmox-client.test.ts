@@ -206,13 +206,20 @@ describe('ProxmoxClient', () => {
     it.each([
       ['data is null', JSON.stringify({ data: null })],
       ['data is missing', JSON.stringify({})],
-      ['an entry has no id', JSON.stringify({ data: [{ type: 'qemu', vmid: 100 }] })],
-      ['a counter is a string', JSON.stringify({ data: [{ id: 'qemu/100', type: 'qemu', netin: '12' }] })],
+      ['data is an object', JSON.stringify({ data: { id: 'qemu/100' } })],
     ])('sorts a 200 whose %s into unreachable, naming the unexpected shape', async (_, body) => {
       fetchSpy.mockResolvedValueOnce(new Response(body, { status: 200 }));
       const failure = await failureOf(new ProxmoxClient(createConfig()).getClusterResources());
       expect(failure.kind).toBe('unreachable');
-      expect(failure.message).toContain('/cluster/resources: unexpected response shape');
+      expect(failure.message).toMatch(/^\/cluster\/resources: unexpected response shape: data invalid_type$/);
+      expect(failure.detail).toBe('unexpected response shape: data invalid_type');
+    });
+
+    it('caps a long reason, such as a big error page', async () => {
+      fetchSpy.mockResolvedValueOnce(new Response('x'.repeat(100_000), { status: 502, statusText: 'Bad Gateway' }));
+      const failure = await failureOf(new ProxmoxClient(createConfig()).getClusterStatus());
+      expect(failure.detail.length).toBe(300);
+      expect(failure.message.length).toBe('/cluster/status: '.length + 300);
     });
 
     it('sorts a 200 that is not JSON into unreachable', async () => {
@@ -228,6 +235,56 @@ describe('ProxmoxClient', () => {
         .mockResolvedValueOnce(new Response(JSON.stringify({ data: null }), { status: 200 }));
       const failure = await failureOf(new ProxmoxClient(createConfig()).getClusterSnapshot());
       expect(failure.kind).toBe('unreachable');
+    });
+  });
+
+  describe('entries off the expected shape', () => {
+    const good = (vmid: number) => ({ id: `qemu/${vmid}`, type: 'qemu', node: 'pve1', status: 'running', vmid, netin: 10 });
+
+    it('drops only the bad entry, keeps the rest, and logs it', async () => {
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [good(100), { type: 'qemu', vmid: 101 }, good(102)],
+      }), { status: 200 }));
+      const result = await new ProxmoxClient(createConfig()).getClusterResources();
+
+      expect(result.map((r) => r.vmid)).toEqual([100, 102]);
+      const logged = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+      expect(logged).toEqual(['[ProxmoxClient] /cluster/resources: skipped 1 entry off the expected shape, first at data.1.id invalid_type']);
+    });
+
+    it('reads a number Proxmox sent as a string', async () => {
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [{ id: 'qemu/100', type: 'qemu', vmid: '100', netin: '12', shared: '0' }],
+      }), { status: 200 }));
+      const [entry] = await new ProxmoxClient(createConfig()).getClusterResources();
+      expect(entry).toMatchObject({ vmid: 100, netin: 12, shared: 0 });
+    });
+
+    it('drops an entry whose number field holds text that is not a number', async () => {
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [good(100), { id: 'storage/pve1/local', type: 'storage', shared: 'yes' }],
+      }), { status: 200 }));
+      expect(await new ProxmoxClient(createConfig()).getClusterResources()).toHaveLength(1);
+    });
+
+    it('logs dropped entries at most once a minute per path', async () => {
+      const nowSpy = spyOn(Date, 'now');
+      let now = 1_000_000;
+      nowSpy.mockImplementation(() => now);
+      try {
+        const client = new ProxmoxClient(createConfig());
+        const body = () => new Response(JSON.stringify({ data: [{ id: 7 }] }), { status: 200 });
+        fetchSpy.mockImplementation(async () => body());
+        await client.getClusterResources();
+        now += 30_000;
+        await client.getClusterResources();
+        await client.getClusterStatus();
+        now += 31_000;
+        await client.getClusterResources();
+        expect((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(3);
+      } finally {
+        nowSpy.mockRestore();
+      }
     });
   });
 

@@ -6,7 +6,11 @@
  */
 import { z } from 'zod';
 
-const zOptionalNumber = z.number().nullish();
+/** Proxmox (Perl) can serialize a number as a string, so a numeric string counts as the number. */
+const zOptionalNumber = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)) ? Number(value) : value),
+  z.number().nullish(),
+);
 
 /** Entry of GET /api2/json/cluster/status: one `cluster` entry (absent on a standalone node) plus one per node. */
 export const zProxmoxClusterStatus = z.object({
@@ -49,8 +53,8 @@ export const zProxmoxResource = z.object({
 
 export type ProxmoxResource = z.infer<typeof zProxmoxResource>;
 
-export const zProxmoxClusterStatusResponse = z.object({ data: z.array(zProxmoxClusterStatus) });
-export const zProxmoxResourcesResponse = z.object({ data: z.array(zProxmoxResource) });
+/** Every Proxmox list response. Entries are parsed one by one, so one bad entry does not fail the rest. */
+export const zProxmoxListEnvelope = z.object({ data: z.array(z.unknown()) });
 
 /**
  * Cluster snapshot assembled from GET /cluster/status plus GET /cluster/resources.
@@ -210,3 +214,6 @@ export interface ProxmoxCollectorState {
   /** Epoch ms */
   updatedAt: number;
 }
+
+/** What browsers get: the recorded state without `reason`, which stays in the table and the worker log. */
+export type ProxmoxCollectorStateView = Omit<ProxmoxCollectorState, 'reason'>;
