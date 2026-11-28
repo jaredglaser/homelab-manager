@@ -33,6 +33,12 @@ COPY tsconfig.json ./tsconfig.json
 ARG AGENT_VERSION
 ENV AGENT_VERSION=${AGENT_VERSION}
 
+# Stamped by CI with a hash of the build inputs, so the manager can tell an
+# image that changed from one that was only rebuilt. Empty for local builds.
+ARG AGENT_SOURCE_HASH
+ENV AGENT_SOURCE_HASH=${AGENT_SOURCE_HASH}
+LABEL io.github.jaredglaser.homelab-manager.agent-source=${AGENT_SOURCE_HASH}
+
 ENV AGENT_PORT=9090
 ENV STACKS_DIR=/opt/homelab-manager/stacks
 # DOCKER_HOST must be set at runtime (e.g., tcp://socket-proxy:2375).
