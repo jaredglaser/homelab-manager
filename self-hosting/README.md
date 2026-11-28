@@ -226,16 +226,18 @@ The worker and the dashboard both need to reach each node's SSH port: the worker
 
 The next step shows a setup script. Run it on the node as root. It:
 
-- creates a system user `hlm` with no password and no login shell (its shell is the dispatcher below);
+- stops before changing anything if the node has no ed25519 host key (`ssh-keygen -A` creates one), or if a user named `hlm` exists that the script did not create;
+- creates a system user `hlm` with no password, no login shell (its shell is the dispatcher below) and `nogroup` as its group;
 - installs a dispatcher at `/usr/local/libexec/homelab-manager/zfs-read` that runs only the two commands above, with fixed arguments, and refuses everything else;
-- writes one line to `/var/lib/hlm/.ssh/authorized_keys`: `restrict,command="/usr/local/libexec/homelab-manager/zfs-read"` and the app's public key, so the key cannot open a shell, allocate a terminal or forward ports. The home directory, `.ssh` and `authorized_keys` belong to root, so `hlm` cannot change them;
+- writes one line to `/var/lib/hlm/.ssh/authorized_keys`: `restrict,command="/usr/local/libexec/homelab-manager/zfs-read"` and the app's public key, so the key cannot open a shell, allocate a terminal or forward ports. The home directory, `.ssh` and `authorized_keys` belong to root, so `hlm` cannot change them, and a stray `authorized_keys2` is deleted;
+- installs `/etc/ssh/sshd_config.d/homelab-manager-hlm.conf`, a `Match User hlm` block that allows only that one key file and turns off forwarding, tunnels and terminals, checks it with `sshd -t`, and reloads sshd;
 - prints the node's ed25519 host key fingerprint as its last line.
 
 `hlm` is a dedicated user because Proxmox shares root's `authorized_keys` across the cluster. The read ioctls behind both commands need no privilege, and the kernel refuses pool actions (destroy, export, scrub) to a non-root user.
 
 Then select **I ran it, connect**. The dashboard reads the host key without logging in and shows its fingerprint. Compare it with the last line of the setup script and confirm. The fingerprint is pinned, and the dashboard runs both commands once and lists the pools it found. Collection starts within a few seconds.
 
-**When a node's host key changes**, collection stops and the node shows a notice on the Hosts and ZFS pages. If you reinstalled the node, run the setup script again (its last line prints the new fingerprint) and select **Confirm new key** on the node's row. If you did not, something may be impersonating the node: do not confirm.
+**When a node's host key changes**, the app reads nothing from it and the node shows a notice on the Hosts and ZFS pages. It retries every 5 minutes, so a node that comes back with the confirmed key collects again on its own. If you reinstalled the node, run the setup script again (its last line prints the new fingerprint) and select **Confirm new key** on the node's row. If you did not, something may be impersonating the node: do not confirm.
 
 **Remove a node** from its row. Collection stops at once and its stored history is kept. To revoke the key on the node, run `userdel hlm` there.
 
