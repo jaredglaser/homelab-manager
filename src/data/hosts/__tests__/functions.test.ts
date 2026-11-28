@@ -116,3 +116,34 @@ describe('checkHostHealth', () => {
     expect(mockUpdateAgentInfo).toHaveBeenCalledWith(7, { version: '1.2.3' });
   });
 });
+
+describe('updateAgent', () => {
+  beforeEach(() => {
+    mockGetClient.mockClear();
+    mockCheckAgentHealth.mockClear();
+  });
+
+  it('is a POST, so the browser never resends it on its own', async () => {
+    const { updateAgent } = await import('../functions');
+    expect(updateAgent.method).toBe('POST');
+  });
+
+  it.each(['viewer', 'operator'] as const)('refuses a %s before it reaches the database or the agent', async (role) => {
+    const { updateAgent } = await import('../functions');
+    const error = await withRole(role, () =>
+      withStartContext(() => updateAgent({ data: { hostId: 7 } })),
+    ).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ForbiddenError);
+    expect(mockGetClient).not.toHaveBeenCalled();
+    expect(mockCheckAgentHealth).not.toHaveBeenCalled();
+  });
+
+  it('lets an admin through to the handler', async () => {
+    const { updateAgent } = await import('../functions');
+    const error = await withRole('admin', () =>
+      withStartContext(() => updateAgent({ data: { hostId: 7 } })),
+    ).catch((err: unknown) => err);
+    expect(error).not.toBeInstanceOf(ForbiddenError);
+    expect(mockGetClient).toHaveBeenCalled();
+  });
+});

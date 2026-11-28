@@ -9,7 +9,7 @@ import {
 import { generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
 import { loadDemoSettings } from '@/lib/mock/generators/settings';
 import { isUserSettingsKey } from '@/lib/constants/settings-keys';
-import { settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/mock/live-updates';
+import { agentInventoryUpdates, settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/mock/live-updates';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES, PROXMOX_HOST } from '@/lib/mock/entities';
@@ -144,6 +144,9 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
       return;
     }
     if (topic === 'agent-inventory') {
+      topicCleanups.set(topic, agentInventoryUpdates.on((message) => {
+        client.send(eventFrame(topic, 'data', message));
+      }));
       void import('@/lib/mock/functions/hosts.functions').then(({ listAgentsInventory }) =>
         listAgentsInventory().then((entries) => {
           client.send(eventFrame(topic, 'data', { entries, sweptAt: new Date().toISOString() }));

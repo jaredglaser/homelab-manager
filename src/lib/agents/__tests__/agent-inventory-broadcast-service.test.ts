@@ -19,6 +19,7 @@ function snapshot(id: number): AgentInventorySnapshot {
         agentImageDigest: null,
         agentOutOfDate: false,
         failure: null,
+        update: null,
         checkedAt: new Date().toISOString(),
       },
     ],

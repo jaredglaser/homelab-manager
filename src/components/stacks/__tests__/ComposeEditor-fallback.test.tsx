@@ -21,7 +21,7 @@ describe('ComposeEditor monaco load failure', () => {
     let unmount: (() => void) | undefined;
 
     try {
-      const { default: ComposeEditor } = await import('../ComposeEditor');
+      const { default: ComposeEditor } = await import('@/components/stacks/ComposeEditor');
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       ({ unmount } = render(
         <QueryClientProvider client={queryClient}>

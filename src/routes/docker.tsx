@@ -15,10 +15,10 @@ import { dockerStatsChannel } from '@/lib/channels/docker-stats'
 
 export const Route = createFileRoute('/docker')({
   ssr: false,
-  loader: () => queryClient.ensureQueryData({
+  loader: () => queryClient.query({
     queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
     queryFn: () => getDockerEntityIcons(),
-    staleTime: 60_000,
+    staleTime: 'static',
   }),
   component: DockerLayout,
 })
@@ -56,7 +56,7 @@ function DockerContainersPage() {
   const dockerQueryKey = dockerPreloadQueryKey(windowSeconds)
 
   const preloadFn = useCallback(
-    () => qc.fetchQuery({
+    () => qc.query({
       queryKey: dockerQueryKey,
       queryFn: () => preloadDockerStats(windowSeconds),
       staleTime: 0,

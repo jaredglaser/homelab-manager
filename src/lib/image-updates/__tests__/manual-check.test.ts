@@ -321,7 +321,7 @@ describe('PostUpdateWatcher', () => {
   });
 
   async function buildWatcher() {
-    const { PostUpdateWatcher } = await import('../post-update-watcher');
+    const { PostUpdateWatcher } = await import('@/lib/image-updates/post-update-watcher');
     return new PostUpdateWatcher({
       loadSnapshot: async () => {
         if (stackLoaderOverride) return stackLoaderOverride();

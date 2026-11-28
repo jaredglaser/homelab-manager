@@ -21,7 +21,7 @@ mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolve
 }))
 
 mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real, 
-  queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
+  queryClient: { query: mock(() => Promise.resolve()) },
 }))
 
 mockModule<typeof import('@/lib/constants/preload-queries')>('@/lib/constants/preload-queries', (real) => ({ ...real, 

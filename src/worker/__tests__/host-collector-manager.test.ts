@@ -7,7 +7,7 @@ import {
   type HostCollectorBundle,
   type HostCollectorFactory,
 } from '../host-collector-manager';
-import type { BaseCollector } from '../collectors/base-collector';
+import type { BaseCollector } from '@/worker/collectors/base-collector';
 
 const originalConsoleInfo = console.info;
 const originalConsoleError = console.error;
@@ -41,6 +41,7 @@ function makeHost(name: string, overrides?: Partial<ManagedHost>): ManagedHost {
     createdAt: new Date(),
     updatedAt: new Date(),
     lastSweptAt: null,
+    agentUpdate: null,
     ...overrides,
   };
 }
