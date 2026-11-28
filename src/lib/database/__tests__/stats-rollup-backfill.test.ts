@@ -305,6 +305,28 @@ describe('runStatsRollupBackfill', () => {
       expect(errorSpy).not.toHaveBeenCalled();
     });
 
+    test('still logs a real error as a failure when it comes after shutdown', async () => {
+      const shutdown = new AbortController();
+      const client = createFakeClient();
+      const query = client.query.bind(client);
+      const lost = new Error('connection lost');
+      client.query = async (text: string, values?: unknown[]) => {
+        if (text.startsWith("CALL refresh_continuous_aggregate('docker_stats_1m'")) {
+          client.calls.push({ text, values });
+          shutdown.abort(new DOMException('Shutdown', 'AbortError'));
+          throw lost;
+        }
+        return query(text, values);
+      };
+
+      await runStatsRollupBackfill(createFakeDb(client), { signal: shutdown.signal });
+
+      expect(errorSpy).toHaveBeenCalledWith('[StatsBackfill] docker_stats failed, retention left unapplied:', lost);
+      expect(infoSpy).not.toHaveBeenCalledWith('[StatsBackfill] Shutting down, docker_stats is left with retention unapplied for the next start');
+      expect(texts(client).filter((text) => text.includes('add_retention_policy'))).toEqual([]);
+      expect(texts(client).at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+    });
+
     test('starts no further source once one has finished', async () => {
       const shutdown = new AbortController();
       const client = createFakeClient();
