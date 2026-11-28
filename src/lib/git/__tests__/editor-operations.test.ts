@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
-import { initBareRepo, commitFiles, readFileFromRepo, getLog } from '../repo';
+import { initBareRepo, commitFiles, readFileFromRepo, getLog } from '@/lib/git/repo';
 import { saveAndCommitFile, updateManifest } from '../editor-operations';
 
 describe('saveAndCommitFile', () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'bun:test';
 
 import { createConnectionHandler, type MuxMockClient } from '@/lib/mock/handlers/ws';
 import { zAgentInventorySnapshotWire } from '@/lib/channels/agent-inventory';
+import { agentInventoryUpdates } from '@/lib/mock/live-updates';
 
 interface MuxFrame {
   type: string;
@@ -63,5 +64,20 @@ describe('mock mux ws agent-inventory topic', () => {
     const count = c.dataFrames('agent-inventory').length;
     await Bun.sleep(20);
     expect(c.dataFrames('agent-inventory').length).toBe(count);
+  });
+  it('forwards each published snapshot while subscribed, and none after unsubscribe', () => {
+    const c = connect();
+    c.command('sub', ['agent-inventory']);
+    const before = c.dataFrames('agent-inventory').length;
+    const message = { entries: [], sweptAt: '2026-11-27T10:00:00.000Z' };
+
+    agentInventoryUpdates.emit(message);
+    const forwarded = c.dataFrames('agent-inventory');
+    expect(forwarded).toHaveLength(before + 1);
+    expect(forwarded.at(-1)?.payload).toEqual(message);
+
+    c.command('unsub', ['agent-inventory']);
+    agentInventoryUpdates.emit(message);
+    expect(c.dataFrames('agent-inventory')).toHaveLength(before + 1);
   });
 });

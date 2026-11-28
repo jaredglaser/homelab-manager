@@ -49,6 +49,8 @@ export async function pullImage(docker: Dockerode, imageName: string): Promise<v
   });
 }
 
+const IMAGE_STAMPED_ENV = ['AGENT_VERSION', 'AGENT_SOURCE_HASH'];
+
 function buildContainerOptions(
   image: string,
   info: Dockerode.ContainerInspectInfo,
@@ -58,9 +60,9 @@ function buildContainerOptions(
   return {
     name: containerName,
     Image: image,
-    // CI stamps AGENT_VERSION into the image. Carrying the old one would
-    // freeze the version the agent reports after an update.
-    Env: info.Config.Env?.filter((entry) => !entry.startsWith('AGENT_VERSION=')),
+    // CI stamps these into the image. Carrying the old values would freeze
+    // what the agent reports after an update.
+    Env: info.Config.Env?.filter((entry) => !IMAGE_STAMPED_ENV.some((name) => entry.startsWith(`${name}=`))),
     Cmd: info.Config.Cmd,
     Entrypoint: info.Config.Entrypoint,
     HostConfig: info.HostConfig,

@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadMasterKeyring } from './master-key';
+import { loadMasterKeyring } from '../master-key';
 
 // Stable 32-byte key fixtures (different bytes so cross-key decryption fails predictably).
 const KEY_A = Buffer.alloc(32, 0xaa).toString('base64');

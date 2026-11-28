@@ -25,6 +25,7 @@ export default function CopyButton({ text, label }: { text: string; label: strin
     ta.style.opacity = '0'
     document.body.appendChild(ta)
     ta.select()
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the only copy path on a plain-HTTP origin
     document.execCommand('copy')
     document.body.removeChild(ta)
   }

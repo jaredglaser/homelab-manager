@@ -71,7 +71,7 @@ describe('StackDriftActions', () => {
     resolveResult = resolutionResult({ deployId, deployStatus: 'succeeded' });
     deployToastGate.claim(deployId);
 
-    await renderActions();
+    renderActions();
     await triggerResolution();
 
     expect(mockShowToast).not.toHaveBeenCalledWith('Deploy of server1/donetick succeeded', 'success');
@@ -81,7 +81,7 @@ describe('StackDriftActions', () => {
     const deployId = Date.now() + 1;
     resolveResult = resolutionResult({ deployId, deployStatus: 'succeeded' });
 
-    await renderActions();
+    renderActions();
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/donetick succeeded', 'success');
@@ -93,7 +93,7 @@ describe('StackDriftActions', () => {
   it('toasts without claiming the gate when the resolution ran no deploy', async () => {
     resolveResult = resolutionResult({ deployId: null, deployStatus: null });
 
-    await renderActions({ ...ghostItem, host: 'server2' });
+    renderActions({ ...ghostItem, host: 'server2' });
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith('Resolved drift for server2/donetick', 'success');
@@ -103,7 +103,7 @@ describe('StackDriftActions', () => {
     const deployId = Date.now() + 2;
     resolveResult = resolutionResult({ deployId, deployStatus: 'in_progress' });
 
-    await renderActions();
+    renderActions();
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith(

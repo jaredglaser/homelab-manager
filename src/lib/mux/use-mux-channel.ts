@@ -4,7 +4,7 @@ import type { z } from 'zod';
 import { muxConnection, type MuxStatus } from '@/lib/mux/mux-connection';
 import type { MuxTopicFrame } from '@/lib/mux/protocol';
 
-export interface MuxChannel<TSchema extends z.ZodTypeAny, TRevived = z.infer<TSchema>> {
+export interface MuxChannel<TSchema extends z.ZodType, TRevived = z.infer<TSchema>> {
   topic: string;
   schema: TSchema;
   revive?: (raw: z.infer<TSchema>) => TRevived;
@@ -26,7 +26,7 @@ export interface UseMuxChannelResult {
   error: Error | null;
 }
 
-export function useMuxChannel<TSchema extends z.ZodTypeAny, TRevived>(
+export function useMuxChannel<TSchema extends z.ZodType, TRevived>(
   channel: MuxChannel<TSchema, TRevived>,
   options: UseMuxChannelOptions<TRevived>,
 ): UseMuxChannelResult {
@@ -112,7 +112,7 @@ export interface UseMuxQueryResult<TState> {
  * omitting queryFn without skipToken makes TanStack Query log its dev error
  * on every render of the consuming component.
  */
-export function useMuxQuery<TSchema extends z.ZodTypeAny, TRevived, TState>(
+export function useMuxQuery<TSchema extends z.ZodType, TRevived, TState>(
   channel: MuxChannel<TSchema, TRevived>,
   options: UseMuxQueryOptions<TRevived, TState>,
 ): UseMuxQueryResult<TState> {

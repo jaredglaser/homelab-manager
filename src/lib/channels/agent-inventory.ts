@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-import { AGENT_INVENTORY_STATUSES } from '@/lib/hosts/agent-inventory';
+import { AGENT_INVENTORY_STATUSES, zAgentUpdateStatus } from '@/lib/hosts/agent-inventory';
 import { HOST_PROBE_FAILURE_CODES } from '@/lib/errors/host-failure-copy';
 import { AGENT_INVENTORY_TOPIC } from '@/lib/mux/protocol';
 import type { MuxChannel } from '@/lib/mux/use-mux-channel';
@@ -27,6 +27,7 @@ const zAgentInventoryEntryWire = z.object({
   agentImageDigest: z.string().nullable(),
   agentOutOfDate: z.boolean(),
   failure: zAgentInventoryFailureWire.nullable(),
+  update: zAgentUpdateStatus.nullable(),
   checkedAt: z.string(),
 });
 

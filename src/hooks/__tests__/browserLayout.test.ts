@@ -29,11 +29,11 @@ mockModule<typeof MuxConnection>('@/lib/mux/mux-connection', (real) => ({
   muxConnection: fakeMux,
 }));
 
-const { useDockerSettings } = await import('../useDockerSettings');
-const { useZfsSettings } = await import('../useZfsSettings');
-const { useProxmoxSettings } = await import('../useProxmoxSettings');
-const { useGeneralSettings } = await import('../useGeneralSettings');
-const { useSettingsSync } = await import('../useSettingsSync');
+const { useDockerSettings } = await import('@/hooks/useDockerSettings');
+const { useZfsSettings } = await import('@/hooks/useZfsSettings');
+const { useProxmoxSettings } = await import('@/hooks/useProxmoxSettings');
+const { useGeneralSettings } = await import('@/hooks/useGeneralSettings');
+const { useSettingsSync } = await import('@/hooks/useSettingsSync');
 const { BROWSER_LAYOUT_KEYS, browserLayoutStorageKey } = await import('../browserLayout');
 const { createStore, Provider } = await import('jotai');
 

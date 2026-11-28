@@ -35,7 +35,7 @@ function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {
         Name: '/hlm-agent',
         Image: 'sha256:' + '1'.repeat(64),
         Config: {
-          Env: ['AGENT_VERSION=0.1.0', 'AGENT_HOST_NAME=test-host'],
+          Env: ['AGENT_VERSION=0.1.0', 'AGENT_SOURCE_HASH=' + 'd'.repeat(64), 'AGENT_HOST_NAME=test-host'],
           Cmd: undefined,
           Entrypoint: undefined,
           ExposedPorts: undefined,

@@ -19,7 +19,7 @@ mockModule<typeof import('@tanstack/react-router')>('@tanstack/react-router', (r
 }))
 
 mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real, 
-  queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
+  queryClient: { query: mock(() => Promise.resolve()) },
 }))
 
 mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', (real) => ({ ...real, 
