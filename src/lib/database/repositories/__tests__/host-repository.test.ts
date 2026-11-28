@@ -35,6 +35,9 @@ const sampleRow = {
   created_at: new Date('2026-01-01T00:00:00Z'),
   updated_at: new Date('2026-01-01T00:00:00Z'),
   last_swept_at: new Date('2026-03-01T00:00:00Z'),
+  agent_update_state: null,
+  agent_update_result: null,
+  agent_update_at: null,
 };
 
 describe('HostRepository', () => {
@@ -443,6 +446,113 @@ describe('HostRepository', () => {
       await repo.updateHealth(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
       await repo.updateAgentInfo(1, { version: '0.2.0' });
       expect(pickNotify(mock)).toHaveLength(0);
+    });
+  });
+
+  describe('agent update state', () => {
+    const STARTED = new Date('2026-11-27T10:00:00Z');
+    const ENDED = new Date('2026-11-27T10:00:40Z');
+
+    function notifies() {
+      return mock.queries.filter((q) => q.sql.includes('pg_notify'));
+    }
+
+    it('reads a running, a finished and an interrupted update from the row', async () => {
+      mock.pushResult([
+        { ...sampleRow, id: 1, agent_update_state: 'running', agent_update_at: STARTED },
+        {
+          ...sampleRow,
+          id: 2,
+          agent_update_state: 'done',
+          agent_update_at: ENDED,
+          agent_update_result: { healthy: false, code: 'agent_did_not_restart', message: 'Agent did not restart after update' },
+        },
+        { ...sampleRow, id: 3, agent_update_state: 'interrupted', agent_update_at: ENDED },
+        { ...sampleRow, id: 4 },
+      ]);
+
+      const hosts = await repo.findAll();
+
+      expect(hosts.map((h) => h.agentUpdate)).toEqual([
+        { state: 'running', at: STARTED },
+        { state: 'done', at: ENDED, result: { healthy: false, code: 'agent_did_not_restart', message: 'Agent did not restart after update' } },
+        { state: 'interrupted', at: ENDED },
+        null,
+      ]);
+    });
+
+    it('reads a state or result this build does not know as no update, so the rest of the row still loads', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        mock.pushResult([
+          { ...sampleRow, id: 1, agent_update_state: 'paused', agent_update_at: STARTED },
+          { ...sampleRow, id: 2, agent_update_state: 'done', agent_update_at: ENDED, agent_update_result: { healthy: false, code: 'from_a_newer_build', message: '' } },
+        ]);
+        const hosts = await repo.findAll();
+        expect(hosts.map((h) => [h.name, h.agentUpdate])).toEqual([['homeserver', null], ['homeserver', null]]);
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it('claims a host only while no live update is running on it, and announces the claim on the inventory channel', async () => {
+      const runningBefore = new Date('2026-11-27T09:50:00Z');
+      mock.pushResult([{ id: 1 }]);
+      expect(await repo.claimAgentUpdate(1, STARTED, runningBefore)).toBe(true);
+      expect(mock.queries[0].sql).toContain("(agent_update_state IS DISTINCT FROM 'running' OR agent_update_at < $3)");
+      expect(mock.queries[0].params).toEqual([1, STARTED, runningBefore]);
+      expect(notifies()).toHaveLength(1);
+      expect(notifies()[0].params).toEqual(['agent_inventory_change', JSON.stringify({ hostIds: [1] })]);
+    });
+
+    it('reports a refused claim without announcing anything', async () => {
+      mock.pushResult([]);
+      expect(await repo.claimAgentUpdate(1, STARTED, STARTED)).toBe(false);
+      expect(notifies()).toHaveLength(0);
+    });
+
+    it('settles only the update that started at the given time and stores its result', async () => {
+      mock.pushResult([{ id: 1 }]);
+      const result = { healthy: true as const, outcome: 'updated' as const, version: '2.0.0' };
+      await repo.settleAgentUpdate(1, STARTED, { state: 'done', result }, ENDED);
+      expect(mock.queries[0].sql).toContain("agent_update_state = 'running' AND agent_update_at = $2");
+      expect(mock.queries[0].params).toEqual([1, STARTED, 'done', JSON.stringify(result), ENDED]);
+      expect(notifies()).toHaveLength(1);
+    });
+
+    it('cuts a stored refusal message to the failure detail limit, since every viewer receives it', async () => {
+      mock.pushResult([{ id: 1 }]);
+      const result = { healthy: false as const, code: 'agent_reported_error' as const, message: 'x'.repeat(MAX_FAILURE_DETAIL_LENGTH + 300) };
+      await repo.settleAgentUpdate(1, STARTED, { state: 'done', result }, ENDED);
+      expect(JSON.parse(mock.queries[0].params[3] as string)).toEqual({ ...result, message: 'x'.repeat(MAX_FAILURE_DETAIL_LENGTH) });
+    });
+
+    it('stores an errored update with no result', async () => {
+      mock.pushResult([{ id: 1 }]);
+      await repo.settleAgentUpdate(1, STARTED, { state: 'errored' }, ENDED);
+      expect(mock.queries[0].params).toEqual([1, STARTED, 'errored', null, ENDED]);
+    });
+
+    it('does not announce a settle that matched no running update', async () => {
+      mock.pushResult([]);
+      await repo.settleAgentUpdate(1, STARTED, { state: 'interrupted' }, ENDED);
+      expect(notifies()).toHaveLength(0);
+    });
+
+    it('marks as interrupted only the updates that started before the given time', async () => {
+      mock.pushResult([{ id: 2 }, { id: 5 }]);
+      expect(await repo.interruptAgentUpdates(STARTED, ENDED)).toEqual([2, 5]);
+      expect(mock.queries[0].sql).toContain("SET agent_update_state = 'interrupted'");
+      expect(mock.queries[0].sql).toContain("WHERE agent_update_state = 'running' AND agent_update_at < $1");
+      expect(mock.queries[0].params).toEqual([STARTED, ENDED]);
+      expect(notifies()[0].params).toEqual(['agent_inventory_change', JSON.stringify({ hostIds: [2, 5] })]);
+    });
+
+    it('leaves the update columns alone when the health sweep writes the row', async () => {
+      await repo.updateHealth(1, { status: 'healthy', failure: null }, 'http://192.168.1.10:9090');
+      await repo.updateAgentInfo(1, { version: '0.2.0', imageDigest: 'sha256:' + 'c'.repeat(64), outOfDate: true });
+      await repo.updateLastSweptAt(1, ENDED);
+      for (const query of mock.queries) expect(query.sql).not.toContain('agent_update_');
     });
   });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { StatsRepository, resolveStatsTier } from '../stats-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
-import { resetDegradedRowEnums } from '../row-enum';
+import { resetDegradedRowEnums } from '@/lib/database/repositories/row-enum';
 
 const NOW_MS = Date.now();
 

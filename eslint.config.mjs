@@ -639,6 +639,10 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-import-type-side-effects': 'error' },
   },
   {
+    files: ['src/**/*.{ts,tsx}', 'server/**/*.ts', 'scripts/**/*.ts', 'e2e/**/*.ts', 'agent/src/**/*.ts'],
+    rules: { '@typescript-eslint/no-deprecated': 'error' },
+  },
+  {
     files: ['src/**/*.{ts,tsx}', 'agent/src/**/*.ts'],
     ignores: ['**/__tests__/**', 'src/worker/**'],
     rules: { '@typescript-eslint/no-duplicate-type-constituents': 'error' },

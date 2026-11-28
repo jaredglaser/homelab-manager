@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { DeployRepository } from '../deploy-repository';
-import { resetDegradedRowEnums } from '../row-enum';
+import { resetDegradedRowEnums } from '@/lib/database/repositories/row-enum';
 import { createMockPool } from '@/lib/test/mock-pool';
 import type { DeployRequest } from '@/lib/deploy/types';
 

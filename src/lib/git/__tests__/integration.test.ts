@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
-import { initBareRepo, commitFiles, readFileFromRepo, listFilesInRepo, getLog, diffCommits } from '../repo';
-import { parseManifest } from '../manifest';
-import { identifyChangedStacks, buildDeployRequests } from '../post-receive';
-import { saveAndCommitFile, updateManifest } from '../editor-operations';
-import { buildFileTree } from '../git-server-functions';
+import { initBareRepo, commitFiles, readFileFromRepo, listFilesInRepo, getLog, diffCommits } from '@/lib/git/repo';
+import { parseManifest } from '@/lib/git/manifest';
+import { identifyChangedStacks, buildDeployRequests } from '@/lib/git/post-receive';
+import { saveAndCommitFile, updateManifest } from '@/lib/git/editor-operations';
+import { buildFileTree } from '@/lib/git/git-server-functions';
 
 describe('Git management integration', () => {
   let testDir: string;
