@@ -17,17 +17,6 @@ import { notAnsweringLogLine, readNotAnsweringFailure, type AgentNotAnsweringCod
 /** Agent's 15-min pull+up budget on /stacks/update, plus 1 min network slack. */
 const UPDATE_TIMEOUT_MS = 960_000;
 
-export interface ZfsPool {
-  name: string;
-  size: number;
-  allocated: number;
-  free: number;
-  fragmentation: number | null;
-  capacity: number;
-  dedup: number;
-  health: string;
-}
-
 const WHOLE_BODY = Number.POSITIVE_INFINITY;
 
 /** Reads a non-2xx body a route answers with its own typed result. Null sends the body to the error path. */
@@ -182,11 +171,6 @@ export class AgentClient {
     // endpoint carries the agent version, and this client always has a signer.
     const raw = await this.getJson<AgentInfoResponse>('/info');
     return { status: raw.status, version: raw.agentVersion };
-  }
-
-  async getZfsPools(): Promise<ZfsPool[]> {
-    const result = await this.getJson<{ pools: ZfsPool[] }>('/zfs/pools');
-    return result.pools;
   }
 
   private async postJson<T>(path: string, body: unknown, timeoutMs?: number, parseFailure?: FailureResultParser<T>): Promise<T> {

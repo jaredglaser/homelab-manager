@@ -1,8 +1,7 @@
 import { createSseStream, type SseEmitter } from '../lib/sse-stream';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 import { routeErrorBody } from '../lib/error-body';
-import type { AgentRouteErrorBody } from '../types';
-import type { ZfsStatsFrame } from '../types/protocol';
+import { ZFS_HEALTH_EVENT, type ZfsHealthFrame, type ZfsPoolHealth, type ZfsStatsFrame } from '../types/protocol';
 import {
   IostatSampleReader,
   parseZpoolStatus,
@@ -121,6 +120,18 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
   let sparesByPool = new Map<string, string[]>();
   let reportedPools = new Set<string>();
   let lastRestartKey: string | null = null;
+  let lastHealthKey: string | null = null;
+
+  /** The first read always goes out, so every stream starts with the host's whole health. */
+  const sendHealth = (pools: ZfsPoolHealth[] | null): void => {
+    const key = JSON.stringify(pools);
+    if (key === lastHealthKey) return;
+    lastHealthKey = key;
+    const time = now();
+    emit.event(ZFS_HEALTH_EVENT, (pools === null
+      ? { v: 1, time, status: 'unreadable' }
+      : { v: 1, time, status: 'ok', pools }) satisfies ZfsHealthFrame);
+  };
 
   const startIostat = (): void => {
     const proc = Bun.spawn(ZPOOL_IOSTAT_ARGS, { stdout: 'pipe', stderr: 'pipe' });
@@ -172,7 +183,13 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
       const summary = await readZpoolStatus(statusTimeoutMs, () => stopped, (proc) => {
         statusProc = proc;
       });
-      if (stopped || !summary) return;
+      if (stopped) return;
+      if (!summary) {
+        sendHealth(null);
+        return;
+      }
+      if (!summary.health) console.error('zpool status printed pool health this agent cannot read');
+      sendHealth(summary.health);
       sparesByPool = summary.sparesByPool;
       if (summary.poolCount === 0) {
         // iostat prints nothing at all without a pool, so this frame is what moves the host's newest sample on.
@@ -182,7 +199,9 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
       }
       restartIfPoolMissing(summary.reportablePools);
     } catch (err) {
-      if (!stopped) console.error('zpool status failed:', err);
+      if (stopped) return;
+      console.error('zpool status failed:', err);
+      sendHealth(null);
     } finally {
       statusInFlight = false;
     }
@@ -201,7 +220,8 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
 }
 
 /**
- * GET /zfs/stats/stream: SSE endpoint that sends one `ZfsStatsFrame` per `zpool iostat` sample.
+ * GET /zfs/stats/stream: SSE endpoint that sends one `ZfsStatsFrame` per `zpool iostat` sample, and a
+ * `ZFS_HEALTH_EVENT` frame from the status poll when the pool health changes.
  * The subprocesses are killed when the client disconnects.
  */
 export function handleZfsStatsStream(
@@ -219,71 +239,4 @@ export function handleZfsStatsStream(
   return createSseStream(request, {
     onStart: (emit) => startZfsStatsSession(emit, options),
   });
-}
-
-/**
- * GET /zfs/pools: Returns parsed pool data from `zpool list -Hp`.
- *
- * Response: `{ pools: Array<{ name, size, allocated, free, fragmentation, capacity, dedup, health }> }`
- */
-export async function handleZfsPools(
-  capabilities: ZfsCapabilities,
-): Promise<Response> {
-  if (!capabilities.available) {
-    return Response.json(
-      routeErrorBody('zfs_unavailable'),
-      { status: 503 },
-    );
-  }
-
-  try {
-    const proc = Bun.spawn(['zpool', 'list', '-Hp'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-
-    const exitCode = await proc.exited;
-    const output = await new Response(proc.stdout).text();
-
-    if (exitCode !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      return Response.json(
-        {
-          ...routeErrorBody('zfs_pool_list_failed'),
-          detail: stderr.trim(),
-        } satisfies AgentRouteErrorBody,
-        { status: 500 },
-      );
-    }
-
-    // Columns: name, size, alloc, free, ckpoint, expandsz, frag, cap, dedup, health, altroot
-    const pools = output
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const cols = line.split('\t');
-        return {
-          name: cols[0],
-          size: Number(cols[1]),
-          allocated: Number(cols[2]),
-          free: Number(cols[3]),
-          fragmentation: cols[6] === '-' ? null : Number(cols[6]),
-          capacity: Number(cols[7]),
-          dedup: Number(cols[8]),
-          health: cols[9],
-        };
-      });
-
-    return Response.json({ pools });
-  } catch (err) {
-    console.error('Failed to list ZFS pools:', err);
-    return Response.json(
-      {
-        ...routeErrorBody('zfs_pool_list_failed'),
-        detail: err instanceof Error ? err.message : String(err),
-      } satisfies AgentRouteErrorBody,
-      { status: 500 },
-    );
-  }
 }

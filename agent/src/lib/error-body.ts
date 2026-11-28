@@ -53,7 +53,6 @@ const AGENT_ROUTE_FAILURE_MESSAGES: Record<AgentRouteFailureCode, (ctx: AgentRou
   container_state_unchanged: ({ detail }) => detail ?? 'Container already in target state',
   container_control_failed: ({ detail }) => detail ?? 'Internal error',
   zfs_unavailable: () => 'ZFS is not available on this host',
-  zfs_pool_list_failed: () => 'Failed to list ZFS pools',
 };
 
 /** The sentence for a failure code. `ctx` carries whatever the message interpolates. */

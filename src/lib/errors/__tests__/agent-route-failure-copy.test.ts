@@ -99,8 +99,6 @@ describe('agentRouteFailureCopy', () => {
       container_control_failed: `Docker could not carry out the action on the container. Fix the cause that Docker reports on the agent host, then run the operation again. ${detail}`,
       zfs_unavailable:
         'ZFS is not available on this agent host. Make sure the ZFS tools are installed where the agent runs and restart the agent. If this host has no ZFS pools, stop collecting ZFS data from it.',
-      zfs_pool_list_failed:
-        'The agent could not list the ZFS pools on its host. Run zpool list on the agent host to see why it fails, then run the operation again.',
     };
     for (const code of AGENT_ROUTE_FAILURE_CODES) {
       expect(agentRouteOperatorMessage(code, detail)).toBe(expected[code]);

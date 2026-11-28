@@ -7,8 +7,18 @@ import {
   parseZpoolStatus,
   withSpares,
   ZPOOL_IOSTAT_ARGS,
+  ZPOOL_STATUS_ARGS,
 } from '../lib/zfs-iostat';
-import { zZfsStatsFrame, type ZfsDevice, type ZfsGroup, type ZfsPool } from '../types/protocol';
+import {
+  zZfsHealthFrame,
+  zZfsStatsFrame,
+  type ZfsDevice,
+  type ZfsDeviceHealth,
+  type ZfsGroup,
+  type ZfsGroupHealth,
+  type ZfsPool,
+  type ZfsPoolHealth,
+} from '../types/protocol';
 
 const originalConsoleError = console.error;
 beforeEach(() => {
@@ -246,8 +256,11 @@ describe('IostatSampleReader', () => {
   });
 });
 
+function status(pools: Record<string, unknown>): string {
+  return JSON.stringify({ output_version: { command: 'zpool status', vers_major: 0, vers_minor: 1 }, pools });
+}
+
 describe('parseZpoolStatus', () => {
-  const status = (pools: Record<string, unknown>) => JSON.stringify({ output_version: { command: 'zpool status', vers_major: 0, vers_minor: 1 }, pools });
 
   test('reads spares per pool and the pools iostat can report', () => {
     const summary = parseZpoolStatus(status({
@@ -263,11 +276,140 @@ describe('parseZpoolStatus', () => {
   });
 
   test('reads the empty pool list zpool prints when none are imported', () => {
-    expect(parseZpoolStatus(status({}))).toEqual({ poolCount: 0, reportablePools: new Set(), sparesByPool: new Map() });
+    expect(parseZpoolStatus(status({}))).toEqual({ poolCount: 0, reportablePools: new Set(), sparesByPool: new Map(), health: [] });
   });
 
   test.each([['not JSON', 'no pools available\n'], ['the wrong shape', '{"pools":[]}']])('returns null for %s', (_label, text) => {
     expect(parseZpoolStatus(text)).toBeNull();
+  });
+});
+
+/** Built from the zfs-2.3.3 status_callback_json in cmd/zpool/zpool_main.c (byte-identical in zfs-2.3.4), not captured from a machine. */
+function statusFixture(version: '2.3.3' | '2.3.4'): ZfsPoolHealth[] {
+  const text = readFileSync(join(import.meta.dir, 'fixtures', `zpool-status-jint-${version}.json`), 'utf-8');
+  const health = parseZpoolStatus(text)?.health;
+  if (!health) throw new Error(`the ${version} fixture did not parse`);
+  return health;
+}
+
+function healthPool(pools: ZfsPoolHealth[], name: string): ZfsPoolHealth {
+  const pool = pools.find((candidate) => candidate.name === name);
+  if (!pool) throw new Error(`no pool ${name}`);
+  return pool;
+}
+
+function healthNode(children: ReadonlyArray<ZfsDeviceHealth | ZfsGroupHealth>, ...path: string[]): ZfsDeviceHealth | ZfsGroupHealth {
+  const [head, ...rest] = path;
+  const found = children.find((child) => (child.kind === 'group' ? `@${child.group}` : child.name) === head);
+  if (!found) throw new Error(`no node ${head}`);
+  if (rest.length === 0) return found;
+  if (found.kind === 'disk') throw new Error(`${head} has no children`);
+  return healthNode(found.children, ...rest);
+}
+
+const NO_ERRORS = { read: 0, write: 0, checksum: 0 };
+
+describe('parseZpoolStatus health', () => {
+  test('asks zpool for integer JSON', () => {
+    expect(ZPOOL_STATUS_ARGS).toEqual(['zpool', 'status', '-j', '--json-int']);
+  });
+
+  test.each(['2.3.3', '2.3.4'] as const)('reads an online pool with every device group from %s', (version) => {
+    const rpool = healthPool(statusFixture(version), 'rpool');
+    expect(rpool.state).toBe('online');
+    expect(rpool.children.map((child) => (child.kind === 'group' ? `@${child.group}` : child.name)))
+      .toEqual(['mirror-0', '@special', '@dedup', '@logs', '@cache', '@spares']);
+    expect(healthNode(rpool.children, 'mirror-0', 'ata-Samsung_SSD_870_EVO_2TB_S6PNNS0W100001A-part3'))
+      .toEqual({ kind: 'disk', name: 'ata-Samsung_SSD_870_EVO_2TB_S6PNNS0W100001A-part3', state: 'online', errors: NO_ERRORS });
+    expect(healthNode(rpool.children, '@special', 'mirror-2')).toMatchObject({ kind: 'vdev', state: 'online' });
+    expect(healthNode(rpool.children, '@cache', 'nvme-KINGSTON_SNV2S500G_50026B7000000007')).toMatchObject({ kind: 'disk', state: 'online' });
+    expect(healthNode(rpool.children, '@spares', 'ata-ST8000VN004-2M2101_WSD00009')).toEqual({
+      kind: 'disk', name: 'ata-ST8000VN004-2M2101_WSD00009', state: 'online', errors: null,
+    });
+    expect(rpool.scan).toEqual({ kind: 'scrub', state: 'finished', percentDone: null, endedAt: 1763863212000, repairedBytes: 0, errors: 0 });
+  });
+
+  test('reads a degraded mirror with a faulted disk and its error counts from 2.3.3', () => {
+    const tank = healthPool(statusFixture('2.3.3'), 'tank');
+    expect(tank.state).toBe('degraded');
+    expect(tank.scan).toBeNull();
+    expect(healthNode(tank.children, 'mirror-0')).toMatchObject({ kind: 'vdev', state: 'degraded' });
+    expect(healthNode(tank.children, 'mirror-0', 'ata-WDC_WD80EFZZ-68BTXN0_WD-CA0SDA')).toEqual({
+      kind: 'disk', name: 'ata-WDC_WD80EFZZ-68BTXN0_WD-CA0SDA', state: 'faulted', errors: { read: 3, write: 0, checksum: 12 },
+    });
+  });
+
+  test('reads a running scrub as a whole percent of what is issued from 2.3.3', () => {
+    expect(healthPool(statusFixture('2.3.3'), 'backup').scan).toEqual({
+      kind: 'scrub', state: 'running', percentDone: 42, endedAt: null, repairedBytes: 0, errors: 0,
+    });
+  });
+
+  test('reads a resilver onto a hot spare from 2.3.4', () => {
+    const tank = healthPool(statusFixture('2.3.4'), 'tank');
+    expect(tank.state).toBe('degraded');
+    expect(tank.scan).toEqual({ kind: 'resilver', state: 'running', percentDone: 42, endedAt: null, repairedBytes: 1288490188800, errors: 0 });
+    expect(healthNode(tank.children, 'mirror-0', 'spare-0')).toMatchObject({ kind: 'vdev', state: 'degraded' });
+    expect(healthNode(tank.children, 'mirror-0', 'spare-0', 'ata-WDC_WD80EFZZ-68BTXN0_WD-CA0SDA')).toMatchObject({
+      state: 'faulted', errors: { read: 0, write: 7, checksum: 0 },
+    });
+    expect(healthNode(tank.children, '@spares', 'ata-ST8000VN004-2M2101_WSD00009')).toMatchObject({ state: 'online', errors: null });
+  });
+
+  test('reads a replaced disk that is gone and a finished resilver from 2.3.4', () => {
+    const cold = healthPool(statusFixture('2.3.4'), 'cold');
+    expect(healthNode(cold.children, 'mirror-0', 'replacing-0', '11987654321098765432')).toMatchObject({ kind: 'disk', state: 'unavailable' });
+    expect(cold.scan).toEqual({ kind: 'resilver', state: 'finished', percentDone: null, endedAt: 1763280000000, repairedBytes: 2199023255552, errors: 0 });
+  });
+
+  test('reads a paused scrub and a pool of one disk from 2.3.4', () => {
+    const vault = healthPool(statusFixture('2.3.4'), 'vault');
+    expect(vault.scan).toEqual({ kind: 'scrub', state: 'paused', percentDone: 25, endedAt: null, repairedBytes: 0, errors: 0 });
+    expect(vault.children.map((child) => child.kind)).toEqual(['disk']);
+  });
+
+  test.each(['2.3.3', '2.3.4'] as const)('builds a health frame the manager accepts from %s', (version) => {
+    expect(zZfsHealthFrame.safeParse({ v: 1, time: 1, status: 'ok', pools: statusFixture(version) }).success).toBe(true);
+  });
+
+  const onePool = (pool: Record<string, unknown>) => status({ tank: { name: 'tank', state: 'ONLINE', ...pool } });
+  const disk = (fields: Record<string, unknown>) => ({ name: 'sda', vdev_type: 'disk', state: 'ONLINE', read_errors: 0, write_errors: 0, checksum_errors: 0, ...fields });
+
+  test('caps a counter at the integer limit to the largest exact number', () => {
+    const text = onePool({ vdevs: { tank: { name: 'tank', vdevs: { sda: disk({}) } } } }).replace('"read_errors":0', '"read_errors":18446744073709551615');
+    const [tank] = parseZpoolStatus(text)!.health!;
+    expect(tank.children[0]).toMatchObject({ errors: { read: Number.MAX_SAFE_INTEGER, write: 0, checksum: 0 } });
+  });
+
+  test.each([
+    ['CANT_OPEN', 'unavailable'], ['REMOVED', 'removed'], ['OFFLINE', 'offline'], ['CLOSED', 'offline'], ['SPLIT', 'unknown'], [undefined, 'unknown'],
+  ])('reads device state %s as %s', (state, expected) => {
+    const [tank] = parseZpoolStatus(onePool({ vdevs: { tank: { name: 'tank', vdevs: { sda: disk({ state }) } } } }))!.health!;
+    expect(tank.children[0]).toMatchObject({ state: expected });
+  });
+
+  test.each<[string, ZfsPoolHealth['state']]>([['SUSPENDED', 'suspended'], ['UNAVAIL', 'unavailable'], ['FAULTED', 'faulted']])('reads pool state %s as %s', (state, expected) => {
+    expect(parseZpoolStatus(status({ tank: { name: 'tank', state } }))!.health![0].state).toBe(expected);
+  });
+
+  test.each<[string, Record<string, unknown>, Record<string, unknown>]>([
+    ['a canceled scrub', { function: 'SCRUB', state: 'CANCELED', end_time: 1700000000 }, { kind: 'scrub', state: 'canceled', percentDone: null, endedAt: 1700000000000 }],
+    ['a canceled resilver', { function: 'RESILVER', state: 'CANCELED', end_time: 1700000000 }, { kind: 'resilver', state: 'canceled', endedAt: 1700000000000 }],
+    ['a scan with nothing to examine', { function: 'SCRUB', state: 'SCANNING', to_examine: 0 }, { state: 'running', percentDone: 0 }],
+  ])('reads %s', (_label, fields, expected) => {
+    const scanStats = { end_time: 0, to_examine: 10, skipped: 0, issued: 0, processed: 0, errors: 0, scrub_pause: 0, ...fields };
+    expect(parseZpoolStatus(onePool({ scan_stats: scanStats }))!.health![0].scan).toMatchObject(expected);
+  });
+
+  test.each([['NONE', 'NONE'], ['ERRORSCRUB', 'FINISHED'], ['SCRUB', 'ERRORSCRUBBING']])('reads no scan for function %s in state %s', (fn, state) => {
+    const scanStats = { function: fn, state, end_time: 0, to_examine: 0, skipped: 0, issued: 0, processed: 0, errors: 0, scrub_pause: 0 };
+    expect(parseZpoolStatus(onePool({ scan_stats: scanStats }))!.health![0].scan).toBeNull();
+  });
+
+  test('keeps the pool list but reads no health from counters zpool printed as scaled strings', () => {
+    const summary = parseZpoolStatus(onePool({ vdevs: { tank: { name: 'tank', vdevs: { sda: disk({ read_errors: '1.2K' }) } } } }));
+    expect(summary?.poolCount).toBe(1);
+    expect(summary?.health).toBeNull();
   });
 });
 

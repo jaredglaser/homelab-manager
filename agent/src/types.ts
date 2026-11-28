@@ -126,7 +126,6 @@ export const AGENT_ROUTE_FAILURE_CODES = [
   'container_state_unchanged',
   'container_control_failed',
   'zfs_unavailable',
-  'zfs_pool_list_failed',
 ] as const;
 export const zAgentRouteFailureCode = z.enum(AGENT_ROUTE_FAILURE_CODES);
 export type AgentRouteFailureCode = z.infer<typeof zAgentRouteFailureCode>;

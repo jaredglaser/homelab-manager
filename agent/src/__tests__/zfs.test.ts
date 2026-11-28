@@ -1,9 +1,9 @@
 import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
-import { handleZfsStatsStream, handleZfsPools } from '../routes/zfs';
+import { handleZfsStatsStream } from '../routes/zfs';
 import { readUntil } from '../lib/test/sse-test-utils';
 import { waitForCondition } from '../lib/test/wait-for-condition';
-import { zZfsStatsFrame } from '../types/protocol';
+import { ZFS_HEALTH_EVENT, zZfsHealthFrame, zZfsStatsFrame, type ZfsHealthFrame } from '../types/protocol';
 
 const originalConsoleError = console.error;
 
@@ -70,13 +70,32 @@ function fakeZpool(statusJson: () => { exitCode: number; text: string } = () => 
   return { iostats, statusKills };
 }
 
-function statusText(pools: Record<string, { state?: string; spares?: string[] }>): string {
+interface StatusPool {
+  state?: string;
+  spares?: string[];
+  disks?: Record<string, { state?: string; read?: number; write?: number; checksum?: number }>;
+}
+
+function statusText(pools: Record<string, StatusPool>): string {
   return JSON.stringify({
     output_version: { command: 'zpool status', vers_major: 0, vers_minor: 1 },
     pools: Object.fromEntries(Object.entries(pools).map(([name, pool]) => [name, {
       name,
       state: pool.state ?? 'ONLINE',
-      vdevs: {},
+      vdevs: pool.disks
+        ? {
+            [name]: {
+              name,
+              vdevs: Object.fromEntries(Object.entries(pool.disks).map(([disk, d]) => [disk, {
+                name: disk,
+                state: d.state ?? 'ONLINE',
+                read_errors: d.read ?? 0,
+                write_errors: d.write ?? 0,
+                checksum_errors: d.checksum ?? 0,
+              }])),
+            },
+          }
+        : {},
       ...(pool.spares ? { spares: Object.fromEntries(pool.spares.map((s) => [s, { name: s, state: 'AVAIL' }])) } : {}),
     }])),
   });
@@ -90,9 +109,12 @@ const HEADER = [
 const SEP = '----------  -----  -----  -----  -----  -----  -----\n';
 const sample = (...lines: string[]) => HEADER + lines.join('\n') + '\n' + SEP;
 
-/** Collects data frames off the SSE response as they arrive. */
-function collectFrames(response: Response): { frames: any[]; done: Promise<void> } {
+const HEALTH_PREFIX = `event: ${ZFS_HEALTH_EVENT}\ndata: `;
+
+/** Collects data frames, and health events apart from them, off the SSE response as they arrive. */
+function collectFrames(response: Response): { frames: any[]; health: ZfsHealthFrame[]; done: Promise<void> } {
   const frames: any[] = [];
+  const health: ZfsHealthFrame[] = [];
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let text = '';
@@ -103,10 +125,13 @@ function collectFrames(response: Response): { frames: any[]; done: Promise<void>
       text += decoder.decode(value, { stream: true });
       const parts = text.split('\n\n');
       text = parts.pop() ?? '';
-      for (const part of parts) if (part.startsWith('data: ')) frames.push(JSON.parse(part.slice(6)));
+      for (const part of parts) {
+        if (part.startsWith('data: ')) frames.push(JSON.parse(part.slice(6)));
+        else if (part.startsWith(HEALTH_PREFIX)) health.push(JSON.parse(part.slice(HEALTH_PREFIX.length)));
+      }
     }
   })();
-  return { frames, done };
+  return { frames, health, done };
 }
 
 describe('handleZfsStatsStream', () => {
@@ -478,97 +503,85 @@ describe('handleZfsStatsStream', () => {
 
     expect(text.split('\n\n')).toContain(':');
   });
-});
 
-describe('handleZfsPools', () => {
-  test('returns 503 when ZFS is not available', async () => {
-    const response = await handleZfsPools(zfsUnavailable);
+  test('starts every stream with the whole health, then sends it only when it changes', async () => {
+    let status = statusText({ tank: { disks: { sda: {} } } });
+    fakeZpool(() => ({ exitCode: 0, text: status }));
+    const clock = { now: 1000 };
+    const ac = new AbortController();
+    const { health } = collectFrames(handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options(clock)));
+    await waitForCondition(() => health.length === 1);
 
-    expect(response.status).toBe(503);
-    const body = (await response.json()) as { error: string; code: string };
-    expect(body.error).toBe('ZFS is not available on this host');
-    expect(body.code).toBe('zfs_unavailable');
+    await startNextPoll();
+    await startNextPoll();
+    clock.now = 2000;
+    status = statusText({ tank: { state: 'DEGRADED', disks: { sda: { state: 'FAULTED', read: 3, checksum: 12 } } } });
+    await startNextPoll();
+    await waitForCondition(() => health.length === 2);
+    status = statusText({ tank: { state: 'DEGRADED', disks: { sda: { state: 'FAULTED' } } } });
+    await startNextPoll();
+    await waitForCondition(() => health.length === 3);
+    await startNextPoll();
+    ac.abort();
+
+    const disk = (state: string, errors: { read: number; write: number; checksum: number }) => ({ kind: 'disk' as const, name: 'sda', state, errors });
+    for (const frame of health) expect(zZfsHealthFrame.safeParse(frame).success).toBe(true);
+    expect(health as unknown[]).toEqual([
+      { v: 1, time: 1000, status: 'ok', pools: [{ name: 'tank', state: 'online', scan: null, children: [disk('online', { read: 0, write: 0, checksum: 0 })] }] },
+      { v: 1, time: 2000, status: 'ok', pools: [{ name: 'tank', state: 'degraded', scan: null, children: [disk('faulted', { read: 3, write: 0, checksum: 12 })] }] },
+      { v: 1, time: 2000, status: 'ok', pools: [{ name: 'tank', state: 'degraded', scan: null, children: [disk('faulted', { read: 0, write: 0, checksum: 0 })] }] },
+    ]);
   });
 
-  test('returns parsed pool data from zpool list -Hp output', async () => {
-    // zpool list -Hp columns: name, size, alloc, free, ckpoint, expandsz, frag, cap, dedup, health, altroot
-    const zpoolOutput = 'tank\t10737418240\t5368709120\t5368709120\t-\t-\t12\t50\t1.00\tONLINE\t-\n';
+  test('sends a pool exported between polls as gone', async () => {
+    let status = statusText({ tank: {}, backup: {} });
+    fakeZpool(() => ({ exitCode: 0, text: status }));
+    const ac = new AbortController();
+    const { health } = collectFrames(handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options({ now: 1 })));
+    await waitForCondition(() => health.length === 1);
+    status = statusText({ tank: {} });
+    await startNextPoll();
+    await waitForCondition(() => health.length === 2);
+    ac.abort();
 
-    Bun.spawn = mock(() => ({
-      stdout: new Response(zpoolOutput).body!,
-      stderr: new Response('').body!,
-      exited: Promise.resolve(0),
-      kill: mock(() => {}),
-    })) as any;
-
-    const response = await handleZfsPools(zfsAvailable);
-
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.pools).toHaveLength(1);
-    expect(body.pools[0]).toEqual({
-      name: 'tank',
-      size: 10737418240,
-      allocated: 5368709120,
-      free: 5368709120,
-      fragmentation: 12,
-      capacity: 50,
-      dedup: 1.0,
-      health: 'ONLINE',
-    });
+    expect(health.map((frame) => (frame.status === 'ok' ? frame.pools.map((pool) => pool.name) : null))).toEqual([['backup', 'tank'], ['tank']]);
   });
 
-  test('handles multiple pools', async () => {
-    const zpoolOutput = [
-      'tank\t10737418240\t5368709120\t5368709120\t-\t-\t12\t50\t1.00\tONLINE\t-',
-      'backup\t21474836480\t1073741824\t20401094656\t-\t-\t-\t5\t1.00\tONLINE\t-',
-    ].join('\n') + '\n';
+  test('sends health as unreadable once while zpool status fails, keeps the samples coming, and sends it again when it recovers', async () => {
+    let result = { exitCode: 1, text: '' };
+    const { iostats } = fakeZpool(() => result);
+    const ac = new AbortController();
+    const { frames, health } = collectFrames(handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options({ now: 7 })));
+    await waitForCondition(() => health.length === 1);
+    await startNextPoll();
+    await startNextPoll();
 
-    Bun.spawn = mock(() => ({
-      stdout: new Response(zpoolOutput).body!,
-      stderr: new Response('').body!,
-      exited: Promise.resolve(0),
-      kill: mock(() => {}),
-    })) as any;
+    iostats[0].push(sample('tank  1  1  1  1  1  1') + HEADER);
+    await waitForCondition(() => frames.length === 1);
+    result = { exitCode: 0, text: statusText({ tank: {} }) };
+    await startNextPoll();
+    await waitForCondition(() => health.length === 2);
+    ac.abort();
 
-    const response = await handleZfsPools(zfsAvailable);
-    const body = await response.json();
-
-    expect(body.pools).toHaveLength(2);
-    expect(body.pools[0].name).toBe('tank');
-    expect(body.pools[1].name).toBe('backup');
-    // '-' fragmentation should parse as null
-    expect(body.pools[1].fragmentation).toBeNull();
+    expect(health).toEqual([
+      { v: 1, time: 7, status: 'unreadable' },
+      { v: 1, time: 7, status: 'ok', pools: [{ name: 'tank', state: 'online', scan: null, children: [] }] },
+    ]);
   });
 
-  test('returns 500 when zpool command fails', async () => {
-    Bun.spawn = mock(() => ({
-      stdout: new Response('').body!,
-      stderr: new Response('no such command').body!,
-      exited: Promise.resolve(1),
-      kill: mock(() => {}),
-    })) as any;
+  test('sends health as unreadable when zpool status prints counters this agent cannot read, and keeps the spares', async () => {
+    const text = statusText({ tank: { spares: ['sdz'], disks: { sda: {} } } }).replace('"read_errors":0', '"read_errors":"1.2K"');
+    const { iostats } = fakeZpool(() => ({ exitCode: 0, text }));
+    const ac = new AbortController();
+    const { frames, health } = collectFrames(handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options({ now: 7 })));
+    await waitForCondition(() => health.length === 1);
+    await startNextPoll();
+    iostats[0].push(sample('tank  1  1  1  1  1  1') + HEADER);
+    await waitForCondition(() => frames.length === 1);
+    ac.abort();
 
-    const response = await handleZfsPools(zfsAvailable);
-
-    expect(response.status).toBe(500);
-    const body = (await response.json()) as { error: string; code: string; detail: string };
-    expect(body.error).toBe('Failed to list ZFS pools');
-    expect(body.code).toBe('zfs_pool_list_failed');
-    expect(body.detail).toBe('no such command');
-  });
-
-  test('returns 500 when spawn throws', async () => {
-    Bun.spawn = mock(() => {
-      throw new Error('spawn failed');
-    }) as any;
-
-    const response = await handleZfsPools(zfsAvailable);
-
-    expect(response.status).toBe(500);
-    const body = (await response.json()) as { error: string; code: string; detail: string };
-    expect(body.error).toBe('Failed to list ZFS pools');
-    expect(body.code).toBe('zfs_pool_list_failed');
-    expect(body.detail).toBe('spawn failed');
+    expect(health).toEqual([{ v: 1, time: 7, status: 'unreadable' }]);
+    expect(frames[0].pools[0].children).toEqual([{ kind: 'group', group: 'spares', children: [{ kind: 'disk', name: 'sdz', capacity: null, io: null }] }]);
+    expect(console.error).toHaveBeenCalledWith('zpool status printed pool health this agent cannot read');
   });
 });

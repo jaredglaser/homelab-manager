@@ -223,6 +223,96 @@ export const zZfsStatsFrame = z.object({
 });
 export type ZfsStatsFrame = z.infer<typeof zZfsStatsFrame>;
 
+/** The SSE event name of `zZfsHealthFrame` on `/zfs/stats/stream`. A worker that predates it skips named events. */
+export const ZFS_HEALTH_EVENT = 'zfs-health';
+
+/** `unknown` covers a state zpool prints that has none of the others' meaning, or no state at all. */
+export const ZFS_HEALTH_STATES = ['online', 'degraded', 'faulted', 'offline', 'unavailable', 'removed', 'suspended', 'unknown'] as const;
+export const zZfsHealthState = z.enum(ZFS_HEALTH_STATES);
+export type ZfsHealthState = z.infer<typeof zZfsHealthState>;
+
+const zZfsCount = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+/** Counts since the counters were last cleared. */
+export const zZfsDeviceErrors = z.object({
+  read: zZfsCount,
+  write: zZfsCount,
+  checksum: zZfsCount,
+});
+export type ZfsDeviceErrors = z.infer<typeof zZfsDeviceErrors>;
+
+export const ZFS_SCAN_KINDS = ['scrub', 'resilver'] as const;
+export const ZFS_SCAN_STATES = ['running', 'paused', 'finished', 'canceled'] as const;
+
+/** The pool's last scrub or resilver. zpool keeps only the last one. */
+export const zZfsScan = z.object({
+  kind: z.enum(ZFS_SCAN_KINDS),
+  state: z.enum(ZFS_SCAN_STATES),
+  /** Whole percent issued, rounded down. Null once the scan has stopped. */
+  percentDone: z.number().int().min(0).max(100).nullable(),
+  /** Epoch ms. Null while the scan has not stopped. */
+  endedAt: z.number().int().positive().nullable(),
+  repairedBytes: zZfsCount,
+  errors: zZfsCount,
+});
+export type ZfsScan = z.infer<typeof zZfsScan>;
+
+/** `errors` is null where zpool prints no counters, as for a spare. */
+export const zZfsDiskHealth = z.object({
+  kind: z.literal('disk'),
+  name: z.string().min(1),
+  state: zZfsHealthState,
+  errors: zZfsDeviceErrors.nullable(),
+});
+export type ZfsDiskHealth = z.infer<typeof zZfsDiskHealth>;
+
+export const zZfsVdevHealth = z.object({
+  kind: z.literal('vdev'),
+  name: z.string().min(1),
+  state: zZfsHealthState,
+  errors: zZfsDeviceErrors.nullable(),
+  get children() {
+    return z.array(zZfsDeviceHealth).min(1);
+  },
+});
+export type ZfsVdevHealth = z.infer<typeof zZfsVdevHealth>;
+
+export const zZfsDeviceHealth: z.ZodDiscriminatedUnion<[typeof zZfsDiskHealth, typeof zZfsVdevHealth]> = z.discriminatedUnion('kind', [zZfsDiskHealth, zZfsVdevHealth]);
+export type ZfsDeviceHealth = z.infer<typeof zZfsDeviceHealth>;
+
+export const zZfsGroupHealth = z.object({
+  kind: z.literal('group'),
+  group: zZfsGroupKind,
+  children: z.array(zZfsDeviceHealth).min(1),
+});
+export type ZfsGroupHealth = z.infer<typeof zZfsGroupHealth>;
+
+/** Device names and groups match the pool's tree in `zZfsPool`, so both resolve to the same entities. */
+export const zZfsPoolHealth = z.object({
+  name: z.string().min(1),
+  state: zZfsHealthState,
+  scan: zZfsScan.nullable(),
+  children: z.array(z.discriminatedUnion('kind', [zZfsDiskHealth, zZfsVdevHealth, zZfsGroupHealth])),
+});
+export type ZfsPoolHealth = z.infer<typeof zZfsPoolHealth>;
+
+/** Every frame carries the host's whole health: sent when a stream starts and whenever it changes. */
+export const zZfsHealthFrame = z.discriminatedUnion('status', [
+  z.object({
+    v: z.literal(1),
+    /** Epoch ms when zpool status was read. */
+    time: z.number().int().positive(),
+    status: z.literal('ok'),
+    pools: z.array(zZfsPoolHealth),
+  }),
+  z.object({
+    v: z.literal(1),
+    time: z.number().int().positive(),
+    status: z.literal('unreadable'),
+  }),
+]);
+export type ZfsHealthFrame = z.infer<typeof zZfsHealthFrame>;
+
 /** Reads the `{ line, timestamp }` frame agents sent before `zZfsStatsFrame`, only to tell the operator to update the agent. Null for anything else. */
 export function readLegacyZfsLineFrame(frame: unknown): { timestamp: number | null } | null {
   const parsed = z.object({ line: z.string(), timestamp: z.number().int().positive().optional() }).safeParse(frame);

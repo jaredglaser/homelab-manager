@@ -1,9 +1,24 @@
 import { z } from 'zod';
-import type { ZfsCapacity, ZfsDevice, ZfsGroup, ZfsGroupKind, ZfsIo, ZfsPool } from '../types/protocol';
+import {
+  ZFS_GROUP_KINDS,
+  type ZfsCapacity,
+  type ZfsDevice,
+  type ZfsDeviceErrors,
+  type ZfsDeviceHealth,
+  type ZfsGroup,
+  type ZfsGroupHealth,
+  type ZfsGroupKind,
+  type ZfsHealthState,
+  type ZfsIo,
+  type ZfsPool,
+  type ZfsPoolHealth,
+  type ZfsScan,
+} from '../types/protocol';
 
 /** No `-H`: it prints names unindented and drops the group header lines, so the tree is lost. `-y` keeps the since-import report out. */
 export const ZPOOL_IOSTAT_ARGS = ['zpool', 'iostat', '-v', '-p', '-y', '1'];
-export const ZPOOL_STATUS_ARGS = ['zpool', 'status', '-j'];
+/** `--json-int` prints counters and times as JSON numbers instead of scaled strings such as `1.2K`. */
+export const ZPOOL_STATUS_ARGS = ['zpool', 'status', '-j', '--json-int'];
 
 const HEADER_TOP = /^\s+capacity\s+operations\s+bandwidth\s*$/;
 const HEADER_LABELS = /^(?:pool|vdev)\s+alloc\s+free\s+read\s+write\s+read\s+write\s*$/;
@@ -232,6 +247,8 @@ export class IostatSampleReader {
   }
 }
 
+const UNREPORTABLE_POOL_STATES = new Set(['FAULTED', 'UNAVAIL']);
+
 const zZpoolStatusJson = z.object({
   pools: z.record(
     z.string(),
@@ -242,7 +259,138 @@ const zZpoolStatusJson = z.object({
   ),
 });
 
-const UNREPORTABLE_POOL_STATES = new Set(['FAULTED', 'UNAVAIL']);
+const zStatusNumber = z.number().nonnegative();
+
+interface StatusVdevJson {
+  name: string;
+  state?: string;
+  read_errors?: number;
+  write_errors?: number;
+  checksum_errors?: number;
+  vdevs?: Record<string, StatusVdevJson>;
+}
+
+const zStatusVdevJson: z.ZodType<StatusVdevJson> = z.lazy(() => z.object({
+  name: z.string().min(1),
+  state: z.string().optional(),
+  read_errors: zStatusNumber.optional(),
+  write_errors: zStatusNumber.optional(),
+  checksum_errors: zStatusNumber.optional(),
+  vdevs: z.record(z.string(), zStatusVdevJson).optional(),
+}));
+
+const zStatusVdevMap = z.record(z.string(), zStatusVdevJson);
+
+const zStatusScanJson = z.object({
+  function: z.string(),
+  state: z.string(),
+  end_time: zStatusNumber,
+  to_examine: zStatusNumber,
+  skipped: zStatusNumber,
+  issued: zStatusNumber,
+  processed: zStatusNumber,
+  errors: zStatusNumber,
+  scrub_pause: zStatusNumber,
+});
+
+const zStatusPoolHealthJson = z.object({
+  state: z.string(),
+  vdevs: zStatusVdevMap.optional(),
+  scan_stats: zStatusScanJson.optional(),
+  special: zStatusVdevMap.optional(),
+  dedup: zStatusVdevMap.optional(),
+  logs: zStatusVdevMap.optional(),
+  l2cache: zStatusVdevMap.optional(),
+  spares: zStatusVdevMap.optional(),
+});
+
+type StatusPoolHealthJson = z.infer<typeof zStatusPoolHealthJson>;
+
+/** The classes `zpool status -j` prints beside `vdevs`, by the group each is in the pool tree. */
+const STATUS_GROUPS: Readonly<Record<ZfsGroupKind, (pool: StatusPoolHealthJson) => Record<string, StatusVdevJson> | undefined>> = {
+  special: (pool) => pool.special,
+  dedup: (pool) => pool.dedup,
+  logs: (pool) => pool.logs,
+  cache: (pool) => pool.l2cache,
+  spares: (pool) => pool.spares,
+};
+
+const zZpoolStatusHealthJson = z.object({ pools: z.record(z.string(), zStatusPoolHealthJson) });
+
+/**
+ * Pool states come from libzfs `zpool_get_state_str`, device states from the `vdev_state_str` table in
+ * zpool_main.c, which names an unopenable device CANT_OPEN, and a spare is AVAIL or INUSE instead.
+ */
+const HEALTH_STATES: Readonly<Record<string, ZfsHealthState>> = {
+  ONLINE: 'online',
+  DEGRADED: 'degraded',
+  FAULTED: 'faulted',
+  OFFLINE: 'offline',
+  CLOSED: 'offline',
+  REMOVED: 'removed',
+  UNAVAIL: 'unavailable',
+  CANT_OPEN: 'unavailable',
+  SUSPENDED: 'suspended',
+  AVAIL: 'online',
+  INUSE: 'online',
+};
+
+function toHealthState(state: string | undefined): ZfsHealthState {
+  return (state !== undefined && HEALTH_STATES[state]) || 'unknown';
+}
+
+/** JSON.parse rounds a uint64 past 2^53, and a counter at UINT64_MAX would fail the frame schema. */
+function toCount(value: number): number {
+  return Math.min(Math.trunc(value), Number.MAX_SAFE_INTEGER);
+}
+
+function toErrors(vdev: StatusVdevJson): ZfsDeviceErrors | null {
+  const { read_errors: read, write_errors: write, checksum_errors: checksum } = vdev;
+  if (read === undefined || write === undefined || checksum === undefined) return null;
+  return { read: toCount(read), write: toCount(write), checksum: toCount(checksum) };
+}
+
+function toDeviceHealth(vdev: StatusVdevJson): ZfsDeviceHealth {
+  const children = Object.values(vdev.vdevs ?? {}).map(toDeviceHealth);
+  const base = { name: vdev.name, state: toHealthState(vdev.state), errors: toErrors(vdev) };
+  return children.length > 0 ? { kind: 'vdev', ...base, children } : { kind: 'disk', ...base };
+}
+
+const SCAN_KINDS: Readonly<Record<string, ZfsScan['kind']>> = { SCRUB: 'scrub', RESILVER: 'resilver' };
+
+function toScan(scan: z.infer<typeof zStatusScanJson> | undefined): ZfsScan | null {
+  const kind = scan ? SCAN_KINDS[scan.function] : undefined;
+  if (!scan || !kind) return null;
+  let state: ZfsScan['state'];
+  if (scan.state === 'SCANNING') state = scan.scrub_pause > 0 ? 'paused' : 'running';
+  else if (scan.state === 'FINISHED') state = 'finished';
+  else if (scan.state === 'CANCELED') state = 'canceled';
+  else return null;
+
+  const stopped = state === 'finished' || state === 'canceled';
+  // zpool prints "% done" as issued over (to_examine - skipped).
+  const total = scan.to_examine - scan.skipped;
+  const percentDone = stopped ? null : Math.min(100, Math.max(0, total > 0 ? Math.floor((scan.issued * 100) / total) : 0));
+  return {
+    kind,
+    state,
+    percentDone,
+    endedAt: stopped && scan.end_time > 0 ? toCount(scan.end_time * 1000) : null,
+    repairedBytes: toCount(scan.processed),
+    errors: toCount(scan.errors),
+  };
+}
+
+function toPoolHealth(name: string, pool: StatusPoolHealthJson): ZfsPoolHealth {
+  // The root vdev is keyed by the pool's own name, and its children are the pool's data devices.
+  const roots = Object.values(pool.vdevs ?? {});
+  const devices = roots.flatMap((root) => Object.values(root.vdevs ?? {}).map(toDeviceHealth));
+  const groups: ZfsGroupHealth[] = ZFS_GROUP_KINDS.flatMap((group) => {
+    const members = Object.values(STATUS_GROUPS[group](pool) ?? {});
+    return members.length > 0 ? [{ kind: 'group' as const, group, children: members.map(toDeviceHealth) }] : [];
+  });
+  return { name, state: toHealthState(pool.state), scan: toScan(pool.scan_stats), children: [...devices, ...groups] };
+}
 
 export interface ZpoolStatusSummary {
   /** Every pool zpool status lists, reportable or not. */
@@ -250,9 +398,19 @@ export interface ZpoolStatusSummary {
   /** Pools zpool iostat can report. It skips unavailable pools, which `zpool status` names FAULTED. */
   reportablePools: Set<string>;
   sparesByPool: Map<string, string[]>;
+  /** Sorted by pool name. Null when the pools are listed but their health is not in the shape zpool 2.3 prints. */
+  health: ZfsPoolHealth[] | null;
 }
 
-/** Reads `zpool status -j` output. Null when it is not the JSON zpool 2.3 prints. */
+function readHealth(json: unknown): ZfsPoolHealth[] | null {
+  const parsed = zZpoolStatusHealthJson.safeParse(json);
+  if (!parsed.success) return null;
+  return Object.entries(parsed.data.pools)
+    .map(([name, pool]) => toPoolHealth(name, pool))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Reads `zpool status -j --json-int` output. Null when it is not the JSON zpool 2.3 prints. */
 export function parseZpoolStatus(text: string): ZpoolStatusSummary | null {
   let json: unknown;
   try {
@@ -270,7 +428,7 @@ export function parseZpoolStatus(text: string): ZpoolStatusSummary | null {
     const spares = Object.values(pool.spares ?? {}).map((spare) => spare.name);
     if (spares.length > 0) sparesByPool.set(name, spares.sort((a, b) => a.localeCompare(b)));
   }
-  return { poolCount: Object.keys(parsed.data.pools).length, reportablePools, sparesByPool };
+  return { poolCount: Object.keys(parsed.data.pools).length, reportablePools, sparesByPool, health: readHealth(json) };
 }
 
 export function withSpares(pools: ZfsPool[], sparesByPool: ReadonlyMap<string, string[]>): ZfsPool[] {

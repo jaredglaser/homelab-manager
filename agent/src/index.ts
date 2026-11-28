@@ -7,7 +7,7 @@ import { handleLogStream } from './routes/logs';
 import { handleStackDeploy, handleStackUpdate, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus, handleStackInventory, handleGetStackCompose } from './routes/stacks';
 import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
-import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
+import { handleZfsStatsStream } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
@@ -185,7 +185,6 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   }
 
   if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);
-  if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
 
   if (url.pathname === '/agent/update' && request.method === 'POST') {
     return handleAgentUpdate(docker, AGENT_CONTAINER_NAME, PORT, request);
