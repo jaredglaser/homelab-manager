@@ -113,9 +113,9 @@ describe('handleInfo', () => {
     const original = process.env.AGENT_SOURCE_HASH;
     try {
       process.env.AGENT_SOURCE_HASH = 'e'.repeat(64);
-      expect((await (await handleInfo(mockDockerClient() as any, zfsAvailable)).json()).agentSourceHash).toBe('e'.repeat(64));
+      expect((await (await handleInfo(mockDockerClient() as any)).json()).agentSourceHash).toBe('e'.repeat(64));
       process.env.AGENT_SOURCE_HASH = '';
-      expect((await (await handleInfo(mockDockerClient() as any, zfsAvailable)).json()).agentSourceHash).toBeNull();
+      expect((await (await handleInfo(mockDockerClient() as any)).json()).agentSourceHash).toBeNull();
     } finally {
       if (original === undefined) delete process.env.AGENT_SOURCE_HASH;
       else process.env.AGENT_SOURCE_HASH = original;

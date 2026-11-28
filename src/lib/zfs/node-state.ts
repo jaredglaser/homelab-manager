@@ -89,7 +89,7 @@ export function formatNoticeTime(ms: number, use12HourTime: boolean): string {
 
 /** w8 shows for an agent left with the old ZFS flag until a ZFS node has the agent's name or its URL's host. */
 export function agentNeedsZfsNode(
-  agent: { name: string; agentUrl: string; capabilities: { zfs?: boolean } },
+  agent: { name: string; agentUrl: string; capabilities: { docker?: boolean; zfs?: boolean } },
   nodes: readonly Pick<ZfsNodeSummary, 'name' | 'address'>[],
 ): boolean {
   if (!agent.capabilities.zfs) return false;
