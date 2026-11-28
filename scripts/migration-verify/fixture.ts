@@ -257,6 +257,7 @@ export const EXPECTED_TABLES = [
   'managed_hosts',
   'migrations',
   'proxmox_collector_state',
+  'proxmox_connections',
   'proxmox_stats',
   'sessions',
   'settings',

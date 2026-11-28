@@ -11,7 +11,7 @@ async function seedProxmoxState(page: Page, connections: ProxmoxCollectorStateVi
 
 function connection(overrides: Partial<ProxmoxCollectorStateView>): ProxmoxCollectorStateView {
   return {
-    connectionId: 'pve.lan',
+    connectionId: '1',
     host: 'pve.lan',
     port: 8006,
     state: 'collecting',
@@ -64,11 +64,6 @@ test('heads the guest rate columns Net in, Net out, Disk read and Disk write, wi
 test.describe('worker state messages', () => {
   const cases: [string, ProxmoxCollectorStateView[], string][] = [
     ['no connection is set up', [], "Proxmox isn't set up. Add your cluster in Settings, under Proxmox."],
-    [
-      'the collector is off',
-      [connection({ state: 'collector_off' })],
-      "The worker isn't collecting Proxmox stats. Set WORKER_PROXMOX_ENABLED=true on the worker container and restart it.",
-    ],
     [
       'Proxmox rejects the token',
       [connection({ state: 'token_rejected' })],

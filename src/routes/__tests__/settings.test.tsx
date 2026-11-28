@@ -32,6 +32,7 @@ mockModule<typeof Sonner>('sonner', (real) => ({
 }));
 
 void mock.module('@/components/settings/ManagedHostsCardConnected', () => ({ ManagedHostsCard: () => null }));
+void mock.module('@/components/settings/ProxmoxConnectionsCard', () => ({ ProxmoxConnectionsCard: () => null }));
 void mock.module('@/components/settings/AuthManagementCard', () => ({ AuthManagementCard: () => null, GitTokensSection: () => null }));
 
 const { Route } = await import('@/routes/settings');

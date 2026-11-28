@@ -1,5 +1,4 @@
 import { databaseConnectionManager } from '@/lib/clients/database-client';
-import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
@@ -8,7 +7,7 @@ import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { createCollectors, recordProxmoxStartupState } from './collector-factory';
+import { startProxmoxCollection } from './proxmox-connection-manager';
 import { HostCollectorManager, defaultHostCollectorFactory } from './host-collector-manager';
 import { HostsListener } from './hosts-listener';
 import { AgentInventorySweeper } from './agent-inventory-sweeper';
@@ -17,7 +16,12 @@ import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 import { prepareDatabase } from './prepare-database';
 
-function handleSettingChange(getCollectors: () => BaseCollector[], key: string, value: string | null): void {
+function handleSettingChange(
+  getCollectors: () => BaseCollector[],
+  key: string,
+  value: string | null,
+  setProxmoxPollInterval: (ms: number) => void,
+): void {
   const collectors = getCollectors();
   if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
     const enabled = value === 'true';
@@ -28,6 +32,7 @@ function handleSettingChange(getCollectors: () => BaseCollector[], key: string, 
   } else if (key === SETTINGS_KEYS.proxmox.updateInterval) {
     const parsed = value ? parseInt(value, 10) : 10_000;
     const interval = (parsed === 1000 || parsed === 10000) ? parsed : 10_000;
+    setProxmoxPollInterval(interval);
     for (const c of collectors) {
       if (c instanceof ProxmoxCollector) {
         c.pollInterval = interval;
@@ -38,7 +43,6 @@ function handleSettingChange(getCollectors: () => BaseCollector[], key: string, 
 
 async function closeConnections(): Promise<void> {
   console.info('[Worker] Closing connections...');
-  proxmoxConnectionManager.clearAll();
   await databaseConnectionManager.closeAll();
   console.info('[Worker] Shutdown complete');
 }
@@ -59,7 +63,6 @@ async function main() {
       database: `${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
       docker: workerConfig.docker.enabled,
       zfs: workerConfig.zfs.enabled,
-      proxmox: workerConfig.proxmox.enabled,
       collectionInterval: `${workerConfig.collection.interval}ms`,
     });
 
@@ -79,9 +82,9 @@ async function main() {
     console.info('[Worker] Running database migrations...');
     await prepareDatabase(db, shutdownController.signal, async () => {
       try {
-        await recordProxmoxStartupState(new ProxmoxStateRepository(db.getPool()), workerConfig);
+        await new ProxmoxStateRepository(db.getPool()).removeOrphans();
       } catch (err) {
-        console.error('[Worker] Failed to record the Proxmox collector state:', err instanceof Error ? err.message : err);
+        console.error('[Worker] Failed to clear the state of removed Proxmox connections:', err instanceof Error ? err.message : err);
       }
     });
     if (shutdownController.signal.aborted) {
@@ -117,10 +120,6 @@ async function main() {
     {
       await using stack = new AsyncDisposableStack();
 
-      const { collectors: staticCollectors, runners: staticRunners } = createCollectors(
-        db, workerConfig, shutdownController, stack, proxmoxPollIntervalMs,
-      );
-
       const hostRepo = new HostRepository(db.getPool());
 
       const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
@@ -128,6 +127,10 @@ async function main() {
       const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
       const keyring = await loadMasterKeyring();
       const keypairs = new AgentKeypairsRepository(db.getPool(), keyring);
+
+      const proxmox = await startProxmoxCollection(
+        db, dbConfig, workerConfig, keyring, () => proxmoxPollIntervalMs, shutdownController.signal, stack,
+      );
       const { AgentTlsCertificatesRepository } = await import('@/lib/database/repositories/agent-tls-certificates-repository');
       const tlsCerts = new AgentTlsCertificatesRepository(db.getPool());
       const getCaCert = async (hostname: string): Promise<string | null> => {
@@ -175,8 +178,8 @@ async function main() {
 
       // Worker stays alive even with zero collectors initially: a host added
       // through the wizard later will spin up its collectors via the listener.
-      const initialRunners = [...staticRunners, ...hostManager.runners()];
-      const initialCollectors = [...staticCollectors, ...hostManager.collectors()];
+      const initialRunners = [...proxmox.runners(), ...hostManager.runners()];
+      const initialCollectors = [...proxmox.collectors(), ...hostManager.collectors()];
       if (initialRunners.length === 0 && initialCollectors.length === 0 && hostManager.hostNames().length === 0) {
         console.info('[Worker] No collectors active yet; waiting for managed hosts to be registered');
       } else {
@@ -196,9 +199,10 @@ async function main() {
             SETTINGS_KEYS.proxmox.updateInterval,
           ],
           (key, value) => handleSettingChange(
-            () => [...staticCollectors, ...hostManager.collectors()],
+            () => [...proxmox.collectors(), ...hostManager.collectors()],
             key,
             value,
+            (ms) => { proxmoxPollIntervalMs = ms; },
           ),
           shutdownController.signal,
         )
@@ -248,7 +252,7 @@ async function main() {
         }
         shutdownController.signal.addEventListener('abort', () => resolve(), { once: true });
       });
-      await Promise.allSettled([...staticRunners, ...hostManager.runners(), sweeperRunner]);
+      await Promise.allSettled([...proxmox.runners(), ...hostManager.runners(), sweeperRunner]);
     }
     // AsyncDisposableStack disposes here - cleans up
 

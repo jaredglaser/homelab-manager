@@ -46,7 +46,6 @@ function watchFirstInsert(insertedRows: NewZFSStat[][]): Promise<void> {
 const defaultConfig = {
   docker: { enabled: false },
   zfs: { enabled: true },
-  proxmox: { enabled: false },
   collection: { interval: 1000 },
 } as any;
 

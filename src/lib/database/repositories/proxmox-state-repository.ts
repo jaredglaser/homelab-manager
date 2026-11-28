@@ -46,37 +46,23 @@ export class ProxmoxStateRepository {
     );
   }
 
-  /**
-   * The startup `collecting` row: written only where no state is recorded or the collector was off,
-   * so a restart does not hide a recorded failure until the first poll fails again.
-   */
-  async recordCollectingIfUnknown(write: Omit<ProxmoxCollectorStateWrite, 'state' | 'reason' | 'lastSuccessAt'>): Promise<void> {
+  /** A collector stopped mid-poll can write its state after the connection's row is gone. */
+  async removeOrphans(): Promise<void> {
     await this.pool.query(
-      `INSERT INTO proxmox_collector_state (connection_id, host, port, state, updated_at)
-       VALUES ($1, $2, $3, 'collecting', now())
-       ON CONFLICT (connection_id) DO UPDATE SET
-         host = EXCLUDED.host,
-         port = EXCLUDED.port,
-         state = 'collecting',
-         reason = NULL,
-         updated_at = now()
-       WHERE proxmox_collector_state.state = 'collector_off'`,
-      [write.connectionId, write.host, write.port],
+      `DELETE FROM proxmox_collector_state s
+       WHERE NOT EXISTS (SELECT 1 FROM proxmox_connections c WHERE c.id::text = s.connection_id)`,
     );
   }
 
-  /** Drops the rows of connections the worker no longer has, so a removed connection stops showing its last state. */
-  async removeAllExcept(connectionIds: string[]): Promise<void> {
-    await this.pool.query(
-      'DELETE FROM proxmox_collector_state WHERE NOT (connection_id = ANY($1::text[]))',
-      [connectionIds],
-    );
-  }
-
+  /** One entry per saved connection. One the worker has not reported on yet reads as collecting. */
   async list(): Promise<ProxmoxCollectorState[]> {
     const result = await this.pool.query<ProxmoxCollectorStateQueryRow>(
-      `SELECT connection_id, host, port, state, reason, last_success_at, updated_at
-       FROM proxmox_collector_state ORDER BY connection_id`,
+      `SELECT c.id::text AS connection_id, c.address AS host, c.port,
+              COALESCE(s.state, 'collecting') AS state, s.reason, s.last_success_at,
+              COALESCE(s.updated_at, c.updated_at) AS updated_at
+       FROM proxmox_connections c
+       LEFT JOIN proxmox_collector_state s ON s.connection_id = c.id::text
+       ORDER BY c.id`,
     );
     return result.rows.flatMap((row) => {
       const state = parseRowEnumOr('proxmox_collector_state.state', row.state, PROXMOX_COLLECTOR_STATES, null);

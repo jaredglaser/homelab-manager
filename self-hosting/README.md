@@ -157,7 +157,7 @@ All configuration is done via environment variables in your `.env` file. The com
 | `POSTGRES_DB` | Database name |
 | `POSTGRES_USER` | Database user |
 | `POSTGRES_PASSWORD` | Database password |
-| `MASTER_KEY` or `MASTER_KEY_FILE` | Base64-encoded 256-bit key for at-rest encryption of stack secrets, agent keypairs, and git tokens. Set exactly one. Generate with `openssl rand -base64 32`. `MASTER_KEY_FILE` points at a file *inside the container*, so it also requires adding a matching volume mount to the `worker` and `web` services in the compose file. See [Master Key Rotation](#master-key-rotation) and [Backup and Restore](#backup-and-restore) before you rely on it: losing this key permanently orphans everything encrypted with it. |
+| `MASTER_KEY` or `MASTER_KEY_FILE` | Base64-encoded 256-bit key for at-rest encryption of stack secrets, agent keypairs, git tokens and Proxmox token secrets. Set exactly one. Generate with `openssl rand -base64 32`. `MASTER_KEY_FILE` points at a file *inside the container*, so it also requires adding a matching volume mount to the `worker` and `web` services in the compose file. See [Master Key Rotation](#master-key-rotation) and [Backup and Restore](#backup-and-restore) before you rely on it: losing this key permanently orphans everything encrypted with it. |
 
 ### Web Server
 
@@ -233,15 +233,15 @@ The agent image does not ship ZFS tooling; the ZFS capability requires bind-moun
 
 ### Proxmox VE Monitoring
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PROXMOX_HOST` | - | Proxmox VE hostname or IP |
-| `PROXMOX_PORT` | `8006` | Proxmox API port |
-| `PROXMOX_TOKEN_ID` | - | API token ID (`USER@REALM!TOKENID`) |
-| `PROXMOX_TOKEN_SECRET` | - | API token secret (UUID) |
-| `PROXMOX_ALLOW_SELF_SIGNED` | `true` | Allow self-signed TLS certificates |
+Proxmox clusters are added in **Settings, under Proxmox** (admins only). Enter the address, port, token ID (`user@realm!token`) and token secret, use **Test connection** to check them, and save. The worker starts collecting within a few seconds, with no restart. Add one entry per cluster. The token secret is stored encrypted with `MASTER_KEY` and is never shown again: to change it, edit the cluster and enter the new one, or leave the field blank to keep it.
+
+Test connection runs from the web server. The worker connects on its own, and the Proxmox page and the cluster's row in Settings show what the worker sees, so a worker on another network than the web server shows up there as unreachable.
+
+Removing a cluster stops its collection within a few seconds. The stats already collected are kept, and retention drops them on its usual schedule.
 
 > **Proxmox API token:** Create one via **Datacenter > Permissions > API Tokens**. The token needs `PVEAuditor` role (read-only) on `/` for cluster overview data.
+
+> **Upgrading from `PROXMOX_*` variables:** the worker no longer reads `PROXMOX_HOST`, `PROXMOX_PORT`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET`, `PROXMOX_ALLOW_SELF_SIGNED` or `WORKER_PROXMOX_ENABLED`. After upgrading, add your cluster in Settings, under Proxmox, then remove those lines from your `.env`.
 
 ### Docker Stack Management
 
@@ -287,7 +287,6 @@ The worker always runs and applies database migrations on startup; individual co
 |----------|---------|-------------|
 | `WORKER_DOCKER_ENABLED` | `true` | Enable Docker stats collection. Default `true` in the compose file. The app itself treats unset as disabled. |
 | `WORKER_ZFS_ENABLED` | `false` | Enable ZFS stats collection |
-| `WORKER_PROXMOX_ENABLED` | `false` | Enable Proxmox stats collection |
 | `WORKER_COLLECTION_INTERVAL_MS` | `1000` | Collection interval in milliseconds |
 | `WORKER_LOCALHOST_AGENT` | - | Docker-internal hostname to substitute for `localhost` agent URLs (e.g. `hlm-agent`). Set this when the worker and an agent container run on the same Docker host; without it, `localhost` agent URLs resolve to the worker container itself rather than the agent container. |
 | `WORKER_ALLOW_INSECURE_AGENTS` | `false` | Allow the worker to collect from agents whose stored URL is plain `http://`. The worker skips such hosts with a warning, because a plain-http agent URL means TLS provisioning has not completed (the URL is flipped to https once it succeeds). Set to `true` only in development, where agents intentionally serve plain HTTP without TLS; the local dev compose sets it for you. |
@@ -311,7 +310,7 @@ Encrypted columns use a versioned keyring so a new master key can be enrolled wi
 
 5. Remove the old key from `.env` (and its compose line if you added one), then `docker compose up -d` again.
 
-The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window. It covers `stack_secrets`, `agent_keypairs`, and `git_tokens`; active login sessions are not re-encrypted, so a login that predates the rotation may need to sign in again after step 5 removes the old key.
+The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window. It covers `stack_secrets`, `agent_keypairs`, `git_tokens` and `proxmox_connections`; active login sessions are not re-encrypted, so a login that predates the rotation may need to sign in again after step 5 removes the old key.
 
 ## Backup and Restore
 
@@ -403,15 +402,11 @@ OIDC_REDIRECT_URI=https://homelab.example.com/api/auth/callback
 # (includes the required zpool/zfs/dev mounts) and register the host with
 # the ZFS capability in Settings → Managed Hosts.
 
-# Proxmox VE
-PROXMOX_HOST=192.168.1.100
-PROXMOX_TOKEN_ID=root@pam!monitoring
-PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+# Proxmox VE: no env vars needed; add each cluster in Settings, under Proxmox.
 
 # Worker
 # WORKER_DOCKER_ENABLED=true
 # WORKER_ZFS_ENABLED=false
-WORKER_PROXMOX_ENABLED=true
 # WORKER_COLLECTION_INTERVAL_MS=1000
 # WORKER_LOCALHOST_AGENT=hlm-agent
 # Development only: allow collection from agents over plain http://
@@ -460,7 +455,8 @@ New versions are cut automatically: release-please keeps a standing release PR f
 - `docker compose ps` shows the web service's health state; `curl http://<ip>:3000/api/health` checks it from outside.
 
 **Proxmox page shows no data**
-- `WORKER_PROXMOX_ENABLED` defaults to `false`. Set it to `true` in your `.env` along with the `PROXMOX_*` connection vars, then recreate the worker: `docker compose up -d worker`. (`docker compose restart` does not pick up `.env` changes - the environment is baked in when the container is created.)
+- "Proxmox isn't set up" means no cluster is saved: add it in Settings, under Proxmox.
+- Any other notice is the worker's own view of the cluster. When Test connection passes in Settings but the page says the worker can't reach Proxmox, the worker container cannot reach the address the web server can: check its network with the commands under **Dashboard shows no data**.
 
 **Managed hosts aren't reachable / Stacks page shows no hosts**
 - Verify the agent is running on the target host: `curl http://<agent-ip>:9090/health`

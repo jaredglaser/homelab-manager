@@ -59,6 +59,10 @@ export type ProxmoxResource = z.infer<typeof zProxmoxResource>;
 /** Every Proxmox list response. Entries are parsed one by one, so one bad entry does not fail the rest. */
 export const zProxmoxListEnvelope = z.object({ data: z.array(z.unknown()) });
 
+export const zProxmoxVersionEnvelope = z.object({
+  data: z.object({ version: z.string(), release: z.string().optional() }),
+});
+
 /**
  * Cluster snapshot assembled from GET /cluster/status plus GET /cluster/resources.
  * The whole cluster is captured in 2 requests per poll cycle regardless of node count.
@@ -200,7 +204,6 @@ export const PROXMOX_COLLECTOR_STATES = [
   'unreachable',
   'token_rejected',
   'certificate_refused',
-  'collector_off',
 ] as const;
 
 export type ProxmoxCollectorStateKind = (typeof PROXMOX_COLLECTOR_STATES)[number];
@@ -220,3 +223,13 @@ export interface ProxmoxCollectorState {
 
 /** What browsers get: the recorded state without `reason`, which stays in the table and the worker log. */
 export type ProxmoxCollectorStateView = Omit<ProxmoxCollectorState, 'reason'>;
+
+/** A saved Proxmox connection as every role sees it. The token secret is never part of it. */
+export interface ProxmoxConnectionSummary {
+  id: number;
+  name: string;
+  address: string;
+  port: number;
+  tokenId: string;
+  allowSelfSignedCerts: boolean;
+}

@@ -57,6 +57,10 @@ const registry: Record<string, ServerFnMock> = {
 
   // Proxmox
   getHistoricalProxmoxStats: fn(proxmoxFns.getHistoricalProxmoxStats),
+  listProxmoxConnections: fn(proxmoxFns.listProxmoxConnections),
+  saveProxmoxConnection: withData(proxmoxFns.saveProxmoxConnection),
+  testProxmoxConnection: withData(proxmoxFns.testProxmoxConnection),
+  removeProxmoxConnection: withData(proxmoxFns.removeProxmoxConnection),
 
   // Settings
   updateSetting: fn(settingsFns.updateSetting),

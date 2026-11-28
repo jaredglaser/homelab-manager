@@ -6,7 +6,7 @@ import type { NewProxmoxStat } from '@/lib/database/repositories/stats-repositor
 import { ProxmoxCollector } from '../proxmox-collector';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
+import type { ProxmoxConnection } from '@/lib/config/proxmox-config';
 import type { Pool } from 'pg';
 
 const originalConsoleLog = console.log;
@@ -26,14 +26,15 @@ function createMockConfig(): WorkerConfig {
   return {
       docker: { enabled: false },
     zfs: { enabled: false },
-    proxmox: { enabled: true },
     collection: { interval: 1000 },
     agents: { allowInsecurePlaintext: true },
   };
 }
 
-function createProxmoxConfig(overrides?: Partial<ProxmoxConfig>): ProxmoxConfig {
+function createProxmoxConfig(overrides?: Partial<ProxmoxConnection>): ProxmoxConnection {
   return {
+    id: 1,
+    name: 'homelab',
     host: '192.168.1.200',
     port: 8006,
     tokenId: 'root@pam!test',
@@ -312,7 +313,7 @@ describe('ProxmoxCollector', () => {
         ['unreachable', '/cluster/resources: unexpected response shape: data invalid_type'],
         ['collecting', null],
       ]);
-      expect(writes[0]).toMatchObject({ connectionId: 'pve.lan', host: 'pve.lan', port: 8006, lastSuccessAt: null });
+      expect(writes[0]).toMatchObject({ connectionId: '1', host: 'pve.lan', port: 8006, lastSuccessAt: null });
       expect(writes[1].lastSuccessAt).toBeInstanceOf(Date);
     });
 

@@ -94,7 +94,7 @@ flowchart LR
 2. **AgentStatsCollector** connects to each agent's `/stats/stream` endpoint and receives pre-computed Docker metrics (CPU%, memory, network/block I/O rates)
 3. **ZFSCollector** connects to each agent's `/zfs/stats/stream` endpoint, parses `zpool iostat` output, and calculates rates
 4. **ContainerInventoryCollector** connects to each agent's `/containers/events` endpoint and persists container inventory events to `docker_container_events`
-5. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows, and inserts into TimescaleDB
+5. **Proxmox collectors**, one per connection saved in Settings, poll the Proxmox REST API at a configurable interval (1s or 10s), convert the cluster overview to flat rows, and insert into TimescaleDB
 6. Stats are **inserted** into TimescaleDB wide hypertables
 7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to the WebSocket topic adapters behind `stats:*`
 8. **One WebSocket at `/api/mux`** (`server/routes/api/mux.ts`) carries every live topic: `inventory`, `agent-inventory`, `settings`, `user-settings`, `stack-status`, `image-updates`, `proxmox-state` (control class), `stats:docker|zfs|proxmox`, and `logs:<host>/<containerId>` (bulk class). Multiple browser tabs share the same connection and the same poll - only 1 DB query/sec per source
@@ -109,6 +109,8 @@ Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` disc
 - **Bidirectional conversion**: `overviewToRows()` converts the Proxmox API overview to flat DB rows; `buildProxmoxOverview()` reconstructs the overview from latest rows per entity
 - **Runtime-configurable interval**: The Proxmox poll interval (1s or 10s) can be changed via the settings UI; changes propagate via `SettingsListener` -> `ProxmoxCollector.pollInterval` setter
 - **Entity ID convention**: nodes use `node` name, guests use `vmid`, storages use `${node}/${storage}` for cross-node uniqueness
+- **Connections** (`proxmox_connections`, migration 055): saved in Settings by admins, the token secret JWE-encrypted with the master keyring and re-encrypted by `migrate-secrets`. Stats rows carry the connection's address as `host`, so the address is unique per connection, a rename keeps the history together, and an address change starts a new series. The worker's `ProxmoxConnectionManager` (`src/worker/proxmox-connection-manager.ts`) runs one collector per connection and reconciles on `NOTIFY proxmox_connections_change`: a changed address, port, token or certificate setting restarts the collector, a rename or a re-encrypted secret does not, and a removed connection's in-flight request is aborted. The collector records its state in `proxmox_collector_state` under the connection id, and the `proxmox-state` topic lists every saved connection joined to that state, so a connection the worker has not reported on yet reads as collecting and no saved connection reads as not set up
+- **Test connection** (`testProxmoxConnection`) runs from the web server and never writes the worker's state, so the Proxmox page and the Settings row keep showing what the worker sees
 
 ## Docker Stack Management
 
@@ -138,14 +140,13 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 | Stack service | `src/lib/stacks/` | Stack CRUD, mapping, and status broadcast |
 | Host management | `src/data/hosts/` | Host CRUD handlers with keypair enrollment and JWT signer resolution |
 | Stacks UI | `src/components/stacks/` | Full stack management interface |
-| Settings UI | `src/components/settings/` | Managed hosts card and add-host wizard |
+| Settings UI | `src/components/settings/` | Managed hosts card, add-host wizard and Proxmox connections |
 
 ### Managed Hosts & Agent Architecture
 
 Hosts are registered via the Settings UI and stored in the `managed_hosts` database table with agent connection details and capabilities (docker, zfs).
 
 **Collector creation** (`src/worker/collector-factory.ts`):
-- `createCollectors()`: env-configured collectors (Proxmox only; Docker and ZFS always go through managed hosts)
 - `resolveAgentUrl()`: rewrites localhost agent URLs to Docker-internal hostnames via `WORKER_LOCALHOST_AGENT` env var
 
 **Managed-host collector lifecycle** (`src/worker/host-collector-manager.ts`):

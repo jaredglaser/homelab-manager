@@ -45,14 +45,18 @@ type ButtonProps = ComponentProps<typeof ButtonPrimitive> &
     requires?: RoleRequirement;
     /** With `requires`: shown on hover while the role may use the button. The role reason replaces it otherwise. */
     tooltip?: ReactNode;
+    /** With `requires`: replaces the role's reason, for a control whose reason names what it guards. */
+    deniedReason?: string;
   };
 
 type RoleGatedButtonProps = Omit<ButtonProps, 'requires' | 'allowWhileBusy'> & { requires: RoleRequirement };
 
-function Button({ requires, tooltip, allowWhileBusy = false, disabled, ...props }: ButtonProps) {
+function Button({ requires, tooltip, deniedReason, allowWhileBusy = false, disabled, ...props }: ButtonProps) {
   const busy = useModalBusy();
   const blocked = disabled || (busy && !allowWhileBusy);
-  if (requires !== undefined) return <RoleGatedButton requires={requires} tooltip={tooltip} disabled={blocked} {...props} />;
+  if (requires !== undefined) {
+    return <RoleGatedButton requires={requires} tooltip={tooltip} deniedReason={deniedReason} disabled={blocked} {...props} />;
+  }
   const { className, variant, size, ...rest } = props;
   return (
     <ButtonPrimitive
@@ -67,6 +71,7 @@ function Button({ requires, tooltip, allowWhileBusy = false, disabled, ...props 
 function RoleGatedButton({
   requires,
   tooltip,
+  deniedReason,
   className,
   variant,
   size,
@@ -79,7 +84,7 @@ function RoleGatedButton({
 }: RoleGatedButtonProps) {
   const access = useRoleAccess(requires);
   const roleBlocked = access.kind !== 'allowed';
-  const reason = access.kind === 'denied' ? access.reason : null;
+  const reason = access.kind === 'denied' ? (deniedReason ?? access.reason) : null;
   const content = reason ?? tooltip;
   const reasonId = useId();
   const [hoverOrFocusOpen, setHoverOrFocusOpen] = useState(false);

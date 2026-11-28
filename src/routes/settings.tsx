@@ -15,6 +15,7 @@ import {
 } from '@/hooks/useSettings'
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
+import { ProxmoxConnectionsCard } from '@/components/settings/ProxmoxConnectionsCard'
 import { AuthManagementCard, GitTokensSection } from '@/components/settings/AuthManagementCard'
 import { useAuth } from '@/hooks/useAuth'
 import {
@@ -318,6 +319,10 @@ function SettingsContent() {
 
           <div id="managed-hosts" className="scroll-mt-20">
             <ManagedHostsCard />
+          </div>
+
+          <div id="proxmox" className="scroll-mt-20">
+            <ProxmoxConnectionsCard use12HourTime={general.use12HourTime} />
           </div>
 
           {user?.role === 'admin' && <AuthManagementCard />}

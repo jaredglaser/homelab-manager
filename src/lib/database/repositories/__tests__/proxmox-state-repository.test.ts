@@ -32,19 +32,19 @@ describe('ProxmoxStateRepository', () => {
     expect(mock.queries[0].params).toEqual(['pve.lan', 'pve.lan', 8006, 'unreachable', '/cluster/status: Connection refused', null]);
   });
 
-  it('writes the startup collecting row only over no row or a collector_off one', async () => {
-    await repo.recordCollectingIfUnknown({ connectionId: 'pve.lan', host: 'pve.lan', port: 8006 });
-
-    expect(mock.queries[0].sql).toContain("VALUES ($1, $2, $3, 'collecting', now())");
-    expect(mock.queries[0].sql).toContain("WHERE proxmox_collector_state.state = 'collector_off'");
-    expect(mock.queries[0].params).toEqual(['pve.lan', 'pve.lan', 8006]);
-  });
-
-  it('deletes the rows of every other connection', async () => {
-    await repo.removeAllExcept(['pve.lan']);
+  it('deletes the rows of connections that are no longer saved', async () => {
+    await repo.removeOrphans();
 
     expect(mock.queries[0].sql).toContain('DELETE FROM proxmox_collector_state');
-    expect(mock.queries[0].params).toEqual([['pve.lan']]);
+    expect(mock.queries[0].sql).toContain('NOT EXISTS (SELECT 1 FROM proxmox_connections c WHERE c.id::text = s.connection_id)');
+  });
+
+  it('lists every saved connection, reading one the worker has not reported on yet as collecting', async () => {
+    await repo.list();
+
+    expect(mock.queries[0].sql).toContain('FROM proxmox_connections c');
+    expect(mock.queries[0].sql).toContain('LEFT JOIN proxmox_collector_state s ON s.connection_id = c.id::text');
+    expect(mock.queries[0].sql).toContain("COALESCE(s.state, 'collecting')");
   });
 
   it('lists the rows with times as epoch ms', async () => {
@@ -79,7 +79,7 @@ describe('ProxmoxStateRepository', () => {
 
 describe('proxmox_collector_state CHECK', () => {
   it('allows exactly the states the worker writes and the page has a notice for', () => {
-    const sql = readFileSync(join(import.meta.dir, '../../../../../migrations/052_proxmox_rates_and_collector_state.sql'), 'utf-8');
+    const sql = readFileSync(join(import.meta.dir, '../../../../../migrations/055_proxmox_connections.sql'), 'utf-8');
     const list = /state IN \(([^)]*)\)/.exec(sql)?.[1] ?? '';
     expect(list.split(',').map((v) => v.trim().replace(/'/g, ''))).toEqual([...PROXMOX_COLLECTOR_STATES]);
   });
