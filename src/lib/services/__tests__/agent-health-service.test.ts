@@ -340,6 +340,7 @@ describe('agent-health-service', () => {
         agentVersion: '0.1.0',
         agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
         agentImageTag: 'dev',
+        agentSourceHash: 'f'.repeat(64),
         capabilities: { docker: { available: true }, zfs: { available: false } },
       });
       const fetchFn = mock(async (input: string | URL | Request) => {
@@ -354,6 +355,7 @@ describe('agent-health-service', () => {
       if (result.healthy) {
         expect(result.agentImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent:dev');
         expect(result.agentImageTag).toBe('dev');
+        expect(result.agentSourceHash).toBe('f'.repeat(64));
       }
     });
 
@@ -370,6 +372,7 @@ describe('agent-health-service', () => {
       if (result.healthy) {
         expect(result.agentImage).toBeNull();
         expect(result.agentImageTag).toBeNull();
+        expect(result.agentSourceHash).toBeNull();
         expect(result.infoSupported).toBe(true);
       }
     });

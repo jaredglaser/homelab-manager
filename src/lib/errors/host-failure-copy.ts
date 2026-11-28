@@ -18,6 +18,7 @@ export type HostFailureCode =
   | 'update_interrupted'
   | 'restart_unconfirmed'
   | 'version_unconfirmed'
+  | 'image_unconfirmed'
   | 'agent_did_not_restart';
 
 /** The codes a host row can carry. The CHECK in migration 045 lists the same members, so a new one needs a migration. */
@@ -131,6 +132,11 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
   version_unconfirmed: {
     headline: 'The agent is reachable but reported no version, so the update could not be confirmed.',
     fix: 'Check the agent version on the host, then retry the update if it did not change.',
+    includeDetail: false,
+  },
+  image_unconfirmed: {
+    headline: 'The agent reports the same version as before and does not report which image it runs, so the update could not be confirmed.',
+    fix: 'Check which image the agent container runs on the host, and update it by hand there if it is still the old one.',
     includeDetail: false,
   },
   agent_did_not_restart: {

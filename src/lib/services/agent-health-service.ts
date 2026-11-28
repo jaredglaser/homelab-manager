@@ -7,6 +7,7 @@ export interface AgentInfoDetail {
   agentImage?: string | null;
   agentImageTag?: string | null;
   agentImageDigest?: string | null;
+  agentSourceHash?: string | null;
   infoSupported?: boolean;
 }
 
@@ -92,6 +93,7 @@ async function fetchAgentInfo(
       agentImage: boundedAgentField(data.agentImage),
       agentImageTag: boundedAgentField(data.agentImageTag),
       agentImageDigest: boundedAgentField(data.agentImageDigest),
+      agentSourceHash: boundedAgentField(data.agentSourceHash),
       infoSupported: true,
     };
   } catch (err) {

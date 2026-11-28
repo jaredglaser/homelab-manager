@@ -109,6 +109,19 @@ describe('handleInfo', () => {
     expect(second.agentImageTag).toBe('dev');
   });
 
+  test('reports the AGENT_SOURCE_HASH build stamp, and null when the image has none', async () => {
+    const original = process.env.AGENT_SOURCE_HASH;
+    try {
+      process.env.AGENT_SOURCE_HASH = 'e'.repeat(64);
+      expect((await (await handleInfo(mockDockerClient() as any, zfsAvailable)).json()).agentSourceHash).toBe('e'.repeat(64));
+      process.env.AGENT_SOURCE_HASH = '';
+      expect((await (await handleInfo(mockDockerClient() as any, zfsAvailable)).json()).agentSourceHash).toBeNull();
+    } finally {
+      if (original === undefined) delete process.env.AGENT_SOURCE_HASH;
+      else process.env.AGENT_SOURCE_HASH = original;
+    }
+  });
+
   test('prefers the AGENT_VERSION build stamp over package.json', async () => {
     const original = process.env.AGENT_VERSION;
     process.env.AGENT_VERSION = '1.2.3';
