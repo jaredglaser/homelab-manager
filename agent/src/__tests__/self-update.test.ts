@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeAll, afterEach } from 'bun:test';
+import { describe, expect, test, mock, spyOn, beforeAll, beforeEach, afterEach } from 'bun:test';
 import Dockerode from 'dockerode';
 import { deriveHealthWaitParams, runAgentHandover, spawnUpdateHelper } from '../lib/self-update';
 
@@ -16,12 +16,15 @@ interface HandoverCapture {
   removed: boolean;
   created: Record<string, unknown>[];
   started: number;
+  inspected?: number;
   stopError?: Error;
 }
 
 interface InspectState {
   healthStatus?: string;
   running?: boolean;
+  containerHealthcheck?: Dockerode.HealthConfig;
+  targetImageHealthcheck?: Dockerode.HealthConfig;
 }
 
 function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {}) {
@@ -36,6 +39,7 @@ function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {
           Entrypoint: undefined,
           ExposedPorts: undefined,
           Labels: { 'hlm.managed': 'true' },
+          Healthcheck: inspectState.containerHealthcheck,
         },
         HostConfig: { RestartPolicy: { Name: 'unless-stopped' } },
         NetworkSettings: { Networks: { 'agent-internal': { Aliases: ['hlm-agent'], IPAddress: '172.20.0.5' } } },
@@ -56,7 +60,9 @@ function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {
       inspect: mock(() =>
         Promise.resolve({
           RepoDigests: [_id === TARGET ? [] : [PREVIOUS_DIGEST_REF]].flat(),
-          Config: { Healthcheck: undefined },
+          Config: {
+            Healthcheck: _id === TARGET ? inspectState.targetImageHealthcheck : undefined,
+          },
         }),
       ),
     })),
@@ -74,12 +80,13 @@ function handoverDocker(capture: HandoverCapture, inspectState: InspectState = {
         }),
         stop: mock(() => Promise.resolve()),
         remove: mock(() => Promise.resolve()),
-        inspect: mock(() =>
-          Promise.resolve({
+        inspect: mock(() => {
+          capture.inspected = (capture.inspected ?? 0) + 1;
+          return Promise.resolve({
             State: { Running: inspectState.running ?? true, Health: inspectState.healthStatus ? { Status: inspectState.healthStatus } : undefined },
             NetworkSettings: { Networks: { 'agent-internal': { IPAddress: '172.20.0.9' } } },
-          }),
-        ),
+          });
+        }),
       });
     }),
   } as never as Dockerode;
@@ -155,6 +162,77 @@ describe('runAgentHandover', () => {
     expect(capture.created).toHaveLength(2);
     expect((capture.created[1] as { Image?: string }).Image).toBe(PREVIOUS_DIGEST_REF);
     expect(capture.started).toBe(2);
+  });
+
+  const composeHttpsHealthcheck: Dockerode.HealthConfig = {
+    Test: ['CMD-SHELL', "bun -e \"fetch('https://localhost:' + (process.env.AGENT_PORT || 9090) + '/health')\""],
+    Interval: 30_000_000_000,
+    Timeout: 5_000_000_000,
+    StartPeriod: 15_000_000_000,
+    Retries: 3,
+  };
+
+  test('replaces a container carrying the old compose healthcheck without it, so the new image probe runs', async () => {
+    const capture: HandoverCapture = { pulled: [], stopped: false, removed: false, created: [], started: 0 };
+    const docker = handoverDocker(capture, { healthStatus: 'healthy', containerHealthcheck: composeHttpsHealthcheck });
+
+    const result = await runAgentHandover(docker, { containerName: 'hlm-agent', targetImage: TARGET, agentPort: 9090 });
+
+    expect(result.rolledBack).toBe(false);
+    expect(capture.created).toHaveLength(1);
+    expect(capture.created[0]).toHaveProperty('Healthcheck', undefined);
+  });
+
+  test('restores the previous container healthcheck when it rolls back', async () => {
+    const capture: HandoverCapture = { pulled: [], stopped: false, removed: false, created: [], started: 0 };
+    const docker = handoverDocker(capture, { healthStatus: 'unhealthy', containerHealthcheck: composeHttpsHealthcheck });
+
+    const result = await runAgentHandover(docker, { containerName: 'hlm-agent', targetImage: TARGET, agentPort: 9090 });
+
+    expect(result.rolledBack).toBe(true);
+    expect(capture.created).toHaveLength(2);
+    expect(capture.created[0]).toHaveProperty('Healthcheck', undefined);
+    expect(capture.created[1]).toMatchObject({ Image: PREVIOUS_DIGEST_REF, Healthcheck: composeHttpsHealthcheck });
+  });
+
+  describe('health wait window', () => {
+    let timeoutSpy: ReturnType<typeof spyOn<typeof globalThis, 'setTimeout'>>;
+    beforeEach(() => {
+      timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void) => {
+        cb();
+        return 0;
+      }) as never);
+    });
+    afterEach(() => {
+      timeoutSpy.mockRestore();
+    });
+
+    test('sizes the wait from the target image healthcheck when the container has none', async () => {
+      const capture: HandoverCapture = { pulled: [], stopped: false, removed: false, created: [], started: 0 };
+      const docker = handoverDocker(capture, {
+        healthStatus: 'starting',
+        targetImageHealthcheck: { Interval: 1_000_000_000, StartPeriod: 0, Retries: 1 },
+      });
+
+      const result = await runAgentHandover(docker, { containerName: 'hlm-agent', targetImage: TARGET, agentPort: 9090 });
+
+      expect(result.rolledBack).toBe(true);
+      expect(capture.inspected).toBe(Math.ceil((1_000 * 2 + 10_000) / 1_000));
+    });
+
+    test('sizes the wait from the target image healthcheck, not the one the old container carried', async () => {
+      const capture: HandoverCapture = { pulled: [], stopped: false, removed: false, created: [], started: 0 };
+      const docker = handoverDocker(capture, {
+        healthStatus: 'starting',
+        containerHealthcheck: { Interval: 1_000_000_000, StartPeriod: 0, Retries: 9 },
+        targetImageHealthcheck: { Interval: 1_000_000_000, StartPeriod: 0, Retries: 1 },
+      });
+
+      const result = await runAgentHandover(docker, { containerName: 'hlm-agent', targetImage: TARGET, agentPort: 9090 });
+
+      expect(result.rolledBack).toBe(true);
+      expect(capture.inspected).toBe(Math.ceil((1_000 * 2 + 10_000) / 1_000));
+    });
   });
 
   test('verifies a healthcheck-less image over the internal /health endpoint', async () => {

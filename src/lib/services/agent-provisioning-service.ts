@@ -5,7 +5,7 @@ import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { isTlsFailureCode, type TlsFailureCode } from '@homelab-manager/agent/types';
 
-/** The compose healthcheck fetches https://localhost, so the cert must verify for it. */
+/** The agent image's healthcheck fetches https://localhost with this cert as its CA, so the cert must verify for it. */
 const HEALTHCHECK_EXTRA_SANS = ['localhost'] as const;
 
 /** The manager targets the agent container by its contractual compose name. */

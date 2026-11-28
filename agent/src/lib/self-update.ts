@@ -54,6 +54,7 @@ function buildContainerOptions(
   image: string,
   info: Dockerode.ContainerInspectInfo,
   containerName: string,
+  healthcheck: Dockerode.HealthConfig | undefined,
 ): Dockerode.ContainerCreateOptions {
   return {
     name: containerName,
@@ -66,6 +67,7 @@ function buildContainerOptions(
     HostConfig: info.HostConfig,
     ExposedPorts: info.Config.ExposedPorts,
     Labels: info.Config.Labels,
+    Healthcheck: healthcheck,
     NetworkingConfig: {
       EndpointsConfig: info.NetworkSettings.Networks as Record<
         string,
@@ -116,7 +118,8 @@ async function rollback(
       await failedContainer.remove({ force: true }).catch(() => {});
     }
     const rolledBackContainer = await docker.createContainer(
-      buildContainerOptions(previousImage, previousInfo, previousInfo.Name.replace(/^\//, '')),
+      // Docker copied the image's healthcheck, or the compose file's, into this config: restoring it brings the container back as it ran.
+      buildContainerOptions(previousImage, previousInfo, previousInfo.Name.replace(/^\//, ''), previousInfo.Config.Healthcheck),
     );
     await rolledBackContainer.start();
     console.info(`Rolled back to previous image: ${previousImage}`);
@@ -171,7 +174,8 @@ export async function runAgentHandover(
 
     console.info(`Creating agent container: ${opts.containerName}`);
     replacement = await docker.createContainer(
-      buildContainerOptions(opts.targetImage, containerInfo, opts.containerName),
+      // The new image's own HEALTHCHECK applies. A probe carried from the old container would outlive the image it was written for.
+      buildContainerOptions(opts.targetImage, containerInfo, opts.containerName, undefined),
     );
     await replacement.start();
 
