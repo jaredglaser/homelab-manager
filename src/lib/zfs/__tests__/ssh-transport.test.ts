@@ -19,6 +19,7 @@ import { waitForCondition } from '@/lib/test/wait-for-condition';
 const hostKey = utils.generateKeyPairSync('ed25519');
 const clientKey = utils.generateKeyPairSync('ed25519');
 const strangerKey = utils.generateKeyPairSync('ed25519');
+const rsaHostKey = utils.generateKeyPairSync('rsa', { bits: 2048 });
 const allowed = utils.parseKey(clientKey.public);
 if (allowed instanceof Error) throw allowed;
 const parsedHost = utils.parseKey(hostKey.private);
@@ -214,7 +215,7 @@ describe('ssh2 transport', () => {
   });
 
   test('reports a node without an ed25519 host key as such, not as a generic failure', async () => {
-    const rsaOnly = new Server({ hostKeys: [utils.generateKeyPairSync('rsa', { bits: 2048 }).private] }, (client) => {
+    const rsaOnly = new Server({ hostKeys: [rsaHostKey.private] }, (client) => {
       client.on('error', () => {});
     });
     await new Promise<void>((resolve) => rsaOnly.listen(0, '127.0.0.1', () => resolve()));
