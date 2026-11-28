@@ -21,11 +21,14 @@ export interface ZpoolStatsLine {
 
 export type InfluxLine =
   | { kind: 'stats'; line: ZpoolStatsLine }
+  /** `zpool_vdev_stats` follows the last `zpool_stats` line of a pool, so the pool's devices are all in. */
+  | { kind: 'pool-end'; pool: string }
   /** A measurement this reader does not use, such as `zpool_scan_stats` or `zpool_vdev_stats`. */
   | { kind: 'other' }
   | { kind: 'malformed'; reason: string };
 
 const STATS_MEASUREMENT = 'zpool_stats';
+const POOL_END_MEASUREMENT = 'zpool_vdev_stats';
 
 /** Splits on `separator` where it is not escaped with a backslash, keeping the escapes for `unescape`. */
 function splitUnescaped(text: string, separator: string): string[] {
@@ -87,7 +90,8 @@ export function parseInfluxLine(raw: string): InfluxLine {
   const [series, fieldSet, timestamp] = sections;
 
   const [measurement, ...tagPairs] = splitUnescaped(series, ',');
-  if (unescape(measurement) !== STATS_MEASUREMENT) return { kind: 'other' };
+  const measurementName = unescape(measurement);
+  if (measurementName !== STATS_MEASUREMENT && measurementName !== POOL_END_MEASUREMENT) return { kind: 'other' };
 
   const tags = new Map<string, string>();
   for (const pair of tagPairs) {
@@ -95,6 +99,11 @@ export function parseInfluxLine(raw: string): InfluxLine {
     if (!parsed) return { kind: 'malformed', reason: 'unreadable tag' };
     tags.set(parsed[0], unescape(parsed[1]));
   }
+  if (measurementName === POOL_END_MEASUREMENT) {
+    const pool = tags.get('name');
+    return pool ? { kind: 'pool-end', pool } : { kind: 'malformed', reason: 'pool end line without a name tag' };
+  }
+
   const fields = new Map<string, string>();
   for (const pair of splitUnescaped(fieldSet, ',')) {
     const parsed = splitPair(pair);

@@ -106,7 +106,7 @@ function indexLayout(pool: StatusPool): { nodes: LayoutNode[]; byKey: Map<string
   return { nodes, byKey };
 }
 
-function freeBytes(device: StatusDevice): string | null {
+function freeBytes(device: Pick<StatusDevice, 'allocBytes' | 'totalBytes'>): string | null {
   if (device.allocBytes === null || device.totalBytes === null) return null;
   const free = BigInt(device.totalBytes) - BigInt(device.allocBytes);
   return free < 0n ? '0' : free.toString();
@@ -171,7 +171,7 @@ export function buildZfsSampleRows({ host, time, lines, layout, tracker }: ZfsSa
     if (poolLines) poolLines.push(line);
     else linesByPool.set(line.pool, [line]);
   }
-  if (linesByPool.size === 0) return [row({ time, host, pool: '' }, '', 'host', 0)];
+  if (linesByPool.size === 0 && (layout ?? []).length === 0) return [row({ time, host, pool: '' }, '', 'host', 0)];
 
   const rows: NewZFSStat[] = [];
   for (const [poolName, poolLines] of [...linesByPool.entries()].sort(([a], [b]) => a.localeCompare(b))) {
@@ -186,34 +186,49 @@ export function buildZfsSampleRows({ host, time, lines, layout, tracker }: ZfsSa
     rows.push(row(base, zfsEntitySegment(poolName), 'pool', 0, lineValues(rootLine, tracker.rates(rootLine), true)));
 
     const poolLayout = layout?.find((pool) => pool.name === poolName);
-    if (!poolLayout) continue;
-    const { nodes, byKey: layoutByKey } = indexLayout(poolLayout);
-    const lineByNode = new Map<LayoutNode, ZpoolStatsLine>();
-    for (const [key, node] of layoutByKey) {
-      const line = byKey.get(key);
-      if (line) lineByNode.set(node, line);
-    }
-
-    for (const node of nodes) {
-      const line = lineByNode.get(node);
-      if (line) {
-        rows.push(row(base, node.entity, node.entityType, node.depth, lineValues(line, tracker.rates(line), node.topLevel)));
-        continue;
-      }
-      const device = node.device;
-      rows.push(row(base, node.entity, node.entityType, node.depth, device ? {
-        ...(node.topLevel && device.allocBytes !== null ? { capacityAllocBytes: device.allocBytes, capacityFreeBytes: freeBytes(device) } : {}),
-        state: device.state,
-        readErrors: device.readErrors,
-        writeErrors: device.writeErrors,
-        checksumErrors: device.checksumErrors,
-      } : {}));
-    }
+    if (poolLayout) rows.push(...deviceRows(base, poolLayout, byKey, tracker));
   }
-  return rows;
+  for (const pool of layout ?? []) {
+    if (linesByPool.has(pool.name)) continue;
+    const base = { time, host, pool: pool.name };
+    rows.push(row(base, zfsEntitySegment(pool.name), 'pool', 0, {
+      ...(pool.allocBytes !== null && pool.totalBytes !== null
+        ? { capacityAllocBytes: pool.allocBytes, capacityFreeBytes: freeBytes({ allocBytes: pool.allocBytes, totalBytes: pool.totalBytes }) }
+        : {}),
+      state: pool.state,
+    }));
+    rows.push(...deviceRows(base, pool, new Map(), tracker));
+  }
+  return rows.sort((a, b) => a.pool.localeCompare(b.pool));
 }
 
-/** Pool names in a sample, for telling whether the layout is out of date. */
-export function samplePoolNames(lines: ZpoolStatsLine[]): string[] {
-  return [...new Set(lines.map((line) => line.pool))].sort((a, b) => a.localeCompare(b));
+function deviceRows(
+  base: { time: Date; host: string; pool: string },
+  poolLayout: StatusPool,
+  byKey: Map<string, ZpoolStatsLine>,
+  tracker: ZfsCounterTracker,
+): NewZFSStat[] {
+  const rows: NewZFSStat[] = [];
+  const { nodes, byKey: layoutByKey } = indexLayout(poolLayout);
+  const lineByNode = new Map<LayoutNode, ZpoolStatsLine>();
+  for (const [key, node] of layoutByKey) {
+    const line = byKey.get(key);
+    if (line) lineByNode.set(node, line);
+  }
+  for (const node of nodes) {
+    const line = lineByNode.get(node);
+    if (line) {
+      rows.push(row(base, node.entity, node.entityType, node.depth, lineValues(line, tracker.rates(line), node.topLevel)));
+      continue;
+    }
+    const device = node.device;
+    rows.push(row(base, node.entity, node.entityType, node.depth, device ? {
+      ...(node.topLevel && device.allocBytes !== null ? { capacityAllocBytes: device.allocBytes, capacityFreeBytes: freeBytes(device) } : {}),
+      state: device.state,
+      readErrors: device.readErrors,
+      writeErrors: device.writeErrors,
+      checksumErrors: device.checksumErrors,
+    } : {}));
+  }
+  return rows;
 }

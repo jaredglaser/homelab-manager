@@ -37,8 +37,17 @@ export interface ZfsSshStream {
   close(): void;
 }
 
+/** zpool status for a large pool is tens of KiB. Anything past this is not output the dispatcher produces. */
+export const MAX_EXEC_OUTPUT_BYTES = 4 * 1024 * 1024;
+
+/** Not one of the dispatcher's two commands, so it answers at once without touching ZFS. */
+export const LIVENESS_COMMAND = 'homelab-manager-liveness';
+
 export interface ZfsSshSession {
-  exec(command: string, timeoutMs: number): Promise<ZfsExecResult>;
+  /** `timeoutMs` null waits for the command however long it takes. */
+  exec(command: string, timeoutMs: number | null): Promise<ZfsExecResult>;
+  /** True when the node answers a command within `timeoutMs`, which tells a live session from a dead one. */
+  isResponsive(timeoutMs: number): Promise<boolean>;
   stream(command: string): Promise<ZfsSshStream>;
   /** Called once when the connection drops or is closed. */
   onClose(listener: () => void): void;
@@ -172,18 +181,48 @@ export function createSsh2Transport(): ZfsSshTransport {
                 }
                 const stream = channelSession(channel);
                 let stdout = '';
-                const timer = setTimeout(() => {
+                let failed = false;
+                const timer = execTimeoutMs === null ? undefined : setTimeout(() => {
+                  failed = true;
                   stream.close();
                   rejectExec(new ZfsSshError('timeout', `${command} did not finish within ${execTimeoutMs}ms`));
                 }, execTimeoutMs);
                 stream.onData((chunk) => {
+                  if (failed) return;
                   stdout += chunk;
+                  if (stdout.length > MAX_EXEC_OUTPUT_BYTES) {
+                    failed = true;
+                    clearTimeout(timer);
+                    stream.close();
+                    rejectExec(new ZfsSshError('error', `${command} printed more than ${MAX_EXEC_OUTPUT_BYTES} bytes`));
+                  }
                 });
                 stream.onClose((code, stderr) => {
                   clearTimeout(timer);
-                  resolveExec({ code, stdout, stderr });
+                  if (!failed) resolveExec({ code, stdout, stderr });
                 });
               });
+            }),
+            isResponsive: (probeTimeoutMs) => new Promise<boolean>((resolveProbe) => {
+              const timer = setTimeout(() => resolveProbe(false), probeTimeoutMs);
+              try {
+                client.exec(LIVENESS_COMMAND, (err, channel) => {
+                  if (err) {
+                    clearTimeout(timer);
+                    resolveProbe(false);
+                    return;
+                  }
+                  const probe = channelSession(channel);
+                  probe.onData(() => {});
+                  probe.onClose(() => {
+                    clearTimeout(timer);
+                    resolveProbe(true);
+                  });
+                });
+              } catch {
+                clearTimeout(timer);
+                resolveProbe(false);
+              }
             }),
             stream: (command) => new Promise<ZfsSshStream>((resolveStream, rejectStream) => {
               client.exec(command, (err, channel) => {
@@ -219,4 +258,12 @@ export function createSsh2Transport(): ZfsSshTransport {
       });
     },
   };
+}
+
+/** Node output goes to the worker log, so terminal escapes and carriage returns in it must not reach the terminal. */
+export function printableNodeText(text: string, maxLength = 500): string {
+  return text
+    .replaceAll(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replaceAll(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '?')
+    .slice(0, maxLength);
 }

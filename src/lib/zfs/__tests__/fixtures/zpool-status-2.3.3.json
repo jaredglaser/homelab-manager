@@ -79,7 +79,7 @@
       "name": "tank",
       "type": "POOL",
       "state": "DEGRADED",
-      "pool_guid": 100000000000118786,
+      "pool_guid": 100000000000150462,
       "txg": 4126,
       "spa_version": 5000,
       "zpl_version": 5,
@@ -87,12 +87,12 @@
         "tank": {
           "name": "tank",
           "vdev_type": "root",
-          "guid": 100000000000110867,
+          "guid": 100000000000142543,
           "class": "normal",
           "state": "DEGRADED",
-          "alloc_space": 6597070815232,
-          "total_space": 12007655817216,
-          "def_space": 12007655817216,
+          "alloc_space": 6608881278976,
+          "total_space": 12627814797312,
+          "def_space": 12627814797312,
           "read_errors": 0,
           "write_errors": 0,
           "checksum_errors": 0,
@@ -202,11 +202,74 @@
           }
         }
       },
+      "special": {
+        "mirror-2": {
+          "name": "mirror-2",
+          "vdev_type": "mirror",
+          "guid": 100000000000110867,
+          "class": "special",
+          "state": "ONLINE",
+          "alloc_space": 10737418240,
+          "total_space": 498216206336,
+          "def_space": 498216206336,
+          "read_errors": 0,
+          "write_errors": 0,
+          "checksum_errors": 0,
+          "vdevs": {
+            "nvme-META_A": {
+              "name": "nvme-META_A",
+              "vdev_type": "disk",
+              "guid": 100000000000095029,
+              "path": "/dev/disk/by-id/nvme-META_A-part1",
+              "class": "special",
+              "state": "ONLINE",
+              "rep_dev_size": 1000204886016,
+              "phys_space": 1000204886016,
+              "read_errors": 0,
+              "write_errors": 0,
+              "checksum_errors": 0,
+              "slow_ios": 0
+            },
+            "nvme-META_B": {
+              "name": "nvme-META_B",
+              "vdev_type": "disk",
+              "guid": 100000000000102948,
+              "path": "/dev/disk/by-id/nvme-META_B-part1",
+              "class": "special",
+              "state": "ONLINE",
+              "rep_dev_size": 1000204886016,
+              "phys_space": 1000204886016,
+              "read_errors": 0,
+              "write_errors": 0,
+              "checksum_errors": 0,
+              "slow_ios": 0
+            }
+          }
+        }
+      },
+      "dedup": {
+        "nvme-DDT": {
+          "name": "nvme-DDT",
+          "vdev_type": "disk",
+          "guid": 100000000000118786,
+          "path": "/dev/disk/by-id/nvme-DDT-part1",
+          "class": "dedup",
+          "state": "ONLINE",
+          "alloc_space": 1073741824,
+          "total_space": 128043712512,
+          "rep_dev_size": 128043712512,
+          "phys_space": 128043712512,
+          "read_errors": 0,
+          "write_errors": 0,
+          "checksum_errors": 0,
+          "slow_ios": 0
+        }
+      },
       "l2cache": {
         "nvme-CACHE_A": {
           "name": "nvme-CACHE_A",
           "vdev_type": "disk",
-          "guid": 100000000000095029,
+          "guid": 100000000000126705,
           "path": "/dev/disk/by-id/nvme-CACHE_A-part1",
           "class": "l2cache",
           "state": "ONLINE",
@@ -224,7 +287,7 @@
         "ata-HDD_SPARE": {
           "name": "ata-HDD_SPARE",
           "vdev_type": "disk",
-          "guid": 100000000000102948,
+          "guid": 100000000000134624,
           "path": "/dev/disk/by-id/ata-HDD_SPARE-part1",
           "class": "spare",
           "state": "AVAIL"

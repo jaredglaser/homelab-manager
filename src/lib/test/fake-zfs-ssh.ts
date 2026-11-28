@@ -23,6 +23,8 @@ export interface FakeNodeBehaviour {
   influx: (request: number) => string | null;
   /** Exit status zpool_influxdb exits with as soon as it starts, or null to keep running. */
   influxExit: number | null;
+  /** Whether the session still answers the liveness command. */
+  responsive: boolean;
 }
 
 export class FakeStream implements ZfsSshStream {
@@ -73,20 +75,35 @@ export class FakeSession implements ZfsSshSession {
   streams: FakeStream[] = [];
   statusCalls = 0;
   private readonly closeListeners: (() => void)[] = [];
-  private readonly hangingExecs: ((err: Error) => void)[] = [];
+  private readonly hangingExecs: { resolve: (result: ZfsExecResult) => void; reject: (err: Error) => void }[] = [];
+  livenessChecks = 0;
 
   constructor(private readonly behaviour: FakeNodeBehaviour) {}
 
-  exec(command: string, timeoutMs: number): Promise<ZfsExecResult> {
+  exec(command: string, _timeoutMs: number | null): Promise<ZfsExecResult> {
     if (command !== ZFS_STATUS_COMMAND) return Promise.resolve({ code: 126, stdout: '', stderr: 'refused' });
     this.statusCalls++;
     const status = this.behaviour.status;
     if (status === 'hang') {
-      return new Promise((_resolve, reject) => {
-        this.hangingExecs.push(() => reject(new ZfsSshError('timeout', `status hung past ${timeoutMs}ms`)));
+      return new Promise((resolve, reject) => {
+        this.hangingExecs.push({ resolve, reject });
       });
     }
     return Promise.resolve(status);
+  }
+
+  /** Lets every hung status read finish, as a pool that resumes would. */
+  releaseStatus(result: ZfsExecResult): void {
+    for (const exec of this.hangingExecs.splice(0)) exec.resolve(result);
+  }
+
+  get statusOutstanding(): number {
+    return this.hangingExecs.length;
+  }
+
+  isResponsive(_timeoutMs: number): Promise<boolean> {
+    this.livenessChecks++;
+    return Promise.resolve(!this.closed && this.behaviour.responsive);
   }
 
   stream(command: string): Promise<ZfsSshStream> {
@@ -108,7 +125,7 @@ export class FakeSession implements ZfsSshSession {
     if (this.closed) return;
     this.closed = true;
     for (const stream of this.streams) stream.close();
-    for (const reject of this.hangingExecs) reject(new ZfsSshError('error', 'session closed'));
+    for (const exec of this.hangingExecs.splice(0)) exec.reject(new ZfsSshError('error', 'session closed'));
     for (const listener of this.closeListeners) listener();
   }
 }
@@ -131,6 +148,7 @@ export class FakeZfsTransport implements ZfsSshTransport {
       status: { code: 0, stdout: EMPTY_STATUS, stderr: '' },
       influx: () => '',
       influxExit: null,
+      responsive: true,
       ...behaviour,
     };
   }

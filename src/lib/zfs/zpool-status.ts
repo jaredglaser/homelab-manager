@@ -26,6 +26,8 @@ export interface StatusGroup {
 export interface StatusPool {
   name: string;
   state: string | null;
+  allocBytes: string | null;
+  totalBytes: string | null;
   /** Data devices directly under the pool, in the order zpool lists them. */
   devices: StatusDevice[];
   groups: StatusGroup[];
@@ -142,6 +144,8 @@ export function readZpoolStatus(stdout: string): StatusPool[] {
     return {
       name: raw.name,
       state: raw.state ?? null,
+      allocBytes: countText(root?.alloc_space),
+      totalBytes: countText(root?.total_space),
       devices: root ? readDevices(root.vdevs) : [],
       groups,
     };

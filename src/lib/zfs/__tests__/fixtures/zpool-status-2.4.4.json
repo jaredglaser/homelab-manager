@@ -9,7 +9,7 @@
       "name": "rpool",
       "type": "POOL",
       "state": "ONLINE",
-      "pool_guid": 100000000000142543,
+      "pool_guid": 100000000000174219,
       "txg": 4126,
       "spa_version": 5000,
       "zpl_version": 5,
@@ -17,7 +17,7 @@
         "rpool": {
           "name": "rpool",
           "vdev_type": "root",
-          "guid": 100000000000134624,
+          "guid": 100000000000166300,
           "class": "normal",
           "state": "ONLINE",
           "alloc_space": 21474836480,
@@ -30,7 +30,7 @@
             "nvme-BOOT-part3": {
               "name": "nvme-BOOT-part3",
               "vdev_type": "disk",
-              "guid": 100000000000126705,
+              "guid": 100000000000158381,
               "path": "/dev/disk/by-id/nvme-BOOT-part3",
               "class": "normal",
               "state": "ONLINE",
@@ -51,8 +51,8 @@
     "tank": {
       "name": "tank",
       "type": "POOL",
-      "state": "ONLINE",
-      "pool_guid": 100000000000229652,
+      "state": "DEGRADED",
+      "pool_guid": 100000000000269247,
       "txg": 4126,
       "spa_version": 5000,
       "zpl_version": 5,
@@ -60,12 +60,12 @@
         "tank": {
           "name": "tank",
           "vdev_type": "root",
-          "guid": 100000000000221733,
+          "guid": 100000000000261328,
           "class": "normal",
-          "state": "ONLINE",
+          "state": "DEGRADED",
           "alloc_space": 2210834415616,
-          "total_space": 8626173132800,
-          "def_space": 8626173132800,
+          "total_space": 8642279260160,
+          "def_space": 8642279260160,
           "read_errors": 0,
           "write_errors": 0,
           "checksum_errors": 0,
@@ -73,9 +73,9 @@
             "mirror-0": {
               "name": "mirror-0",
               "vdev_type": "mirror",
-              "guid": 100000000000166300,
+              "guid": 100000000000197976,
               "class": "normal",
-              "state": "ONLINE",
+              "state": "DEGRADED",
               "alloc_space": 2199023255552,
               "total_space": 7999913213952,
               "def_space": 7999913213952,
@@ -86,7 +86,7 @@
                 "ata-HDD_4": {
                   "name": "ata-HDD_4",
                   "vdev_type": "disk",
-                  "guid": 100000000000150462,
+                  "guid": 100000000000182138,
                   "path": "/dev/disk/by-id/ata-HDD_4-part1",
                   "class": "normal",
                   "state": "ONLINE",
@@ -100,15 +100,15 @@
                 "ata-HDD_5": {
                   "name": "ata-HDD_5",
                   "vdev_type": "disk",
-                  "guid": 100000000000158381,
+                  "guid": 100000000000190057,
                   "path": "/dev/disk/by-id/ata-HDD_5-part1",
                   "class": "normal",
-                  "state": "ONLINE",
+                  "state": "UNAVAIL",
                   "rep_dev_size": 1000204886016,
                   "phys_space": 1000204886016,
                   "read_errors": 0,
-                  "write_errors": 0,
-                  "checksum_errors": 0,
+                  "write_errors": 5,
+                  "checksum_errors": 7,
                   "slow_ios": 0
                 }
               }
@@ -116,11 +116,29 @@
           }
         }
       },
+      "logs": {
+        "nvme-LOG_C": {
+          "name": "nvme-LOG_C",
+          "vdev_type": "disk",
+          "guid": 100000000000205895,
+          "path": "/dev/disk/by-id/nvme-LOG_C-part1",
+          "class": "log",
+          "state": "ONLINE",
+          "alloc_space": 0,
+          "total_space": 16106127360,
+          "rep_dev_size": 16106127360,
+          "phys_space": 16106127360,
+          "read_errors": 0,
+          "write_errors": 0,
+          "checksum_errors": 0,
+          "slow_ios": 0
+        }
+      },
       "special": {
-        "mirror-1": {
-          "name": "mirror-1",
+        "mirror-2": {
+          "name": "mirror-2",
           "vdev_type": "mirror",
-          "guid": 100000000000190057,
+          "guid": 100000000000229652,
           "class": "special",
           "state": "ONLINE",
           "alloc_space": 10737418240,
@@ -130,11 +148,11 @@
           "write_errors": 0,
           "checksum_errors": 0,
           "vdevs": {
-            "nvme-META_A": {
-              "name": "nvme-META_A",
+            "nvme-META_C": {
+              "name": "nvme-META_C",
               "vdev_type": "disk",
-              "guid": 100000000000174219,
-              "path": "/dev/disk/by-id/nvme-META_A-part1",
+              "guid": 100000000000213814,
+              "path": "/dev/disk/by-id/nvme-META_C-part1",
               "class": "special",
               "state": "ONLINE",
               "rep_dev_size": 1000204886016,
@@ -144,11 +162,11 @@
               "checksum_errors": 0,
               "slow_ios": 0
             },
-            "nvme-META_B": {
-              "name": "nvme-META_B",
+            "nvme-META_D": {
+              "name": "nvme-META_D",
               "vdev_type": "disk",
-              "guid": 100000000000182138,
-              "path": "/dev/disk/by-id/nvme-META_B-part1",
+              "guid": 100000000000221733,
+              "path": "/dev/disk/by-id/nvme-META_D-part1",
               "class": "special",
               "state": "ONLINE",
               "rep_dev_size": 1000204886016,
@@ -165,7 +183,7 @@
         "nvme-DDT": {
           "name": "nvme-DDT",
           "vdev_type": "disk",
-          "guid": 100000000000197976,
+          "guid": 100000000000237571,
           "path": "/dev/disk/by-id/nvme-DDT-part1",
           "class": "dedup",
           "state": "ONLINE",
@@ -183,7 +201,7 @@
         "nvme-CACHE_B": {
           "name": "nvme-CACHE_B",
           "vdev_type": "disk",
-          "guid": 100000000000205895,
+          "guid": 100000000000245490,
           "path": "/dev/disk/by-id/nvme-CACHE_B-part1",
           "class": "l2cache",
           "state": "ONLINE",
@@ -201,7 +219,7 @@
         "ata-HDD_SPARE2": {
           "name": "ata-HDD_SPARE2",
           "vdev_type": "disk",
-          "guid": 100000000000213814,
+          "guid": 100000000000253409,
           "path": "/dev/disk/by-id/ata-HDD_SPARE2-part1",
           "class": "spare",
           "state": "AVAIL"

@@ -6,7 +6,7 @@ import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
 import type { ZFSStatsRow } from '@/types/zfs';
 import { parseInfluxLine, type ZpoolStatsLine } from '../zpool-influxdb';
 import { readZpoolStatus, ZpoolStatusError } from '../zpool-status';
-import { buildZfsSampleRows, influxDeviceKey, samplePoolNames, ZfsCounterTracker } from '../zfs-sample';
+import { buildZfsSampleRows, influxDeviceKey, ZfsCounterTracker } from '../zfs-sample';
 
 const FIXTURES = join(import.meta.dir, 'fixtures');
 const VERSIONS = ['2.3.3', '2.4.4'] as const;
@@ -113,44 +113,74 @@ describe('influxDeviceKey', () => {
 });
 
 describe('buildZfsSampleRows', () => {
-  it.each(VERSIONS)('lays out every device, group, cache and spare of OpenZFS %s', (version) => {
-    const { second } = twoSamples(version);
-    const rows = byEntity(second);
+  const EXPECTED = {
+    '2.3.3': {
+      tank: { alloc: '6608881278976', free: String(12627814797312 - 6608881278976), state: 'DEGRADED' },
+      failed: { entity: 'tank/raidz1-0/ata-HDD_2', state: 'FAULTED', readErrors: '3', writeErrors: '0', checksumErrors: '12' },
+      logs: 'tank/@logs/mirror-1/nvme-LOG_A',
+      special: 'tank/@special/mirror-2/nvme-META_B',
+      cache: { entity: 'tank/@cache/nvme-CACHE_A', alloc: '53687091200', free: '202373423104' },
+      spare: 'tank/@spares/ata-HDD_SPARE',
+    },
+    '2.4.4': {
+      tank: { alloc: '2210834415616', free: String(8642279260160 - 2210834415616), state: 'DEGRADED' },
+      failed: { entity: 'tank/mirror-0/ata-HDD_5', state: 'UNAVAIL', readErrors: '0', writeErrors: '5', checksumErrors: '7' },
+      logs: 'tank/@logs/nvme-LOG_C',
+      special: 'tank/@special/mirror-2/nvme-META_D',
+      cache: { entity: 'tank/@cache/nvme-CACHE_B', alloc: '0', free: '256060514304' },
+      spare: 'tank/@spares/ata-HDD_SPARE2',
+    },
+  } as const;
 
-    expect(samplePoolNames(fixtureLines(version, 2))).toEqual(['rpool', 'tank']);
-    expect(rows.get('rpool')).toMatchObject({ entityType: 'pool', indent: 0, state: 'ONLINE' });
-    expect(rows.get('tank/@cache')).toMatchObject({ entityType: 'group', readOpsPerSec: null });
-    expect(rows.get('tank/@spares')).toMatchObject({ entityType: 'group' });
+  it.each(VERSIONS)('reads the pool numbers of OpenZFS %s: capacity, state and rates from the counters', (version) => {
+    const { first, second } = twoSamples(version);
+    const tank = byEntity(second).get('tank');
+    const expected = EXPECTED[version].tank;
+
+    expect(byEntity(first).get('tank')?.readOpsPerSec).toBeNull();
+    expect(tank).toMatchObject({
+      entityType: 'pool', indent: 0, state: expected.state,
+      capacityAllocBytes: expected.alloc, capacityFreeBytes: expected.free,
+      readOpsPerSec: 100, writeOpsPerSec: 200, readBytesPerSec: 409600, writeBytesPerSec: 819200,
+      readErrors: '0', writeErrors: '0', checksumErrors: '0',
+    });
+    expect(byEntity(second).get('rpool')).toMatchObject({ state: 'ONLINE', readOpsPerSec: 100 });
     for (const row of second) {
       expect(row.time).toEqual(new Date(2000));
       expect(row.host).toBe('pve1');
     }
   });
 
-  it('places the OpenZFS 2.3.3 log mirror, cache and spare under their groups with their own state', () => {
-    const rows = byEntity(twoSamples('2.3.3').second);
+  it.each(VERSIONS)('places every device group of OpenZFS %s, with a failed device keeping its state and error counters', (version) => {
+    const rows = byEntity(twoSamples(version).second);
+    const expected = EXPECTED[version];
 
-    expect(rows.get('tank/raidz1-0')).toMatchObject({ entityType: 'vdev', indent: 2, state: 'DEGRADED' });
-    expect(rows.get('tank/raidz1-0/ata-HDD_2')).toMatchObject({
-      entityType: 'disk', indent: 4, state: 'FAULTED', readErrors: '3', checksumErrors: '12', capacityAllocBytes: null,
+    for (const group of ['@special', '@dedup', '@logs', '@cache', '@spares']) {
+      expect(rows.get(`tank/${group}`)).toMatchObject({ entityType: 'group', indent: 2, readOpsPerSec: null });
+    }
+    const { entity, ...failed } = expected.failed;
+    expect(rows.get(entity)).toMatchObject({ entityType: 'disk', capacityAllocBytes: null, ...failed });
+    expect(rows.get(entity)?.readOpsPerSec).toBeGreaterThan(0);
+    expect(rows.get(expected.logs)?.readOpsPerSec).toBeGreaterThan(0);
+    expect(rows.get(expected.special)?.writeBytesPerSec).toBeGreaterThan(0);
+    expect(rows.get('tank/@dedup/nvme-DDT')).toMatchObject({ entityType: 'disk', indent: 4, capacityAllocBytes: '1073741824' });
+    expect(rows.get('tank/@dedup/nvme-DDT')?.readOpsPerSec).toBeGreaterThan(0);
+    expect(rows.get(expected.cache.entity)).toMatchObject({
+      entityType: 'disk', capacityAllocBytes: expected.cache.alloc, capacityFreeBytes: expected.cache.free, readOpsPerSec: null,
     });
-    expect(rows.get('tank/@logs/mirror-1')).toMatchObject({ entityType: 'vdev', indent: 4 });
-    expect(rows.get('tank/@logs/mirror-1/nvme-LOG_A')?.readOpsPerSec).toBeGreaterThan(0);
-    expect(rows.get('tank/@cache/nvme-CACHE_A')).toMatchObject({
-      entityType: 'disk', capacityAllocBytes: '53687091200', capacityFreeBytes: '202373423104', readOpsPerSec: null,
-    });
-    expect(rows.get('tank/@spares/ata-HDD_SPARE')).toMatchObject({ entityType: 'disk', state: 'AVAIL', readErrors: null });
-    expect(rows.has('tank/@special')).toBe(false);
+    expect(rows.get(expected.spare)).toMatchObject({ entityType: 'disk', state: 'AVAIL', readErrors: null, readOpsPerSec: null });
   });
 
-  it('places the OpenZFS 2.4.4 special mirror and dedup disk under their groups, and a single-disk pool as one disk', () => {
-    const rows = byEntity(twoSamples('2.4.4').second);
+  it('lays out the OpenZFS 2.4.4 single-disk rpool as one disk under the pool', () => {
+    expect(byEntity(twoSamples('2.4.4').second).get('rpool/nvme-BOOT-part3')).toMatchObject({ entityType: 'disk', indent: 2, capacityAllocBytes: '21474836480' });
+  });
 
-    expect(rows.get('rpool/nvme-BOOT-part3')).toMatchObject({ entityType: 'disk', indent: 2, capacityAllocBytes: '21474836480' });
-    expect(rows.get('tank/@special/mirror-1/nvme-META_B')?.writeBytesPerSec).toBeGreaterThan(0);
-    expect(rows.get('tank/@dedup/nvme-DDT')).toMatchObject({ entityType: 'disk', indent: 4 });
-    expect(rows.get('tank/@dedup/nvme-DDT')?.readOpsPerSec).toBeGreaterThan(0);
-    expect(rows.get('tank/@spares/ata-HDD_SPARE2')).toMatchObject({ state: 'AVAIL' });
+  it('writes status-only rows for a pool in the layout that zpool_influxdb did not print', () => {
+    const lines = fixtureLines('2.3.3', 1).filter((line) => line.pool !== 'tank');
+    const rows = byEntity(buildZfsSampleRows({ host: 'pve1', time: new Date(1), lines, layout: fixtureLayout('2.3.3'), tracker: new ZfsCounterTracker() }));
+    expect(rows.get('tank')).toMatchObject({ entityType: 'pool', state: 'DEGRADED', capacityAllocBytes: '6608881278976', readOpsPerSec: null });
+    expect(rows.get('tank/raidz1-0/ata-HDD_2')).toMatchObject({ state: 'FAULTED', readErrors: '3', checksumErrors: '12', readOpsPerSec: null });
+    expect(rows.get('rpool')?.readOpsPerSec).toBeNull();
   });
 
   it.each(VERSIONS)('builds the page tree for OpenZFS %s from the rows it writes', (version) => {
@@ -158,9 +188,7 @@ describe('buildZfsSampleRows', () => {
     const tank = host.pools.get('tank')!;
 
     expect([...host.pools.keys()]).toEqual(['rpool', 'tank']);
-    expect(tank.children.filter((child) => child.type === 'group').map((child) => child.group)).toEqual(
-      version === '2.3.3' ? ['logs', 'cache', 'spares'] : ['special', 'dedup', 'cache', 'spares'],
-    );
+    expect(tank.children.filter((child) => child.type === 'group').map((child) => child.group)).toEqual(['special', 'dedup', 'logs', 'cache', 'spares']);
   });
 
   it('computes rates from the counter deltas over the node clock', () => {
@@ -174,6 +202,19 @@ describe('buildZfsSampleRows', () => {
     expect(tracker.rates(line(3_000_000_000n, 300n, 12288n))).toEqual({
       readOpsPerSec: 100, writeOpsPerSec: 0, readBytesPerSec: 4096, writeBytesPerSec: 0,
     });
+  });
+
+  it('leaves a sample blank when the node clock did not move forward', () => {
+    const tracker = new ZfsCounterTracker();
+    const line = (timestampNs: bigint, readOps: bigint): ZpoolStatsLine => ({
+      pool: 'tank', vdev: 'root', path: null, state: 'ONLINE', timestampNs,
+      allocBytes: 1n, freeBytes: 1n, readOps, writeOps: 0n, readBytes: 0n, writeBytes: 0n,
+      readErrors: 0n, writeErrors: 0n, checksumErrors: 0n,
+    });
+    tracker.rates(line(5_000_000_000n, 10n));
+    expect(tracker.rates(line(5_000_000_000n, 20n))).toBeNull();
+    expect(tracker.rates(line(4_000_000_000n, 30n))).toBeNull();
+    expect(tracker.rates(line(5_000_000_000n, 40n))?.readOpsPerSec).toBe(10);
   });
 
   it('leaves the first sample blank, and the first after counters reset, instead of a spike or a negative rate', () => {
