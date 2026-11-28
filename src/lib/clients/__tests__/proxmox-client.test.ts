@@ -263,7 +263,7 @@ describe('ProxmoxClient', () => {
       const failure = await call.then(() => null, (e: unknown) => e as ProxmoxRequestError);
       expect(failure).toBeInstanceOf(ProxmoxRequestError);
       expect(failure!.kind).toBe('unreachable');
-      expect(failure!.message).toMatch(new RegExp(`^${path.replace(/\//g, '\\/')}: unexpected response shape: data\\.1\\.`));
+      expect(failure!.message.startsWith(`${path}: unexpected response shape: data.1.`)).toBe(true);
     });
 
     it('reads a guest, node or storage name Proxmox sent as a number', async () => {
