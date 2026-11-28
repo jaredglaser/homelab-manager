@@ -118,7 +118,7 @@ async function rollback(
       await failedContainer.remove({ force: true }).catch(() => {});
     }
     const rolledBackContainer = await docker.createContainer(
-      // An image from before the HTTPS-aware probe needs the healthcheck its container ran with.
+      // Docker copied the image's healthcheck, or the compose file's, into this config: restoring it brings the container back as it ran.
       buildContainerOptions(previousImage, previousInfo, previousInfo.Name.replace(/^\//, ''), previousInfo.Config.Healthcheck),
     );
     await rolledBackContainer.start();

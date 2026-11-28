@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { probeAgentHealth, type HealthProbeDeps } from '../health-probe';
+import { PROBE_TIMEOUT_MS, probeAgentHealth, type HealthProbeDeps } from '../health-probe';
 import { isFileReadable } from '../lib/tls-enroll';
 
 let dir = '';
@@ -32,9 +32,17 @@ function freePort(): number {
   return port as number;
 }
 
-// Bun.fetch is the native fetch: the root package's Happy-DOM preload replaces globalThis.fetch.
+// The root package's Happy-DOM preload replaces fetch and AbortController, and Bun.fetch rejects a Happy-DOM signal.
+const nativeFetch = ((input: string, init?: RequestInit) => Bun.fetch(input, { ...init, signal: undefined })) as typeof fetch;
+
 function deps(env: Record<string, string | undefined>): HealthProbeDeps {
-  return { env, isReadable: isFileReadable, readFile: (path) => readFileSync(path, 'utf8'), fetch: Bun.fetch };
+  return {
+    env,
+    isReadable: isFileReadable,
+    readFile: (path) => readFileSync(path, 'utf8'),
+    fetch: nativeFetch,
+    timeoutSignal: () => new AbortController().signal,
+  };
 }
 
 beforeAll(async () => {
@@ -88,6 +96,27 @@ describe('probeAgentHealth', () => {
   test('fails when nothing answers on the port', async () => {
     expect(await probeAgentHealth(deps({ AGENT_PORT: String(freePort()) }))).toBe(false);
     expect(await probeAgentHealth(deps({ AGENT_PORT: String(freePort()), TLS_CERT_PATH: certPath, TLS_KEY_PATH: keyPath }))).toBe(false);
+  });
+
+  test('fails on its own timeout when the agent accepts the request but never answers', async () => {
+    const timeout = new AbortController();
+    const requested: number[] = [];
+    const hungFetch = ((_input: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as typeof fetch;
+    const probe = probeAgentHealth({
+      ...deps({ AGENT_PORT: '9090' }),
+      fetch: hungFetch,
+      timeoutSignal: (ms) => {
+        requested.push(ms);
+        return timeout.signal;
+      },
+    });
+    timeout.abort();
+    expect(await probe).toBe(false);
+    expect(requested).toEqual([PROBE_TIMEOUT_MS]);
+    expect(PROBE_TIMEOUT_MS).toBeLessThan(5000);
   });
 
   test('fails when only one of the TLS paths is set, as the agent refuses to start', async () => {
