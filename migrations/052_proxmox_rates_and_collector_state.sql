@@ -11,8 +11,8 @@
 -- refilled from raw, and their retention re-added, only when runStatsRollupBackfill runs after this
 -- migration, which the worker does once it has migrated.
 
--- A refresh locks an aggregate's materialization before its source. Taking the locks in any other
--- order, as ALTER TABLE proxmox_stats before the drops did, deadlocks with a running refresh policy.
+-- A refresh locks an aggregate's materialization before its source. Taking these locks in another
+-- order deadlocks with a running refresh policy.
 DO $$
 DECLARE
   cagg text;
