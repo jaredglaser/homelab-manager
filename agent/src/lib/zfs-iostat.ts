@@ -398,7 +398,7 @@ export interface ZpoolStatusSummary {
   /** Pools zpool iostat can report. It skips unavailable pools, which `zpool status` names FAULTED. */
   reportablePools: Set<string>;
   sparesByPool: Map<string, string[]>;
-  /** Sorted by pool name. Null when the pools are listed but their health is not in the shape zpool 2.3 prints. */
+  /** Sorted by pool name. Null when the pools are listed but their health is not in the shape zpool 2.3 and later prints. */
   health: ZfsPoolHealth[] | null;
 }
 
@@ -410,7 +410,7 @@ function readHealth(json: unknown): ZfsPoolHealth[] | null {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Reads `zpool status -j --json-int` output. Null when it is not the JSON zpool 2.3 prints. */
+/** Reads `zpool status -j --json-int` output. Null when it is not the JSON zpool 2.3 and later prints. */
 export function parseZpoolStatus(text: string): ZpoolStatusSummary | null {
   let json: unknown;
   try {

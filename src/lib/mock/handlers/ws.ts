@@ -10,7 +10,8 @@ import { generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
 import { loadDemoSettings } from '@/lib/mock/generators/settings';
 import { isUserSettingsKey } from '@/lib/constants/settings-keys';
 import { settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/mock/live-updates';
-import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
+import { generateZFSHealthSnapshot, generateZFSSnapshot } from '@/lib/mock/generators/zfs';
+import type { ZFSHostHealth } from '@/types/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import { parseStatsTopic, type StatsTopicSource } from '@/lib/mux/protocol';
@@ -68,6 +69,15 @@ export function statsTickFrame(topic: string, tick: number, time: Date): string 
   return eventFrame(topic, 'data', STATS_SNAPSHOTS[source](time));
 }
 
+/** An e2e init script sets this before the page loads to replace the demo's pool health. */
+interface MockZfsHealthOverride {
+  __mockZfsHealth?: ZFSHostHealth[];
+}
+
+export function mockZfsHealth(now: Date): ZFSHostHealth[] {
+  return (globalThis as MockZfsHealthOverride).__mockZfsHealth ?? generateZFSHealthSnapshot(now);
+}
+
 const mux = ws.link('*/api/mux');
 
 export interface MuxMockClient {
@@ -92,6 +102,10 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
 
   const startTopic = (topic: string) => {
     stopTopic(topic);
+    if (topic === 'zfs-health') {
+      client.send(eventFrame(topic, 'data', { hosts: mockZfsHealth(new Date()) }));
+      return;
+    }
     if (topic === 'inventory') {
       client.send(eventFrame(topic, 'data', { type: 'init', containers: generateDockerInventorySnapshot(new Date()) }));
       return;

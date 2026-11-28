@@ -504,6 +504,18 @@ describe('handleZfsStatsStream', () => {
     expect(text.split('\n\n')).toContain(':');
   });
 
+  test('polls zpool status every 5 s by default, so a health change reaches the worker within one interval', async () => {
+    fakeZpool();
+    const ac = new AbortController();
+    handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable);
+    await waitForCondition(() => statusSpawns() === 1);
+    await waitForCondition(() => {
+      for (const entry of intervals) if (entry.ms === 5000) entry.cb();
+      return statusSpawns() === 2;
+    });
+    ac.abort();
+  });
+
   test('starts every stream with the whole health, then sends it only when it changes', async () => {
     let status = statusText({ tank: { disks: { sda: {} } } });
     fakeZpool(() => ({ exitCode: 0, text: status }));

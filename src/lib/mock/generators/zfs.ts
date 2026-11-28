@@ -1,4 +1,5 @@
-import type { ZFSStatsRow } from '@/types/zfs';
+import type { ZfsScan } from '@homelab-manager/agent/types/protocol';
+import type { ZFSHostHealth, ZFSNodeHealth, ZFSPoolHealth, ZFSStatsRow } from '@/types/zfs';
 import { generateActivityMetrics } from '@/lib/mock/patterns';
 import { ZFS_ENTITIES } from '@/lib/mock/entities';
 
@@ -58,4 +59,55 @@ export function generateZFSHistory(seconds: number): ZFSStatsRow[] {
   }
 
   return rows;
+}
+
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+
+type NodeOverride = Partial<Pick<ZFSNodeHealth, 'state' | 'errors'>>;
+
+/** The demo's one failing disk: rust lost sdf, and its last scrub had found the checksum errors. */
+const NODE_OVERRIDES: Readonly<Record<string, NodeOverride>> = {
+  rust: { state: 'degraded' },
+  'rust/raidz2-0': { state: 'degraded' },
+  'rust/raidz2-0/sdf': { state: 'faulted', errors: { read: 3, write: 0, checksum: 12 } },
+};
+
+function demoScan(pool: string, now: number): ZfsScan | null {
+  if (pool === 'application') return { kind: 'scrub', state: 'running', percentDone: 42, endedAt: null, repairedBytes: 0, errors: 0 };
+  if (pool === 'rust') return { kind: 'scrub', state: 'finished', percentDone: null, endedAt: now - 4 * DAY_MS, repairedBytes: 0, errors: 0 };
+  return null;
+}
+
+/** Health for every pool in `ZFS_ENTITIES`, on the same entities, as the zfs-health topic sends it. */
+export function generateZFSHealthSnapshot(now: Date): ZFSHostHealth[] {
+  const nowMs = now.getTime();
+  const byHost = new Map<string, Map<string, ZFSPoolHealth>>();
+  for (const e of ZFS_ENTITIES) {
+    let pools = byHost.get(e.host);
+    if (!pools) {
+      pools = new Map();
+      byHost.set(e.host, pools);
+    }
+    let pool = pools.get(e.pool);
+    if (!pool) {
+      pool = { pool: e.pool, scan: demoScan(e.pool, nowMs), nodes: [] };
+      pools.set(e.pool, pool);
+    }
+    const isGroup = e.entityType === 'group';
+    pool.nodes.push({
+      entity: e.entity,
+      entityType: e.entityType,
+      state: isGroup ? null : 'online',
+      errors: isGroup || e.entityType === 'pool' || e.entity.startsWith(`${e.pool}/@spares/`) ? null : { read: 0, write: 0, checksum: 0 },
+      ...NODE_OVERRIDES[e.entity],
+    });
+  }
+  return [...byHost].map(([host, pools]) => ({
+    host,
+    readable: true,
+    connected: true,
+    lastSeenAt: nowMs,
+    pools: [...pools.values()],
+  }));
 }

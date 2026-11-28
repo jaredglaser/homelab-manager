@@ -9,6 +9,12 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useGeneralSettings } from '@/hooks/useSettings'
 import { ZFS_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadZFSStats } from '@/lib/constants/preload-queries'
 import { zfsStatsChannel } from '@/lib/channels/zfs-stats'
+import { zfsHealthChannel, type ZfsHealthMessage } from '@/lib/channels/zfs-health'
+import { useMuxQuery } from '@/lib/mux/use-mux-channel'
+import type { ZFSHostHealth } from '@/types/zfs'
+
+const NO_HEALTH: ZFSHostHealth[] = []
+const foldHealth = (_state: ZFSHostHealth[], message: ZfsHealthMessage): ZFSHostHealth[] => message.hosts
 
 export const Route = createFileRoute('/zfs')({
   ssr: false,
@@ -37,11 +43,18 @@ function ZFSPageContent() {
     initialData,
   })
 
+  const { state: health } = useMuxQuery(zfsHealthChannel, {
+    queryKey: ['zfs-health'],
+    initial: NO_HEALTH,
+    fold: foldHealth,
+  })
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <PageStatusBar left={<ZFSStatusSummary latestByEntity={stream.latestByEntity} />} />
       <ZFSPoolsTable
         latestByEntity={stream.latestByEntity}
+        health={health}
         hasData={stream.hasData}
         isConnected={stream.isConnected}
         error={stream.error}

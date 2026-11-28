@@ -284,8 +284,11 @@ describe('parseZpoolStatus', () => {
   });
 });
 
-/** Built from the zfs-2.3.3 status_callback_json in cmd/zpool/zpool_main.c (byte-identical in zfs-2.3.4), not captured from a machine. */
-function statusFixture(version: '2.3.3' | '2.3.4'): ZfsPoolHealth[] {
+/**
+ * Built from status_callback_json in cmd/zpool/zpool_main.c, not captured from a machine. The file is byte-identical
+ * in zfs-2.3.3 and zfs-2.3.4, and zfs-2.4.4 changes no key, state name or output_version in what this reads.
+ */
+function statusFixture(version: '2.3.3' | '2.3.4' | '2.4.4'): ZfsPoolHealth[] {
   const text = readFileSync(join(import.meta.dir, 'fixtures', `zpool-status-jint-${version}.json`), 'utf-8');
   const health = parseZpoolStatus(text)?.health;
   if (!health) throw new Error(`the ${version} fixture did not parse`);
@@ -314,7 +317,7 @@ describe('parseZpoolStatus health', () => {
     expect(ZPOOL_STATUS_ARGS).toEqual(['zpool', 'status', '-j', '--json-int']);
   });
 
-  test.each(['2.3.3', '2.3.4'] as const)('reads an online pool with every device group from %s', (version) => {
+  test.each(['2.3.3', '2.3.4', '2.4.4'] as const)('reads an online pool with every device group from %s', (version) => {
     const rpool = healthPool(statusFixture(version), 'rpool');
     expect(rpool.state).toBe('online');
     expect(rpool.children.map((child) => (child.kind === 'group' ? `@${child.group}` : child.name)))
@@ -362,13 +365,29 @@ describe('parseZpoolStatus health', () => {
     expect(cold.scan).toEqual({ kind: 'resilver', state: 'finished', percentDone: null, endedAt: 1763280000000, repairedBytes: 2199023255552, errors: 0 });
   });
 
+  test('reads a degraded mirror with a running scrub from 2.4.4', () => {
+    const tank = healthPool(statusFixture('2.4.4'), 'tank');
+    expect(tank.state).toBe('degraded');
+    expect(healthNode(tank.children, 'mirror-0', 'ata-WDC_WD80EFZZ-68BTXN0_WD-CA0SDA')).toMatchObject({
+      state: 'degraded', errors: { read: 0, write: 0, checksum: 41 },
+    });
+    expect(tank.scan).toEqual({ kind: 'scrub', state: 'running', percentDone: 85, endedAt: null, repairedBytes: 4096, errors: 0 });
+  });
+
+  test('reads a resilver onto a replacing disk from 2.4.4', () => {
+    const fast = healthPool(statusFixture('2.4.4'), 'fast');
+    expect(fast.scan).toMatchObject({ kind: 'resilver', state: 'running', percentDone: 10 });
+    expect(healthNode(fast.children, 'mirror-0', 'replacing-1', 'nvme-old-0001')).toMatchObject({ kind: 'disk', state: 'offline' });
+    expect(healthNode(fast.children, 'mirror-0', 'replacing-1', 'nvme-new-0002')).toMatchObject({ kind: 'disk', state: 'online' });
+  });
+
   test('reads a paused scrub and a pool of one disk from 2.3.4', () => {
     const vault = healthPool(statusFixture('2.3.4'), 'vault');
     expect(vault.scan).toEqual({ kind: 'scrub', state: 'paused', percentDone: 25, endedAt: null, repairedBytes: 0, errors: 0 });
     expect(vault.children.map((child) => child.kind)).toEqual(['disk']);
   });
 
-  test.each(['2.3.3', '2.3.4'] as const)('builds a health frame the manager accepts from %s', (version) => {
+  test.each(['2.3.3', '2.3.4', '2.4.4'] as const)('builds a health frame the manager accepts from %s', (version) => {
     expect(zZfsHealthFrame.safeParse({ v: 1, time: 1, status: 'ok', pools: statusFixture(version) }).success).toBe(true);
   });
 

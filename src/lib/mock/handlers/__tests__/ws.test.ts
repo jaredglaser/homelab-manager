@@ -8,6 +8,8 @@ import { settingsChannel, userSettingsChannel } from '@/lib/channels/settings';
 import { USER_SETTINGS_KEYS, isUserSettingsKey } from '@/lib/constants/settings-keys';
 import { stackStatusChannel } from '@/lib/channels/stack-status';
 import { dockerInventoryChannel } from '@/lib/channels/docker-inventory';
+import { zfsHealthChannel } from '@/lib/channels/zfs-health';
+import type { ZFSHostHealth } from '@/types/zfs';
 
 interface MuxFrame {
   type: string;
@@ -171,6 +173,27 @@ describe('mock mux ws handlers', () => {
     const init = conn.dataFrames('inventory').at(-1)!;
     expect((init.payload as { type: string }).type).toBe('init');
     expect(dockerInventoryChannel.schema.safeParse(init.payload).success).toBe(true);
+  });
+
+  it('serves the demo pool health on the zfs-health topic, with a degraded pool and a running scrub', () => {
+    const conn = connect();
+    conn.command('sub', ['zfs-health']);
+    const { hosts } = zfsHealthChannel.schema.parse(conn.dataFrames('zfs-health').at(-1)!.payload);
+    const pools = new Map(hosts[0].pools.map((pool) => [pool.pool, pool]));
+    expect(pools.get('rust')!.nodes[0].state).toBe('degraded');
+    expect(pools.get('application')!.scan).toMatchObject({ kind: 'scrub', state: 'running' });
+  });
+
+  it('serves the pool health an e2e script seeded instead of the demo one', () => {
+    const seeded: ZFSHostHealth[] = [{ host: 'pve9', readable: false, connected: true, lastSeenAt: 1, pools: [] }];
+    (globalThis as { __mockZfsHealth?: ZFSHostHealth[] }).__mockZfsHealth = seeded;
+    try {
+      const conn = connect();
+      conn.command('sub', ['zfs-health']);
+      expect(conn.dataFrames('zfs-health').at(-1)!.payload).toEqual({ hosts: seeded });
+    } finally {
+      delete (globalThis as { __mockZfsHealth?: ZFSHostHealth[] }).__mockZfsHealth;
+    }
   });
 
   it('rejects unknown topics with a gone error frame', () => {

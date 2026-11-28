@@ -5,13 +5,20 @@ import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
 import { EMPTY_CELL } from '@/components/ui/table';
-import type { ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
+import type { ZFSHostHealth, ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
 import { useGeneralSettings, useZfsSettings } from '@/hooks/useSettings';
 import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 import PoolSubTable from '@/components/zfs/subtables/PoolSubTable';
-import { buildHostRow } from '@/components/zfs/utils/zfs-row-builders';
+import {
+  buildHostRow,
+  healthLookup,
+  hostHealthNotice,
+  offlineHealthRows,
+  poolBanner,
+  type ZFSHealthTone,
+} from '@/components/zfs/utils/zfs-row-builders';
 import { Spinner } from '@/components/ui/spinner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -31,8 +38,12 @@ export interface ZFSTableRow {
   utilizationPercent?: number;
   /** Display helpers */
   badge?: { label: string; tooltip?: string };
+  health?: { label: string; tone: ZFSHealthTone; tooltip?: string };
+  detail?: string;
   /** Shown in the host's panel in place of its pools. */
   notice?: string;
+  /** Shown in the host's panel above its pools. */
+  healthNotice?: string;
   canExpand: boolean;
   /** Counts needed for auto-expand logic */
   totalHosts?: number;
@@ -58,12 +69,15 @@ function ZFSNameCell({ row }: Readonly<{ row: { original: ZFSTableRow; getIsExpa
       isExpanded={row.getIsExpanded()}
       canExpand={data.canExpand}
       badge={data.badge}
+      health={data.health}
+      detail={data.detail}
     />
   );
 }
 
 interface ZFSPoolsTableProps {
   latestByEntity: Map<string, ZFSStatsRow>;
+  health: readonly ZFSHostHealth[];
   hasData: boolean;
   isConnected: boolean;
   error: Error | null;
@@ -72,6 +86,7 @@ interface ZFSPoolsTableProps {
 
 export default function ZFSPoolsTable({
   latestByEntity,
+  health,
   hasData,
   isConnected,
   error,
@@ -90,8 +105,9 @@ export default function ZFSPoolsTable({
 
   const hostHierarchy = useMemo<ZFSHostHierarchy>(() => {
     const rows = Array.from(latestByEntity.values());
-    return buildZFSHostHierarchy(rows);
-  }, [latestByEntity]);
+    const hostsWithStats = new Set(rows.map((row) => row.host));
+    return buildZFSHostHierarchy([...rows, ...offlineHealthRows(health, hostsWithStats)]);
+  }, [latestByEntity, health]);
 
   /** Convert the ZFS hierarchy Maps into a flat host array for DataTable */
   const tableData = useMemo<ZFSTableRow[]>(() => {
@@ -99,16 +115,29 @@ export default function ZFSPoolsTable({
     const sortedHosts = Array.from(hostHierarchy.values()).sort((a, b) =>
       a.hostName.localeCompare(b.hostName),
     );
+    const lookup = healthLookup(health);
+    const healthByHost = new Map(health.map((host) => [host.host, host]));
 
-    return sortedHosts.map((host) => buildHostRow(host, totalHosts));
-  }, [hostHierarchy]);
+    return sortedHosts.map((host) => buildHostRow(
+      host,
+      totalHosts,
+      lookup,
+      hostHealthNotice(healthByHost.get(host.hostName), general.use12HourTime),
+    ));
+  }, [hostHierarchy, health, general.use12HourTime]);
+
+  const banners = useMemo(() => health.flatMap((host) => host.pools.flatMap((pool) => {
+    const state = pool.nodes[0].state;
+    const banner = state ? poolBanner(pool.pool, host.host, state) : null;
+    return banner ? [{ id: `${host.host}/${pool.nodes[0].entity}`, ...banner }] : [];
+  })), [health]);
 
   /** Host-level expansion state only */
   const expandedState = useMemo<ExpandedState>(() => {
     const state: Record<string, boolean> = {};
     for (const hostRow of tableData) {
       if (hostRow.type === 'host' && hostRow.totalHosts != null) {
-        state[hostRow.id] = hostRow.notice !== undefined || isZfsHostExpanded(hostRow.name, hostRow.totalHosts);
+        state[hostRow.id] = hostRow.notice !== undefined || hostRow.healthNotice !== undefined || isZfsHostExpanded(hostRow.name, hostRow.totalHosts);
       }
     }
     return state;
@@ -232,16 +261,24 @@ export default function ZFSPoolsTable({
           </Alert>
         );
       }
-      if (!row.children?.length) return null;
+      const healthNotice = row.healthNotice ? (
+        <Alert variant="warning" className="my-2">
+          <AlertDescription>{row.healthNotice}</AlertDescription>
+        </Alert>
+      ) : null;
+      if (!row.children?.length) return healthNotice;
       return (
-        <PoolSubTable
-          pools={row.children}
-          columns={columns}
-          isPoolExpanded={isPoolExpanded}
-          togglePoolExpanded={togglePoolExpanded}
-          isVdevExpanded={isVdevExpanded}
-          toggleVdevExpanded={toggleVdevExpanded}
-        />
+        <>
+          {healthNotice}
+          <PoolSubTable
+            pools={row.children}
+            columns={columns}
+            isPoolExpanded={isPoolExpanded}
+            togglePoolExpanded={togglePoolExpanded}
+            isVdevExpanded={isVdevExpanded}
+            toggleVdevExpanded={toggleVdevExpanded}
+          />
+        </>
       );
     },
     [columns, isPoolExpanded, togglePoolExpanded, isVdevExpanded, toggleVdevExpanded],
@@ -272,6 +309,11 @@ export default function ZFSPoolsTable({
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full">
       <StaleDataAlert isStale={isStale} />
+      {banners.map((banner) => (
+        <Alert key={banner.id} variant={banner.tone === 'error' ? 'error' : 'warning'} className="mb-2">
+          <AlertDescription>{banner.message}</AlertDescription>
+        </Alert>
+      ))}
       <DataTable
         data={tableData}
         columns={columns}

@@ -1,8 +1,11 @@
-import { memo } from 'react';
+import { memo, type ReactElement } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronRight, Server } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import type { ZFSHealthTone } from '@/components/zfs/utils/zfs-row-builders';
+
+const TONE_VARIANTS = { ok: 'outline', warning: 'warning', error: 'destructive' } as const satisfies Record<ZFSHealthTone, string>;
 
 interface ZFSEntityCellProps {
   name: string;
@@ -11,6 +14,18 @@ interface ZFSEntityCellProps {
   isExpanded?: boolean;
   canExpand?: boolean;
   badge?: { label: string; tooltip?: string };
+  health?: { label: string; tone: ZFSHealthTone; tooltip?: string };
+  detail?: string;
+}
+
+function WithTooltip({ chip, tooltip }: Readonly<{ chip: ReactElement; tooltip?: string }>) {
+  if (!tooltip) return chip;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={chip} />
+      <TooltipContent side="bottom">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 /**
@@ -24,12 +39,11 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
   isExpanded,
   canExpand,
   badge,
+  health,
+  detail,
 }: Readonly<ZFSEntityCellProps>) {
   const isBold = entityType === 'host' || entityType === 'pool';
 
-  const chipEl = badge ? (
-    <Badge variant="secondary">{badge.label}</Badge>
-  ) : null;
 
   return (
     <div
@@ -44,14 +58,9 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
       )}
       {entityType === 'host' && <Server size={18} />}
       <span className={cn('truncate', isBold ? 'font-bold' : 'text-sm', entityType === 'group' && 'text-muted-foreground')}>{name}</span>
-      {badge?.tooltip ? (
-        <Tooltip>
-          <TooltipTrigger render={chipEl!} />
-          <TooltipContent side="bottom">{badge.tooltip}</TooltipContent>
-        </Tooltip>
-      ) : (
-        chipEl
-      )}
+      {health && <WithTooltip chip={<Badge variant={TONE_VARIANTS[health.tone]}>{health.label}</Badge>} tooltip={health.tooltip} />}
+      {badge && <WithTooltip chip={<Badge variant="secondary">{badge.label}</Badge>} tooltip={badge.tooltip} />}
+      {detail && <span className="truncate text-xs text-muted-foreground" title={detail}>{detail}</span>}
     </div>
   );
 });
