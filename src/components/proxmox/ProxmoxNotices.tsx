@@ -3,8 +3,6 @@ import type { ProxmoxStateMessage } from '@/lib/channels/proxmox-state'
 import type { ProxmoxCollectorStateView } from '@/types/proxmox'
 
 export const PROXMOX_NOT_SET_UP = "Proxmox isn't set up. Add your cluster in Settings, under Proxmox."
-export const PROXMOX_COLLECTOR_OFF =
-  "The worker isn't collecting Proxmox stats. Set WORKER_PROXMOX_ENABLED=true on the worker container and restart it."
 export const PROXMOX_TOKEN_REJECTED =
   'Proxmox rejected the API token. Check the token ID and secret, and that the token can read the cluster.'
 export const PROXMOX_CERTIFICATE_REFUSED =
@@ -54,8 +52,6 @@ export function proxmoxStateNotices(
     switch (connection.state) {
       case 'collecting':
         return []
-      case 'collector_off':
-        return [{ key, text: PROXMOX_COLLECTOR_OFF }]
       case 'unreachable':
         return dataOnScreen === null ? [] : [{ key, text: unreachableMessage(connection, use12Hour, dataOnScreen) }]
       case 'token_rejected':

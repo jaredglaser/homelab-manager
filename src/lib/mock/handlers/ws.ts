@@ -84,7 +84,7 @@ function mockOverrides(): MockMuxOverrides {
 
 export function mockProxmoxState(now: Date): ProxmoxCollectorStateView[] {
   return mockOverrides().__mockProxmoxState ?? [{
-    connectionId: PROXMOX_HOST,
+    connectionId: '1',
     host: PROXMOX_HOST,
     port: 8006,
     state: 'collecting',

@@ -69,7 +69,7 @@ const PROXMOX_STATE_QUERY_KEY = ['proxmox-state']
 const keepLatestState = (_prev: ProxmoxStateMessage | null, next: ProxmoxStateMessage) => next
 
 /**
- * Live Proxmox content. The worker's recorded state decides the notices (not set up, collector off,
+ * Live Proxmox content. The worker's recorded state decides the notices (not set up,
  * unreachable, token rejected, certificate refused) and the last data stays on screen under them.
  */
 function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {

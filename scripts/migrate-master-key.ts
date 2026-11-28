@@ -2,8 +2,8 @@
 /**
  * Master key migration CLI.
  *
- * Re-encrypts all JWE-encrypted values in stack_secrets, agent_keypairs, and
- * git_tokens from one key version (--from <kid>) to another (--to <kid>).
+ * Re-encrypts all JWE-encrypted values in stack_secrets, agent_keypairs,
+ * git_tokens and proxmox_connections from one key version (--from <kid>) to another (--to <kid>).
  * Session rows (sessions.encrypted_oidc) are deliberately excluded: they
  * expire on their own TTL and an undecryptable session only forces a re-login.
  *
@@ -18,8 +18,8 @@
  * the old key is still in the keyring and can decrypt them on the next run.
  */
 import { readFileSync } from 'node:fs';
-import { Pool, type PoolClient, type QueryResultRow } from 'pg';
-import { compactDecrypt, CompactEncrypt } from 'jose';
+import { Pool } from 'pg';
+import { migrateAllTables, type KeyContext } from './master-key-tables';
 
 // ---- CLI arg parsing -------------------------------------------------------
 
@@ -49,9 +49,6 @@ function parseArgs(): { from: string; to: string } {
 }
 
 // ---- Key loading (inline, no imports from src/ so this runs standalone) ---
-
-const KEY_ALG = 'dir';
-const ENC_ALG = 'A256GCM';
 
 async function loadKey(kid: string): Promise<CryptoKey> {
   const raw = readKeyBase64(kid);
@@ -104,29 +101,6 @@ function readKeyBase64(kid: string): string {
   );
 }
 
-async function decryptJwe(jwe: string, key: CryptoKey): Promise<string> {
-  const { plaintext } = await compactDecrypt(jwe, key);
-  return new TextDecoder().decode(plaintext);
-}
-
-async function encryptJwe(plaintext: string, kid: string, key: CryptoKey): Promise<string> {
-  return new CompactEncrypt(new TextEncoder().encode(plaintext))
-    .setProtectedHeader({ alg: KEY_ALG, enc: ENC_ALG, kid })
-    .encrypt(key);
-}
-
-/** Extract the KID from a JWE compact serialization without full decryption. */
-function extractKid(jwe: string): string | null {
-  const header = jwe.split('.')[0];
-  if (!header) return null;
-  try {
-    const decoded = JSON.parse(Buffer.from(header, 'base64url').toString('utf-8')) as Record<string, unknown>;
-    return typeof decoded.kid === 'string' ? decoded.kid : null;
-  } catch {
-    return null;
-  }
-}
-
 // ---- Database helpers -------------------------------------------------------
 
 function buildPool(): Pool {
@@ -139,105 +113,6 @@ function buildPool(): Pool {
     max: 3,
   });
 }
-
-// ---- Migration logic --------------------------------------------------------
-
-interface KeyContext {
-  fromKid: string;
-  toKid: string;
-  fromKey: CryptoKey;
-  toKey: CryptoKey;
-}
-
-interface TableMigration<Row extends QueryResultRow> {
-  table: string;
-  select: string;
-  ciphertextOf: (row: Row) => string | null;
-  describe: (row: Row) => string;
-  update: (client: PoolClient, row: Row, newJwe: string) => Promise<unknown>;
-}
-
-async function migrateTable<Row extends QueryResultRow>(
-  pool: Pool,
-  keys: KeyContext,
-  spec: TableMigration<Row>,
-): Promise<number> {
-  const result = await pool.query<Row>(spec.select);
-
-  let count = 0;
-
-  for (const row of result.rows) {
-    const ciphertext = spec.ciphertextOf(row);
-    if (ciphertext === null) continue;
-    if (extractKid(ciphertext) !== keys.fromKid) continue;
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const plaintext = await decryptJwe(ciphertext, keys.fromKey);
-      const newJwe = await encryptJwe(plaintext, keys.toKid, keys.toKey);
-
-      await spec.update(client, row, newJwe);
-
-      await client.query('COMMIT');
-      count++;
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw new Error(`Failed to migrate ${spec.table}(${spec.describe(row)}): ${String(err)}`);
-    } finally {
-      client.release();
-    }
-  }
-
-  return count;
-}
-
-const STACK_SECRETS: TableMigration<{
-  stack_name: string;
-  variable_name: string;
-  ciphertext_jwe: string;
-}> = {
-  table: 'stack_secrets',
-  select: 'SELECT stack_name, variable_name, ciphertext_jwe FROM stack_secrets',
-  ciphertextOf: row => row.ciphertext_jwe,
-  describe: row => `${row.stack_name}, ${row.variable_name}`,
-  update: (client, row, newJwe) =>
-    client.query(
-      `UPDATE stack_secrets
-          SET ciphertext_jwe = $1, updated_at = now()
-        WHERE stack_name = $2 AND variable_name = $3`,
-      [newJwe, row.stack_name, row.variable_name],
-    ),
-};
-
-const AGENT_KEYPAIRS: TableMigration<{ host_name: string; private_jwk_jwe: string }> = {
-  table: 'agent_keypairs',
-  select: 'SELECT host_name, private_jwk_jwe FROM agent_keypairs',
-  ciphertextOf: row => row.private_jwk_jwe,
-  describe: row => row.host_name,
-  update: (client, row, newJwe) =>
-    client.query(
-      `UPDATE agent_keypairs
-          SET private_jwk_jwe = $1, rotated_at = now()
-        WHERE host_name = $2`,
-      [newJwe, row.host_name],
-    ),
-};
-
-const GIT_TOKENS: TableMigration<{ id: number; encrypted_token: string }> = {
-  table: 'git_tokens',
-  select: 'SELECT id, encrypted_token FROM git_tokens',
-  ciphertextOf: row => row.encrypted_token,
-  describe: row => String(row.id),
-  update: (client, row, newJwe) =>
-    client.query(
-      `UPDATE git_tokens
-          SET encrypted_token = $1
-        WHERE id = $2`,
-      [newJwe, row.id],
-    ),
-};
 
 // ---- Entry point ------------------------------------------------------------
 
@@ -256,11 +131,9 @@ async function main(): Promise<void> {
 
     const keys: KeyContext = { fromKid, toKid, fromKey, toKey };
 
-    const secretsMigrated = await migrateTable(pool, keys, STACK_SECRETS);
-    const keypairsMigrated = await migrateTable(pool, keys, AGENT_KEYPAIRS);
-    const tokensMigrated = await migrateTable(pool, keys, GIT_TOKENS);
-
-    console.info(`Migration complete: ${secretsMigrated} secret(s), ${keypairsMigrated} keypair(s), ${tokensMigrated} git token(s) migrated.`);
+    const counts = await migrateAllTables(pool, keys);
+    const summary = Object.entries(counts).map(([table, count]) => `${table} ${count}`).join(', ');
+    console.info(`Migration complete, rows re-encrypted: ${summary}.`);
   } catch (err) {
     console.error('Migration failed:', err);
     process.exit(1);

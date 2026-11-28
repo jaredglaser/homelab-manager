@@ -2,7 +2,6 @@ import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import {
   PROXMOX_CERTIFICATE_REFUSED,
-  PROXMOX_COLLECTOR_OFF,
   PROXMOX_LIVE_CONNECTION_LOST,
   PROXMOX_NOT_SET_UP,
   PROXMOX_TOKEN_REJECTED,
@@ -31,9 +30,6 @@ function connection(overrides: Partial<ProxmoxCollectorStateView>): ProxmoxColle
 describe('Proxmox notice copy', () => {
   it('pins the accepted messages word for word', () => {
     expect(PROXMOX_NOT_SET_UP).toBe("Proxmox isn't set up. Add your cluster in Settings, under Proxmox.");
-    expect(PROXMOX_COLLECTOR_OFF).toBe(
-      "The worker isn't collecting Proxmox stats. Set WORKER_PROXMOX_ENABLED=true on the worker container and restart it.",
-    );
     expect(unreachableMessage(connection({}), false, true)).toBe(
       "Can't reach Proxmox at pve.lan:8006. Showing the last data, from 10:42.",
     );
@@ -71,7 +67,6 @@ describe('proxmoxStateNotices', () => {
 
   it.each([
     ['collecting', []],
-    ['collector_off', [PROXMOX_COLLECTOR_OFF]],
     ['unreachable', ["Can't reach Proxmox at pve.lan:8006. Showing the last data, from 10:42 AM."]],
     ['token_rejected', [PROXMOX_TOKEN_REJECTED]],
     ['certificate_refused', [PROXMOX_CERTIFICATE_REFUSED]],
@@ -110,7 +105,7 @@ describe('proxmoxDataExpected', () => {
     expect(proxmoxDataExpected(null)).toBe(true);
     expect(proxmoxDataExpected({ connections: [connection({})] })).toBe(true);
     expect(proxmoxDataExpected({ connections: [] })).toBe(false);
-    expect(proxmoxDataExpected({ connections: [connection({ state: 'collector_off' })] })).toBe(false);
+    expect(proxmoxDataExpected({ connections: [connection({ state: 'token_rejected' })] })).toBe(false);
   });
 });
 

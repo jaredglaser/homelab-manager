@@ -31,7 +31,6 @@ const { unreachableMessage } = await import('@/components/proxmox/ProxmoxNotices
 const ProxmoxPage = Route.options.component!;
 
 const W1 = "Proxmox isn't set up. Add your cluster in Settings, under Proxmox.";
-const W2 = "The worker isn't collecting Proxmox stats. Set WORKER_PROXMOX_ENABLED=true on the worker container and restart it.";
 const W4 = 'Proxmox rejected the API token. Check the token ID and secret, and that the token can read the cluster.';
 const W5 = "Proxmox's certificate isn't trusted. Allow self-signed certificates for this connection, or give Proxmox a trusted certificate.";
 const W6 = 'Lost the live connection. Reconnecting…';
@@ -178,7 +177,6 @@ describe('Proxmox page, worker state', () => {
 
   it.each([
     ['no connection is set up', [] as ProxmoxCollectorStateView[], W1],
-    ['the collector is off', [connection({ state: 'collector_off', lastSuccessAt: null })], W2],
     ['the token is rejected', [connection({ state: 'token_rejected' })], W4],
     ['the certificate is refused', [connection({ state: 'certificate_refused' })], W5],
   ])('shows the accepted message when %s', async (_, connections, message) => {

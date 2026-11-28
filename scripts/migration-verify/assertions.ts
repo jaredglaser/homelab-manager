@@ -1753,21 +1753,44 @@ export async function assertProxmoxStateNotify(pool: Pool, checks: Checks): Prom
   }
 }
 
-/** A worker restart must not replace a recorded failure with the startup `collecting` row. */
-export async function assertStartupCollectingWrite(pool: Pool, checks: Checks): Promise<void> {
+/** The page lists saved connections, reading an unreported one as collecting, and a removed one's late state write is cleared. */
+export async function assertProxmoxConnections(pool: Pool, checks: Checks): Promise<void> {
   const repo = new ProxmoxStateRepository(pool);
-  const ids = { failed: 'ci-startup-failed', off: 'ci-startup-off', absent: 'ci-startup-absent' };
+  const ids: number[] = [];
   try {
-    await repo.record({ connectionId: ids.failed, host: 'a.lan', port: 8006, state: 'token_rejected', reason: 'HTTP 401', lastSuccessAt: null });
-    await repo.record({ connectionId: ids.off, host: 'b.lan', port: 8006, state: 'collector_off', reason: null, lastSuccessAt: null });
-    for (const [id, host] of [[ids.failed, 'a.lan'], [ids.off, 'b.lan'], [ids.absent, 'c.lan']]) {
-      await repo.recordCollectingIfUnknown({ connectionId: id, host, port: 8006 });
+    for (const address of ['ci-a.lan', 'ci-b.lan']) {
+      const { rows } = await pool.query<{ id: number }>(
+        `INSERT INTO proxmox_connections (name, address, token_id, token_secret_jwe)
+         VALUES ($1, $1, 'root@pam!ci', 'not-a-real-jwe') RETURNING id`,
+        [address]
+      );
+      ids.push(rows[0].id);
     }
-    const states = new Map((await repo.list()).map((c) => [c.connectionId, c.state]));
-    checks.equal('the startup write keeps a recorded token_rejected', states.get(ids.failed), 'token_rejected');
-    checks.equal('the startup write replaces collector_off with collecting', states.get(ids.off), 'collecting');
-    checks.equal('the startup write inserts collecting where no row exists', states.get(ids.absent), 'collecting');
+    const [reported, unreported] = ids.map(String);
+    await repo.record({ connectionId: reported, host: 'ci-a.lan', port: 8006, state: 'token_rejected', reason: 'HTTP 401', lastSuccessAt: null });
+    await repo.record({ connectionId: 'ci-removed', host: 'gone.lan', port: 8006, state: 'unreachable', reason: null, lastSuccessAt: null });
+
+    const listed = new Map((await repo.list()).map((c) => [c.connectionId, c]));
+    checks.equal('a reported connection lists its recorded state', listed.get(reported)?.state, 'token_rejected');
+    checks.equal('an unreported connection lists as collecting', listed.get(unreported)?.state, 'collecting');
+    checks.equal('an unreported connection lists its saved address', listed.get(unreported)?.host, 'ci-b.lan');
+    checks.equal('a state row without a saved connection is not listed', listed.has('ci-removed'), false);
+
+    await repo.removeOrphans();
+    const { rows: left } = await pool.query<{ connection_id: string }>('SELECT connection_id FROM proxmox_collector_state');
+    checks.sameSet('removeOrphans keeps only the rows of saved connections', left.map((r) => r.connection_id), [reported]);
+
+    const refused = await pool.query(
+      "INSERT INTO proxmox_collector_state (connection_id, host, port, state) VALUES ('ci-off', 'x.lan', 8006, 'collector_off')"
+    ).then(() => false, (err: { code?: string }) => err.code === FAILURE_CHECK_VIOLATION);
+    checks.equal('proxmox_collector_state refuses the removed collector_off state', refused, true);
+
+    const duplicate = await pool.query(
+      "INSERT INTO proxmox_connections (name, address, token_id, token_secret_jwe) VALUES ('dup', 'CI-A.lan', 'root@pam!ci', 'x')"
+    ).then(() => false, (err: { code?: string }) => err.code === '23505');
+    checks.equal('proxmox_connections refuses a second connection to one address, in any case', duplicate, true);
   } finally {
-    await pool.query('DELETE FROM proxmox_collector_state WHERE connection_id = ANY($1::text[])', [Object.values(ids)]);
+    await pool.query('DELETE FROM proxmox_collector_state WHERE connection_id = ANY($1::text[])', [[...ids.map(String), 'ci-removed']]);
+    await pool.query('DELETE FROM proxmox_connections WHERE id = ANY($1::int[])', [ids]);
   }
 }
