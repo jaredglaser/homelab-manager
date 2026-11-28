@@ -202,7 +202,7 @@ describe('generateAgentStackCompose', () => {
     expect(Object.keys(zfsParsed.services).sort()).toEqual(['agent', 'stacks-dir-init']);
   });
 
-  it('agent gets TLS env, ca trust, and an https healthcheck override', () => {
+  it('agent gets TLS env and leaves the healthcheck to its image', () => {
     const result = generateAgentStackCompose(dockerOnlyConfig);
     const parsed = parseYaml(result);
     const agent = parsed.services['agent'];
@@ -210,9 +210,8 @@ describe('generateAgentStackCompose', () => {
     expect(agent.environment.AGENT_CONTAINER_NAME).toBe('hlm-agent');
     expect(agent.environment.TLS_CERT_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
     expect(agent.environment.TLS_KEY_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/key.pem');
-    expect(agent.environment.NODE_EXTRA_CA_CERTS).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
-    expect(agent.healthcheck.test[0]).toBe('CMD-SHELL');
-    expect(agent.healthcheck.test[1]).toContain("fetch('https://localhost:'");
+    expect(agent.environment.NODE_EXTRA_CA_CERTS).toBeUndefined();
+    expect(agent.healthcheck).toBeUndefined();
   });
 
   it('TLS paths never vary with the host name', () => {

@@ -12,19 +12,10 @@ import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
-import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, resolveTlsStartup } from './lib/tls-enroll';
+import { handleTlsChallenge, handleTlsEnroll, HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT, isFileReadable, resolveTlsStartup } from './lib/tls-enroll';
 import { createFetchHandler, type ExecWebSocketData } from './lib/request-handler';
 import { certificateFingerprint } from './lib/cert-fingerprint';
 import { scheduleSelfRestart } from './lib/self-restart';
-
-function isFileReadable(path: string): boolean {
-  try {
-    accessSync(path, constants.R_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const portEnv = process.env.AGENT_PORT;
 let PORT = 9090;

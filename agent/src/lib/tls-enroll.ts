@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { verifyPayloadSignature } from './jwt-auth';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentErrorBody, TlsFailureCode } from '../types';
 
@@ -67,6 +67,15 @@ export function isAllowedOverPlainHttp(pathname: string): boolean {
 // Derived from the Set so the startup warning and the 403 error cannot drift
 // from the actual allowlist when a path is added or renamed.
 export const HTTP_ENROLLMENT_ALLOWED_PATHS_TEXT = [...HTTP_ENROLLMENT_ALLOWED_PATHS].join(', ');
+
+export function isFileReadable(path: string): boolean {
+  try {
+    accessSync(path, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** A missing certificate must fall back to the restricted surface, since that is how the manager
  *  enrolls one. Only a half-configured path pair is fatal. */
