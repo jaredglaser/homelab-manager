@@ -19,10 +19,7 @@ interface CounterSample {
   writeBytes: bigint;
 }
 
-/**
- * Turns the cumulative counters of each device into per-second rates over the node's own clock.
- * A device's first sample, and any sample whose counters went backwards (reboot, export and import), is blank.
- */
+/** A device's first sample, and any whose counters went backwards (reboot, export and import), is blank. */
 export class ZfsCounterTracker {
   private readonly previous = new Map<string, CounterSample>();
 
@@ -159,11 +156,7 @@ export interface ZfsSampleInput {
   tracker: ZfsCounterTracker;
 }
 
-/**
- * One row per pool, device group, vdev and disk. The pools are the ones `zpool_influxdb` printed. A pool
- * imported since the last `zpool status` gets its pool row only until the layout catches up. A sample with
- * no pools gets one `host` row, so the node's newest sample still moves on.
- */
+/** A node with no pools gets one `host` row per sample, so its newest sample still moves on. */
 export function buildZfsSampleRows({ host, time, lines, layout, tracker }: ZfsSampleInput): NewZFSStat[] {
   const linesByPool = new Map<string, ZpoolStatsLine[]>();
   for (const line of lines) {

@@ -28,7 +28,6 @@ export interface ZfsNodeSummary {
   lastSuccessAt: number | null;
 }
 
-/** Why connecting or reading failed, as the probe and the collector classify it. */
 export type ZfsNodeFailure = Exclude<ZfsNodeState, 'pending' | 'ok'>;
 
 function lastData(lastSuccessAt: number | null, formatTime: (ms: number) => string): string {
@@ -52,7 +51,6 @@ export const AGENT_ZFS_MOVED_MESSAGE =
 
 export const ZFS_NODE_PENDING_MESSAGE = 'Waiting for the host key to be confirmed. Collection starts after that.';
 
-/** The notice for a node whose collection is not running normally, or null when it is. */
 export function zfsNodeNotice(
   node: Pick<ZfsNodeSummary, 'name' | 'port' | 'state' | 'lastSuccessAt'>,
   formatTime: (ms: number) => string,
@@ -82,7 +80,6 @@ export function zfsNodeNotice(
   }
 }
 
-/** Hours and minutes, for the time of a node's last data. */
 export function formatNoticeTime(ms: number, use12HourTime: boolean): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: use12HourTime });
 }

@@ -6,7 +6,6 @@ import { ZFS_NODE_STATES, type ZfsNodeFailure, type ZfsNodeSummary } from '@/lib
 
 export const ZFS_NODES_NOTIFY_CHANNEL = 'zfs_nodes_change';
 
-/** What the worker needs to connect: the summary plus the decrypted key. */
 export interface ZfsNodeConnection extends ZfsNodeSummary {
   username: string;
   privateKey: string;
@@ -145,10 +144,7 @@ export class ZfsNodeRepository {
     return result.rows[0] ? this.toConnection(result.rows[0]) : null;
   }
 
-  /**
-   * Every node with a confirmed host key and a key this keyring can decrypt. A node whose key it
-   * cannot decrypt is marked `key_unreadable` and left out, so it never blocks the others.
-   */
+  /** A node whose key this keyring cannot decrypt is marked and left out, so it never blocks the others. */
   async listCollectable(): Promise<ZfsNodeConnection[]> {
     const result = await this.pool.query<ZfsNodeKeyRow>(
       `SELECT id, name, address, port, allowed_from, state, host_key_fingerprint, seen_host_key_fingerprint, last_success_at, username, private_key_jwe FROM zfs_nodes

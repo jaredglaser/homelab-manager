@@ -1,4 +1,3 @@
-/** The user the setup script creates on each ZFS node. */
 export const ZFS_NODE_USER = 'hlm';
 export const ZFS_NODE_HOME = '/var/lib/hlm';
 export const ZFS_DISPATCH_PATH = '/usr/local/libexec/homelab-manager/zfs-read';
@@ -7,9 +6,7 @@ export const ZFS_DISPATCH_PATH = '/usr/local/libexec/homelab-manager/zfs-read';
 export const ZFS_INFLUXDB_COMMAND = 'zpool_influxdb --execd --no-histograms';
 export const ZFS_STATUS_COMMAND = 'zpool status -j --json-int';
 
-/** Exit status of the dispatcher when the binary behind an allowed command is not installed. */
 export const DISPATCH_EXIT_MISSING = 127;
-/** Exit status of the dispatcher for any command it does not allow. */
 export const DISPATCH_EXIT_REFUSED = 126;
 
 export interface DispatcherPaths {
@@ -32,11 +29,7 @@ function pathList(paths: readonly string[]): string {
   return paths.join(' ');
 }
 
-/**
- * The script sshd runs for every login with the app's key, both as the forced command and as the
- * user's shell. It reads SSH_ORIGINAL_COMMAND, runs one of the two allowed reads with fixed
- * arguments, and refuses everything else. It never echoes the command back.
- */
+/** It never echoes the command back, so a crafted command cannot write escapes to the caller's terminal. */
 export function buildDispatcherScript(paths: DispatcherPaths = DEFAULT_DISPATCHER_PATHS): string {
   return `#!/bin/sh
 # Installed by homelab-manager. Runs two read-only ZFS commands for the ${ZFS_NODE_USER} user and refuses the rest.
@@ -110,11 +103,7 @@ Match all
 `;
 }
 
-/**
- * The script the user pastes on the node as root. Running it again replaces the dispatcher, the key
- * line and the sshd settings, so it also repairs a node whose key was refused. The home directory,
- * `.ssh` and `authorized_keys` are owned by root, so the hlm user cannot change which key it accepts.
- */
+/** Running it again replaces everything it installs, which is how a node whose key was refused is repaired. */
 export function buildSetupScript(input: SetupScriptInput): string {
   const keyLine = buildAuthorizedKeysLine(input);
   const dispatcher = buildDispatcherScript(input.paths);

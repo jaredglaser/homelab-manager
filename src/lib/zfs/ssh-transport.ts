@@ -84,11 +84,12 @@ const SSH_LIVENESS_MISSES = 3;
 
 const UNREACHABLE_CODES = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT', 'ECONNRESET', 'EPIPE']);
 
-export function classifyConnectError(err: unknown): ZfsSshFailureKind {
+/** `sawHostKey` is false when the handshake ended before a host key was offered, which with only ed25519 allowed means the node has none. */
+export function classifyConnectError(err: unknown, sawHostKey = true): ZfsSshFailureKind {
   const level = (err as { level?: string }).level;
   const code = (err as { code?: string }).code;
   if (level === 'client-authentication') return 'key_refused';
-  if (err instanceof Error && err.message.includes('no matching host key format')) return 'no_ed25519_key';
+  if (level === 'handshake' && !sawHostKey) return 'no_ed25519_key';
   if (level === 'client-timeout' || level === 'client-socket') return 'unreachable';
   if (code !== undefined && UNREACHABLE_CODES.has(code)) return 'unreachable';
   return 'error';
@@ -161,7 +162,7 @@ export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTrans
             fail(new ZfsSshError('host_key', 'The node presented a host key that is not confirmed', presented));
             return;
           }
-          fail(new ZfsSshError(classifyConnectError(err), err.message));
+          fail(new ZfsSshError(classifyConnectError(err, presented !== null), err.message));
         });
         client.on('close', () => {
           if (!settled) {
@@ -268,10 +269,17 @@ export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTrans
   };
 }
 
-/** Node output goes to the worker log, so terminal escapes and carriage returns in it must not reach the terminal. */
+/** Node output goes to the worker log, so terminal escapes, newlines and carriage returns in it must not reach the terminal. */
 export function printableNodeText(text: string, maxLength = 500): string {
-  return text
-    .replaceAll(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
-    .replaceAll(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/g, '?')
-    .slice(0, maxLength);
+  let out = '';
+  for (let i = 0; i < text.length && out.length < maxLength; i++) {
+    const code = text.charCodeAt(i);
+    if (code === 0x1b && text[i + 1] === '[') {
+      i += 2;
+      while (i < text.length && !(text.charCodeAt(i) >= 0x40 && text.charCodeAt(i) <= 0x7e)) i++;
+      continue;
+    }
+    out += code === 0x09 || (code >= 0x20 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f)) ? text[i] : '?';
+  }
+  return out;
 }

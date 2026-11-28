@@ -33,8 +33,10 @@ let scanResult: ScanZfsNodeResult
 let confirmResult: VerifyZfsNodeResult
 let verifyResult: VerifyZfsNodeResult
 const calls: { fn: string; data: unknown }[] = []
+const failing = new Set<string>()
 const record = <T,>(fn: string, value: () => T) => (args?: { data?: unknown }) => {
   calls.push({ fn, data: args?.data })
+  if (failing.has(fn)) return Promise.reject(new Error(`${fn} failed on the server`))
   return Promise.resolve(value())
 }
 
@@ -65,6 +67,7 @@ beforeEach(() => {
   seedSession('admin')
   nodes = []
   calls.length = 0
+  failing.clear()
   showToast.mockClear()
   createResult = { ok: true, node: makeNode({ state: 'pending', hostKeyFingerprint: null, lastSuccessAt: null }), setupScript: '#!/bin/sh\necho setup\n' }
   scanResult = { ok: true, fingerprint: FINGERPRINT, confirmed: false }
@@ -197,5 +200,73 @@ describe('ZfsNodesCard', () => {
     await user.click(screen.getByLabelText('Remove pve1'))
     expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY)
     expect(calls.map((call) => call.fn)).toEqual(['listZfsNodes'])
+  })
+
+  it('shows the list failure and the empty state in words the user can act on', async () => {
+    failing.add('listZfsNodes')
+    const { unmount } = await renderCard()
+    expect(await screen.findByText('The ZFS node list could not be fetched. Check the server logs and reload the page.')).toBeDefined()
+    unmount()
+    failing.clear()
+    await renderCard()
+    expect(await screen.findByText('No ZFS nodes yet. Add one to read its pools over SSH.')).toBeDefined()
+  })
+
+  it('says the node could not be added when the add call fails', async () => {
+    failing.add('createZfsNode')
+    await renderCard()
+    const user = setupUser()
+    await user.click(await screen.findByText('Add ZFS node'))
+    await user.type(screen.getByLabelText('Name'), 'pve1')
+    await user.type(screen.getByLabelText('Address'), 'pve1.lan')
+    await user.click(screen.getByText('Next'))
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't add the node. Reload the page and try again.")
+  })
+
+  it('says the node could not be checked when the connect call fails, and offers to try again', async () => {
+    failing.add('scanZfsNodeHostKey')
+    await renderCard()
+    const user = setupUser()
+    await user.click(await screen.findByText('Add ZFS node'))
+    await user.type(screen.getByLabelText('Name'), 'pve1')
+    await user.type(screen.getByLabelText('Address'), 'pve1.lan')
+    await user.click(screen.getByText('Next'))
+    await user.click(await screen.findByText('I ran it, connect'))
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't check the node. Reload the page and try again.")
+    expect(screen.getByText('Try again')).toBeDefined()
+  })
+
+  it('says the node was removed when the connect step finds it gone', async () => {
+    scanResult = { ok: false, failure: 'not_found' }
+    await renderCard()
+    const user = setupUser()
+    await user.click(await screen.findByText('Add ZFS node'))
+    await user.type(screen.getByLabelText('Name'), 'pve1')
+    await user.type(screen.getByLabelText('Address'), 'pve1.lan')
+    await user.click(screen.getByText('Next'))
+    await user.click(await screen.findByText('I ran it, connect'))
+    expect((await screen.findByTestId('zfs-node-verify-failure')).textContent).toBe('This node was removed. Close this window and add it again.')
+  })
+
+  it.each([
+    ['verifyZfsNode', 'Check pve1 again', "Couldn't check the node. Reload the page and try again."],
+    ['removeZfsNode', 'Remove pve1', "Couldn't remove the node. Reload the page and try again."],
+  ] as const)('toasts a failed %s call', async (fn, label, message) => {
+    failing.add(fn)
+    nodes = [makeNode()]
+    await renderCard()
+    const user = setupUser()
+    await user.click(await screen.findByLabelText(label))
+    if (fn === 'removeZfsNode') await user.click(screen.getByText('Remove'))
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(message, 'error'))
+  })
+
+  it('says the setup script could not be loaded', async () => {
+    failing.add('getZfsNodeSetupScript')
+    nodes = [makeNode({ state: 'key_refused' })]
+    await renderCard()
+    const user = setupUser()
+    await user.click(await screen.findByLabelText('Show setup script for pve1'))
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't load the setup script. Reload the page and try again.")
   })
 })

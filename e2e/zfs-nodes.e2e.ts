@@ -12,6 +12,11 @@ const W5 = "pve1's host key changed, so collection stopped. If you reinstalled t
 const W6 = "pve1 refused the app's key. Run the setup script on the node again.";
 const W7 = 'pve1 is missing zpool_influxdb, which comes with ZFS. Update the zfsutils-linux package on the node.';
 const W8 = 'ZFS is no longer read through the agent. Add this machine as a ZFS node to see its pools.';
+const TIMEOUT = 'pve1 stopped answering ZFS reads, so a pool may be suspended or a disk may be hanging. Check zpool status on the node. Showing the last data, from 10:42.';
+const READ_FAILED = 'Reading ZFS on pve1 failed. Run the setup script on the node again, then check the worker logs if it keeps failing. Showing the last data, from 10:42.';
+const PENDING = 'Waiting for the host key to be confirmed. Collection starts after that.';
+const NO_POOLS = 'Connected to pve1. Found no pools.';
+const REMOVE = "Remove pve1? Collection stops at once and its stored history is kept. To revoke the app's key on the node, run userdel hlm there.";
 
 function node(state: ZfsNodeState): ZfsNodeSummary {
   return {
@@ -48,6 +53,9 @@ for (const [state, message, onHostsPage] of [
   ['host_key_changed', W5, true],
   ['key_refused', W6, true],
   ['influxdb_missing', W7, false],
+  ['timeout', TIMEOUT, true],
+  ['error', READ_FAILED, true],
+  ['pending', PENDING, true],
 ] as const) {
   test(`shows the ${state} notice on the ZFS page host row${onHostsPage ? ' and the Hosts page' : ''}`, async ({ page }) => {
     await overrideServerFn(page, 'listZfsNodes', [node(state)]);
@@ -78,4 +86,23 @@ test('tells the user to add a ZFS node for an agent that still has ZFS turned on
   }]);
   await page.goto('/hosts');
   await expect(page.getByTestId('agent-zfs-moved-media-server')).toHaveText(W8);
+});
+
+test('reports a node with no pools on the verify step', async ({ page }) => {
+  await overrideServerFn(page, 'confirmZfsNodeHostKey', { ok: true, pools: [] });
+  await page.goto('/hosts');
+  await page.getByRole('button', { name: 'Add ZFS node' }).click();
+  await page.getByLabel('Name', { exact: true }).fill('pve1');
+  await page.getByLabel('Address', { exact: true }).fill('192.168.1.40');
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'I ran it, connect' }).click();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByTestId('zfs-node-connected')).toHaveText(NO_POOLS);
+});
+
+test('says what removing a node does before it removes it', async ({ page }) => {
+  await overrideServerFn(page, 'listZfsNodes', [node('ok')]);
+  await page.goto('/hosts');
+  await page.getByRole('button', { name: 'Remove pve1' }).click();
+  await expect(page.getByText(REMOVE, { exact: true })).toBeVisible();
 });

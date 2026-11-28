@@ -128,11 +128,7 @@ export const ZFS_ENTITIES = [
 
 export const ZFS_POOL = 'ci-tank';
 
-/**
- * Rows as the text-line ZFS collector wrote them before 054: entities behind the agent address, and
- * a device group header (`special`) stored as a pool with no capacity. `cache` is a real pool that
- * shares a group's name and must survive. `expected` is the entity after 054, or null when it is dropped.
- */
+/** Agent-era rows. `cache` is a real pool that shares a group's name and must survive, and a null `expected` means 054 drops the row. */
 export const ZFS_LEGACY = {
   host: 'ci-zfs-legacy',
   migration: '054_zfs_ssh_nodes.sql',

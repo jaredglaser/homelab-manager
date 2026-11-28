@@ -250,5 +250,7 @@ describe('ssh2 transport', () => {
     expect(classifyConnectError({ code: 'ENOTFOUND' })).toBe('unreachable');
     expect(classifyConnectError({ code: 'EHOSTUNREACH' })).toBe('unreachable');
     expect(classifyConnectError(new Error('protocol'))).toBe('error');
+    expect(classifyConnectError(Object.assign(new Error('Handshake failed'), { level: 'handshake' }), false)).toBe('no_ed25519_key');
+    expect(classifyConnectError(Object.assign(new Error('Handshake failed'), { level: 'handshake' }), true)).toBe('error');
   });
 });
