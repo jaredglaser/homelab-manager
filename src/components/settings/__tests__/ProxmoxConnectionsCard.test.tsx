@@ -33,9 +33,9 @@ function renderCard(overrides: Partial<ProxmoxConnectionsCardViewProps> = {}) {
     connections: [saved],
     isLoading: false,
     states: { connections: [state()] },
-    onTest: mock(async () => reached),
-    onSave: mock(async () => null),
-    onRemove: mock(async () => {}),
+    onTest: mock(() => Promise.resolve(reached)),
+    onSave: mock(() => Promise.resolve(null)),
+    onRemove: mock(() => Promise.resolve()),
     ...overrides,
   }
   render(<ProxmoxConnectionsCardView {...props} />)
@@ -60,16 +60,16 @@ describe('ProxmoxConnectionsCardView', () => {
 
     await user.click(screen.getByRole('button', { name: 'Add cluster' }))
     const add = await screen.findByRole('dialog')
-    for (const label of W1) expect(within(add).getByText(label)).toBeInTheDocument()
+    for (const label of W1) expect(within(add).getByText(label)).toBeDefined()
     expect(within(add).queryByText(W2)).toBeNull()
     await user.click(within(add).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
     await user.click(screen.getByRole('button', { name: 'Edit homelab' }))
     const edit = await screen.findByRole('dialog')
-    expect(within(edit).getByText(W2)).toBeInTheDocument()
-    expect(within(edit).getByLabelText('Address')).toHaveValue('pve.lan')
-    expect(within(edit).getByLabelText('Token secret')).toHaveValue('')
+    expect(within(edit).getByText(W2)).toBeDefined()
+    expect((within(edit).getByLabelText('Address') as HTMLInputElement).value).toBe('pve.lan')
+    expect((within(edit).getByLabelText('Token secret') as HTMLInputElement).value).toBe('')
   })
 
   it('saves a new connection without testing it first, with no name so the server names it after the address', async () => {
@@ -93,7 +93,7 @@ describe('ProxmoxConnectionsCardView', () => {
     const dialog = await fillNewConnection(user, 'right-secret')
 
     await user.click(within(dialog).getByRole('button', { name: 'Test connection' }))
-    expect(await within(dialog).findByText(W3)).toBeInTheDocument()
+    expect(await within(dialog).findByText(W3)).toBeDefined()
     await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(props.onSave).toHaveBeenCalledTimes(1))
@@ -105,13 +105,13 @@ describe('ProxmoxConnectionsCardView', () => {
     ['token_rejected', 'Proxmox rejected the token. Check the token ID and secret.'],
     ['certificate_refused', "Proxmox's certificate isn't trusted. Turn on \"Allow self-signed certificate\" or give Proxmox a trusted certificate."],
   ] as const)('words a %s test failure for the user', async (code, message) => {
-    renderCard({ connections: [], onTest: mock(async () => ({ ok: false as const, code })) })
+    renderCard({ connections: [], onTest: mock(() => Promise.resolve({ ok: false as const, code })) })
     const user = setupUser()
     const dialog = await fillNewConnection(user)
 
     await user.click(within(dialog).getByRole('button', { name: 'Test connection' }))
 
-    expect(await within(dialog).findByText(message)).toBeInTheDocument()
+    expect(await within(dialog).findByText(message)).toBeDefined()
   })
 
   it('edits a connection with the secret left blank, so the stored one is kept', async () => {
@@ -149,8 +149,8 @@ describe('ProxmoxConnectionsCardView', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Save' }))
 
-    expect(await within(dialog).findByText('A Proxmox connection to pve.lan already exists.')).toBeInTheDocument()
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(await within(dialog).findByText('A Proxmox connection to pve.lan already exists.')).toBeDefined()
+    expect(screen.getByRole('dialog')).toBeDefined()
   })
 
   it('refuses an address with a scheme and a secret with a space before anything is sent', async () => {
@@ -162,10 +162,10 @@ describe('ProxmoxConnectionsCardView', () => {
     await user.type(within(dialog).getByLabelText('Token ID (user@realm!token)'), 'root@pam!hlm')
     await user.type(within(dialog).getByLabelText('Token secret'), 'ünicode')
 
-    expect(within(dialog).getByText('Enter a host name or IP address, without https:// or a port.')).toBeInTheDocument()
-    expect(within(dialog).getByText('Use only letters, digits and symbols, with no spaces.')).toBeInTheDocument()
-    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeDisabled()
-    expect(within(dialog).getByRole('button', { name: 'Test connection' })).toBeDisabled()
+    expect(within(dialog).getByText('Enter a host name or IP address, without https:// or a port.')).toBeDefined()
+    expect(within(dialog).getByText('Use only letters, digits and symbols, with no spaces.')).toBeDefined()
+    expect(within(dialog).getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(true)
+    expect(within(dialog).getByRole('button', { name: 'Test connection' }).hasAttribute('disabled')).toBe(true)
     await user.keyboard('{Enter}')
     expect(props.onSave).not.toHaveBeenCalled()
   })
@@ -173,14 +173,14 @@ describe('ProxmoxConnectionsCardView', () => {
   it('shows the worker state next to a passing test, so a worker that cannot reach Proxmox stays visible', async () => {
     renderCard({ states: { connections: [state({ state: 'unreachable' })] } })
     const user = setupUser()
-    expect(screen.getByText("Can't reach Proxmox at pve.lan:8006.")).toBeInTheDocument()
+    expect(screen.getByText("Can't reach Proxmox at pve.lan:8006.")).toBeDefined()
 
     await user.click(screen.getByRole('button', { name: 'Edit homelab' }))
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: 'Test connection' }))
-    expect(await within(dialog).findByText(W3)).toBeInTheDocument()
+    expect(await within(dialog).findByText(W3)).toBeDefined()
 
-    expect(screen.getByText("Can't reach Proxmox at pve.lan:8006.")).toBeInTheDocument()
+    expect(screen.getByText("Can't reach Proxmox at pve.lan:8006.")).toBeDefined()
   })
 
   it.each([
@@ -189,7 +189,7 @@ describe('ProxmoxConnectionsCardView', () => {
     ['certificate_refused', "Proxmox's certificate isn't trusted. Allow self-signed certificates for this connection, or give Proxmox a trusted certificate."],
   ] as const)('shows the worker state %s on the row', (kind, text) => {
     renderCard({ states: { connections: [state({ state: kind })] } })
-    expect(screen.getByText(text)).toBeInTheDocument()
+    expect(screen.getByText(text)).toBeDefined()
   })
 
   it('asks before removing, in the accepted words, and removes on confirm', async () => {
@@ -198,7 +198,7 @@ describe('ProxmoxConnectionsCardView', () => {
 
     await user.click(screen.getByRole('button', { name: 'Remove homelab' }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(W8)).toBeInTheDocument()
+    expect(within(dialog).getByText(W8)).toBeDefined()
     await user.click(within(dialog).getByRole('button', { name: 'Remove' }))
 
     await waitFor(() => expect(props.onRemove).toHaveBeenCalledWith(saved))
@@ -207,7 +207,7 @@ describe('ProxmoxConnectionsCardView', () => {
 
   it('says so when no cluster is added', () => {
     renderCard({ connections: [], states: { connections: [] } })
-    expect(screen.getByText('No Proxmox cluster added yet.')).toBeInTheDocument()
+    expect(screen.getByText('No Proxmox cluster added yet.')).toBeDefined()
   })
 
   it.each(['viewer', 'operator'] as const)('shows a %s the connection but every change disabled, with the admin-only reason', async (role) => {
@@ -215,7 +215,7 @@ describe('ProxmoxConnectionsCardView', () => {
     const props = renderCard()
     const user = setupUser()
 
-    expect(screen.getByText('homelab')).toBeInTheDocument()
+    expect(screen.getByText('homelab')).toBeDefined()
     for (const name of ['Add cluster', 'Edit homelab', 'Remove homelab']) {
       const button = screen.getByRole('button', { name })
       expect(button.getAttribute('aria-disabled')).toBe('true')

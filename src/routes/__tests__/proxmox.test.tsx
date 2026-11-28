@@ -18,8 +18,10 @@ mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection'
 
 let historyRows: ProxmoxStatsRow[] = [];
 let preloadGate: Promise<void> | null = null;
+const webSideTest = mock(async () => ({ ok: true as const, clusterName: 'homelab', release: '9.0', nodeCount: 2 }));
 mockModule<typeof ProxmoxFunctions>('@/data/proxmox/functions', (real) => ({
   ...real,
+  testProxmoxConnection: webSideTest as unknown as typeof real.testProxmoxConnection,
   getHistoricalProxmoxStats: (async () => {
     await preloadGate;
     return historyRows;
@@ -89,7 +91,7 @@ function clusterRows(host: string, clusterName: string, guestName: string, rates
 
 function connection(overrides: Partial<ProxmoxCollectorStateView>): ProxmoxCollectorStateView {
   return {
-    connectionId: 'pve.lan',
+    connectionId: '1',
     host: 'pve.lan',
     port: 8006,
     state: 'collecting',
@@ -205,9 +207,12 @@ describe('Proxmox page, worker state', () => {
     expect(screen.getByText('web-vm')).toBeTruthy();
   });
 
-  it('never calls a web-side connection test', async () => {
-    const functions = await import('@/data/proxmox/functions');
-    expect('testProxmoxConnection' in functions).toBe(false);
+  it('shows the worker state and never runs the web-side connection test', async () => {
+    renderPage();
+    sendState([connection({ state: 'unreachable', lastSuccessAt: null })]);
+
+    expect(await screen.findByText(unreachableMessage(connection({}), false, false))).toBeTruthy();
+    expect(webSideTest).not.toHaveBeenCalled();
   });
 });
 

@@ -51,10 +51,10 @@ function setup(initial: ProxmoxConnectionForWorker[]) {
   const created: { connection: ProxmoxConnection; collector: ProxmoxCollector; controller: AbortController }[] = [];
   const polls = { started: 0, aborted: 0 };
   const writes: ProxmoxCollectorStateWrite[] = [];
-  const removeOrphanStates = mock(async () => {});
+  const removeOrphanStates = mock(() => Promise.resolve());
   const manager = new ProxmoxConnectionManager(
     global.signal,
-    async () => saved,
+    () => Promise.resolve(saved),
     (c, controller) => {
       const collector = new ProxmoxCollector(db, workerConfig, c, 10_000, controller, { getClient: () => hangingClient(polls) }, {
         record: async (write) => { writes.push(write); },
@@ -83,9 +83,9 @@ describe('ProxmoxConnectionManager', () => {
   let logSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    logSpy = spyOn(console, 'log').mockImplementation(() => {});
-    infoSpy = spyOn(console, 'info').mockImplementation(() => {});
-    errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    logSpy = spyOn(console, 'log').mockImplementation(() => undefined);
+    infoSpy = spyOn(console, 'info').mockImplementation(() => undefined);
+    errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -172,7 +172,7 @@ describe('ProxmoxConnectionManager', () => {
       },
       (c, controller) => {
         created.push(controller);
-        return new ProxmoxCollector(db, workerConfig, c, 10_000, controller, { getClient: () => hangingClient({ started: 0, aborted: 0 }) }, { record: async () => {} });
+        return new ProxmoxCollector(db, workerConfig, c, 10_000, controller, { getClient: () => hangingClient({ started: 0, aborted: 0 }) }, { record: () => Promise.resolve() });
       },
     );
     await manager.reconcile();

@@ -51,7 +51,7 @@ function toInput(data: SaveProxmoxConnectionInput): ProxmoxConnectionInput {
 }
 
 export async function handleListProxmoxConnections(deps: Pick<ProxmoxConnectionDeps, 'repo'>): Promise<ProxmoxConnectionSummary[]> {
-  return deps.repo.list();
+  return await deps.repo.list();
 }
 
 /** Saves without contacting Proxmox: a wrong secret is reported by the worker's state on the Proxmox page. */

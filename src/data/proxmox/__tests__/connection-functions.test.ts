@@ -55,8 +55,7 @@ class FakeDatabase {
   };
 
   private summary(row: StoredRow): Omit<StoredRow, 'token_secret_jwe'> {
-    const { token_secret_jwe: _secret, ...rest } = row;
-    return rest;
+    return { id: row.id, name: row.name, address: row.address, port: row.port, token_id: row.token_id, allow_self_signed: row.allow_self_signed };
   }
 
   private takenBy(address: string, exceptId: number | null): boolean {
@@ -246,8 +245,8 @@ describe('roles', () => {
   });
 
   it('lets an admin save, test and remove', async () => {
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () => new Response('{}', { status: 500 })) as unknown as typeof fetch);
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((() => Promise.resolve(new Response('{}', { status: 500 }))) as unknown as typeof fetch);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       await withStartContext(() => saveProxmoxConnection({ data: form }));
       expect(db.rows.size).toBe(1);
@@ -274,10 +273,9 @@ describe('roles', () => {
 
 describe('no server response carries the secret', () => {
   it('leaves it out of save, test, remove and list answers, and out of a failed test', async () => {
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () => {
-      throw new TypeError(`invalid header PVEAPIToken=root@pam!hlm=${ASCII_SECRET}`);
-    }) as unknown as typeof fetch);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((() =>
+      Promise.reject(new TypeError(`invalid header PVEAPIToken=root@pam!hlm=${ASCII_SECRET}`))) as unknown as typeof fetch);
     try {
       const answers = [
         await save(form),
@@ -304,11 +302,11 @@ describe('no server response carries the secret', () => {
 
 describe('testProxmoxConnection', () => {
   function answerProxmox(status: number, body: unknown) {
-    return spyOn(globalThis, 'fetch').mockImplementation((async (url: string | URL | Request) => {
-      const data = String(url).endsWith('/version')
+    return spyOn(globalThis, 'fetch').mockImplementation(((url: string) => {
+      const data = url.endsWith('/version')
         ? { version: '9.0.3', release: '9.0' }
         : [{ type: 'cluster', name: 'homelab', nodes: 2 }, { type: 'node', name: 'pve1' }, { type: 'node', name: 'pve2' }];
-      return status === 200 ? new Response(JSON.stringify({ data })) : new Response(String(body), { status });
+      return Promise.resolve(status === 200 ? new Response(JSON.stringify({ data })) : new Response(String(body), { status }));
     }) as unknown as typeof fetch);
   }
 
@@ -335,7 +333,7 @@ describe('testProxmoxConnection', () => {
   });
 
   it('answers token_rejected for a 401, and writes nothing the Proxmox page reads', async () => {
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
     const fetchSpy = answerProxmox(401, 'authentication failure');
     try {
       expect(await test(form)).toEqual({ ok: false, code: 'token_rejected' });

@@ -37,7 +37,7 @@ export class ProxmoxConnectionManager implements AsyncDisposable {
     private readonly globalSignal: AbortSignal,
     private readonly listConnections: () => Promise<ProxmoxConnectionForWorker[]>,
     private readonly createCollector: ProxmoxCollectorFactory,
-    private readonly removeOrphanStates: () => Promise<void> = async () => {},
+    private readonly removeOrphanStates: () => Promise<void> = () => Promise.resolve(),
   ) {}
 
   collectors(): ProxmoxCollector[] {
@@ -50,7 +50,7 @@ export class ProxmoxConnectionManager implements AsyncDisposable {
 
   reconcile(): Promise<void> {
     const next = this.chain.then(() => this.reconcileOnce());
-    this.chain = next.catch(() => {});
+    this.chain = next.catch(() => undefined);
     return next;
   }
 

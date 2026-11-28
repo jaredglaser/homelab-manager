@@ -10,7 +10,7 @@ async function decryptJwe(jwe: string, key: CryptoKey): Promise<string> {
 }
 
 async function encryptJwe(plaintext: string, kid: string, key: CryptoKey): Promise<string> {
-  return new CompactEncrypt(new TextEncoder().encode(plaintext))
+  return await new CompactEncrypt(new TextEncoder().encode(plaintext))
     .setProtectedHeader({ alg: KEY_ALG, enc: ENC_ALG, kid })
     .encrypt(key);
 }
@@ -140,7 +140,6 @@ export const PROXMOX_CONNECTIONS: TableMigration<{ id: number; token_secret_jwe:
 
 export const TABLE_MIGRATIONS = [STACK_SECRETS, AGENT_KEYPAIRS, GIT_TOKENS, PROXMOX_CONNECTIONS] as const;
 
-/** Re-encrypts every table in TABLE_MIGRATIONS, returning the count per table. */
 export async function migrateAllTables(pool: Pool, keys: KeyContext): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   for (const spec of TABLE_MIGRATIONS) {

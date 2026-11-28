@@ -52,26 +52,26 @@ async function loadConnectionDeps(pool: Pool): Promise<ProxmoxConnectionDeps> {
 export const listProxmoxConnections = createServerFn()
   .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer'), databaseMiddleware])
   .handler(async ({ context }): Promise<ProxmoxConnectionSummary[]> => {
-    return handleListProxmoxConnections(await loadConnectionDeps(context.pool));
+    return await handleListProxmoxConnections(await loadConnectionDeps(context.pool));
   });
 
 export const saveProxmoxConnection = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, roleMiddleware('admin'), databaseMiddleware])
   .validator(saveProxmoxConnectionSchema)
   .handler(async ({ context, data }): Promise<SaveProxmoxConnectionResult> => {
-    return handleSaveProxmoxConnection(await loadConnectionDeps(context.pool), data);
+    return await handleSaveProxmoxConnection(await loadConnectionDeps(context.pool), data);
   });
 
 export const testProxmoxConnection = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, roleMiddleware('admin'), databaseMiddleware])
   .validator(testProxmoxConnectionSchema)
   .handler(async ({ context, data }): Promise<TestProxmoxConnectionResult> => {
-    return handleTestProxmoxConnection(await loadConnectionDeps(context.pool), data);
+    return await handleTestProxmoxConnection(await loadConnectionDeps(context.pool), data);
   });
 
 export const removeProxmoxConnection = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, roleMiddleware('admin'), databaseMiddleware])
   .validator(removeProxmoxConnectionSchema)
   .handler(async ({ context, data }): Promise<{ removed: boolean }> => {
-    return handleRemoveProxmoxConnection(await loadConnectionDeps(context.pool), data);
+    return await handleRemoveProxmoxConnection(await loadConnectionDeps(context.pool), data);
   });

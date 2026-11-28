@@ -16,7 +16,7 @@ function createConfig(overrides?: Partial<ProxmoxConfig>): ProxmoxConfig {
 }
 
 describe('ProxmoxClient', () => {
-  let fetchSpy: ReturnType<typeof spyOn>;
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, 'fetch'>>;
 
   beforeEach(() => {
     fetchSpy = spyOn(globalThis, 'fetch');
@@ -297,7 +297,7 @@ describe('ProxmoxClient', () => {
       try {
         const client = new ProxmoxClient(createConfig());
         const body = () => new Response(JSON.stringify({ data: [{ id: 7 }] }), { status: 200 });
-        fetchSpy.mockImplementation(async () => body());
+        fetchSpy.mockImplementation((() => Promise.resolve(body())) as unknown as typeof fetch);
         await client.getClusterResources();
         now += 30_000;
         await client.getClusterResources();
@@ -341,10 +341,10 @@ describe('ProxmoxClient', () => {
 
   describe('probe', () => {
     function answer(status: unknown[], version: unknown) {
-      fetchSpy.mockImplementation(async (url: string | URL | Request) => {
-        const body = String(url).endsWith('/version') ? { data: version } : { data: status };
-        return new Response(JSON.stringify(body), { status: 200 });
-      });
+      fetchSpy.mockImplementation(((url: string) => {
+        const body = url.endsWith('/version') ? { data: version } : { data: status };
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      }) as unknown as typeof fetch);
     }
 
     it('reports the cluster name, the release and the node count', async () => {
@@ -364,7 +364,7 @@ describe('ProxmoxClient', () => {
     });
 
     it('sorts a rejected token into token_rejected', async () => {
-      fetchSpy.mockImplementation(async () => new Response('authentication failure', { status: 401, statusText: 'Unauthorized' }));
+      fetchSpy.mockImplementation((() => Promise.resolve(new Response('authentication failure', { status: 401, statusText: 'Unauthorized' }))) as unknown as typeof fetch);
 
       const err = await new ProxmoxClient(createConfig()).probe().catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ProxmoxRequestError);
@@ -381,9 +381,7 @@ describe('ProxmoxClient', () => {
 
   it('keeps the token secret out of a failure message that quotes it', async () => {
     const secret = 'sécret=with=equals';
-    fetchSpy.mockImplementation(async () => {
-      throw new TypeError(`Header has invalid value: PVEAPIToken=root@pam!test=${secret}`);
-    });
+    fetchSpy.mockImplementation((() => Promise.reject(new TypeError(`Header has invalid value: PVEAPIToken=root@pam!test=${secret}`))) as unknown as typeof fetch);
 
     const err = await new ProxmoxClient(createConfig({ tokenSecret: secret })).getClusterStatus().catch((e: unknown) => e) as ProxmoxRequestError;
     expect(err.message).not.toContain(secret);

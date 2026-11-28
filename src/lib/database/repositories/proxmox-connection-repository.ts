@@ -89,7 +89,7 @@ export class ProxmoxConnectionRepository {
          RETURNING ${SUMMARY_COLUMNS}`,
         [input.name, input.address, input.port, input.tokenId, secretJwe, input.allowSelfSignedCerts],
       );
-      row = result.rows[0];
+      row = result.rows.at(0);
     } catch (err) {
       rethrowAddressTaken(err, input.address);
     }
@@ -112,7 +112,7 @@ export class ProxmoxConnectionRepository {
           RETURNING ${SUMMARY_COLUMNS}`,
         [id, input.name, input.address, input.port, input.tokenId, secretJwe, input.allowSelfSignedCerts],
       );
-      row = result.rows[0];
+      row = result.rows.at(0);
     } catch (err) {
       rethrowAddressTaken(err, input.address);
     }
@@ -132,7 +132,7 @@ export class ProxmoxConnectionRepository {
        SELECT ${SUMMARY_COLUMNS} FROM gone`,
       [id],
     );
-    const row = result.rows[0];
+    const row = result.rows.at(0);
     if (!row) return null;
     await this.notifyChange(id);
     return toSummary(row);
@@ -163,7 +163,7 @@ export class ProxmoxConnectionRepository {
       `SELECT ${SUMMARY_COLUMNS}, token_secret_jwe FROM proxmox_connections WHERE id = $1`,
       [id],
     );
-    const row = result.rows[0];
+    const row = result.rows.at(0);
     return row ? this.toConnection(row, await this.decryptSecret(row)) : null;
   }
 
@@ -171,7 +171,7 @@ export class ProxmoxConnectionRepository {
     const result = await this.pool.query<ConnectionSecretRow>(
       `SELECT ${SUMMARY_COLUMNS}, token_secret_jwe FROM proxmox_connections ORDER BY id`,
     );
-    return Promise.all(result.rows.map(async (row): Promise<ProxmoxConnectionForWorker> => {
+    return await Promise.all(result.rows.map(async (row): Promise<ProxmoxConnectionForWorker> => {
       try {
         return { id: row.id, name: row.name, connection: this.toConnection(row, await this.decryptSecret(row)) };
       } catch (err) {
