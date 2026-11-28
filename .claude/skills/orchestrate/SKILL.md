@@ -17,18 +17,11 @@ description: Run orchestrated PR work on this repo, with one agent per PR, accep
 
 ## The role
 
-The main Claude session acts as **orchestrator**. It does not do PR work itself. Its job:
-- write acceptance criteria for each PR or task
-- dispatch one agent per PR or task
-- run independent reviews and relay the findings
-- run behavioural verification, one PR at a time
-- assemble the evidence for each PR
-- sequence merges
-- bring decisions to the maintainer
+The main Claude session acts as **orchestrator**. It does not do PR work itself.
 
 The maintainer approves and merges. Agents never merge.
 
-A PR is approval-ready only when every acceptance criterion has a recorded result with proof (section 6). Review findings being resolved is not enough.
+A PR is approval-ready only when every acceptance criterion has a recorded result: a pass with proof, or a `not run` with its reason (section 6). Review findings being resolved is not enough.
 
 **Everything runs in this cloud box.** Agents, reviewers, and verifiers never use the maintainer's computer. Setup of the box is described in `docs/cloud-environment.md`.
 
@@ -49,10 +42,10 @@ A PR is approval-ready only when every acceptance criterion has a recorded resul
   git checkout -B <branch> origin/<branch> && bun run setup
   mkdir -p /home/claude/work/<slug>-meta
   ```
-- **Heavy commands go through one lock:** `flock /home/claude/work/heavy.lock <cmd>` for `test:all`, `typecheck:all`, full `eslint .`, `vite build` and `e2e:build*`.
+- **Heavy commands go through `scripts/cloud/heavy.sh <cmd>`:** `test:all`, `typecheck:all`, full `eslint .`, `vite build` and `e2e:build*`. It gives up after 10 minutes in the queue and stops a command after 20.
 
 ## 1. Survey
-- List the open PRs via REST (`gh api "repos/jaredglaser/homelab-manager/pulls?state=open"`). GraphQL is unavailable in these sessions, so `gh pr view/checks/edit` fail.
+- List the open PRs with the GitHub tools.
 - For each PR, collect:
   - base and head
   - mergeable state
@@ -106,6 +99,8 @@ AC3 [e2e, must-not-change] Cancel still discards the edit and leaves the row unc
   - scope
   - stacking and coordination with other PRs: who conflicts with whom, and the resolution plan
   - what to focus on when trying to break the change
+- Subscribe to each PR when you dispatch its agent (`subscribe_pr_activity`). When a check fails, wake that agent with the check's name and the log lines. Never ask an agent to wait for CI.
+- At most three PRs in flight. Start a fourth only when one has passed verification. In a stack, verify the bottom PR before starting one above it.
 - **Follow-up work** goes to new agents, each opening its own follow-up PR, each with its own criteria.
 - **Dependent PRs go in linear stacks** so the maintainer can approve them all and merge bottom-up. A follow-up that edits the same files as an open PR stacks on top of it. Sibling PRs on one base get chained (A ← B ← C), not left side by side.
 - **After a session restart,** earlier agents may not be resumable. Start a fresh owner agent with the full context: PR, branch, base, head, criteria, the findings to fix, and stack position.
@@ -161,22 +156,20 @@ The maintainer reviews the evidence, not a summary of it.
 ```
 
 - **Screenshots, traces, and long output go in the records repo,** under `evidence/pr-<N>/<short head SHA>/`, with a `README.md` that has one heading per criterion and shows its screenshots and trimmed output. The box does not survive the session, so the records repo is the durable copy. The Proof column links to the criterion's heading there. The link opens only for people with access to the records repo.
-- **`not run` and `fail` rows are never dropped.** They go at the top of that PR's entry in the wrap-up, with the reason and what would close them.
-- **A PR with no table, or a table at a different SHA than the head, is not approval-ready.** The final sweep checks this.
+- `fail` and `not run` rows are never dropped. A `fail` row means the PR is not ready. A `not run` row does not, when it states its reason and what would close it. Both lead that PR's entry in the wrap-up.
+- **A PR with no table, or a table at a different SHA than the head, is not approval-ready.** The PR Body Lint check fails a stale table.
 
 ## 7. Coordination
 - When a base or stacked branch moves, tell the dependent agents to merge it in, bottom of the stack first. Never rebase.
 - When an API changes under another PR (a renamed helper, a new floor, a renamed migration), tell the affected agent so its conflict plan stays current.
 - Tell the maintainer a PR is ready to approve only after its agent has finished pushing. The ruleset dismisses stale approvals on push.
-- **Before the wrap-up,** do a final sweep of every open PR. Check the head SHA, that every check group has a success, that the branch is 0 behind its base, and that it is mergeable. Check that each PR body still matches its PR, and that its Acceptance table is at the head SHA.
+- Before the wrap-up, read every open PR's merge state and check runs at its head commit with the GitHub tools, and quote them. A PR that is behind, conflicted, or has a check that is not a success is not ready.
 
 ## 8. Talking to the maintainer
-- Send the plan pages for every PR in one message at the start (section 2).
 - Relay each agent report as a short summary: state, what changed, open risks, and questions with options plus a recommendation.
 - Keep a running list of open questions and the merge order.
-- Repo settings, such as rulesets, and the cloud environment's allowed domains cannot be changed from the session. Give the maintainer the steps instead.
+- Propose a change to the cloud environment, such as an allowed host, with the environment tool. Repo settings such as rulesets cannot be changed from the session: give the maintainer the steps.
 - The maintainer reviews everything at once at the end. Get all PRs approval-ready, then send one wrap-up. For each PR the wrap-up leads with the criteria that are `fail` or `not run`, then links the evidence.
-- Bring a decision with each option's concrete impact (what it changes, what it costs, what it locks in) and a recommendation.
 
 ## 9. Records (handoff, criteria, evidence)
 Session records live in the records repo named by `HLM_RECORDS_REPO`, not in this repo. Only the session holding the orchestrator role writes to it. Agents write to their meta folders and the orchestrator copies what belongs in the records.
