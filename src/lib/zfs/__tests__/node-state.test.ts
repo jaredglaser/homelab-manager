@@ -71,5 +71,11 @@ describe('ZFS node copy', () => {
     expect(notice('pending')).toBe(ZFS_NODE_PENDING_MESSAGE);
     expect(ZFS_NODE_PENDING_MESSAGE).toBe('Waiting for the host key to be confirmed. Collection starts after that.');
     expect(notice('ok')).toBeNull();
+    expect(notice('key_unreadable')).toBe(
+      "The app can't read its saved key for pve1, so collection stopped. Check that the worker has the master key the key was saved with.",
+    );
+    expect(notice('no_ed25519_key')).toBe(
+      'pve1 has no ed25519 SSH host key, which the app needs. Run ssh-keygen -A on the node as root, then run the setup script again.',
+    );
   });
 });

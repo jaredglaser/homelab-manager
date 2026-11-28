@@ -90,22 +90,48 @@ export function buildAuthorizedKeysLine({ nodeName, publicKey, allowedFrom }: Se
   return `${options.join(',')} ${publicKey} homelab-manager:${nodeName}`;
 }
 
+export const ZFS_SSHD_DROP_IN = '/etc/ssh/sshd_config.d/homelab-manager-hlm.conf';
+const HOST_KEY = '/etc/ssh/ssh_host_ed25519_key.pub';
+
+export function buildSshdDropIn(): string {
+  return `# Installed by homelab-manager. Applies to the ${ZFS_NODE_USER} user only.
+Match User ${ZFS_NODE_USER}
+    AuthorizedKeysFile ${ZFS_NODE_HOME}/.ssh/authorized_keys
+    ForceCommand ${ZFS_DISPATCH_PATH}
+    AllowTcpForwarding no
+    AllowStreamLocalForwarding no
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTTY no
+    PermitTunnel no
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+Match all
+`;
+}
+
 /**
- * The script the user pastes on the node as root. Running it again replaces the dispatcher and the
- * key line, so it also repairs a node whose key was refused. The home directory, `.ssh` and
- * `authorized_keys` are owned by root, so the hlm user cannot change which key it accepts.
+ * The script the user pastes on the node as root. Running it again replaces the dispatcher, the key
+ * line and the sshd settings, so it also repairs a node whose key was refused. The home directory,
+ * `.ssh` and `authorized_keys` are owned by root, so the hlm user cannot change which key it accepts.
  */
 export function buildSetupScript(input: SetupScriptInput): string {
   const keyLine = buildAuthorizedKeysLine(input);
   const dispatcher = buildDispatcherScript(input.paths);
   const dispatchDir = ZFS_DISPATCH_PATH.slice(0, ZFS_DISPATCH_PATH.lastIndexOf('/'));
   const influxdbPaths = pathList((input.paths ?? DEFAULT_DISPATCHER_PATHS).influxdb);
+  const user = ZFS_NODE_USER;
   return `#!/bin/sh
 # homelab-manager: read-only ZFS access for ${input.nodeName}. Run as root.
 set -eu
-if [ "$(id -u)" -ne 0 ]; then
-  echo 'Run this script as root.' >&2
+fail() {
+  echo "$1" >&2
   exit 1
+}
+[ "$(id -u)" -eq 0 ] || fail 'Run this script as root.'
+[ -f ${HOST_KEY} ] || fail 'This node has no ed25519 SSH host key, which the app needs. Run ssh-keygen -A, then run this script again.'
+if getent passwd ${user} >/dev/null; then
+  [ "$(getent passwd ${user} | cut -d: -f7)" = ${ZFS_DISPATCH_PATH} ] || fail 'A user named ${user} already exists and was not created by this script. Remove or rename it, then run this script again.'
 fi
 
 install -d -o root -g root -m 0755 ${dispatchDir}
@@ -115,17 +141,39 @@ chown root:root ${ZFS_DISPATCH_PATH}.new
 chmod 0755 ${ZFS_DISPATCH_PATH}.new
 mv ${ZFS_DISPATCH_PATH}.new ${ZFS_DISPATCH_PATH}
 
-if ! id ${ZFS_NODE_USER} >/dev/null 2>&1; then
-  useradd --system --no-create-home --home-dir ${ZFS_NODE_HOME} --shell ${ZFS_DISPATCH_PATH} ${ZFS_NODE_USER}
+# The primary group is nogroup, so an existing group named ${user} neither stops useradd nor gains the user.
+if ! getent passwd ${user} >/dev/null; then
+  useradd --system --no-create-home --no-user-group --gid nogroup --home-dir ${ZFS_NODE_HOME} --shell ${ZFS_DISPATCH_PATH} ${user}
 fi
 # '*' matches no password but, unlike '!', does not lock the account, which sshd would refuse.
-usermod --home ${ZFS_NODE_HOME} --shell ${ZFS_DISPATCH_PATH} --password '*' ${ZFS_NODE_USER}
+usermod --home ${ZFS_NODE_HOME} --shell ${ZFS_DISPATCH_PATH} --password '*' ${user}
 
 install -d -o root -g root -m 0755 ${ZFS_NODE_HOME} ${ZFS_NODE_HOME}/.ssh
+rm -f ${ZFS_NODE_HOME}/.ssh/authorized_keys2
 printf '%s\\n' '${keyLine}' > ${ZFS_NODE_HOME}/.ssh/authorized_keys.new
 chown root:root ${ZFS_NODE_HOME}/.ssh/authorized_keys.new
 chmod 0644 ${ZFS_NODE_HOME}/.ssh/authorized_keys.new
 mv ${ZFS_NODE_HOME}/.ssh/authorized_keys.new ${ZFS_NODE_HOME}/.ssh/authorized_keys
+
+install -d -m 0755 /etc/ssh/sshd_config.d
+cat > ${ZFS_SSHD_DROP_IN}.new <<'HLM_SSHD'
+${buildSshdDropIn()}HLM_SSHD
+chmod 0644 ${ZFS_SSHD_DROP_IN}.new
+mv ${ZFS_SSHD_DROP_IN}.new ${ZFS_SSHD_DROP_IN}
+if ! sshd -t; then
+  rm -f ${ZFS_SSHD_DROP_IN}
+  fail 'sshd refused the hlm settings, so they were removed. The key line still limits the key to the two reads.'
+fi
+if ! sshd -T -C user=${user},host=localhost,addr=127.0.0.1 | grep -qx 'permittty no'; then
+  echo 'sshd does not read /etc/ssh/sshd_config.d, so the hlm settings do not apply. The key line still limits the key to the two reads.' >&2
+fi
+if command -v systemctl >/dev/null && systemctl is-active --quiet ssh 2>/dev/null; then
+  systemctl reload ssh
+elif command -v systemctl >/dev/null && systemctl is-active --quiet sshd 2>/dev/null; then
+  systemctl reload sshd
+else
+  echo 'Reload sshd to apply the hlm settings.' >&2
+fi
 
 found=no
 for bin in ${influxdbPaths}; do
@@ -135,6 +183,6 @@ if [ "$found" = no ]; then
   echo 'zpool_influxdb was not found. Update the zfsutils-linux package on this node.' >&2
 fi
 
-echo "Host key fingerprint: $(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}')"
+echo "Host key fingerprint: $(ssh-keygen -lf ${HOST_KEY} | awk '{print $2}')"
 `;
 }

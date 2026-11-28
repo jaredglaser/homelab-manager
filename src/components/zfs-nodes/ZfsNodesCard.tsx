@@ -22,6 +22,7 @@ const STATE_BADGE: Record<ZfsNodeState, { label: string; variant: 'success' | 'd
   timeout: { label: 'Not answering', variant: 'warning' },
   error: { label: 'Read failed', variant: 'destructive' },
   key_unreadable: { label: 'Key unreadable', variant: 'destructive' },
+  no_ed25519_key: { label: 'No ed25519 host key', variant: 'destructive' },
 }
 
 export const ZFS_NODE_REMOVE_FAILED_MESSAGE = "Couldn't remove the node. Reload the page and try again."

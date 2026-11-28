@@ -16,7 +16,7 @@ export interface ZfsSshTarget {
   privateKey: string;
 }
 
-export type ZfsSshFailureKind = 'unreachable' | 'host_key' | 'key_refused' | 'timeout' | 'error';
+export type ZfsSshFailureKind = 'unreachable' | 'host_key' | 'no_ed25519_key' | 'key_refused' | 'timeout' | 'error';
 
 export class ZfsSshError extends Error {
   constructor(
@@ -88,6 +88,7 @@ export function classifyConnectError(err: unknown): ZfsSshFailureKind {
   const level = (err as { level?: string }).level;
   const code = (err as { code?: string }).code;
   if (level === 'client-authentication') return 'key_refused';
+  if (err instanceof Error && err.message.includes('no matching host key format')) return 'no_ed25519_key';
   if (level === 'client-timeout' || level === 'client-socket') return 'unreachable';
   if (code !== undefined && UNREACHABLE_CODES.has(code)) return 'unreachable';
   return 'error';

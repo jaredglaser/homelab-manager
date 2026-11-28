@@ -213,6 +213,19 @@ describe('ssh2 transport', () => {
     expect(error.kind).toBe('unreachable');
   });
 
+  test('reports a node without an ed25519 host key as such, not as a generic failure', async () => {
+    const rsaOnly = new Server({ hostKeys: [utils.generateKeyPairSync('rsa', { bits: 2048 }).private] }, (client) => {
+      client.on('error', () => {});
+    });
+    await new Promise<void>((resolve) => rsaOnly.listen(0, '127.0.0.1', () => resolve()));
+    try {
+      const error = await failure(transport.connect({ ...target(), port: (rsaOnly.address() as AddressInfo).port }, trustPinned));
+      expect(error.kind).toBe('no_ed25519_key');
+    } finally {
+      rsaOnly.close();
+    }
+  });
+
   test('does not connect when already cancelled, and stops when cancelled mid-handshake', async () => {
     const aborted = new AbortController();
     aborted.abort();

@@ -8,6 +8,7 @@ export const ZFS_NODE_STATES = [
   'timeout',
   'error',
   'key_unreadable',
+  'no_ed25519_key',
 ] as const;
 export type ZfsNodeState = (typeof ZFS_NODE_STATES)[number];
 
@@ -74,6 +75,8 @@ export function zfsNodeNotice(
       return `${name} stopped answering ZFS reads, so a pool may be suspended or a disk may be hanging. Check zpool status on the node.${lastData(lastSuccessAt, formatTime)}`;
     case 'error':
       return `Reading ZFS on ${name} failed. Run the setup script on the node again, then check the worker logs if it keeps failing.${lastData(lastSuccessAt, formatTime)}`;
+    case 'no_ed25519_key':
+      return `${name} has no ed25519 SSH host key, which the app needs. Run ssh-keygen -A on the node as root, then run the setup script again.`;
     case 'key_unreadable':
       return `The app can't read its saved key for ${name}, so collection stopped. Check that the worker has the master key the key was saved with.`;
   }

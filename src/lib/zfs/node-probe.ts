@@ -15,6 +15,8 @@ export function failureFromError(err: unknown): ZfsNodeFailure {
       return 'host_key_changed';
     case 'key_refused':
       return 'key_refused';
+    case 'no_ed25519_key':
+      return 'no_ed25519_key';
     case 'timeout':
       return 'timeout';
     case 'error':

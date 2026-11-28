@@ -14,6 +14,7 @@ describe('node probe', () => {
     expect(failureFromError(new ZfsSshError('unreachable', 'x'))).toBe('unreachable');
     expect(failureFromError(new ZfsSshError('host_key', 'x'))).toBe('host_key_changed');
     expect(failureFromError(new ZfsSshError('key_refused', 'x'))).toBe('key_refused');
+    expect(failureFromError(new ZfsSshError('no_ed25519_key', 'x'))).toBe('no_ed25519_key');
     expect(failureFromError(new ZfsSshError('timeout', 'x'))).toBe('timeout');
     expect(failureFromError(new ZfsSshError('error', 'x'))).toBe('error');
     expect(failureFromError(new Error('anything else'))).toBe('error');

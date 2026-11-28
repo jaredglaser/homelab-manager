@@ -11,6 +11,8 @@ import {
   buildAuthorizedKeysLine,
   buildDispatcherScript,
   buildSetupScript,
+  buildSshdDropIn,
+  ZFS_SSHD_DROP_IN,
 } from '../node-setup-script';
 
 const PUBLIC_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP3uexample';
@@ -125,6 +127,41 @@ describe('setup script', () => {
     expect(script).toContain(`--shell ${ZFS_DISPATCH_PATH} --password '*' hlm`);
     expect(script).toContain(buildAuthorizedKeysLine({ nodeName: 'pve1', publicKey: PUBLIC_KEY, allowedFrom: null }));
     expect(script).toContain(buildDispatcherScript());
+  });
+
+  test('refuses before changing anything on a node without an ed25519 host key or with a foreign hlm user', () => {
+    const firstChange = script.indexOf('install -d');
+    for (const guard of [
+      "fail 'This node has no ed25519 SSH host key, which the app needs. Run ssh-keygen -A, then run this script again.'",
+      "fail 'A user named hlm already exists and was not created by this script. Remove or rename it, then run this script again.'",
+    ]) {
+      expect(script).toContain(guard);
+      expect(script.indexOf(guard)).toBeLessThan(firstChange);
+    }
+  });
+
+  test('creates hlm without a group of its own, so an existing hlm group cannot stop it', () => {
+    expect(script).toContain('useradd --system --no-create-home --no-user-group --gid nogroup');
+  });
+
+  test('removes a stale authorized_keys2 and pins sshd to the one key file for hlm', () => {
+    expect(script).toContain('rm -f /var/lib/hlm/.ssh/authorized_keys2');
+    expect(script).toContain(`cat > ${ZFS_SSHD_DROP_IN}.new <<'HLM_SSHD'\n${buildSshdDropIn()}HLM_SSHD`);
+    expect(buildSshdDropIn()).toContain('AuthorizedKeysFile /var/lib/hlm/.ssh/authorized_keys');
+    expect(buildSshdDropIn().trimEnd().split('\n').at(-1)).toBe('Match all');
+    expect(script.indexOf('if ! sshd -t; then')).toBeGreaterThan(script.indexOf(`mv ${ZFS_SSHD_DROP_IN}.new`));
+    expect(script.indexOf('if ! sshd -t; then')).toBeLessThan(script.indexOf('systemctl reload ssh'));
+  });
+
+  test.skipIf(!Bun.which('sshd', { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' }))('writes a drop-in sshd accepts, which applies to hlm only', () => {
+    const config = join(dir, 'sshd_config');
+    writeFileSync(config, `HostKey /etc/ssh/ssh_host_ed25519_key\nUsePAM no\n${buildSshdDropIn()}PermitTTY yes\n`);
+    const sshd = Bun.which('sshd', { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' })!;
+    expect(Bun.spawnSync([sshd, '-t', '-f', config]).exitCode).toBe(0);
+    const forUser = (user: string) => Bun.spawnSync([sshd, '-T', '-f', config, '-C', `user=${user},host=localhost,addr=127.0.0.1`]).stdout.toString();
+    expect(forUser('hlm')).toContain('permittty no');
+    expect(forUser('hlm')).toContain('allowtcpforwarding no');
+    expect(forUser('root')).toContain('permittty yes');
   });
 
   test('ends by printing the ed25519 host key fingerprint', () => {
