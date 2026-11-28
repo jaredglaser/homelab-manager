@@ -26,6 +26,16 @@
 - Work through stacked PRs linearly (main→PR1→PR2→PR3→…); never skip steps when rebasing; propagate lower-stack changes upward.
 - Always target the correct base branch; never target `main` for a mid-stack PR.
 
+**Light lane (a change the maintainer asks a session for):**
+- When the maintainer asks a session for a change and has not confirmed it as orchestrator, the session follows the light lane. He can ask for the full process instead: then follow the `orchestrate` skill.
+- Work from criteria: a plan page when the plan-page rule calls for one, otherwise one to three lines at the top of the PR body.
+- State any design choice you made, and the alternative you did not take, at the top of the PR body.
+- Before calling it done, have one fresh agent review the diff against the criteria, and check the change by real use. Fix a serious finding and have it reviewed once more. List minor ones in the PR body. A trivial change (a typo, a comment, a dependency bump) skips the review.
+- Open the PR for that change without asking. Touch no other PR, and report a second problem instead of fixing it.
+- Fix your own PR until its checks pass, or say what blocks it.
+- End with the PR number, the state of its checks, and what was not checked and why.
+- No records repo writes and no separate verifier.
+
 **Coverage verification:**
 - Coverage percentages differ between local and CI (some tests skip in CI). Use `gh run view` or `gh pr checks` to verify pipeline results, not just local `bun test`. In a Claude Code cloud session `gh pr checks` fails, because GitHub GraphQL is blocked there: use `gh run view <run id>` or `gh api repos/jaredglaser/homelab-manager/commits/<sha>/check-runs`.
 
@@ -268,6 +278,7 @@ Non-obvious pitfalls (not restated from the rules above):
 ## CI/CD
 
 All changes to `main` via PR. CI runs build, test, coverage, license check. Docker images published to GHCR.
+Before calling a PR ready, a session reads its merge state and check runs at the head commit with the GitHub tools and quotes them, and the non-required PR Body Lint fails a PR whose Acceptance table was verified at an older commit.
 The `migrations` job also runs `bun run check:row-types`, which asserts every `query<Row>` interface under `src/` and `server/` against the result set Postgres describes for that statement. A covering union, a field no projection returns, a type narrower than the column, a statement it cannot read, a `.query(...)` whose rows are read without a row type, a `.query(...)` on a receiver whose type is unknown, or an allowlist entry that is no longer needed fails it. It finds the calls through the type checker (the declaration a call resolves to is node-postgres's `query`), not by method name, so it needs no count of the sites it expects.
 One trunk. `main` publishes `:main` plus a short-sha tag and deploys the GitHub Pages demo. A `vX.Y.Z` tag publishes `{{version}}`, `{{major}}.{{minor}}`, a short sha, and `latest`. `latest` is gated on the tag having no pre-release suffix so an RC never claims it. The `{{major}}` pattern carries `docker/metadata-action`'s major-version-zero guard (`enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}`), so no bare `0` tag exists while the project is pre-1.0, and it switches itself on at 1.0.0.
 Releases are cut by merging the standing release PR that release-please (`.github/workflows/release-please.yml`) keeps updated from conventional commits: while the project is pre-1.0, `feat` and `fix` bump the patch and a breaking change bumps the minor (`bump-patch-for-minor-pre-major` with `bump-minor-pre-major`). From 1.0.0 on, `feat` bumps the minor and a breaking change the major. The version lives in `version.txt` and `.release-please-manifest.json`. The merge push tags `v<version>` and dispatches `ci.yml` at the tag (a GITHUB_TOKEN tag push triggers no workflows), the tag build publishes the versioned images, and the `release` job creates the GitHub Release only after they push. That job also still covers manually pushed tags. The release PR is created with a GitHub App token (Actions secrets `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY`), because a PR created with GITHUB_TOKEN runs no workflows and could never report the required checks. It only ever touches `version.txt`, `.release-please-manifest.json`, and `CHANGELOG.md`, and merging it needs one approving review.

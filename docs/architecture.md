@@ -201,7 +201,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 
 ### Agent Updates (`agent/src/handover.ts`)
 
-Agent updates are manager-driven and manual only: the manager resolves the registry digest of its own agent image, the Hosts page flags hosts whose running digest differs, and an admin applies the update per host.
+Agent updates are manager-driven and manual only: the manager resolves the registry digest of its own agent image, the Hosts page flags hosts whose agent source differs, and an admin applies the update per host.
 
 **Mechanism:** a container cannot replace itself in-process (stopping it kills the process driving the recreate, and the replacement cannot bind the published port while the old container still runs). On `POST /agent/update` the agent spawns a one-shot helper container from its own current image through the Docker socket proxy; the helper outlives the agent container and performs the swap from outside.
 
@@ -213,7 +213,7 @@ Agent updates are manager-driven and manual only: the manager resolves the regis
 5. Start the new container
 6. Poll the Docker healthcheck, then verify the agent's HTTP `/health` endpoint, rolling back to the previous digest on failure
 
-**Detection:** the agent reports its running image digest on `/info`; the worker's inventory sweep compares it against the registry digest of the manager's agent image and persists the verdict the Hosts page displays.
+**Detection:** CI stamps each agent image with a hash of its build inputs (`AGENT_SOURCE_HASH`, also the `AGENT_SOURCE_HASH_LABEL` image label), and the agent reports it and its running image digest on `/info`. The worker's inventory sweep reads the label from the registry image the manager points at and compares hashes, so a rebuild of unchanged source on every merge to `main` is not flagged. When either side has no hash (an older agent, a local build), it compares digests instead. A sweep whose label read fails keeps each host's stored verdict. It persists the verdict the Hosts page displays. The Update button applies the same comparison: when the agent's hash equals the label read for the target image, it reports the agent as up to date without calling `/agent/update`. When either hash is unknown, or the label read failed, the agent decides by digest.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 

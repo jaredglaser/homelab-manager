@@ -11,7 +11,7 @@ describe('probeFailureCode', () => {
 
 describe('isHostFailureCode', () => {
   it('accepts the codes that have copy', () => {
-    for (const code of [...HOST_PROBE_FAILURE_CODES, 'agent_did_not_restart', 'version_unconfirmed'] as const) {
+    for (const code of [...HOST_PROBE_FAILURE_CODES, 'agent_did_not_restart', 'version_unconfirmed', 'image_unconfirmed'] as const) {
       expect(isHostFailureCode(code)).toBe(true);
     }
   });
@@ -40,6 +40,14 @@ describe('hostFailureMessage', () => {
     );
     expect(hostFailureMessage('awaiting-enrollment', 'boom')).toBe(
       'The agent is serving plain HTTP because it holds no certificate yet. Enroll a certificate for this host, then check again.',
+    );
+  });
+});
+
+describe('image_unconfirmed', () => {
+  it('pins the sentence the operator reads', () => {
+    expect(hostFailureMessage('image_unconfirmed')).toBe(
+      'The agent reports the same version as before and does not report which image it runs, so the update could not be confirmed. Check which image the agent container runs on the host, and update it by hand there if it is still the old one.',
     );
   });
 });

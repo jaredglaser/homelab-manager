@@ -104,6 +104,7 @@ export async function handleInfo(
       agentImage: agentImage?.image ?? null,
       agentImageTag: agentImage?.tag ?? null,
       agentImageDigest: agentImageDigest ?? null,
+      agentSourceHash: process.env.AGENT_SOURCE_HASH || null,
       capabilities: {
         docker: dockerCapability,
         zfs: zfsAvailable
