@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Plus, Server, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -273,8 +273,7 @@ function ProxmoxConnectionDialog({ target, onTest, onSave, onClose }: Readonly<P
     }
   }
 
-  async function submit(event: FormEvent) {
-    event.preventDefault()
+  async function submit() {
     if (!valid || busy) return
     setBusy('save')
     try {
@@ -292,7 +291,7 @@ function ProxmoxConnectionDialog({ target, onTest, onSave, onClose }: Readonly<P
     <Dialog open={target !== null} busy={busy !== null} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent>
         <DialogTitle>{existing ? 'Edit Proxmox cluster' : 'Add Proxmox cluster'}</DialogTitle>
-        <form onSubmit={(event) => { void submit(event) }}>
+        <form onSubmit={(event) => { event.preventDefault(); void submit() }}>
           <DialogBody className="flex flex-col gap-4 pt-1">
             <Field id="proxmox-address" label={PROXMOX_FIELD_LABELS.address} error={addressError}>
               <Input id="proxmox-address" value={address} disabled={busy !== null} autoComplete="off" placeholder="pve.lan"
