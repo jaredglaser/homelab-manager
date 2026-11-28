@@ -7,7 +7,7 @@ import { mockModule } from '@/lib/test/mock-module';
 import { FakeMuxConnection } from '@/lib/test/fake-mux';
 import { seedSession } from '@/lib/test/session';
 import { queryClient } from '@/lib/query-client';
-import type { ProxmoxCollectorState, ProxmoxStatsRow } from '@/types/proxmox';
+import type { ProxmoxCollectorStateView, ProxmoxStatsRow } from '@/types/proxmox';
 import type * as ProxmoxFunctions from '@/data/proxmox/functions';
 
 const fakeMux = new FakeMuxConnection();
@@ -84,20 +84,19 @@ function clusterRows(host: string, clusterName: string, guestName: string, rates
   ];
 }
 
-function connection(overrides: Partial<ProxmoxCollectorState>): ProxmoxCollectorState {
+function connection(overrides: Partial<ProxmoxCollectorStateView>): ProxmoxCollectorStateView {
   return {
     connectionId: 'pve.lan',
     host: 'pve.lan',
     port: 8006,
     state: 'collecting',
-    reason: null,
     lastSuccessAt: new Date(2026, 10, 27, 10, 42).getTime(),
     updatedAt: Date.now(),
     ...overrides,
   };
 }
 
-function sendState(connections: ProxmoxCollectorState[]) {
+function sendState(connections: ProxmoxCollectorStateView[]) {
   act(() => fakeMux.emitWire('proxmox-state', 'data', { connections }));
 }
 
@@ -125,30 +124,31 @@ afterEach(() => {
 });
 
 describe('Proxmox page, worker state', () => {
-  it('shows w3 with the address and the last data time during an outage, and keeps the last data on screen', async () => {
+  it('shows w3 with the address and the last data time during an outage over the last data, and clears it on the next success with no reload', async () => {
     renderPage();
     await screen.findByText('web-vm');
 
-    sendState([connection({ state: 'unreachable', reason: '/cluster/status: Connection refused' })]);
+    sendState([connection({ state: 'unreachable' })]);
     expect(await screen.findByText("Can't reach Proxmox at pve.lan:8006. Showing the last data, from 10:42 AM.")).toBeTruthy();
     expect(screen.getByText('web-vm')).toBeTruthy();
     expect(screen.getByText('homelab')).toBeTruthy();
-    expect(screen.queryByText('/cluster/status: Connection refused')).toBeNull();
-  });
-
-  it('clears w3 on the next successful poll, with no reload', async () => {
-    historyRows = [];
-    renderPage();
-    sendState([connection({ state: 'unreachable' })]);
-    await screen.findByText(/^Can't reach Proxmox at pve\.lan:8006\./);
 
     sendState([connection({ state: 'collecting' })]);
-    await waitFor(() => expect(screen.queryByText(/Can't reach Proxmox/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/Can't reach Proxmox/) === null).toBe(true));
+    expect(screen.getByText('web-vm')).toBeTruthy();
     expect(fakeMux.subscriptionCount('proxmox-state')).toBe(1);
   });
 
+  it('leaves the time out of w3 when no data is on screen, though Proxmox answered before', async () => {
+    historyRows = [];
+    renderPage();
+    sendState([connection({ state: 'unreachable' })]);
+    expect(await screen.findByText("Can't reach Proxmox at pve.lan:8006.")).toBeTruthy();
+    expect(screen.queryByText(/Showing the last data/) === null).toBe(true);
+  });
+
   it('writes the time in 24-hour form when the user has turned 12-hour time off', () => {
-    expect(unreachableMessage(connection({}), false)).toBe("Can't reach Proxmox at pve.lan:8006. Showing the last data, from 10:42.");
+    expect(unreachableMessage(connection({}), false, true)).toBe("Can't reach Proxmox at pve.lan:8006. Showing the last data, from 10:42.");
   });
 
   it('shows w3 without a time when Proxmox never answered', async () => {
@@ -160,7 +160,7 @@ describe('Proxmox page, worker state', () => {
   });
 
   it.each([
-    ['no connection is set up', [] as ProxmoxCollectorState[], W1],
+    ['no connection is set up', [] as ProxmoxCollectorStateView[], W1],
     ['the collector is off', [connection({ state: 'collector_off', lastSuccessAt: null })], W2],
     ['the token is rejected', [connection({ state: 'token_rejected' })], W4],
     ['the certificate is refused', [connection({ state: 'certificate_refused' })], W5],

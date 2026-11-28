@@ -1,10 +1,10 @@
 import type { PoolClient } from 'pg';
-import type { ProxmoxCollectorState } from '@/types/proxmox';
+import type { ProxmoxCollectorStateView } from '@/types/proxmox';
 import { backoffDelayMs } from '@/lib/utils/backoff';
 import { PROXMOX_STATE_NOTIFY_CHANNEL } from '@/lib/database/repositories/proxmox-state-repository';
 
 export interface ProxmoxStateSnapshot {
-  connections: ProxmoxCollectorState[];
+  connections: ProxmoxCollectorStateView[];
 }
 
 type StateSnapshotCallback = (snapshot: ProxmoxStateSnapshot) => void;
@@ -27,7 +27,12 @@ async function defaultLoadSnapshot(): Promise<ProxmoxStateSnapshot> {
   const config = loadDatabaseConfig();
   const client = await databaseConnectionManager.getClient(config);
   const repo = new ProxmoxStateRepository(client.getPool());
-  return { connections: await repo.list() };
+  const connections = await repo.list();
+  return {
+    connections: connections.map(({ connectionId, host, port, state, lastSuccessAt, updatedAt }) => (
+      { connectionId, host, port, state, lastSuccessAt, updatedAt }
+    )),
+  };
 }
 
 export interface ProxmoxStateBroadcastServiceDeps {
@@ -35,11 +40,7 @@ export interface ProxmoxStateBroadcastServiceDeps {
   loadSnapshot?: () => Promise<ProxmoxStateSnapshot>;
 }
 
-/**
- * Server-side broadcast of the worker's Proxmox collector state. Listens on 'proxmox_state_change'
- * (a trigger on proxmox_collector_state), sends the whole table on subscribe and again on each NOTIFY.
- * The web server never contacts Proxmox itself. Auto-starts on first subscriber, auto-stops on last unsubscribe.
- */
+/** Fans the worker's Proxmox state out to browsers. Without the reload after each LISTEN, a state written while the listener was down never reaches the page. */
 export class ProxmoxStateBroadcastService {
   private subscribers = new Set<StateSnapshotCallback>();
   private listenerClient: PoolClient | null = null;
@@ -50,6 +51,7 @@ export class ProxmoxStateBroadcastService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly getPoolClient: () => Promise<PoolClient>;
   private readonly loadSnapshot: () => Promise<ProxmoxStateSnapshot>;
+  private deliveries: Promise<void> = Promise.resolve();
 
   constructor(deps: ProxmoxStateBroadcastServiceDeps = {}) {
     this.getPoolClient = deps.getPoolClient ?? defaultGetPoolClient;
@@ -60,9 +62,9 @@ export class ProxmoxStateBroadcastService {
     this.subscribers.add(callback);
 
     if (this.subscribers.size === 1) {
-      void this.startListening().then(() => this.sendSnapshot(callback));
+      void this.startListening();
     } else {
-      void this.sendSnapshot(callback);
+      this.deliver(() => [callback]);
     }
 
     return () => {
@@ -73,15 +75,25 @@ export class ProxmoxStateBroadcastService {
     };
   }
 
-  private async sendSnapshot(callback: StateSnapshotCallback): Promise<void> {
-    try {
-      const snapshot = await this.loadSnapshot();
-      if (this.subscribers.has(callback)) {
-        callback(snapshot);
+  /** Loads run one at a time, so an older snapshot is never delivered after a newer one. */
+  private deliver(targets: () => Iterable<StateSnapshotCallback>): void {
+    this.deliveries = this.deliveries.then(async () => {
+      let snapshot: ProxmoxStateSnapshot;
+      try {
+        snapshot = await this.loadSnapshot();
+      } catch (err) {
+        console.error('[ProxmoxStateBroadcastService] Failed to load snapshot:', err);
+        return;
       }
-    } catch (err) {
-      console.error('[ProxmoxStateBroadcastService] Failed to load snapshot:', err);
-    }
+      for (const cb of [...targets()]) {
+        if (!this.subscribers.has(cb)) continue;
+        try {
+          cb(snapshot);
+        } catch (err) {
+          console.error('[ProxmoxStateBroadcastService] Subscriber callback failed:', err);
+        }
+      }
+    });
   }
 
   private async startListening(): Promise<void> {
@@ -128,6 +140,7 @@ export class ProxmoxStateBroadcastService {
 
         await currentClient.query(`LISTEN ${PROXMOX_STATE_NOTIFY_CHANNEL}`);
         this.reconnectFailures = 0;
+        this.deliver(() => this.subscribers);
         return;
       } catch (err) {
         if (generation !== this.listenGeneration) return;
@@ -145,19 +158,7 @@ export class ProxmoxStateBroadcastService {
   }
 
   private handleNotify(): void {
-    void this.loadSnapshot()
-      .then((snapshot) => {
-        for (const cb of this.subscribers) {
-          try {
-            cb(snapshot);
-          } catch (err) {
-            console.error('[ProxmoxStateBroadcastService] Subscriber callback failed:', err);
-          }
-        }
-      })
-      .catch((err) => {
-        console.error('[ProxmoxStateBroadcastService] Failed to reload snapshot after NOTIFY:', err);
-      });
+    this.deliver(() => this.subscribers);
   }
 
   private cleanupListenerClient(): void {

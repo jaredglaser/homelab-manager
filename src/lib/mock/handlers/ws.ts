@@ -13,7 +13,7 @@ import { settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES, PROXMOX_HOST } from '@/lib/mock/entities';
-import type { ProxmoxCollectorState } from '@/types/proxmox';
+import type { ProxmoxCollectorStateView } from '@/types/proxmox';
 import { parseStatsTopic, type StatsTopicSource } from '@/lib/mux/protocol';
 
 const LOG_INTERVAL_MS = 3000;
@@ -74,7 +74,7 @@ export function statsTickFrame(topic: string, tick: number, time: Date): string 
  * recorded connections, and a topic in `__mockMuxTopicErrors` answers with a retrying error frame.
  */
 interface MockMuxOverrides {
-  __mockProxmoxState?: ProxmoxCollectorState[];
+  __mockProxmoxState?: ProxmoxCollectorStateView[];
   __mockMuxTopicErrors?: string[];
 }
 
@@ -82,13 +82,12 @@ function mockOverrides(): MockMuxOverrides {
   return globalThis as MockMuxOverrides;
 }
 
-export function mockProxmoxState(now: Date): ProxmoxCollectorState[] {
+export function mockProxmoxState(now: Date): ProxmoxCollectorStateView[] {
   return mockOverrides().__mockProxmoxState ?? [{
     connectionId: PROXMOX_HOST,
     host: PROXMOX_HOST,
     port: 8006,
     state: 'collecting',
-    reason: null,
     lastSuccessAt: now.getTime(),
     updatedAt: now.getTime(),
   }];

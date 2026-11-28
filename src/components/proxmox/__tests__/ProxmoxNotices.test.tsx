@@ -12,17 +12,16 @@ import {
   proxmoxStateNotices,
   unreachableMessage,
 } from '../ProxmoxNotices';
-import type { ProxmoxCollectorState } from '@/types/proxmox';
+import type { ProxmoxCollectorStateView } from '@/types/proxmox';
 
 const at1042 = new Date(2026, 10, 27, 10, 42).getTime();
 
-function connection(overrides: Partial<ProxmoxCollectorState>): ProxmoxCollectorState {
+function connection(overrides: Partial<ProxmoxCollectorStateView>): ProxmoxCollectorStateView {
   return {
     connectionId: 'pve.lan',
     host: 'pve.lan',
     port: 8006,
     state: 'collecting',
-    reason: 'detail for the console',
     lastSuccessAt: at1042,
     updatedAt: at1042,
     ...overrides,
@@ -35,7 +34,7 @@ describe('Proxmox notice copy', () => {
     expect(PROXMOX_COLLECTOR_OFF).toBe(
       "The worker isn't collecting Proxmox stats. Set WORKER_PROXMOX_ENABLED=true on the worker container and restart it.",
     );
-    expect(unreachableMessage(connection({}), false)).toBe(
+    expect(unreachableMessage(connection({}), false, true)).toBe(
       "Can't reach Proxmox at pve.lan:8006. Showing the last data, from 10:42.",
     );
     expect(PROXMOX_TOKEN_REJECTED).toBe(
@@ -48,10 +47,10 @@ describe('Proxmox notice copy', () => {
   });
 
   it('fills in the address, port and time of w3, and leaves the time out when nothing ever arrived', () => {
-    expect(unreachableMessage(connection({ host: '10.0.0.5', port: 8443 }), true)).toBe(
+    expect(unreachableMessage(connection({ host: '10.0.0.5', port: 8443 }), true, true)).toBe(
       "Can't reach Proxmox at 10.0.0.5:8443. Showing the last data, from 10:42 AM.",
     );
-    expect(unreachableMessage(connection({ lastSuccessAt: null }), true)).toBe("Can't reach Proxmox at pve.lan:8006.");
+    expect(unreachableMessage(connection({ lastSuccessAt: null }), true, true)).toBe("Can't reach Proxmox at pve.lan:8006.");
   });
 
   it('formats the clock in 12 or 24 hours', () => {
@@ -63,11 +62,11 @@ describe('Proxmox notice copy', () => {
 
 describe('proxmoxStateNotices', () => {
   it('shows nothing before the worker state arrives', () => {
-    expect(proxmoxStateNotices(null, true)).toEqual([]);
+    expect(proxmoxStateNotices(null, true, false)).toEqual([]);
   });
 
   it('reads no connection at all as not set up', () => {
-    expect(proxmoxStateNotices({ connections: [] }, true)).toEqual([{ key: 'not-set-up', text: PROXMOX_NOT_SET_UP }]);
+    expect(proxmoxStateNotices({ connections: [] }, true, false)).toEqual([{ key: 'not-set-up', text: PROXMOX_NOT_SET_UP }]);
   });
 
   it.each([
@@ -77,7 +76,7 @@ describe('proxmoxStateNotices', () => {
     ['token_rejected', [PROXMOX_TOKEN_REJECTED]],
     ['certificate_refused', [PROXMOX_CERTIFICATE_REFUSED]],
   ] as const)('maps %s to its message', (state, texts) => {
-    expect(proxmoxStateNotices({ connections: [connection({ state })] }, true).map((n) => n.text)).toEqual([...texts]);
+    expect(proxmoxStateNotices({ connections: [connection({ state })] }, true, true).map((n) => n.text)).toEqual([...texts]);
   });
 
   it('gives each connection its own notice, keyed by the connection', () => {
@@ -86,16 +85,16 @@ describe('proxmoxStateNotices', () => {
         connection({ connectionId: 'a', host: 'a.lan', state: 'unreachable', lastSuccessAt: null }),
         connection({ connectionId: 'b', host: 'b.lan', state: 'token_rejected' }),
       ],
-    }, true);
+    }, true, true);
     expect(notices).toEqual([
       { key: 'a', text: "Can't reach Proxmox at a.lan:8006." },
       { key: 'b', text: PROXMOX_TOKEN_REJECTED },
     ]);
   });
 
-  it('never shows the technical reason', () => {
-    const texts = proxmoxStateNotices({ connections: [connection({ state: 'unreachable' })] }, true).map((n) => n.text);
-    expect(texts.join(' ')).not.toContain('detail for the console');
+  it('says only where Proxmox is when no data is on screen, even with a last success recorded', () => {
+    const texts = proxmoxStateNotices({ connections: [connection({ state: 'unreachable' })] }, true, false).map((n) => n.text);
+    expect(texts).toEqual(["Can't reach Proxmox at pve.lan:8006."]);
   });
 });
 

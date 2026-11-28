@@ -126,9 +126,9 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   }, [overview, onOverviewChange])
 
   const notices = useMemo(() => {
-    const fromState = proxmoxStateNotices(collectorState, use12HourTime)
+    const fromState = proxmoxStateNotices(collectorState, use12HourTime, overview !== null)
     return stream.error ? [{ key: 'live-connection', text: PROXMOX_LIVE_CONNECTION_LOST }, ...fromState] : fromState
-  }, [collectorState, use12HourTime, stream.error])
+  }, [collectorState, use12HourTime, overview, stream.error])
 
   return (
     <>

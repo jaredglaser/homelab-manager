@@ -8,7 +8,6 @@ const zProxmoxCollectorStateWire = z.object({
   host: z.string(),
   port: z.number(),
   state: z.enum(PROXMOX_COLLECTOR_STATES),
-  reason: z.string().nullable(),
   lastSuccessAt: z.number().nullable(),
   updatedAt: z.number(),
 });

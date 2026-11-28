@@ -1,21 +1,20 @@
 import type { Page } from '@playwright/test';
-import type { ProxmoxCollectorState } from '@/types/proxmox';
+import type { ProxmoxCollectorStateView } from '@/types/proxmox';
 import { test, expect } from './fixtures';
 
 // Seeds the mock mux before the page loads (src/lib/mock/handlers/ws.ts reads these globals).
-async function seedProxmoxState(page: Page, connections: ProxmoxCollectorState[]): Promise<void> {
+async function seedProxmoxState(page: Page, connections: ProxmoxCollectorStateView[]): Promise<void> {
   await page.addInitScript((value) => {
     (window as unknown as { __mockProxmoxState: unknown }).__mockProxmoxState = value;
   }, connections);
 }
 
-function connection(overrides: Partial<ProxmoxCollectorState>): ProxmoxCollectorState {
+function connection(overrides: Partial<ProxmoxCollectorStateView>): ProxmoxCollectorStateView {
   return {
     connectionId: 'pve.lan',
     host: 'pve.lan',
     port: 8006,
     state: 'collecting',
-    reason: null,
     lastSuccessAt: null,
     updatedAt: 0,
     ...overrides,
@@ -63,7 +62,7 @@ test('heads the guest rate columns Net in, Net out, Disk read and Disk write, wi
 });
 
 test.describe('worker state messages', () => {
-  const cases: [string, ProxmoxCollectorState[], string][] = [
+  const cases: [string, ProxmoxCollectorStateView[], string][] = [
     ['no connection is set up', [], "Proxmox isn't set up. Add your cluster in Settings, under Proxmox."],
     [
       'the collector is off',

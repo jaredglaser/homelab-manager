@@ -1,6 +1,6 @@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import type { ProxmoxStateMessage } from '@/lib/channels/proxmox-state'
-import type { ProxmoxCollectorState } from '@/types/proxmox'
+import type { ProxmoxCollectorStateView } from '@/types/proxmox'
 
 export const PROXMOX_NOT_SET_UP = "Proxmox isn't set up. Add your cluster in Settings, under Proxmox."
 export const PROXMOX_COLLECTOR_OFF =
@@ -22,9 +22,14 @@ export function formatClockTime(ms: number, use12Hour: boolean): string {
   return `${h12}:${pad2(d.getMinutes())} ${d.getHours() < 12 ? 'AM' : 'PM'}`
 }
 
-export function unreachableMessage(connection: Pick<ProxmoxCollectorState, 'host' | 'port' | 'lastSuccessAt'>, use12Hour: boolean): string {
+/** The time is left out when no data is on screen, which happens when the outage is older than the page's preload window. */
+export function unreachableMessage(
+  connection: Pick<ProxmoxCollectorStateView, 'host' | 'port' | 'lastSuccessAt'>,
+  use12Hour: boolean,
+  dataOnScreen: boolean,
+): string {
   const where = `Can't reach Proxmox at ${connection.host}:${connection.port}.`
-  if (connection.lastSuccessAt === null) return where
+  if (connection.lastSuccessAt === null || !dataOnScreen) return where
   return `${where} Showing the last data, from ${formatClockTime(connection.lastSuccessAt, use12Hour)}.`
 }
 
@@ -34,7 +39,11 @@ export interface ProxmoxNotice {
 }
 
 /** Notices for the worker's recorded state. `null` means the state has not arrived yet, which shows nothing. */
-export function proxmoxStateNotices(snapshot: ProxmoxStateMessage | null, use12Hour: boolean): ProxmoxNotice[] {
+export function proxmoxStateNotices(
+  snapshot: ProxmoxStateMessage | null,
+  use12Hour: boolean,
+  dataOnScreen: boolean,
+): ProxmoxNotice[] {
   if (snapshot === null) return []
   if (snapshot.connections.length === 0) return [{ key: 'not-set-up', text: PROXMOX_NOT_SET_UP }]
   return snapshot.connections.flatMap((connection): ProxmoxNotice[] => {
@@ -45,7 +54,7 @@ export function proxmoxStateNotices(snapshot: ProxmoxStateMessage | null, use12H
       case 'collector_off':
         return [{ key, text: PROXMOX_COLLECTOR_OFF }]
       case 'unreachable':
-        return [{ key, text: unreachableMessage(connection, use12Hour) }]
+        return [{ key, text: unreachableMessage(connection, use12Hour, dataOnScreen) }]
       case 'token_rejected':
         return [{ key, text: PROXMOX_TOKEN_REJECTED }]
       case 'certificate_refused':

@@ -1,16 +1,17 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { PoolClient } from 'pg';
 import { ProxmoxStateBroadcastService, type ProxmoxStateSnapshot } from '../proxmox-state-broadcast-service';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
 
-function snapshot(state: 'collecting' | 'unreachable'): ProxmoxStateSnapshot {
+type State = 'collecting' | 'unreachable' | 'token_rejected';
+
+function snapshot(state: State): ProxmoxStateSnapshot {
   return {
     connections: [{
       connectionId: 'pve.lan',
       host: 'pve.lan',
       port: 8006,
       state,
-      reason: null,
       lastSuccessAt: 1_000,
       updatedAt: 2_000,
     }],
@@ -28,28 +29,44 @@ function controllablePoolClient() {
     release: mock(() => {}),
     removeAllListeners: mock(() => {}),
   };
-  return { client: client as unknown as PoolClient, handlers, query: client.query };
+  return { client: client as unknown as PoolClient, handlers, query: client.query, release: client.release };
 }
 
+const states = (received: ProxmoxStateSnapshot[]) => received.map((s) => s.connections[0]?.state);
+
+let timeoutSpy: { mockRestore: () => void };
+let errorSpy: ReturnType<typeof spyOn<Console, 'error'>>;
+
+beforeEach(() => {
+  timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => {
+    queueMicrotask(fn);
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout);
+  errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  timeoutSpy.mockRestore();
+  errorSpy.mockRestore();
+});
+
 describe('ProxmoxStateBroadcastService', () => {
-  it('sends the recorded state on subscribe and again on each NOTIFY', async () => {
+  it('sends the recorded state once listening, and again on each NOTIFY', async () => {
     const { client, handlers } = controllablePoolClient();
-    const states = [snapshot('unreachable'), snapshot('collecting')];
+    const queue: State[] = ['unreachable', 'collecting'];
     const service = new ProxmoxStateBroadcastService({
       getPoolClient: () => Promise.resolve(client),
-      loadSnapshot: () => Promise.resolve(states.shift() ?? snapshot('collecting')),
+      loadSnapshot: () => Promise.resolve(snapshot(queue.shift() ?? 'collecting')),
     });
 
     const received: ProxmoxStateSnapshot[] = [];
-    const unsub = service.subscribe((s) => received.push(s));
-    await waitForCondition(() => received.length === 1 && handlers.notify !== undefined);
-    expect(received[0].connections[0].state).toBe('unreachable');
+    service.subscribe((s) => received.push(s));
+    await waitForCondition(() => received.length === 1);
 
     handlers.notify!({ channel: 'proxmox_state_change' });
     await waitForCondition(() => received.length === 2);
-    expect(received[1].connections[0].state).toBe('collecting');
 
-    unsub();
+    expect(states(received)).toEqual(['unreachable', 'collecting']);
     await service.stop();
   });
 
@@ -66,7 +83,7 @@ describe('ProxmoxStateBroadcastService', () => {
 
     const received: ProxmoxStateSnapshot[] = [];
     service.subscribe((s) => received.push(s));
-    await waitForCondition(() => received.length === 1 && handlers.notify !== undefined);
+    await waitForCondition(() => received.length === 1);
     handlers.notify!({ channel: 'settings_change' });
     handlers.notify!({ channel: 'proxmox_state_change' });
     await waitForCondition(() => received.length === 2);
@@ -75,58 +92,82 @@ describe('ProxmoxStateBroadcastService', () => {
     await service.stop();
   });
 
-  it('listens again on a new connection after the listener errors', async () => {
+  it('reloads and fans out after it listens again, so a state written while the listener was down still arrives', async () => {
     const first = controllablePoolClient();
     const second = controllablePoolClient();
     const clients = [first.client, second.client];
+    let stored: State = 'collecting';
     const service = new ProxmoxStateBroadcastService({
       getPoolClient: () => Promise.resolve(clients.shift()!),
-      loadSnapshot: () => Promise.resolve(snapshot('collecting')),
+      loadSnapshot: () => Promise.resolve(snapshot(stored)),
     });
-    const errorSpy = mock(() => {});
-    const originalError = console.error;
-    console.error = errorSpy;
-    try {
-      const received: ProxmoxStateSnapshot[] = [];
-      service.subscribe((s) => received.push(s));
-      await waitForCondition(() => received.length === 1 && first.handlers.error !== undefined);
 
-      first.handlers.error!(new Error('connection terminated'));
-      await waitForCondition(() => second.handlers.notify !== undefined, { timeoutMs: 1500 });
-      second.handlers.notify!({ channel: 'proxmox_state_change' });
-      await waitForCondition(() => received.length === 2);
+    const a: ProxmoxStateSnapshot[] = [];
+    const b: ProxmoxStateSnapshot[] = [];
+    service.subscribe((s) => a.push(s));
+    await waitForCondition(() => a.length === 1);
+    service.subscribe((s) => b.push(s));
+    await waitForCondition(() => b.length === 1);
 
-      expect(second.query).toHaveBeenCalledWith('LISTEN proxmox_state_change');
-    } finally {
-      console.error = originalError;
-      await service.stop();
-    }
+    stored = 'unreachable';
+    first.handlers.error!(new Error('connection terminated'));
+    await waitForCondition(() => a.length === 2 && b.length === 2);
+
+    expect(states(a)).toEqual(['collecting', 'unreachable']);
+    expect(states(b)).toEqual(['collecting', 'unreachable']);
+    expect(second.query).toHaveBeenCalledWith('LISTEN proxmox_state_change');
+    await service.stop();
   });
 
-  it('keeps a subscriber when loading the state fails, and logs it', async () => {
+  it('gives a subscriber that arrived while the database was down a snapshot once it listens', async () => {
     const { client } = controllablePoolClient();
-    const errorSpy = mock(() => {});
-    const originalError = console.error;
-    console.error = errorSpy;
-    try {
-      const service = new ProxmoxStateBroadcastService({
-        getPoolClient: () => Promise.resolve(client),
-        loadSnapshot: () => Promise.reject(new Error('db down')),
-      });
-      service.subscribe(() => undefined);
-      await waitForCondition(() => errorSpy.mock.calls.length > 0);
+    let databaseUp = false;
+    let attempts = 0;
+    const service = new ProxmoxStateBroadcastService({
+      getPoolClient: () => {
+        attempts++;
+        if (attempts === 2) databaseUp = true;
+        return databaseUp ? Promise.resolve(client) : Promise.reject(new Error('db down'));
+      },
+      loadSnapshot: () => (databaseUp ? Promise.resolve(snapshot('unreachable')) : Promise.reject(new Error('db down'))),
+    });
 
-      expect(String((errorSpy.mock.calls[0] as unknown[])[0])).toContain('[ProxmoxStateBroadcastService]');
-      await service.stop();
-    } finally {
-      console.error = originalError;
-    }
+    const a: ProxmoxStateSnapshot[] = [];
+    const b: ProxmoxStateSnapshot[] = [];
+    service.subscribe((s) => a.push(s));
+    service.subscribe((s) => b.push(s));
+    await waitForCondition(() => a.length >= 1 && b.length >= 1);
+
+    expect(states(b).at(-1)).toBe('unreachable');
+    expect(attempts).toBe(2);
+    await service.stop();
   });
-});
 
-describe('ProxmoxStateBroadcastService edge paths', () => {
-  it('sends a second subscriber its own snapshot and keeps listening until the last one leaves', async () => {
-    const { client } = controllablePoolClient();
+  it('never delivers an older snapshot after a newer one', async () => {
+    const { client, handlers } = controllablePoolClient();
+    const pending: ((s: ProxmoxStateSnapshot) => void)[] = [];
+    const service = new ProxmoxStateBroadcastService({
+      getPoolClient: () => Promise.resolve(client),
+      loadSnapshot: () => new Promise((resolve) => pending.push(resolve)),
+    });
+
+    const received: ProxmoxStateSnapshot[] = [];
+    service.subscribe((s) => received.push(s));
+    await waitForCondition(() => pending.length === 1 && handlers.notify !== undefined);
+    handlers.notify!({ channel: 'proxmox_state_change' });
+
+    expect(pending).toHaveLength(1);
+    pending[0](snapshot('collecting'));
+    await waitForCondition(() => pending.length === 2);
+    pending[1](snapshot('unreachable'));
+    await waitForCondition(() => received.length === 2);
+
+    expect(states(received)).toEqual(['collecting', 'unreachable']);
+    await service.stop();
+  });
+
+  it('keeps listening until the last subscriber leaves', async () => {
+    const { client, release } = controllablePoolClient();
     const service = new ProxmoxStateBroadcastService({
       getPoolClient: () => Promise.resolve(client),
       loadSnapshot: () => Promise.resolve(snapshot('collecting')),
@@ -139,37 +180,13 @@ describe('ProxmoxStateBroadcastService edge paths', () => {
     await waitForCondition(() => second.length === 1);
 
     unsubFirst();
-    expect(client.release).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
     unsubSecond();
-    expect(client.release).toHaveBeenCalledTimes(1);
-  });
-
-  it('retries the listener when the first connection fails, and stops retrying once stopped', async () => {
-    const { client } = controllablePoolClient();
-    let attempts = 0;
-    const originalError = console.error;
-    console.error = mock(() => {});
-    try {
-      const service = new ProxmoxStateBroadcastService({
-        getPoolClient: () => {
-          attempts++;
-          return attempts === 1 ? Promise.reject(new Error('db down')) : Promise.resolve(client);
-        },
-        loadSnapshot: () => Promise.resolve(snapshot('collecting')),
-      });
-      const received: ProxmoxStateSnapshot[] = [];
-      service.subscribe((s) => received.push(s));
-      await waitForCondition(() => received.length === 1, { timeoutMs: 1500 });
-
-      expect(attempts).toBe(2);
-      await service.stop();
-    } finally {
-      console.error = originalError;
-    }
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('releases a connection that arrives after the last subscriber left', async () => {
-    const { client } = controllablePoolClient();
+    const { client, release } = controllablePoolClient();
     let hand: ((c: PoolClient) => void) | undefined;
     const service = new ProxmoxStateBroadcastService({
       getPoolClient: () => new Promise((resolve) => { hand = resolve; }),
@@ -177,41 +194,39 @@ describe('ProxmoxStateBroadcastService edge paths', () => {
     });
     service.subscribe(() => undefined)();
     hand!(client);
-    await waitForCondition(() => (client.release as ReturnType<typeof mock>).mock.calls.length === 1);
+    await waitForCondition(() => release.mock.calls.length === 1);
     await service.stop();
   });
 
-  it('logs a subscriber that throws and still reaches the others', async () => {
+  it('logs a failed load and a subscriber that throws, and still reaches the others', async () => {
     const { client, handlers } = controllablePoolClient();
-    const originalError = console.error;
-    const errorSpy = mock(() => {});
-    console.error = errorSpy;
-    try {
-      const service = new ProxmoxStateBroadcastService({
-        getPoolClient: () => Promise.resolve(client),
-        loadSnapshot: () => Promise.resolve(snapshot('collecting')),
-      });
-      let calls = 0;
-      const received: ProxmoxStateSnapshot[] = [];
-      service.subscribe(() => {
-        calls++;
-        if (calls > 1) throw new Error('boom');
-      });
-      service.subscribe((s) => received.push(s));
-      await waitForCondition(() => received.length === 1 && handlers.notify !== undefined);
-      handlers.notify!({ channel: 'proxmox_state_change' });
-      await waitForCondition(() => received.length === 2);
+    let fail = true;
+    const service = new ProxmoxStateBroadcastService({
+      getPoolClient: () => Promise.resolve(client),
+      loadSnapshot: () => (fail ? Promise.reject(new Error('db down')) : Promise.resolve(snapshot('collecting'))),
+    });
+    const received: ProxmoxStateSnapshot[] = [];
+    service.subscribe(() => {
+      throw new Error('boom');
+    });
+    service.subscribe((s) => received.push(s));
+    await waitForCondition(() => handlers.notify !== undefined && errorSpy.mock.calls.length > 0);
+    fail = false;
+    handlers.notify!({ channel: 'proxmox_state_change' });
+    await waitForCondition(() => received.length >= 1);
 
-      expect(errorSpy.mock.calls.some((c) => String((c as unknown[])[0]).includes('Subscriber callback failed'))).toBe(true);
-      await service.stop();
-    } finally {
-      console.error = originalError;
-    }
+    const logged = errorSpy.mock.calls.map((c) => String(c[0]));
+    expect(logged.some((line) => line.includes('Failed to load snapshot'))).toBe(true);
+    expect(logged.some((line) => line.includes('Subscriber callback failed'))).toBe(true);
+    await service.stop();
   });
 });
 
 describe('ProxmoxStateBroadcastService with its default database wiring', () => {
-  it('listens on a pooled connection and reads the state table', async () => {
+  // The default wiring loads modules, which a timer spy that never yields to the event loop would starve.
+  beforeEach(() => timeoutSpy.mockRestore());
+
+  it('listens on a pooled connection and sends the state table without the reason', async () => {
     const { client, query } = controllablePoolClient();
     const pool = { connect: mock(() => Promise.resolve(client)) };
     const repoPools: unknown[] = [];
@@ -224,16 +239,16 @@ describe('ProxmoxStateBroadcastService with its default database wiring', () => 
         constructor(p: unknown) {
           repoPools.push(p);
         }
-        list = () => Promise.resolve([]);
+        list = () => Promise.resolve([{ ...snapshot('unreachable').connections[0], reason: 'HTTP 500 detail' }]);
       },
     }));
     const service = new ProxmoxStateBroadcastService();
     const received: ProxmoxStateSnapshot[] = [];
     try {
       service.subscribe((s) => received.push(s));
-      await waitForCondition(() => received.length > 0 && query.mock.calls.length === 1);
+      await waitForCondition(() => received.length > 0);
 
-      expect(received).toEqual([{ connections: [] }]);
+      expect(received).toEqual([snapshot('unreachable')]);
       expect(repoPools).toEqual([pool]);
       expect(query.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['LISTEN proxmox_state_change']);
     } finally {
