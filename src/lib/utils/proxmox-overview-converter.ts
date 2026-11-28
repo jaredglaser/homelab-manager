@@ -25,14 +25,7 @@ function guestCounters(guest: ProxmoxResource): [number, number, number, number]
   return [netin, netout, diskread, diskwrite];
 }
 
-/**
- * Turns the cumulative counters in /cluster/resources into per-second rates, one tracker per connection.
- *
- * Proxmox refreshes guest stats about every 10 seconds (pvestatd), so a 1-second poll mostly sees the
- * same sample again: an unchanged sample repeats the rates it produced instead of reading as 0 B/s.
- * The time between samples is the guest's own uptime delta, which Proxmox reads together with the
- * counters, falling back to the worker's monotonic clock when uptime did not move.
- */
+// pvestatd refreshes guest stats about every 10 s, so most 1 s polls repeat the last sample: those must repeat its rates, not read 0.
 export class ProxmoxRateTracker {
   private readonly previous = new Map<string, GuestSample>();
 
@@ -47,7 +40,7 @@ export class ProxmoxRateTracker {
 
     const prev = this.previous.get(key);
     if (prev && prev.uptime === uptime && prev.counters.every((value, i) => value === counters[i])) {
-      return prev.rates;
+      return sampledAtMs - prev.sampledAtMs > FROZEN_SAMPLE_MS ? NO_RATES : prev.rates;
     }
 
     const rates = prev ? ratesBetween(prev, uptime, counters, sampledAtMs) : NO_RATES;
@@ -63,17 +56,21 @@ export class ProxmoxRateTracker {
   }
 }
 
+// A sample Proxmox has not refreshed for this long (pvestatd hung, node gone) no longer stands for current traffic.
+const FROZEN_SAMPLE_MS = 60_000;
+
 function ratesBetween(
   prev: GuestSample,
   uptime: number,
   counters: [number, number, number, number],
   sampledAtMs: number,
 ): ProxmoxGuestRates {
-  // Any counter or the uptime going backwards is a restart (or a migration to a fresh process), not negative traffic.
-  if (uptime < prev.uptime || counters.some((value, i) => value < prev.counters[i])) return NO_RATES;
+  if (uptime < prev.uptime) return NO_RATES;
   const seconds = uptime > prev.uptime ? uptime - prev.uptime : (sampledAtMs - prev.sampledAtMs) / 1000;
   if (!(seconds > 0)) return NO_RATES;
-  const [netIn, netOut, diskRead, diskWrite] = counters.map((value, i) => (value - prev.counters[i]) / seconds);
+  // A counter going down on its own (a disk unplugged, a NIC re-added) blanks that rate only.
+  const [netIn, netOut, diskRead, diskWrite] = counters.map((value, i) =>
+    value < prev.counters[i] ? null : (value - prev.counters[i]) / seconds);
   return {
     netInBytesPerSec: netIn,
     netOutBytesPerSec: netOut,
@@ -82,10 +79,6 @@ function ratesBetween(
   };
 }
 
-/**
- * Map a guest resource (qemu or lxc) from /cluster/resources to a stats row.
- * `maxcpu` is the allocated core count, stored as `max_cpu`.
- */
 const NULL_RATE_COLUMNS = {
   net_in_bytes_per_sec: null,
   net_out_bytes_per_sec: null,

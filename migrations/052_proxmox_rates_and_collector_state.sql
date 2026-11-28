@@ -2,14 +2,14 @@
 -- worker's per-connection collector state.
 --
 -- netin/netout stay as raw counters on proxmox_stats. The rates are what the page reads.
--- A rate is NULL where none exists (first poll, restart, stopped guest), and the worker writes the
--- four together, so rate_sample_count counts the rows that carry a rate. The hourly tier weights by
--- it rather than by sample_count: weighting by every row would pull an hour that held a restart or a
--- stopped stretch toward 0.
+-- A rate is NULL where none exists (first poll, restart, stopped guest, a counter that went down),
+-- and each rate can be NULL on its own, so each carries its own <rate>_rate_count. The hourly tier
+-- weights by that count rather than by sample_count: weighting by every row would pull an hour that
+-- held a restart or a stopped stretch toward 0.
 --
--- Dropping the rollups discards Proxmox history older than raw retention (24 hours). The next start
--- of the web server rebuilds both tiers from raw and re-adds their retention
--- (runStatsRollupBackfill).
+-- Dropping the rollups discards Proxmox history older than raw retention (24 hours). Both tiers are
+-- refilled from raw, and their retention re-added, only when runStatsRollupBackfill runs after this
+-- migration, which the worker does once it has migrated.
 
 ALTER TABLE proxmox_stats
   ADD COLUMN IF NOT EXISTS net_in_bytes_per_sec DOUBLE PRECISION,
@@ -45,7 +45,10 @@ SELECT
   AVG(net_out_bytes_per_sec)              AS net_out_bytes_per_sec,
   AVG(disk_read_bytes_per_sec)            AS disk_read_bytes_per_sec,
   AVG(disk_write_bytes_per_sec)           AS disk_write_bytes_per_sec,
-  count(net_in_bytes_per_sec)             AS rate_sample_count,
+  count(net_in_bytes_per_sec)        AS net_in_rate_count,
+  count(net_out_bytes_per_sec)       AS net_out_rate_count,
+  count(disk_read_bytes_per_sec)     AS disk_read_rate_count,
+  count(disk_write_bytes_per_sec)    AS disk_write_rate_count,
   last(storage_type, time)                AS storage_type,
   last(storage_content, time)             AS storage_content,
   AVG(storage_avail)                      AS storage_avail,
@@ -76,11 +79,14 @@ SELECT
   last(vmid, time)                      AS vmid,
   last(netin, time)                     AS netin,
   last(netout, time)                    AS netout,
-  SUM(net_in_bytes_per_sec * rate_sample_count)     AS net_in_bytes_per_sec_sum,
-  SUM(net_out_bytes_per_sec * rate_sample_count)    AS net_out_bytes_per_sec_sum,
-  SUM(disk_read_bytes_per_sec * rate_sample_count)  AS disk_read_bytes_per_sec_sum,
-  SUM(disk_write_bytes_per_sec * rate_sample_count) AS disk_write_bytes_per_sec_sum,
-  SUM(rate_sample_count)                AS rate_sample_count,
+  SUM(net_in_bytes_per_sec * net_in_rate_count) AS net_in_bytes_per_sec_sum,
+  SUM(net_out_bytes_per_sec * net_out_rate_count) AS net_out_bytes_per_sec_sum,
+  SUM(disk_read_bytes_per_sec * disk_read_rate_count) AS disk_read_bytes_per_sec_sum,
+  SUM(disk_write_bytes_per_sec * disk_write_rate_count) AS disk_write_bytes_per_sec_sum,
+  SUM(net_in_rate_count) AS net_in_rate_count,
+  SUM(net_out_rate_count) AS net_out_rate_count,
+  SUM(disk_read_rate_count) AS disk_read_rate_count,
+  SUM(disk_write_rate_count) AS disk_write_rate_count,
   last(storage_type, time)              AS storage_type,
   last(storage_content, time)           AS storage_content,
   SUM(storage_avail * sample_count)     AS storage_avail_sum,
@@ -110,11 +116,14 @@ SELECT
   vmid,
   netin,
   netout,
-  (net_in_bytes_per_sec_sum / NULLIF(rate_sample_count, 0))::double precision     AS net_in_bytes_per_sec,
-  (net_out_bytes_per_sec_sum / NULLIF(rate_sample_count, 0))::double precision    AS net_out_bytes_per_sec,
-  (disk_read_bytes_per_sec_sum / NULLIF(rate_sample_count, 0))::double precision  AS disk_read_bytes_per_sec,
-  (disk_write_bytes_per_sec_sum / NULLIF(rate_sample_count, 0))::double precision AS disk_write_bytes_per_sec,
-  rate_sample_count,
+  (net_in_bytes_per_sec_sum / NULLIF(net_in_rate_count, 0))::double precision AS net_in_bytes_per_sec,
+  (net_out_bytes_per_sec_sum / NULLIF(net_out_rate_count, 0))::double precision AS net_out_bytes_per_sec,
+  (disk_read_bytes_per_sec_sum / NULLIF(disk_read_rate_count, 0))::double precision AS disk_read_bytes_per_sec,
+  (disk_write_bytes_per_sec_sum / NULLIF(disk_write_rate_count, 0))::double precision AS disk_write_bytes_per_sec,
+  net_in_rate_count,
+  net_out_rate_count,
+  disk_read_rate_count,
+  disk_write_rate_count,
   storage_type,
   storage_content,
   (storage_avail_sum / NULLIF(sample_count, 0))::double precision  AS storage_avail,

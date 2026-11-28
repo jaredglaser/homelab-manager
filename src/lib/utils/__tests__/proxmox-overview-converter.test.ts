@@ -393,18 +393,46 @@ describe('ProxmoxRateTracker', () => {
     expect(tracker.rates(guest(after), 'qemu', 20_000).netInBytesPerSec).toBe(50);
   });
 
-  it('blanks a point where one counter fell just below its previous value while uptime moved on', () => {
+  it('blanks only the rate whose counter fell just below its previous value, while uptime moved on', () => {
     const tracker = new ProxmoxRateTracker();
     tracker.rates(guest(start), 'qemu', 0);
     const next = { ...advance(start, 10, [100, 100, 100, 100]), diskwrite: start.diskwrite - 1 };
+    expect(tracker.rates(guest(next), 'qemu', 10_000)).toEqual({
+      netInBytesPerSec: 100,
+      netOutBytesPerSec: 100,
+      diskReadBytesPerSec: 100,
+      diskWriteBytesPerSec: null,
+    });
+  });
+
+  it('keeps the network rates when a disk is unplugged and its counters restart', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const next = { ...advance(start, 10, [50, 60, 0, 0]), diskread: 0, diskwrite: 0 };
+    expect(tracker.rates(guest(next), 'qemu', 10_000)).toEqual({
+      netInBytesPerSec: 50,
+      netOutBytesPerSec: 60,
+      diskReadBytesPerSec: null,
+      diskWriteBytesPerSec: null,
+    });
+  });
+
+  it('blanks all four when uptime went backwards, even if every counter grew', () => {
+    const tracker = new ProxmoxRateTracker();
+    tracker.rates(guest(start), 'qemu', 0);
+    const next = { ...advance(start, 10, [100, 100, 100, 100]), uptime: start.uptime - 1 };
     expect(tracker.rates(guest(next), 'qemu', 10_000)).toEqual(allNull);
   });
 
-  it('blanks a stopped guest and starts it blank again when it comes back', () => {
+  it('stops repeating a sample Proxmox has not refreshed for over a minute', () => {
     const tracker = new ProxmoxRateTracker();
     tracker.rates(guest(start), 'qemu', 0);
-    expect(tracker.rates(guest({ ...start, status: 'stopped' }), 'qemu', 10_000)).toEqual(allNull);
-    expect(tracker.rates(guest({ ...start, uptime: 3 }), 'qemu', 20_000)).toEqual(allNull);
+    const next = advance(start, 10, [100, 100, 100, 100]);
+    expect(tracker.rates(guest(next), 'qemu', 10_000).netInBytesPerSec).toBe(100);
+    expect(tracker.rates(guest(next), 'qemu', 69_000).netInBytesPerSec).toBe(100);
+    expect(tracker.rates(guest(next), 'qemu', 71_000)).toEqual(allNull);
+    const resumed = advance(next, 70, [20, 20, 20, 20]);
+    expect(tracker.rates(guest(resumed), 'qemu', 80_000).netInBytesPerSec).toBe(20);
   });
 
   it('blanks a guest Proxmox reports without counters', () => {

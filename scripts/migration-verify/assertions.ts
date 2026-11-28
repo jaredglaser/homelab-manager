@@ -20,6 +20,9 @@ import {
   PROXMOX_STORAGE_ENTITY,
   RATE_COLUMNS,
   RATE_GUEST,
+  rateCountColumn,
+  COMPRESSED_PROXMOX,
+  PROXMOX_STATE_PROBE_ID,
   REMOVED_COLUMNS,
   SPARSE_HOUR,
   ZFS_ENTITIES,
@@ -248,12 +251,12 @@ const PROXMOX_PROBES: TierProbe[] = [
     weightedAverageColumns: [],
     lastValueColumns: ['cluster_version'],
   },
-  {
+  ...RATE_COLUMNS.map((column): TierProbe => ({
     key: [RATE_GUEST.host, RATE_GUEST.entityType, RATE_GUEST.entityId],
-    weightedAverageColumns: [...RATE_COLUMNS],
+    weightedAverageColumns: [column],
     lastValueColumns: [],
-    weightColumn: 'rate_sample_count',
-  },
+    weightColumn: rateCountColumn(column),
+  })),
 ];
 
 export const AGGREGATE_TIERS: AggregateTier[] = [
@@ -506,6 +509,11 @@ export async function captureRowCounts(pool: Pool): Promise<RowCountSnapshot> {
     pool,
     'SELECT count(*) FROM proxmox_stats WHERE host = $1',
     [PROXMOX_HOST]
+  );
+  snapshot['proxmox_stats/compressed'] = await count(
+    pool,
+    'SELECT count(*) FROM proxmox_stats WHERE host = $1',
+    [COMPRESSED_PROXMOX.host]
   );
   snapshot['managed_hosts'] = await count(pool, 'SELECT count(*) FROM managed_hosts');
   snapshot['entity_metadata'] = await count(pool, 'SELECT count(*) FROM entity_metadata WHERE value IS NOT NULL');
@@ -1676,5 +1684,70 @@ export async function assertRateRollupMatchesRaw(pool: Pool, checks: Checks): Pr
       Math.abs(raw - Number(row.diluted)) > toleranceFor(raw),
       true
     );
+  }
+}
+
+/**
+ * 052 adds columns to proxmox_stats while a chunk of it is compressed. The seeded chunk has to stay
+ * compressed and its rows readable through the new columns, which read as NULL.
+ */
+export async function assertCompressedProxmoxChunk(pool: Pool, checks: Checks): Promise<void> {
+  const row = await selectRow<{ compressed_chunks: string; rows_without_rate: string }>(
+    pool,
+    `SELECT
+       (SELECT count(*) FROM timescaledb_information.chunks
+        WHERE hypertable_name = 'proxmox_stats' AND is_compressed) AS compressed_chunks,
+       (SELECT count(*) FROM proxmox_stats WHERE host = $1 AND net_in_bytes_per_sec IS NULL) AS rows_without_rate`,
+    [COMPRESSED_PROXMOX.host]
+  );
+  checks.equal('a raw proxmox_stats chunk is still compressed after 052', Number(row?.compressed_chunks) > 0, true);
+  checks.equal(
+    'rows in the compressed chunk read through the new rate columns',
+    Number(row?.rows_without_rate),
+    COMPRESSED_PROXMOX.samples
+  );
+}
+
+const NOTIFY_TIMEOUT_MS = 5000;
+
+/** The page learns of a new worker state only through this NOTIFY, so a write that sends none leaves it stale. */
+export async function assertProxmoxStateNotify(pool: Pool, checks: Checks): Promise<void> {
+  const listener = await pool.connect();
+  const payloads: string[] = [];
+  let wake: (() => void) | null = null;
+  listener.on('notification', (msg) => {
+    if (msg.channel !== 'proxmox_state_change') return;
+    payloads.push(msg.payload ?? '');
+    wake?.();
+  });
+  const next = (count: number) => new Promise<boolean>((resolve) => {
+    if (payloads.length >= count) return resolve(true);
+    const timer = setTimeout(() => resolve(false), NOTIFY_TIMEOUT_MS);
+    wake = () => {
+      if (payloads.length < count) return;
+      clearTimeout(timer);
+      resolve(true);
+    };
+  });
+  try {
+    await listener.query('LISTEN proxmox_state_change');
+    await pool.query(
+      `INSERT INTO proxmox_collector_state (connection_id, host, port, state)
+       VALUES ($1, 'ci-notify.lan', 8006, 'unreachable')`,
+      [PROXMOX_STATE_PROBE_ID]
+    );
+    checks.equal('a proxmox_collector_state insert sends proxmox_state_change', await next(1), true);
+    await pool.query("UPDATE proxmox_collector_state SET state = 'collecting' WHERE connection_id = $1", [PROXMOX_STATE_PROBE_ID]);
+    checks.equal('a proxmox_collector_state update sends proxmox_state_change', await next(2), true);
+    await pool.query('DELETE FROM proxmox_collector_state WHERE connection_id = $1', [PROXMOX_STATE_PROBE_ID]);
+    checks.equal('a proxmox_collector_state delete sends proxmox_state_change', await next(3), true);
+    checks.sameSet(
+      'every proxmox_state_change carries the connection id',
+      [...new Set(payloads)],
+      [PROXMOX_STATE_PROBE_ID]
+    );
+  } finally {
+    await listener.query('UNLISTEN proxmox_state_change').catch(() => undefined);
+    listener.release();
   }
 }

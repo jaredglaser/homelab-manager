@@ -35,6 +35,8 @@ import {
   assertIdleContainerIdentity,
   assertNullMetricDilution,
   assertRateRollupMatchesRaw,
+  assertCompressedProxmoxChunk,
+  assertProxmoxStateNotify,
   assertRollupBackfill,
   assertRowCountsPreserved,
   assertSchema,
@@ -98,6 +100,7 @@ async function runFresh(): Promise<void> {
     await assertAggregateRegistry(pool, checks);
     await assertTierColumnCoverage(pool, checks);
     await assertAgentTlsCertificates(pool, checks);
+    await assertProxmoxStateNotify(pool, checks);
     checks.report();
   } finally {
     await pool.end();
@@ -149,6 +152,8 @@ async function runUpgrade(): Promise<void> {
 
     const after = await captureRowCounts(pool);
     assertRowCountsPreserved(before, after, checks);
+    // Before the backfill, whose raw retention would drop this three-day-old chunk.
+    await assertCompressedProxmoxChunk(pool, checks);
 
     await assertSchema(pool, checks);
     await assertReadInvariantConstraints(pool, checks);
@@ -180,6 +185,7 @@ async function runUpgrade(): Promise<void> {
     await assertAggregateTierValues(pool, checks);
     await assertHourlyAverageViews(pool, checks);
     await assertRateRollupMatchesRaw(pool, checks);
+    await assertProxmoxStateNotify(pool, checks);
 
     const backfillSql = readFileSync(
       join(REPO_ROOT, 'migrations', '037_backfill_container_service_keys.sql'),
