@@ -368,6 +368,25 @@ describe('handleZfsStatsStream', () => {
     expect(iostats).toHaveLength(1);
   });
 
+  test('sends no empty frame while zpool status lists only a pool it calls unavailable that iostat still reports', async () => {
+    const { iostats } = fakeZpool(() => ({ exitCode: 0, text: statusText({ tank: { state: 'FAULTED' } }) }));
+    const clock = { now: 1000 };
+    const ac = new AbortController();
+    const response = handleZfsStatsStream(new Request('http://localhost/zfs/stats/stream', { signal: ac.signal }), zfsAvailable, options(clock));
+    const { frames } = collectFrames(response);
+
+    await startNextPoll();
+    iostats[0].push(sample('tank  1  1  1  1  1  1') + HEADER);
+    await waitForCondition(() => frames.length === 1);
+    await startNextPoll();
+    await startNextPoll();
+    iostats[0].push('tank  1  1  1  1  1  1\n' + SEP + HEADER);
+    await waitForCondition(() => frames.length === 2);
+    ac.abort();
+
+    expect(frames.map((frame) => frame.pools.map((pool: { name: string }) => pool.name))).toEqual([['tank'], ['tank']]);
+  });
+
   test('restarts iostat again when an exported pool is imported again under the same name', async () => {
     let status = statusText({ tank: {} });
     const { iostats } = fakeZpool(() => ({ exitCode: 0, text: status }));

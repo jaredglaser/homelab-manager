@@ -128,16 +128,25 @@ export function parseIostatSample(lines: readonly string[]): IostatSample {
     stack.push(entry);
   };
 
+  const openPool = (name: string): PoolEntry => {
+    const opened: PoolEntry = { entry: { name, capacity: null, io: NO_IO, children: [] }, devices: [], groups: [], broken: false };
+    pool = opened;
+    pools.push(opened);
+    target = opened.devices;
+    stack.length = 0;
+    return opened;
+  };
+
   const placeLine = (line: string): void => {
     const data = DATA_LINE.exec(line);
     if (data && data[1].length === 0) {
-      const opened: PoolEntry = { entry: { name: data[2], capacity: null, io: NO_IO, children: [] }, devices: [], groups: [], broken: false };
-      pool = opened;
-      pools.push(opened);
-      target = opened.devices;
-      stack.length = 0;
-      opened.entry = parseDataLine(data);
+      openPool(data[2]).entry = parseDataLine(data);
       return;
+    }
+    if (!data && !line.startsWith(' ') && !GROUP_HEADER.test(line)) {
+      // Columns are two spaces apart, so the name is what comes before the first such gap.
+      openPool(line.split(/\s{2,}/)[0]);
+      throw new IostatParseError('unrecognized pool line');
     }
     if (pool?.broken) return;
     if (data) {
@@ -236,6 +245,8 @@ const zZpoolStatusJson = z.object({
 const UNREPORTABLE_POOL_STATES = new Set(['FAULTED', 'UNAVAIL']);
 
 export interface ZpoolStatusSummary {
+  /** Every pool zpool status lists, reportable or not. */
+  poolCount: number;
   /** Pools zpool iostat can report. It skips unavailable pools, which `zpool status` names FAULTED. */
   reportablePools: Set<string>;
   sparesByPool: Map<string, string[]>;
@@ -259,7 +270,7 @@ export function parseZpoolStatus(text: string): ZpoolStatusSummary | null {
     const spares = Object.values(pool.spares ?? {}).map((spare) => spare.name);
     if (spares.length > 0) sparesByPool.set(name, spares.sort((a, b) => a.localeCompare(b)));
   }
-  return { reportablePools, sparesByPool };
+  return { poolCount: Object.keys(parsed.data.pools).length, reportablePools, sparesByPool };
 }
 
 export function withSpares(pools: ZfsPool[], sparesByPool: ReadonlyMap<string, string[]>): ZfsPool[] {

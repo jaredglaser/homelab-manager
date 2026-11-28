@@ -192,7 +192,7 @@ describe('parseIostatSample edge cases', () => {
     ['a device before any pool', ['  sda  0  0  1  2  3  4'], null, 'device outside a pool'],
     ['a device below a skipped level', ['tank  1  1  1  1  1  1', '      sda  0  0  1  2  3  4'], 'tank', 'device without a parent'],
     ['an odd indent', ['tank  1  1  1  1  1  1', '   sda  0  0  1  2  3  4'], 'tank', 'odd indent'],
-    ['a rounded value from a run without -p', ['tank  1.81T  2.00T  1  2  1.2K  3'], null, 'unrecognized line'],
+    ['a rounded value from a run without -p', ['tank  1.81T  2.00T  1  2  1.2K  3', '  sda  -  -  1  2  1.2K  3'], 'tank', 'unrecognized pool line'],
     ['an unknown group header', ['tank  1  1  1  1  1  1', 'mystery  -  -  -  -  -  -'], 'tank', 'unrecognized line'],
     ['a group header outside a pool', ['special  -  -  -  -  -  -'], null, 'group outside a pool'],
     ['a repeated group header', ['tank  1  1  1  1  1  1', 'logs  -  -  -  -  -  -', '  a  0  1  0  0  0  0', 'logs  -  -  -  -  -  -'], 'tank', 'repeated group'],
@@ -257,12 +257,13 @@ describe('parseZpoolStatus', () => {
       degraded: { name: 'degraded', state: 'DEGRADED', vdevs: {} },
     }));
     expect(summary).not.toBeNull();
+    expect(summary!.poolCount).toBe(4);
     expect([...summary!.reportablePools].sort((a, b) => a.localeCompare(b))).toEqual(['degraded', 'tank']);
     expect(summary!.sparesByPool).toEqual(new Map([['tank', ['sdy', 'sdz']]]));
   });
 
   test('reads the empty pool list zpool prints when none are imported', () => {
-    expect(parseZpoolStatus(status({}))).toEqual({ reportablePools: new Set(), sparesByPool: new Map() });
+    expect(parseZpoolStatus(status({}))).toEqual({ poolCount: 0, reportablePools: new Set(), sparesByPool: new Map() });
   });
 
   test.each([['not JSON', 'no pools available\n'], ['the wrong shape', '{"pools":[]}']])('returns null for %s', (_label, text) => {

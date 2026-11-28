@@ -174,8 +174,9 @@ function startZfsStatsSession(emit: SseEmitter, options: ZfsStatsStreamOptions):
       });
       if (stopped || !summary) return;
       sparesByPool = summary.sparesByPool;
-      if (summary.reportablePools.size === 0) {
+      if (summary.poolCount === 0) {
         // iostat prints nothing at all without a pool, so this frame is what moves the host's newest sample on.
+        // With only an unavailable pool left, iostat still prints headers and sends empty samples itself.
         reportedPools = new Set();
         emit.data({ v: 1, time: now(), pools: [] } satisfies ZfsStatsFrame);
       }
