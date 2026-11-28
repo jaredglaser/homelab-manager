@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,14 +12,16 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { checkedOnFill, ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, EMPTY_CELL } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { HelpCircle, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
+import { createGitTokenSchema } from '@/data/git-tokens.schemas'
+import { serverFailureCopy } from '@/lib/errors/server-fn-error-copy'
 import { Spinner } from '@/components/ui/spinner';
 import CopyButton from '@/components/settings/CopyButton'
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
@@ -254,18 +259,32 @@ interface GenerateTokenDialogProps {
   onGenerate: (label: string) => void
   isGenerating: boolean
   newToken: string | null
+  error: string | null
 }
 
-function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken }: GenerateTokenDialogProps) {
-  const [label, setLabel] = useState('')
+const generateTokenFormSchema = z.object({ label: z.string().trim().pipe(createGitTokenSchema.shape.label) })
+type GenerateTokenFormValues = z.infer<typeof generateTokenFormSchema>
 
-  function handleGenerate() {
-    if (!label.trim() || isGenerating) return
-    onGenerate(label.trim())
-  }
+function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken, error }: GenerateTokenDialogProps) {
+  const form = useForm<GenerateTokenFormValues>({
+    mode: 'onTouched',
+    defaultValues: { label: '' },
+    resolver: zodResolver(generateTokenFormSchema),
+  })
+  const values = form.watch()
+  const check = generateTokenFormSchema.safeParse(values)
+  const reason = blockedReason(fieldIssues(check), {
+    isTouched: () => Boolean(form.formState.touchedFields.label),
+    isEmpty: () => values.label.trim() === '',
+  })
+
+  const handleGenerate = form.handleSubmit(({ label }) => {
+    if (isGenerating) return
+    onGenerate(label)
+  })
 
   function handleClose() {
-    setLabel('')
+    form.reset({ label: '' })
     onClose()
   }
 
@@ -287,16 +306,16 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
           ) : (
             <>
               <DialogDescription className="px-0">Enter a label to identify this token.</DialogDescription>
-              <div className="flex flex-col gap-1">
-                <Label htmlFor="git-token-label">Label</Label>
-                <Input
-                  id="git-token-label"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  disabled={isGenerating}
-                  aria-label="Token label"
-                />
-              </div>
+              {error && (
+                <Alert variant="error">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <Field id="git-token-label" label="Label" error={form.formState.errors.label?.message}>
+                {(control) => (
+                  <Input {...control} disabled={isGenerating} aria-label="Token label" {...checkedOnFill(form.register('label'))} />
+                )}
+              </Field>
             </>
           )}
         </DialogBody>
@@ -305,8 +324,9 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
             <Button variant="ghost" onClick={handleClose}>Done</Button>
           ) : (
             <>
-              <Button variant="ghost" onClick={handleClose}>Cancel</Button>
-              <Button onClick={handleGenerate} disabled={!label.trim()}>
+              {reason && <ActionReason className="mr-auto min-w-0 pl-4">{reason}</ActionReason>}
+              <Button variant="ghost" className="shrink-0" onClick={handleClose}>Cancel</Button>
+              <Button className="shrink-0" onClick={() => { void handleGenerate() }} disabled={!check.success}>
                 {isGenerating ? <Spinner className="size-4" /> : 'Generate'}
               </Button>
             </>
@@ -326,6 +346,7 @@ export function GitTokensSection() {
   const queryClient = useQueryClient()
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
   const [newToken, setNewToken] = useState<string | null>(null)
+  const [generateError, setGenerateError] = useState<string | null>(null)
   const [pendingRevoke, setPendingRevoke] = useState<{ id: number; label: string } | null>(null)
 
   const { data: tokens = [], isLoading, isError, error } = useQuery({
@@ -335,9 +356,13 @@ export function GitTokensSection() {
 
   const generateMutation = useMutation({
     mutationFn: (label: string) => createGitToken({ data: { label } }),
+    onMutate: () => setGenerateError(null),
     onSuccess: (result) => {
       setNewToken(result.token)
       void queryClient.invalidateQueries({ queryKey: ['git-tokens'] })
+    },
+    onError: (err: unknown) => {
+      setGenerateError(serverFailureCopy(err, { labels: { label: 'Label' }, fallback: 'The token could not be generated. Try again.' }).message)
     },
   })
 
@@ -349,6 +374,7 @@ export function GitTokensSection() {
   function handleDialogClose() {
     setGenerateDialogOpen(false)
     setNewToken(null)
+    setGenerateError(null)
   }
 
   return (
@@ -426,6 +452,7 @@ export function GitTokensSection() {
         onGenerate={(label) => generateMutation.mutate(label)}
         isGenerating={generateMutation.isPending}
         newToken={newToken}
+        error={generateError}
       />
       <UnsavedChangesDialog
         open={pendingRevoke !== null}

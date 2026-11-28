@@ -1,4 +1,6 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
+import { toast } from 'sonner';
+import { TaggedServerError } from '@/lib/errors/tagged-server-error';
 import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
 import { setupUser } from '@/lib/test/user-event';
 import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
@@ -230,6 +232,48 @@ describe('ComposeEditor component', () => {
     await renderComposeEditor({ content: 'image: nginx' });
     act(() => { mockEditorOnChange?.(undefined); });
     await waitFor(() => expect((screen.getByTestId('mock-editor') as HTMLTextAreaElement).value).toBe(''));
+  });
+
+  it('refuses to save an emptied compose file and says why', async () => {
+    mockSaveCompose.mockClear();
+    const { act } = await import('@testing-library/react');
+    await renderComposeEditor({ content: 'image: nginx' });
+    const saveButton = screen.getByRole<HTMLButtonElement>('button', { name: /save & commit/i });
+
+    act(() => { mockEditorOnChange?.(''); });
+    expect((await screen.findByRole('alert')).textContent).toBe('The compose file is empty. Add at least one service before saving.');
+    expect(screen.queryByText('Unsaved changes')).toBeNull();
+    expect(saveButton.disabled).toBe(true);
+    fireEvent.click(saveButton);
+    expect(mockSaveCompose).not.toHaveBeenCalled();
+
+    act(() => { mockEditorOnChange?.('image: redis'); });
+    await waitFor(() => expect(saveButton.disabled).toBe(false));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each([
+    ['a refusal it does not name', new Error('Could not commit: the repository is locked'), 'The compose file could not be saved. Try again.'],
+    [
+      'an input check it tags with the field',
+      new TaggedServerError('invalid_input', 'The value for "content" was not accepted. Check it and try again.', 'content'),
+      'The value for "Compose file" was not accepted. Check it and try again.',
+    ],
+  ])('reports %s in user wording and keeps the changes', async (_label, refusal, message) => {
+    const toastSpy = spyOn(toast, 'error').mockImplementation(() => '');
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    mockSaveCompose.mockImplementationOnce(() => Promise.reject(refusal));
+    const { act } = await import('@testing-library/react');
+    await renderComposeEditor({ content: 'image: nginx' });
+    act(() => { mockEditorOnChange?.('image: redis'); });
+    const saveButton = screen.getByRole<HTMLButtonElement>('button', { name: /save & commit/i });
+    await waitFor(() => expect(saveButton.disabled).toBe(false));
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(message));
+    expect(toastSpy).not.toHaveBeenCalledWith(refusal.message);
+    expect(screen.getByText('Unsaved changes')).toBeDefined();
+    toastSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it('handleEditorMount stores the editor instance without error', async () => {

@@ -301,8 +301,8 @@ describe('ManagedHostsCard', () => {
       await enterHostName(user)
       await user.click(screen.getByLabelText('ZFS capability'))
       await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByLabelText('HLM_ZFS_UID')).toBeDefined()
-      expect(screen.getByLabelText('HLM_ZFS_GID')).toBeDefined()
+      expect(screen.getByLabelText('ZFS user ID')).toBeDefined()
+      expect(screen.getByLabelText('ZFS group ID')).toBeDefined()
     })
 
     it('ZFS setup shows DOCKER_GID when Docker is also selected', async () => {
@@ -311,7 +311,7 @@ describe('ManagedHostsCard', () => {
       await enterHostName(user)
       await user.click(screen.getByLabelText('ZFS capability'))
       await user.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByLabelText('DOCKER_GID')).toBeDefined()
+      expect(screen.getByLabelText('Docker group ID')).toBeDefined()
     })
 
     it('Next is disabled on capabilities step when no capability selected', async () => {
@@ -996,7 +996,7 @@ describe('ManagedHostsCard host actions', () => {
       await user.click(screen.getByRole('button', { name: 'Next' }))
       view.rerender(<ManagedHostsCardView {...makeProps({ pendingHost: null, isCreating: true })} />)
       expect(screen.getByTestId('step-compose-loading')).toBeDefined()
-      view.rerender(<ManagedHostsCardView {...makeProps({ pendingHost: null, createError: 'Failed to generate agent keypair: disk full' })} />)
+      view.rerender(<ManagedHostsCardView {...makeProps({ pendingHost: null, createError: { message: 'Failed to generate agent keypair: disk full', field: null } })} />)
       expect(screen.getByText('Failed to generate agent keypair: disk full')).toBeDefined()
     })
   })

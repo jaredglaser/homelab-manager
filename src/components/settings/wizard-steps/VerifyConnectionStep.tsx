@@ -1,35 +1,33 @@
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { useFormContext } from 'react-hook-form'
+import { checkedOnFill, ActionReason, Field } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Plus } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
 import { DocLink } from '@/components/shared/DocLink'
 import type { TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
+import type { AddHostFormValues } from '@/components/settings/add-host-form'
 
 interface VerifyConnectionStepProps {
-  agentHost: string
-  agentPort: string
   isProvisioning: boolean
   canVerify: boolean
+  blockedReason: string | null
   error: TlsFailureGuidance | null
-  onAgentHostChange: (value: string) => void
-  onAgentPortChange: (value: string) => void
   onVerify: () => void
   onCancel: () => void
 }
 
 export default function VerifyConnectionStep({
-  agentHost,
-  agentPort,
   isProvisioning,
   canVerify,
+  blockedReason,
   error,
-  onAgentHostChange,
-  onAgentPortChange,
   onVerify,
   onCancel,
 }: VerifyConnectionStepProps) {
+  const { register, formState: { errors } } = useFormContext<AddHostFormValues>()
+
   return (
     <div className="flex flex-col gap-3" data-testid="step-verify">
       <p className="text-sm text-muted-foreground">
@@ -37,32 +35,20 @@ export default function VerifyConnectionStep({
         the agent is reachable. First contact is plain HTTP. Verifying enrolls a TLS certificate
         for the agent and moves the connection to HTTPS.
       </p>
-      <div className="grid grid-cols-3 gap-2">
-        <div className="col-span-2 flex flex-col gap-1">
-          <Label htmlFor="wizard-agent-host">Agent host or IP</Label>
-          <Input
-            id="wizard-agent-host"
-            value={agentHost}
-            onChange={(e) => onAgentHostChange(e.target.value)}
-            placeholder="192.168.1.10"
-            disabled={isProvisioning}
-            aria-label="Agent host or IP"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="wizard-agent-port">Agent port</Label>
-          <Input
-            id="wizard-agent-port"
-            value={agentPort}
-            onChange={(e) => onAgentPortChange(e.target.value)}
-            placeholder="9090"
-            disabled={isProvisioning}
-            aria-label="Agent port"
-            inputMode="numeric"
-          />
-        </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Field id="wizard-agent-host" label="Agent host or IP" error={errors.agentHost?.message} className="sm:col-span-2">
+          {(control) => (
+            <Input {...control} placeholder="192.168.1.10" disabled={isProvisioning} {...checkedOnFill(register('agentHost'))} />
+          )}
+        </Field>
+        <Field id="wizard-agent-port" label="Agent port" error={errors.agentPort?.message}>
+          {(control) => (
+            <Input {...control} placeholder="9090" inputMode="numeric" disabled={isProvisioning} {...checkedOnFill(register('agentPort'))} />
+          )}
+        </Field>
       </div>
-      <div className="flex justify-end gap-2">
+      <div className="flex items-start justify-end gap-2">
+        {blockedReason && !isProvisioning && <ActionReason className="min-w-0 self-center">{blockedReason}</ActionReason>}
         {isProvisioning && (
           <Button size="sm" variant="outline" onClick={onCancel} data-testid="cancel-provisioning">
             Cancel
@@ -70,6 +56,7 @@ export default function VerifyConnectionStep({
         )}
         <Button
           size="sm"
+          className="shrink-0"
           disabled={!canVerify || isProvisioning}
           onClick={onVerify}
         >

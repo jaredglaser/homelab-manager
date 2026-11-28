@@ -4,6 +4,7 @@ import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
 import { isAgentUpdateFailureCode, zAgentRouteErrorBodyFromAnyAgent, type TlsFailureCode } from '@homelab-manager/agent/types';
 import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failure-copy';
+import { TaggedServerError } from '@/lib/errors/tagged-server-error';
 import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { resolveAgentImageRelease, type AgentImageRelease } from '@/lib/hosts/agent-image-digest';
@@ -259,11 +260,14 @@ export async function handleRotateHostKeypair(
  */
 export async function handleCreatePendingHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
-  data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+  data: { name: string; resumeHostId?: number; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<{ host: HostListItem; publicJwk: JWK }> {
   const name = data.name.trim();
   const capabilities = data.capabilities ?? { docker: false, zfs: false };
   const existing = await deps.repo.findByName(name);
+  if (existing && existing.status !== 'pending' && existing.id !== data.resumeHostId) {
+    throw new TaggedServerError('name_taken', `A host named "${name}" already exists. Choose another name.`, 'name');
+  }
   const host = existing ?? (await deps.repo.create({
     name,
     // agent_url is NOT NULL but unknown at this point. The operator enters the

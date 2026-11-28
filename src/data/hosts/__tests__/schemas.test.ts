@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { removeHostSchema, checkHostHealthSchema } from '../schemas';
+import { removeHostSchema, checkHostHealthSchema, createPendingHostSchema, updateHostSchema, rotateHostTlsSchema } from '../schemas';
 
 describe('removeHostSchema', () => {
   it('accepts positive integer', () => {
@@ -21,5 +21,47 @@ describe('checkHostHealthSchema', () => {
   it('rejects invalid values', () => {
     expect(() => checkHostHealthSchema.parse({ hostId: 0 })).toThrow();
     expect(() => checkHostHealthSchema.parse({ hostId: -1 })).toThrow();
+  });
+});
+
+function firstMessage(result: { success: boolean; error?: { issues: { message: string }[] } }): string | undefined {
+  return result.error?.issues[0]?.message;
+}
+
+describe('createPendingHostSchema', () => {
+  it.each(['dev-box', 'NAS_01', 'x'.repeat(100)])('accepts the name %p', (name) => {
+    expect(createPendingHostSchema.safeParse({ name, capabilities: { docker: true } }).success).toBe(true);
+  });
+
+  it.each([
+    ['', 'Enter a name for this host.'],
+    ['my host', 'Use only letters, numbers, hyphens and underscores. Spaces are not allowed.'],
+    ['nas.local', 'Use only letters, numbers, hyphens and underscores. Spaces are not allowed.'],
+    ['x'.repeat(101), 'Use 100 characters or fewer.'],
+  ])('rejects the name %p in words a user can act on', (name, message) => {
+    expect(firstMessage(createPendingHostSchema.safeParse({ name, capabilities: { docker: true } }))).toBe(message);
+  });
+
+  it.each([
+    ['neither capability', { docker: false, zfs: false }],
+    ['an empty capabilities object', {}],
+  ])('rejects %s in words a user can act on', (_label, capabilities) => {
+    expect(firstMessage(createPendingHostSchema.safeParse({ name: 'dev-box', capabilities }))).toBe('Select at least one capability.');
+  });
+
+  it('rejects a call that leaves the capabilities out', () => {
+    expect(createPendingHostSchema.safeParse({ name: 'dev-box' }).success).toBe(false);
+  });
+});
+
+describe('agent URL', () => {
+  it.each(['nas.local', 'http://256.256.256.256:9090', '', 'ftp://example'])('rejects %p in words a user can act on', (agentUrl) => {
+    const message = 'Enter the full agent URL, such as https://192.168.1.10:9090.';
+    expect(firstMessage(updateHostSchema.safeParse({ hostId: 1, agentUrl }))).toBe(message);
+    expect(firstMessage(rotateHostTlsSchema.safeParse({ hostId: 1, agentUrl }))).toBe(message);
+  });
+
+  it('accepts a full URL', () => {
+    expect(updateHostSchema.safeParse({ hostId: 1, agentUrl: 'https://192.168.1.10:9090' }).success).toBe(true);
   });
 });

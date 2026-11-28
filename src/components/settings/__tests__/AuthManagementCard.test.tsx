@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test'
 import { render, screen, waitFor, within, act } from '@testing-library/react'
 import { setupUser, activateWithKey, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -361,6 +361,32 @@ describe('AuthManagementCard', () => {
       expect(gitFns().createGitToken).not.toHaveBeenCalled()
       await user.type(screen.getByLabelText('Token label'), 'x')
       expect(generateButton().disabled).toBe(false)
+    })
+
+    it('explains a label longer than the server allows and sends nothing', async () => {
+      const user = setupUser()
+      await openDialog(user)
+      await user.click(screen.getByLabelText('Token label'))
+      await user.paste('x'.repeat(101))
+      await user.tab()
+      expect((await screen.findByText('Use 100 characters or fewer.')).getAttribute('role')).toBe('alert')
+      expect(screen.getByLabelText('Token label').getAttribute('aria-invalid')).toBe('true')
+      expect(generateButton().disabled).toBe(true)
+      await user.click(generateButton())
+      expect(gitFns().createGitToken).not.toHaveBeenCalled()
+    })
+
+    it('says so when the token could not be generated, without the server text', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined)
+      gitFns().createGitToken.mockImplementationOnce(() => Promise.reject(new Error('relation "git_tokens" does not exist')))
+      const user = setupUser()
+      await openDialog(user)
+      await user.type(screen.getByLabelText('Token label'), 'My token')
+      await user.click(generateButton())
+      expect(await screen.findByText('The token could not be generated. Try again.')).toBeDefined()
+      expect(screen.queryByText(/git_tokens/)).toBeNull()
+      expect(screen.getByLabelText<HTMLInputElement>('Token label').value).toBe('My token')
+      errorSpy.mockRestore()
     })
 
     it('locks the dialog while the token is being generated', async () => {

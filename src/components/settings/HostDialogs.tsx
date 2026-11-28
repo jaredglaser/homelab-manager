@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -8,8 +10,9 @@ import {
   DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { checkedOnFill, ActionReason, Field, blockedReason, fieldIssues } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { agentUrlSchema } from '@/data/hosts/schemas'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { Spinner } from '@/components/ui/spinner';
 
@@ -50,55 +53,54 @@ interface EditDialogProps {
   onClose: () => void
 }
 
+const editHostFormSchema = z.object({ agentUrl: z.string().trim().pipe(agentUrlSchema) })
+type EditHostFormValues = z.infer<typeof editHostFormSchema>
+// Every reason this footer can show is the empty-URL one, so reserving its wrapped height keeps the buttons from moving when it clears.
+const AGENT_URL_REASON = fieldIssues(editHostFormSchema.safeParse({ agentUrl: '' }))[0]?.message ?? ''
+
 export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogProps) {
-  const [name, setName] = useState(host?.name ?? '')
-  const [agentUrl, setAgentUrl] = useState(host?.agentUrl ?? '')
+  const form = useForm<EditHostFormValues>({
+    mode: 'onTouched',
+    values: { agentUrl: host?.agentUrl ?? '' },
+    resolver: zodResolver(editHostFormSchema),
+  })
+  const values = form.watch()
+  const check = editHostFormSchema.safeParse(values)
+  const reason = blockedReason(fieldIssues(check), {
+    isTouched: () => Boolean(form.formState.touchedFields.agentUrl),
+    isEmpty: () => values.agentUrl.trim() === '',
+  })
 
-  const [prevHost, setPrevHost] = useState(host)
-  if (host !== prevHost) {
-    setPrevHost(host)
-    setName(host?.name ?? '')
-    setAgentUrl(host?.agentUrl ?? '')
-  }
-
-  const isValid = agentUrl.trim().length > 0
-
-  function handleSave() {
-    if (!host || !isValid || isUpdating) return
-    onConfirm(host.id, name.trim(), agentUrl.trim())
-  }
+  const handleSave = form.handleSubmit(({ agentUrl }) => {
+    if (!host || isUpdating) return
+    onConfirm(host.id, host.name, agentUrl)
+  })
 
   return (
     <Dialog open={open} busy={isUpdating} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
       <DialogContent>
         <DialogTitle>Edit Host</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="edit-host-name">Host Name</Label>
-            <Input
-              id="edit-host-name"
-              value={name}
-              disabled
-              aria-label="Edit Host Name"
-            />
-            <p className="text-xs text-muted-foreground">
-              Name is fixed after enrollment. To rename, remove and re-add the host.
-            </p>
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="edit-agent-url">Agent URL</Label>
-            <Input
-              id="edit-agent-url"
-              value={agentUrl}
-              onChange={(e) => setAgentUrl(e.target.value)}
-              disabled={isUpdating}
-              aria-label="Edit Agent URL"
-            />
-          </div>
+          <Field
+            id="edit-host-name"
+            label="Host Name"
+            hint="Name is fixed after enrollment. To rename, remove and re-add the host."
+          >
+            {(control) => <Input {...control} value={host?.name ?? ''} disabled aria-label="Edit Host Name" />}
+          </Field>
+          <Field id="edit-agent-url" label="Agent URL" error={form.formState.errors.agentUrl?.message}>
+            {(control) => (
+              <Input {...control} disabled={isUpdating} aria-label="Edit Agent URL" {...checkedOnFill(form.register('agentUrl'))} />
+            )}
+          </Field>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!isValid}>
+          <div className="mr-auto grid min-w-0 pl-4">
+            <span aria-hidden="true" className="invisible col-start-1 row-start-1 text-xs">{AGENT_URL_REASON}</span>
+            <ActionReason className="col-start-1 row-start-1">{reason}</ActionReason>
+          </div>
+          <Button variant="ghost" className="shrink-0" onClick={onClose}>Cancel</Button>
+          <Button className="shrink-0" onClick={() => { void handleSave() }} disabled={!check.success}>
             {isUpdating ? <Spinner className="size-4" /> : 'Save'}
           </Button>
         </DialogFooter>

@@ -4,6 +4,8 @@ import {
   triggerDeploySchema,
   getDeployHistorySchema,
   saveComposeFileSchema,
+  createStackSchema,
+  composeContentSchema,
   controlStackSchema,
   resolveDriftSchema,
 } from '../schemas';
@@ -199,5 +201,35 @@ describe('resolveDriftSchema', () => {
 
   it('rejects an empty host', () => {
     expect(() => resolveDriftSchema.parse({ ...valid, host: '' })).toThrow();
+  });
+});
+
+describe('createStackSchema', () => {
+  const base = { host: 'server1', autoDeploy: false };
+
+  it.each(['my-app', 'my_stack', 'A1'])('accepts the name %p', (stackName) => {
+    expect(createStackSchema.safeParse({ ...base, stackName }).success).toBe(true);
+  });
+
+  it.each([
+    ['', 'Enter a name for this stack.'],
+    ['1invalid', 'Start with a letter, then use only letters, numbers, hyphens and underscores.'],
+    ['bad name', 'Start with a letter, then use only letters, numbers, hyphens and underscores.'],
+  ])('rejects the name %p in words a user can act on', (stackName, message) => {
+    expect(createStackSchema.safeParse({ ...base, stackName }).error?.issues[0]?.message).toBe(message);
+  });
+
+  it('asks for a host when none is selected', () => {
+    expect(createStackSchema.safeParse({ ...base, host: '', stackName: 'my-app' }).error?.issues[0]?.message).toBe('Select a target host.');
+  });
+});
+
+describe('composeContentSchema', () => {
+  it('rejects an empty compose file in words a user can act on', () => {
+    expect(composeContentSchema.safeParse('').error?.issues[0]?.message).toBe(
+      'The compose file is empty. Add at least one service before saving.',
+    );
+    expect(saveComposeFileSchema.safeParse({ stackName: 'my-app', content: '' }).success).toBe(false);
+    expect(saveComposeFileSchema.safeParse({ stackName: 'my-app', content: ' \n\t' }).success).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import type { ServerFailureCopy } from '@/lib/errors/server-fn-error-copy'
 import { useRef, useState } from 'react'
 
 import type { HostListItem } from '@/lib/hosts/host-utils'
@@ -15,7 +16,7 @@ export interface ManagedHostsCardProps {
   isLoading: boolean
   isCreating: boolean
   isProvisioning: boolean
-  createError: string | null
+  createError: ServerFailureCopy | null
   provisionError: TlsFailureGuidance | null
   pendingHost: { id: number; name: string; status: string; publicJwk: unknown } | null
   onCreateHost: (name: string, capabilities: { docker: boolean; zfs: boolean }) => void

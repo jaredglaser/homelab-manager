@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { setupUser, activateWithKey } from '@/lib/test/user-event'
 import '@/lib/test/testing-library'
 import { RemoveDialog, EditDialog } from '@/components/settings/HostDialogs'
@@ -183,6 +183,46 @@ describe('EditDialog', () => {
     await user.type(screen.getByLabelText('Edit Agent URL'), '   ')
     const saveBtn = screen.getByRole('button', { name: 'Save' })
     expect(saveBtn.hasAttribute('disabled')).toBe(true)
+  })
+
+  it.each(['nas.local', 'not a url', '256.256.256.256:9090', 'ftp://example'])('explains that %p is not a full URL and blocks Save', async (value) => {
+    const user = setupUser()
+    const onConfirm = mock(() => undefined)
+    render(<EditDialog {...defaultProps} onConfirm={onConfirm} />)
+    const input = screen.getByLabelText('Edit Agent URL')
+    await user.clear(input)
+    await user.type(input, value)
+    await user.tab()
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter the full agent URL, such as https://192.168.1.10:9090.')
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    const saveBtn = screen.getByRole('button', { name: 'Save' })
+    expect(saveBtn.hasAttribute('disabled')).toBe(true)
+    await user.click(saveBtn)
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('holds the footer space of the Agent URL reason whether or not it shows, so the buttons stay put', async () => {
+    const user = setupUser()
+    render(<EditDialog {...defaultProps} host={makeHost({ agentUrl: '', status: 'pending' })} />)
+    const footer = screen.getByRole('button', { name: 'Save' }).parentElement!
+    const message = 'Enter the full agent URL, such as https://192.168.1.10:9090.'
+    expect(footer.querySelector('[data-slot="action-reason"]')?.textContent).toBe(message)
+    expect(footer.querySelector('[aria-hidden="true"]')?.textContent).toBe(message)
+    await user.type(screen.getByLabelText('Edit Agent URL'), 'https://10.0.0.1:9090')
+    expect(footer.querySelector('[data-slot="action-reason"]')?.textContent).toBe('')
+    expect(footer.querySelector('[aria-hidden="true"]')?.textContent).toBe(message)
+  })
+
+  it('clears the Agent URL message once the URL is valid', async () => {
+    const user = setupUser()
+    render(<EditDialog {...defaultProps} />)
+    const input = screen.getByLabelText('Edit Agent URL')
+    await user.clear(input)
+    await user.tab()
+    await screen.findByRole('alert')
+    await user.type(input, 'https://10.0.0.1:9090')
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(false)
   })
 
   it('calls onConfirm with hostId, the unchanged host name, and trimmed agentUrl', async () => {

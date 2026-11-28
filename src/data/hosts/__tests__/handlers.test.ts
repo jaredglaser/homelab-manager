@@ -20,6 +20,7 @@ import {
 } from '../handlers';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
 import { missingAgentKeypairError } from '@/lib/errors/agent-messages';
+import { TaggedServerError } from '@/lib/errors/tagged-server-error';
 import { updateFailureMessage } from '@/lib/errors/agent-route-failure-copy';
 import { hostFailureMessage, type HostFailureCode } from '@/lib/errors/host-failure-copy';
 
@@ -308,9 +309,24 @@ describe('handleCreatePendingHost', () => {
       findByName: mock((_n: string) => Promise.resolve(mockRow({ status: 'healthy' }))),
     });
     const deps = createDeps(repo);
-    const result = await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true, zfs: true } });
+    const result = await handleCreatePendingHost(deps, { name: 'dev', resumeHostId: 1, capabilities: { docker: true, zfs: true } });
     expect(repo.update).not.toHaveBeenCalled();
     expect(result.host.status).toBe('healthy');
+  });
+
+  it.each([
+    ['no host to resume', undefined],
+    ['another host to resume', 2],
+  ])('refuses the name of an enrolled host, tagged for the name field, when the wizard has %s', async (_label, resumeHostId) => {
+    const repo = mockRepo({
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ status: 'healthy' }))),
+    });
+    const deps = createDeps(repo);
+    const attempt = handleCreatePendingHost(deps, { name: 'dev', resumeHostId });
+    await expect(attempt).rejects.toBeInstanceOf(TaggedServerError);
+    await expect(attempt).rejects.toMatchObject({ code: 'name_taken', field: 'name' });
+    expect(repo.create).not.toHaveBeenCalled();
+    expect(deps.keypairs.getOrCreateForHost).not.toHaveBeenCalled();
   });
 
   it('rolls back a newly created record when keypair generation fails', async () => {

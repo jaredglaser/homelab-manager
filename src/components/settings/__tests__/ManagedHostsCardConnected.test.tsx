@@ -5,6 +5,7 @@ import { render, screen, waitFor, act, fireEvent, within } from '@testing-librar
 import { setupUser, type TestUser } from '@/lib/test/user-event'
 import { QueryClient, QueryClientProvider, notifyManager } from '@tanstack/react-query'
 import { mockModule } from '@/lib/test/mock-module'
+import { TaggedServerError } from '@/lib/errors/tagged-server-error'
 // Registers RTL auto-cleanup: without it, earlier tests' renders stay mounted and
 // screen.* queries and clicks leak into whichever wizard was mounted first.
 import '@/lib/test/testing-library'
@@ -61,6 +62,7 @@ let createPendingHostResult: Promise<CreatePendingHostResult> = Promise.resolve(
   publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'wizard-key-x' },
 })
 let createPendingHostCalls: Array<{ name: string }> = []
+let createPendingHostResumeIds: Array<number | undefined> = []
 
 // What listHosts serves. Creating a pending host lands its row in this list with
 // the response status, like the real server, so the card's live-status checks see it.
@@ -69,8 +71,9 @@ let listHostsGate: Promise<HostListItem[]> | null = null
 const listHostsQueue: Array<Promise<HostListItem[]>> = []
 const listHosts = (): Promise<HostListItem[]> => listHostsQueue.shift() ?? listHostsGate ?? Promise.resolve(hostsRows)
 
-const createPendingHost = (data: { data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } } }): Promise<CreatePendingHostResult> => {
+const createPendingHost = (data: { data: { name: string; resumeHostId?: number; capabilities?: { docker?: boolean; zfs?: boolean } } }): Promise<CreatePendingHostResult> => {
   createPendingHostCalls.push({ name: data.data.name })
+  createPendingHostResumeIds.push(data.data.resumeHostId)
   return createPendingHostResult.then((res) => {
     hostsRows = hostsRows.map((h) => (h.id === res.host.id ? res.host : h))
     return res
@@ -170,6 +173,7 @@ beforeEach(() => {
   healthCheckCalls.length = 0
   updateHostCalls.length = 0
   createPendingHostCalls.length = 0
+  createPendingHostResumeIds = []
   toasts.length = 0
   hostsRows = [makeHost()]
   rotateTlsResult = Promise.resolve({ ok: true, hostId: 1, agentUrl: 'https://server1:9090' })
@@ -834,7 +838,8 @@ describe('ManagedHostsCardConnected host updates across card instances', () => {
   function silenceTwoModalReport() {
     const spy = spyOn(console, 'error').mockImplementation(() => undefined)
     return () => {
-      for (const [message] of spy.mock.calls) expect(String(message)).toStartWith('Two modals are open at once')
+      const reports = spy.mock.calls.filter(([message]) => !(message instanceof Error))
+      for (const [message] of reports) expect(String(message)).toStartWith('Two modals are open at once')
       spy.mockRestore()
     }
   }
@@ -974,6 +979,52 @@ describe('ManagedHostsCardConnected add-host flow', () => {
       expect(screen.getByTestId('step-compose').textContent).toContain('AGENT_TRUSTED_PUBKEY: ${AGENT_TRUSTED_PUBKEY}')
     })
     expect(createPendingHostCalls).toEqual([{ name: 'newhost' }])
+  })
+
+  it('puts a host name the server says is taken under the name field, without the server text', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      createPendingHostResult = Promise.reject(new TaggedServerError('name_taken', 'A host named "server1" already exists. Choose another name.', 'name'))
+      createPendingHostResult.catch(() => null)
+      const user = setupUser()
+      renderCard()
+      await user.type(screen.getByLabelText('Host Name'), 'server1')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await waitFor(() => expect(screen.getByTestId('step-capabilities')).toBeDefined())
+      expect(screen.getByText('A host with this name already exists. Choose another name.').getAttribute('role')).toBe('alert')
+      expect(screen.queryByText(/A host named "server1"/)).toBeNull()
+      expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(true)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('names the field the server input check refused, by its label', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      createPendingHostResult = Promise.reject(new TaggedServerError('invalid_input', 'The value for "name" was not accepted. Check it and try again.', 'name'))
+      createPendingHostResult.catch(() => null)
+      const user = setupUser()
+      renderCard()
+      await user.type(screen.getByLabelText('Host Name'), 'newhost')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(await screen.findByText('The value for "Host name" was not accepted. Check it and try again.')).toBeDefined()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('resumes the host this wizard created when the same name is sent again', async () => {
+    const user = setupUser()
+    renderCard()
+    await user.type(screen.getByLabelText('Host Name'), 'server1')
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitForPendingHost()
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(createPendingHostResumeIds).toHaveLength(2))
+    expect(createPendingHostResumeIds[0]).toBeUndefined()
+    expect(createPendingHostResumeIds[1]).toBe(1)
   })
 
   it('creates the host and bakes AGENT_HOST_NAME into the compose under the same trimmed name', async () => {
@@ -1194,34 +1245,78 @@ describe('ManagedHostsCardConnected add-host flow', () => {
     expect(toasts).toEqual([])
   })
 
-  it('restores the original pending host when the rename stale removal fails', async () => {
-    const user = setupUser()
-    // A distinctive keypair makes the restored host-a record observable in the
-    // rendered .env: a duplicated creation would carry a different publicJwk.
-    createPendingHostResult = Promise.resolve({
-      host: makeHost({ status: 'pending' }),
-      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'host-a-key' },
-    })
-    renderCard()
-    await user.type(screen.getByLabelText('Host Name'), 'host-a')
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await waitForPendingHost()
-    await user.click(screen.getByRole('button', { name: 'Back' }))
-    removeHostError = new Error('remove failed: connection reset by peer')
-    await user.clear(screen.getByLabelText('Host Name'))
-    await user.type(screen.getByLabelText('Host Name'), 'host-b')
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
-    })
-    expect(createPendingHostCalls).toEqual([{ name: 'host-a' }])
-    expect(removeHostCalls).toEqual([1])
-    // The wizard renders the restored pending state: advancing past the Compose
-    // step shows the .env carrying host-a's original keypair.
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await waitFor(() => {
-      expect(screen.getByTestId('step-env').textContent).toContain('host-a-key')
-    })
+  it('keeps the renamed host and tells the operator when the stale removal fails', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const user = setupUser()
+      createPendingHostResult = Promise.resolve({
+        host: makeHost({ name: 'host-a', status: 'pending' }),
+        publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'host-a-key' },
+      })
+      renderCard()
+      await user.type(screen.getByLabelText('Host Name'), 'host-a')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await waitForPendingHost()
+      await user.click(screen.getByRole('button', { name: 'Back' }))
+      removeHostError = new Error('remove failed: connection reset by peer')
+      createPendingHostResult = Promise.resolve({
+        host: makeHost({ id: 2, name: 'host-b', status: 'pending' }),
+        publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'host-b-key' },
+      })
+      await user.clear(screen.getByLabelText('Host Name'))
+      await user.type(screen.getByLabelText('Host Name'), 'host-b')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
+      })
+      expect(createPendingHostCalls).toEqual([{ name: 'host-a' }, { name: 'host-b' }])
+      expect(removeHostCalls).toEqual([1])
+      expect(toasts).toEqual([
+        { message: 'The old pending host "host-a" could not be removed. Remove it from the host list.', severity: 'warning' },
+      ])
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await waitFor(() => {
+        expect(screen.getByTestId('step-env').textContent).toContain('host-b-key')
+      })
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('keeps the original pending host when the server refuses the new name', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const user = setupUser()
+      createPendingHostResult = Promise.resolve({
+        host: makeHost({ name: 'host-a', status: 'pending' }),
+        publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'host-a-key' },
+      })
+      renderCard()
+      await user.type(screen.getByLabelText('Host Name'), 'host-a')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await waitForPendingHost()
+      await user.click(screen.getByRole('button', { name: 'Back' }))
+      createPendingHostResult = Promise.reject(new TaggedServerError('name_taken', 'A host named "host-b" already exists.', 'name'))
+      createPendingHostResult.catch(() => null)
+      await user.clear(screen.getByLabelText('Host Name'))
+      await user.type(screen.getByLabelText('Host Name'), 'host-b')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      expect(await screen.findByText('A host with this name already exists. Choose another name.')).toBeDefined()
+      expect(removeHostCalls).toEqual([])
+
+      createPendingHostResult = Promise.resolve({
+        host: makeHost({ name: 'host-a', status: 'pending' }),
+        publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'host-a-key' },
+      })
+      await user.clear(screen.getByLabelText('Host Name'))
+      await user.type(screen.getByLabelText('Host Name'), 'host-a')
+      await user.click(screen.getByRole('button', { name: 'Next' }))
+      await waitForPendingHost()
+      expect(createPendingHostResumeIds).toEqual([undefined, undefined, 1])
+      expect(removeHostCalls).toEqual([])
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   it('Reset removes the wizard-created pending host', async () => {
