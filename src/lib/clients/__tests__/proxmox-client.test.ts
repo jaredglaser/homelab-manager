@@ -219,7 +219,8 @@ describe('ProxmoxClient', () => {
       fetchSpy.mockResolvedValueOnce(new Response('x'.repeat(100_000), { status: 502, statusText: 'Bad Gateway' }));
       const failure = await failureOf(new ProxmoxClient(createConfig()).getClusterStatus());
       expect(failure.detail.length).toBe(300);
-      expect(failure.message.length).toBe('/cluster/status: '.length + 300);
+      expect(failure.message.length).toBe(300);
+      expect(failure.message.startsWith('/cluster/status: HTTP 502 Bad Gateway x')).toBe(true);
     });
 
     it('sorts a 200 that is not JSON into unreachable', async () => {
@@ -250,6 +251,28 @@ describe('ProxmoxClient', () => {
       expect(result.map((r) => r.vmid)).toEqual([100, 102]);
       const logged = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
       expect(logged).toEqual(['[ProxmoxClient] /cluster/resources: skipped 1 entry off the expected shape, first at data.1.id invalid_type']);
+    });
+
+    it.each([
+      ['a node in /cluster/resources', '/cluster/resources', { id: 'node/pve1', type: 'node', node: 'pve1', maxcpu: 'many' }],
+      ['the cluster entry in /cluster/status', '/cluster/status', { id: 'cluster', type: 'cluster', name: 'homelab', quorate: 'yes' }],
+    ])('fails the poll as unreachable when %s is off shape, instead of dropping it', async (_, path, bad) => {
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ data: [good(100), bad] }), { status: 200 }));
+      const client = new ProxmoxClient(createConfig());
+      const call = path === '/cluster/status' ? client.getClusterStatus() : client.getClusterResources();
+      const failure = await call.then(() => null, (e: unknown) => e as ProxmoxRequestError);
+      expect(failure).toBeInstanceOf(ProxmoxRequestError);
+      expect(failure!.kind).toBe('unreachable');
+      expect(failure!.message).toMatch(new RegExp(`^${path.replace(/\//g, '\\/')}: unexpected response shape: data\\.1\\.`));
+    });
+
+    it('reads a guest, node or storage name Proxmox sent as a number', async () => {
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: [{ id: 'qemu/100', type: 'qemu', vmid: 100, name: 1234, node: 7 }, { id: 'storage/7/9', type: 'storage', storage: 9 }],
+      }), { status: 200 }));
+      const entries = await new ProxmoxClient(createConfig()).getClusterResources();
+      expect(entries[0]).toMatchObject({ name: '1234', node: '7' });
+      expect(entries[1]).toMatchObject({ storage: '9' });
     });
 
     it('reads a number Proxmox sent as a string', async () => {

@@ -12,11 +12,14 @@ const zOptionalNumber = z.preprocess(
   z.number().nullish(),
 );
 
+/** A guest named `1234` can arrive as a number. */
+const zText = z.union([z.string(), z.number().transform(String)]).optional();
+
 /** Entry of GET /api2/json/cluster/status: one `cluster` entry (absent on a standalone node) plus one per node. */
 export const zProxmoxClusterStatus = z.object({
   type: z.string(),
   id: z.string().optional(),
-  name: z.string().optional(),
+  name: zText,
   nodes: zOptionalNumber,
   quorate: zOptionalNumber,
   version: zOptionalNumber,
@@ -28,9 +31,9 @@ export type ProxmoxClusterStatus = z.infer<typeof zProxmoxClusterStatus>;
 export const zProxmoxResource = z.object({
   id: z.string(),
   type: z.string(),
-  node: z.string().optional(),
+  node: zText,
   status: z.string().optional(),
-  name: z.string().optional(),
+  name: zText,
   vmid: zOptionalNumber,
   /** 0-1 fraction of `maxcpu` */
   cpu: zOptionalNumber,
@@ -45,7 +48,7 @@ export const zProxmoxResource = z.object({
   diskread: zOptionalNumber,
   diskwrite: zOptionalNumber,
   template: zOptionalNumber,
-  storage: z.string().optional(),
+  storage: zText,
   content: z.string().optional(),
   plugintype: z.string().optional(),
   shared: zOptionalNumber,

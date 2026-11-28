@@ -23,10 +23,9 @@ export class ProxmoxRequestError extends Error {
   readonly detail: string;
 
   constructor(readonly kind: ProxmoxFailureKind, path: string, detail: string) {
-    const bounded = detail.slice(0, MAX_REASON_CHARS);
-    super(`${path}: ${bounded}`);
+    super(`${path}: ${detail}`.slice(0, MAX_REASON_CHARS));
     this.name = 'ProxmoxRequestError';
-    this.detail = bounded;
+    this.detail = detail.slice(0, MAX_REASON_CHARS);
   }
 
   /** Read by BaseCollector's error log line. */
@@ -38,6 +37,12 @@ export class ProxmoxRequestError extends Error {
 function firstIssue(error: z.ZodError): string {
   const issue = error.issues[0];
   return issue ? `${issue.path.join('.') || '(root)'} ${issue.code}` : 'unknown';
+}
+
+// Dropping a node hides its guests and shrinks the cluster totals, and dropping the cluster entry turns the cluster into Standalone.
+function isWholeClusterEntry(raw: unknown): boolean {
+  const type = (raw as { type?: unknown } | null)?.type;
+  return type === 'node' || type === 'cluster';
 }
 
 function classifyFetchFailure(path: string, err: unknown): ProxmoxRequestError {
@@ -139,8 +144,12 @@ export class ProxmoxClient {
       if (parsed.success) {
         entries.push(parsed.data);
       } else {
+        const where = `data.${index}.${firstIssue(parsed.error)}`;
+        if (isWholeClusterEntry(raw)) {
+          throw new ProxmoxRequestError('unreachable', path, `unexpected response shape: ${where}`);
+        }
         dropped++;
-        firstDrop ||= `data.${index}.${firstIssue(parsed.error)}`;
+        firstDrop ||= where;
       }
     }
     if (dropped > 0) this.logDropped(path, dropped, firstDrop);
