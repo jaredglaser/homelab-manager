@@ -4,7 +4,7 @@ import { provisionHostTls, isRestartConnectionLoss, isServedCertUnverifiable, is
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import { tlsFailureMessage } from '@/lib/errors/tls-failure-copy';
 import { agentResponse } from '@/lib/test/agent-response';
-import { enrollmentPayload } from '../../crypto/agent-jwt';
+import { enrollmentPayload } from '@/lib/crypto/agent-jwt';
 import { mockModule } from '@/lib/test/mock-module';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
 import type * as DnsPromises from 'node:dns/promises';

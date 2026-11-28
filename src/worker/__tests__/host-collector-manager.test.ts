@@ -7,7 +7,7 @@ import {
   type HostCollectorBundle,
   type HostCollectorFactory,
 } from '../host-collector-manager';
-import type { BaseCollector } from '../collectors/base-collector';
+import type { BaseCollector } from '@/worker/collectors/base-collector';
 
 const originalConsoleInfo = console.info;
 const originalConsoleError = console.error;

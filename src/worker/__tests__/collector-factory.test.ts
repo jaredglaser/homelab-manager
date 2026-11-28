@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:te
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { Pool } from 'pg';
-import { BaseCollector } from '../collectors/base-collector';
+import { BaseCollector } from '@/worker/collectors/base-collector';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;

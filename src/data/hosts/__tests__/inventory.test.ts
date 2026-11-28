@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, spyOn } from 'bun:test';
-import type { HostRepo, AgentsInventoryDeps } from '../handlers';
-import { handleSweepAgentInventory, handleListAgentsInventorySnapshot } from '../handlers';
+import type { HostRepo, AgentsInventoryDeps } from '@/data/hosts/handlers';
+import { handleSweepAgentInventory, handleListAgentsInventorySnapshot } from '@/data/hosts/handlers';
 import type { ManagedHost, HostHealthVerdict, UpdateAgentInfoInput } from '@/lib/database/repositories/host-repository';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import { buildAgentInventorySnapshot } from '@/lib/hosts/agent-inventory';

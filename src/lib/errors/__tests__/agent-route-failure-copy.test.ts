@@ -7,7 +7,7 @@ import {
   type AgentRouteFailureCode,
 } from '@homelab-manager/agent/types';
 import { agentRouteFailureCopy, agentRouteOperatorMessage, updateFailureMessage } from '../agent-route-failure-copy';
-import { HOST_PROBE_FAILURE_CODES, hostFailureMessage } from '../host-failure-copy';
+import { HOST_PROBE_FAILURE_CODES, hostFailureMessage } from '@/lib/errors/host-failure-copy';
 
 describe('agentRouteFailureCopy', () => {
   it('has copy for every code, so a new code cannot ship without a sentence', () => {

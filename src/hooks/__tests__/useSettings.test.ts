@@ -27,8 +27,8 @@ type ReactNode = import('react').ReactNode;
 
     // Import after mocking
     const { useSettings } = await import('../useSettings');
-    const { useOptimisticSetting } = await import('../useOptimisticSetting');
-    const { rawSettingsAtom } = await import('../settingsAtom');
+    const { useOptimisticSetting } = await import('@/hooks/useOptimisticSetting');
+    const { rawSettingsAtom } = await import('@/hooks/settingsAtom');
     const { createStore, Provider } = await import('jotai');
 
     function createWrapper(initialRaw: Record<string, string> = {}) {

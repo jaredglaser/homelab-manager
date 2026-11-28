@@ -166,7 +166,7 @@ describe('SettingsListener', () => {
         controller.signal,
       );
 
-      let notificationHandler: ((msg: any) => void) | undefined;
+      let notificationHandler: ((msg: any) => Promise<void>) | undefined;
       const { pgClient } = setupPgClientMocks(listener, (event: string, cb: any) => {
         if (event === 'notification') notificationHandler = cb;
         return pgClient;
@@ -206,7 +206,7 @@ describe('SettingsListener', () => {
         controller.signal,
       );
 
-      let notificationHandler: ((msg: any) => void) | undefined;
+      let notificationHandler: ((msg: any) => Promise<void>) | undefined;
       const { pgClient } = setupPgClientMocks(listener, (event: string, cb: any) => {
         if (event === 'notification') notificationHandler = cb;
         return pgClient;
@@ -273,7 +273,7 @@ describe('SettingsListener', () => {
         controller.signal,
       );
 
-      let notificationHandler: ((msg: any) => void) | undefined;
+      let notificationHandler: ((msg: any) => Promise<void>) | undefined;
       const { pgClient } = setupPgClientMocks(listener, (event: string, cb: any) => {
         if (event === 'notification') notificationHandler = cb;
         return pgClient;
