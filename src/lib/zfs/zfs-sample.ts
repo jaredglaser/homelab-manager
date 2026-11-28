@@ -167,6 +167,7 @@ export function buildZfsSampleRows({ host, time, lines, layout, tracker }: ZfsSa
   if (linesByPool.size === 0 && (layout ?? []).length === 0) return [row({ time, host, pool: '' }, '', 'host', 0)];
 
   const rows: NewZFSStat[] = [];
+  const written = new Set<string>();
   for (const [poolName, poolLines] of [...linesByPool.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const base = { time, host, pool: poolName };
     const byKey = new Map<string, ZpoolStatsLine>();
@@ -176,13 +177,14 @@ export function buildZfsSampleRows({ host, time, lines, layout, tracker }: ZfsSa
     }
     const rootLine = byKey.get('');
     if (!rootLine) continue;
+    written.add(poolName);
     rows.push(row(base, zfsEntitySegment(poolName), 'pool', 0, lineValues(rootLine, tracker.rates(rootLine), true)));
 
     const poolLayout = layout?.find((pool) => pool.name === poolName);
     if (poolLayout) rows.push(...deviceRows(base, poolLayout, byKey, tracker));
   }
   for (const pool of layout ?? []) {
-    if (linesByPool.has(pool.name)) continue;
+    if (written.has(pool.name)) continue;
     const base = { time, host, pool: pool.name };
     rows.push(row(base, zfsEntitySegment(pool.name), 'pool', 0, {
       ...(pool.allocBytes !== null && pool.totalBytes !== null

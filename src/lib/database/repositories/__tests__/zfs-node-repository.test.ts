@@ -163,7 +163,7 @@ describe('ZfsNodeRepository', () => {
     const repo = new ZfsNodeRepository(mock.pool, keyring);
     mock.pushResult([{ name: 'pve1' }]);
     await repo.recordVerified(3);
-    expect(setClause(mock.queries[0].sql)).toContain("state = 'ok'");
+    expect(setClause(mock.queries[0].sql)).toContain("state = CASE WHEN state = 'timeout' THEN state ELSE 'ok' END");
     expect(mock.queries[1].params).toEqual([ZFS_NODES_NOTIFY_CHANNEL, JSON.stringify({ op: 'update', name: 'pve1' })]);
     mock.pushResult([]);
     await repo.recordVerified(4);
@@ -189,6 +189,33 @@ describe('ZfsNodeRepository', () => {
     expect(await repo.getPublicKey(3)).toEqual({ name: 'pve1', publicKey: 'ssh-ed25519 AAAA', allowedFrom: '10.0.0.5' });
     mock.pushResult([]);
     expect(await repo.getPublicKey(4)).toBeNull();
+  });
+
+  test('still lists the other nodes when marking an unreadable key fails, as on a database with an older state constraint', async () => {
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const good = await encryptValue('GOOD KEY', keyring);
+      let calls = 0;
+      const pool = {
+        query: async () => {
+          calls++;
+          if (calls === 1) {
+            return {
+              rows: [
+                { ...ROW, id: 1, name: 'pve0', username: 'hlm', private_key_jwe: 'not-a-jwe' },
+                { ...ROW, id: 2, name: 'pve1', username: 'hlm', private_key_jwe: good },
+              ],
+            };
+          }
+          throw new Error('new row for relation "zfs_nodes" violates check constraint');
+        },
+      } as never;
+      const nodes = await new ZfsNodeRepository(pool, keyring).listCollectable();
+      expect(nodes.map((node) => node.name)).toEqual(['pve1']);
+      expect(errors).toHaveBeenCalledWith('[ZfsNodeRepository] marking pve0 key_unreadable failed:', 'new row for relation "zfs_nodes" violates check constraint');
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   test('logs a failed notify instead of failing the write', async () => {

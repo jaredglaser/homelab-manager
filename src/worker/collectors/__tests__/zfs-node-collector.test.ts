@@ -294,7 +294,7 @@ describe('ZfsNodeCollector', () => {
     await run;
   });
 
-  test('marks a node whose zpool_influxdb hangs but which still answers, keeps the session, and recovers when it answers', async () => {
+  test('answers an empty or hung zpool_influxdb with status-only rows, asks again, and recovers when it answers', async () => {
     let answering = false;
     const transport = new FakeZfsTransport({ status: OK(TANK_STATUS), influx: (request) => (answering ? poolSample('tank', request + 1, request) : null) });
     const h = harness(transport);
@@ -305,12 +305,14 @@ describe('ZfsNodeCollector', () => {
 
     expect(session.livenessChecks).toBe(1);
     expect(session.closed).toBe(false);
-    expect(session.streams[0].requests).toBe(1);
+    expect(session.streams[0].requests).toBe(2);
+    expect(pool(h.samples[0])).toMatchObject({ state: 'ONLINE', capacityAllocBytes: '100', readOpsPerSec: null });
+    expect(h.successes).toHaveLength(0);
 
     answering = true;
-    session.streams[0].emit(poolSample('tank', 100, 1));
-    await h.steps(2);
-    await waitForCondition(() => h.samples.length >= 1 && h.successes.length >= 1);
+    await h.steps(ZFS_SAMPLE_TIMEOUT_MS / 1000 + 3);
+    await waitForCondition(() => h.successes.length >= 1);
+    expect(h.samples.at(-1)?.some((row) => row.readErrors === '0')).toBe(true);
     expect(h.failures.map(([state]) => state)).toEqual(['timeout']);
     h.controller.abort();
     await run;
@@ -349,7 +351,8 @@ describe('ZfsNodeCollector', () => {
     healthy.controller.abort();
     await Promise.all(runs);
 
-    expect(hung.samples).toHaveLength(0);
+    expect(hung.samples.flat().every((row) => row.readOpsPerSec === null)).toBe(true);
+    expect(hung.successes).toHaveLength(0);
     expect(healthy.failures).toHaveLength(0);
     expect(healthy.samples.every((rows) => rows[0].host === 'pve2')).toBe(true);
   });
@@ -413,16 +416,52 @@ describe('ZfsNodeCollector', () => {
     expect(h.failures[0]).toEqual(['influxdb_missing', null]);
   });
 
-  test('marks a refused key', async () => {
+  test('marks a refused key and retries it slowly, so the node\'s auth log is not flooded', async () => {
     const transport = new FakeZfsTransport({ connectError: new ZfsSshError('key_refused', 'All configured authentication methods failed') });
-    timers = mockSetTimeout();
     const h = harness(transport);
     const failed = h.nextFailure();
-    const run = h.collector.run();
+    const timer = await captureBackoff(() => void h.collector.run());
     await failed;
+    expect(h.failures[0]).toEqual(['key_refused', null]);
+    expect(timer.delayMs).toBe(ZFS_SLOW_RETRY_MS);
+    h.controller.abort();
+  });
+
+  test('keeps a wake that arrives during an attempt, so the next backoff returns at once', async () => {
+    const transport = new FakeZfsTransport({ connectError: new ZfsSshError('key_refused', 'refused') });
+    const h = harness(transport);
+    let wokeDuringAttempt = false;
+    const original = transport.connect.bind(transport);
+    transport.connect = (target, options) => {
+      if (!wokeDuringAttempt) {
+        wokeDuringAttempt = true;
+        h.collector.wake();
+      }
+      return original(target, options);
+    };
+    const run = h.collector.run();
+    await waitForCondition(() => transport.attempts.length >= 2);
     h.controller.abort();
     await run;
-    expect(h.failures[0]).toEqual(['key_refused', null]);
+  });
+
+  test('ends a session whose zpool_influxdb prints more bytes or pools than any sample has', async () => {
+    for (const flood of [
+      `zpool_stats,name=${'p'.repeat(1024 * 1024 - 64)} x=1u 1\n`.repeat(17),
+      Array.from({ length: 1001 }, (_, i) => poolEnd(`pool${i}`)).join(''),
+    ]) {
+      const transport = new FakeZfsTransport({ status: OK(TANK_STATUS), influx: () => flood });
+      timers = mockSetTimeout();
+      const h = harness(transport);
+      const failed = h.nextFailure();
+      const run = h.collector.run();
+      await failed;
+      h.controller.abort();
+      await run;
+      timers.restore();
+      timers = null;
+      expect(h.failures[0]).toEqual(['error', null]);
+    }
   });
 
   test('skips a line it does not know, logs it once without its control characters, and still writes the sample', async () => {

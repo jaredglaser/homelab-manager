@@ -103,6 +103,16 @@ Match all
 `;
 }
 
+/** `install -d -o root` would chown through a link and `rm` would delete inside it, so a link or a path another user owns stops the script. */
+export function buildPathGuard(paths: readonly string[]): string {
+  return `for path in ${pathList(paths)}; do
+  if [ -L "$path" ] || { [ -e "$path" ] && [ "$(stat -c %u "$path")" != 0 ]; }; then
+    fail "$path is a link or is not owned by root. Remove it, then run this script again."
+  fi
+done
+`;
+}
+
 /** Running it again replaces everything it installs, which is how a node whose key was refused is repaired. */
 export function buildSetupScript(input: SetupScriptInput): string {
   const keyLine = buildAuthorizedKeysLine(input);
@@ -122,8 +132,9 @@ fail() {
 if getent passwd ${user} >/dev/null; then
   [ "$(getent passwd ${user} | cut -d: -f7)" = ${ZFS_DISPATCH_PATH} ] || fail 'A user named ${user} already exists and was not created by this script. Remove or rename it, then run this script again.'
 fi
-
+${buildPathGuard([dispatchDir, ZFS_NODE_HOME, `${ZFS_NODE_HOME}/.ssh`])}
 install -d -o root -g root -m 0755 ${dispatchDir}
+rm -f ${ZFS_DISPATCH_PATH}.new
 cat > ${ZFS_DISPATCH_PATH}.new <<'HLM_DISPATCH'
 ${dispatcher}HLM_DISPATCH
 chown root:root ${ZFS_DISPATCH_PATH}.new
@@ -138,13 +149,14 @@ fi
 usermod --home ${ZFS_NODE_HOME} --shell ${ZFS_DISPATCH_PATH} --password '*' ${user}
 
 install -d -o root -g root -m 0755 ${ZFS_NODE_HOME} ${ZFS_NODE_HOME}/.ssh
-rm -f ${ZFS_NODE_HOME}/.ssh/authorized_keys2
+rm -f ${ZFS_NODE_HOME}/.ssh/authorized_keys2 ${ZFS_NODE_HOME}/.ssh/authorized_keys.new
 printf '%s\\n' '${keyLine}' > ${ZFS_NODE_HOME}/.ssh/authorized_keys.new
 chown root:root ${ZFS_NODE_HOME}/.ssh/authorized_keys.new
 chmod 0644 ${ZFS_NODE_HOME}/.ssh/authorized_keys.new
 mv ${ZFS_NODE_HOME}/.ssh/authorized_keys.new ${ZFS_NODE_HOME}/.ssh/authorized_keys
 
 install -d -m 0755 /etc/ssh/sshd_config.d
+rm -f ${ZFS_SSHD_DROP_IN}.new
 cat > ${ZFS_SSHD_DROP_IN}.new <<'HLM_SSHD'
 ${buildSshdDropIn()}HLM_SSHD
 chmod 0644 ${ZFS_SSHD_DROP_IN}.new

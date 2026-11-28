@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -11,6 +11,7 @@ import {
   buildAuthorizedKeysLine,
   buildDispatcherScript,
   buildSetupScript,
+  buildPathGuard,
   buildSshdDropIn,
   ZFS_SSHD_DROP_IN,
 } from '../node-setup-script';
@@ -167,6 +168,38 @@ describe('setup script', () => {
     expect(forUser('hlm')).toContain('permittty no');
     expect(forUser('hlm')).toContain('allowtcpforwarding no');
     expect(forUser('root')).toContain('permittty yes');
+  });
+
+  test('stops on a home or .ssh that is a link or owned by another user, before anything chowns or deletes through it', () => {
+    const base = mkdtempSync(join(tmpdir(), 'zfs-guard-'));
+    try {
+      const root = process.getuid?.() === 0;
+      const linked = join(base, 'linked');
+      const foreign = join(base, 'foreign');
+      const missing = join(base, 'missing');
+      const owned = join(base, 'owned');
+      symlinkSync('/etc', linked);
+      mkdirSync(foreign);
+      mkdirSync(owned);
+      if (root) chownSync(foreign, 65534, 65534);
+      const guard = (path: string) => Bun.spawnSync(['/bin/sh', '-c', `fail() { echo "$1" >&2; exit 1; }\n${buildPathGuard([path])}echo passed`]);
+      const refused = (path: string) => ({ code: 1, stdout: '', stderr: `${path} is a link or is not owned by root. Remove it, then run this script again.\n` });
+
+      const linkedRun = guard(linked);
+      expect({ code: linkedRun.exitCode, stdout: linkedRun.stdout.toString(), stderr: linkedRun.stderr.toString() }).toEqual(refused(linked));
+      const foreignRun = guard(foreign);
+      expect({ code: foreignRun.exitCode, stdout: foreignRun.stdout.toString(), stderr: foreignRun.stderr.toString() }).toEqual(refused(foreign));
+      expect(guard(missing).stdout.toString()).toBe('passed\n');
+      if (root) expect(guard(owned).stdout.toString()).toBe('passed\n');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('runs the path guard on the dispatcher directory, the home and .ssh before the first install', () => {
+    const guard = buildPathGuard(['/usr/local/libexec/homelab-manager', '/var/lib/hlm', '/var/lib/hlm/.ssh']);
+    expect(script).toContain(guard);
+    expect(script.indexOf(guard)).toBeLessThan(script.indexOf('install -d'));
   });
 
   test('ends by printing the ed25519 host key fingerprint', () => {

@@ -18,10 +18,12 @@ export const ZFS_CONNECT_TIMEOUT_MS = 10_000;
 export const ZFS_LIVENESS_TIMEOUT_MS = 5000;
 /** Backoff resets only after a session stayed up this long, so a node that drops every few seconds keeps backing off. */
 export const ZFS_HEALTHY_SESSION_MS = 60_000;
-/** A changed host key or a hung node does not fix itself in seconds, and each reconnect to a hung node leaves one more stuck process on it. */
+/** A changed host key or a refused key does not fix itself in seconds, and retrying every 30 s fills the node's auth log and can trip fail2ban. */
 export const ZFS_SLOW_RETRY_MS = 300_000;
-/** A pool with a few hundred disks prints well under this many lines per sample. */
+/** A pool with a few hundred disks prints well under this many lines, bytes and pools per sample. */
 export const ZFS_MAX_SAMPLE_LINES = 20_000;
+export const ZFS_MAX_SAMPLE_BYTES = 16 * 1024 * 1024;
+export const ZFS_MAX_SAMPLE_POOLS = 1000;
 /** last_success_at is shown to the minute, so writing it on every sample would only add load. */
 const SUCCESS_WRITE_INTERVAL_MS = 15_000;
 const MAX_LINE_BYTES = 1024 * 1024;
@@ -51,6 +53,7 @@ type Target = Pick<ZfsNodeConnection, 'id' | 'name' | 'address' | 'port' | 'user
 
 interface SampleRequest {
   sentAt: number;
+  bytes: number;
   lines: ZpoolStatsLine[];
   endedPools: Set<string>;
   dataSinceTick: boolean;
@@ -78,7 +81,8 @@ export class ZfsNodeCollector extends BaseCollector {
   }
 
   protected override retryFloorMs(err: unknown): number {
-    if (err instanceof ZfsNodeReadError && (err.state === 'host_key_changed' || err.state === 'timeout')) return ZFS_SLOW_RETRY_MS;
+    if (err instanceof ZfsNodeReadError && err.state === 'host_key_changed') return ZFS_SLOW_RETRY_MS;
+    if (err instanceof ZfsSshError && (err.kind === 'key_refused' || err.kind === 'no_ed25519_key')) return ZFS_SLOW_RETRY_MS;
     return 0;
   }
 
@@ -177,6 +181,13 @@ export class ZfsNodeCollector extends BaseCollector {
       };
 
       stream.onData((chunk) => {
+        if (request) {
+          request.bytes += chunk.length;
+          if (request.bytes > ZFS_MAX_SAMPLE_BYTES) {
+            end(new ZfsNodeReadError('error', `zpool_influxdb printed more than ${ZFS_MAX_SAMPLE_BYTES} bytes for one sample`));
+            return;
+          }
+        }
         text += chunk;
         let newline = text.indexOf('\n');
         while (newline !== -1) {
@@ -195,6 +206,10 @@ export class ZfsNodeCollector extends BaseCollector {
             }
           } else if (parsed.kind === 'pool-end') {
             request.endedPools.add(parsed.pool);
+            if (request.endedPools.size > ZFS_MAX_SAMPLE_POOLS) {
+              end(new ZfsNodeReadError('error', `zpool_influxdb printed more than ${ZFS_MAX_SAMPLE_POOLS} pools for one sample`));
+              return;
+            }
           } else if (parsed.kind === 'malformed') {
             this.logLineOnce(parsed.reason, line);
           }
@@ -235,22 +250,24 @@ export class ZfsNodeCollector extends BaseCollector {
           if (isComplete(request)) {
             const lines = request.lines;
             request = null;
-            await this.writeSample(lines, layout, tracker, statusHung, sessionStartedAt);
-          } else if (!influxHung && request.lines.length === 0 && this.now() - request.sentAt >= ZFS_SAMPLE_TIMEOUT_MS) {
+            await this.writeSample(lines, layout, tracker, statusHung || influxHung, sessionStartedAt);
+          } else if (request.lines.length === 0 && this.now() - request.sentAt >= ZFS_SAMPLE_TIMEOUT_MS) {
             if (!(await session.isResponsive(ZFS_LIVENESS_TIMEOUT_MS))) {
               end(new ZfsNodeReadError('unreachable', 'The node stopped answering over SSH'));
               break;
             }
+            if (!influxHung) console.error(`[${this.name}] zpool_influxdb gave no answer for ${ZFS_SAMPLE_TIMEOUT_MS}ms while the node still answers, asking again`);
             influxHung = true;
-            console.error(`[${this.name}] zpool_influxdb gave no answer for ${ZFS_SAMPLE_TIMEOUT_MS}ms while the node still answers, waiting for it`);
             await this.markTimeout();
+            request = null;
+            await this.writeSample([], layout, tracker, true, sessionStartedAt);
           } else {
             request.dataSinceTick = false;
             request.ticks++;
           }
         }
         if (!request && !ended) {
-          request = { sentAt: this.now(), lines: [], endedPools: new Set(), dataSinceTick: false, ticks: 0 };
+          request = { sentAt: this.now(), bytes: 0, lines: [], endedPools: new Set(), dataSinceTick: false, ticks: 0 };
           stream.write('\n');
         }
 
@@ -279,7 +296,7 @@ export class ZfsNodeCollector extends BaseCollector {
     lines: ZpoolStatsLine[],
     layout: StatusPool[] | null,
     tracker: ZfsCounterTracker,
-    statusHung: boolean,
+    hung: boolean,
     sessionStartedAt: number,
   ): Promise<void> {
     const rows = buildZfsSampleRows({ host: this.node.name, time: new Date(this.now()), lines, layout, tracker });
@@ -290,7 +307,7 @@ export class ZfsNodeCollector extends BaseCollector {
       return;
     }
     if (this.now() - sessionStartedAt >= ZFS_HEALTHY_SESSION_MS) this.resetBackoff();
-    if (statusHung) return;
+    if (hung) return;
     this.recordedTimeout = false;
     await this.recordSuccess();
   }

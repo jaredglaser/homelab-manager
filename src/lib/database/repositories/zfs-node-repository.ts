@@ -156,7 +156,13 @@ export class ZfsNodeRepository {
         nodes.push(await this.toConnection(row));
       } catch (err) {
         console.error(`[ZfsNodeRepository] ${err instanceof Error ? err.message : err}, skipping the node`);
-        if (row.state !== 'key_unreadable') await this.recordFailure(row.id, 'key_unreadable');
+        if (row.state !== 'key_unreadable') {
+          try {
+            await this.recordFailure(row.id, 'key_unreadable');
+          } catch (markErr) {
+            console.error(`[ZfsNodeRepository] marking ${row.name} key_unreadable failed:`, markErr instanceof Error ? markErr.message : markErr);
+          }
+        }
       }
     }
     return nodes;
@@ -211,12 +217,15 @@ export class ZfsNodeRepository {
     );
   }
 
-  /** The verify step read both commands. The notify makes the worker retry the node now instead of after its backoff. */
+  /**
+   * The verify step read both commands. A `timeout` stays, since the worker's own session may still hold a hung read.
+   * The notify makes the worker retry the node now instead of after its backoff.
+   */
   async recordVerified(id: number): Promise<void> {
     const result = await this.pool.query<{ name: string }>(
       `UPDATE zfs_nodes
-          SET state = 'ok',
-              state_changed_at = CASE WHEN state = 'ok' THEN state_changed_at ELSE now() END
+          SET state = CASE WHEN state = 'timeout' THEN state ELSE 'ok' END,
+              state_changed_at = CASE WHEN state IN ('ok', 'timeout') THEN state_changed_at ELSE now() END
         WHERE id = $1
         RETURNING name`,
       [id],

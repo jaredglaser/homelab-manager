@@ -110,10 +110,12 @@ export abstract class BaseCollector implements AsyncDisposable {
     this.debugLog(`[${this.name}] Retrying in ${backoffMs}ms (attempt ${this.consecutiveErrors})...`);
     const wake = this.wakeController.signal;
     try {
-      await abortableSleep(backoffMs, AbortSignal.any([this.signal, wake]));
+      if (!wake.aborted) await abortableSleep(backoffMs, AbortSignal.any([this.signal, wake]));
       return true;
     } catch {
       return !this.signal.aborted;
+    } finally {
+      if (wake.aborted) this.wakeController = new AbortController();
     }
   }
 
@@ -122,10 +124,9 @@ export abstract class BaseCollector implements AsyncDisposable {
     return 0;
   }
 
-  /** Ends a backoff wait now, for a retry the user asked for. */
+  /** Ends a backoff wait now, for a retry the user asked for. A wake that arrives mid-attempt makes the next backoff return at once. */
   wake(): void {
     this.wakeController.abort();
-    this.wakeController = new AbortController();
   }
 
   stop(): void {

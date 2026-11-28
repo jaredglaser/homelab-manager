@@ -226,7 +226,7 @@ The worker and the dashboard both need to reach each node's SSH port: the worker
 
 The next step shows a setup script. Run it on the node as root. It:
 
-- stops before changing anything if the node has no ed25519 host key (`ssh-keygen -A` creates one), or if a user named `hlm` exists that the script did not create;
+- stops before changing anything if the node has no ed25519 host key (`ssh-keygen -A` creates one), if a user named `hlm` exists that the script did not create, or if `/var/lib/hlm`, `/var/lib/hlm/.ssh` or the dispatcher's directory is a link or not owned by root;
 - creates a system user `hlm` with no password, no login shell (its shell is the dispatcher below) and `nogroup` as its group;
 - installs a dispatcher at `/usr/local/libexec/homelab-manager/zfs-read` that runs only the two commands above, with fixed arguments, and refuses everything else;
 - writes one line to `/var/lib/hlm/.ssh/authorized_keys`: `restrict,command="/usr/local/libexec/homelab-manager/zfs-read"` and the app's public key, so the key cannot open a shell, allocate a terminal or forward ports. The home directory, `.ssh` and `authorized_keys` belong to root, so `hlm` cannot change them, and a stray `authorized_keys2` is deleted;
@@ -488,7 +488,7 @@ If provisioning reports that the agent did not serve the new certificate over HT
 - Check that the node's host key is confirmed and that its notice on the Hosts page does not name a problem.
 - "refused the app's key": run the setup script on the node again. Running it again is safe and replaces the key line.
 - "missing zpool_influxdb": update `zfsutils-linux`. The dispatcher looks for it at `/bin/zpool_influxdb` and `/usr/lib/zfs-linux/zpool_influxdb`.
-- "stopped answering ZFS reads": a pool may be suspended or a disk hanging. Check `zpool status` on the node. The worker retries with a growing delay.
+- "stopped answering ZFS reads": a pool may be suspended or a disk hanging. Check `zpool status` on the node. The worker keeps the session and asks again every 10 seconds, writing the last known layout meanwhile.
 
 **Port conflict on 3000**
 - Set `WEB_PORT` to any available port in your `.env`.

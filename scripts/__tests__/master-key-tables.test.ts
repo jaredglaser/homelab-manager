@@ -126,6 +126,45 @@ describe('migrate-master-key', () => {
     expect(updated).toContain('zfs_nodes');
   });
 
+  test('stops at a row it cannot decrypt, keeps the rows already moved readable, and a re-run finishes the rest', async () => {
+    const v1 = await aesKey();
+    const v2 = await aesKey();
+    const oldRing: MasterKeyring = { activeKid: 'v1', keys: new Map([['v1', v1]]) };
+    const bothRing: MasterKeyring = { activeKid: 'v2', keys: new Map([['v1', v1], ['v2', v2]]) };
+    const keys = { fromKid: 'v1', toKid: 'v2', fromKey: v1, toKey: v2 };
+    const good = await encryptValue('secret', oldRing);
+    const corrupt = good.replace(/\.[^.]+\.[^.]+$/, '.AAAA.AAAA');
+    const store: Record<string, Record<string, unknown>[]> = {
+      stack_secrets: [{ stack_name: 's', variable_name: 'v', ciphertext_jwe: good }],
+      agent_keypairs: [{ host_name: 'h', private_jwk_jwe: good }],
+      git_tokens: [{ id: 1, encrypted_token: corrupt }],
+      zfs_nodes: [{ id: 4, private_key_jwe: good }],
+    };
+    const column: Record<string, string> = { stack_secrets: 'ciphertext_jwe', agent_keypairs: 'private_jwk_jwe', git_tokens: 'encrypted_token', zfs_nodes: 'private_key_jwe' };
+    const pool = {
+      query: async (sql: string) => ({ rows: store[/FROM (\w+)/.exec(sql)![1]] }),
+      connect: async () => ({
+        query: async (sql: string, params?: unknown[]) => {
+          const table = /^UPDATE (\w+)/.exec(sql.trim())?.[1];
+          if (table) store[table][0][column[table]] = params![0];
+          return { rows: [] };
+        },
+        release: () => {},
+      }),
+    } as unknown as Pool;
+
+    await expect(migrateAllTables(pool, keys)).rejects.toThrow('Failed to migrate git_tokens(1)');
+    for (const table of ['stack_secrets', 'agent_keypairs']) {
+      expect(await decryptValue(store[table][0][column[table]] as string, bothRing)).toBe('secret');
+    }
+    expect(store.zfs_nodes[0].private_key_jwe).toBe(good);
+
+    store.git_tokens[0].encrypted_token = await encryptValue('token', oldRing);
+    expect(await migrateAllTables(pool, keys)).toEqual({ stack_secrets: 0, agent_keypairs: 0, git_tokens: 1, zfs_nodes: 1 });
+    const newRing: MasterKeyring = { activeKid: 'v2', keys: new Map([['v2', v2]]) };
+    expect(await decryptValue(store.zfs_nodes[0].private_key_jwe as string, newRing)).toBe('secret');
+  });
+
   test('covers every encrypted column the app stores', () => {
     expect(TABLE_MIGRATIONS.map((migration) => migration.table)).toEqual(['stack_secrets', 'agent_keypairs', 'git_tokens', 'zfs_nodes']);
   });

@@ -175,6 +175,13 @@ describe('buildZfsSampleRows', () => {
     expect(byEntity(twoSamples('2.4.4').second).get('rpool/nvme-BOOT-part3')).toMatchObject({ entityType: 'disk', indent: 2, capacityAllocBytes: '21474836480' });
   });
 
+  it('writes status-only rows for a pool whose root line missed this sample, so it never drops for a second', () => {
+    const lines = fixtureLines('2.3.3', 1).filter((line) => !(line.pool === 'tank' && line.vdev === 'root'));
+    const rows = byEntity(buildZfsSampleRows({ host: 'pve1', time: new Date(1), lines, layout: fixtureLayout('2.3.3'), tracker: new ZfsCounterTracker() }));
+    expect(rows.get('tank')).toMatchObject({ entityType: 'pool', state: 'DEGRADED', readOpsPerSec: null });
+    expect(rows.get('tank/raidz1-0/ata-HDD_2')).toMatchObject({ state: 'FAULTED' });
+  });
+
   it('writes status-only rows for a pool in the layout that zpool_influxdb did not print', () => {
     const lines = fixtureLines('2.3.3', 1).filter((line) => line.pool !== 'tank');
     const rows = byEntity(buildZfsSampleRows({ host: 'pve1', time: new Date(1), lines, layout: fixtureLayout('2.3.3'), tracker: new ZfsCounterTracker() }));
