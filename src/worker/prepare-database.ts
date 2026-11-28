@@ -12,9 +12,13 @@ export interface PrepareDatabaseDeps {
  * at boot too, possibly against an aggregate a migration here then rebuilds empty, so this run waits
  * for that one's lock instead of skipping.
  */
-export async function prepareDatabase(db: DatabaseClient, deps: PrepareDatabaseDeps = {}): Promise<{ backfill: Promise<void> }> {
+export async function prepareDatabase(
+  db: DatabaseClient,
+  shutdown: AbortSignal,
+  deps: PrepareDatabaseDeps = {},
+): Promise<{ backfill: Promise<void> }> {
   await (deps.migrate ?? runMigrations)(db);
-  const backfill = (deps.backfill ?? runStatsRollupBackfill)(db, { waitForLock: true }).catch((err: unknown) => {
+  const backfill = (deps.backfill ?? runStatsRollupBackfill)(db, { waitForLock: { signal: shutdown } }).catch((err: unknown) => {
     console.error('[Worker] Stats rollup backfill failed:', err);
   });
   return { backfill };

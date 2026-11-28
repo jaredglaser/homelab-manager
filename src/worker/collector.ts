@@ -58,8 +58,18 @@ async function main() {
     console.info('[Worker] Connecting to PostgreSQL...');
     const db = await databaseConnectionManager.getClient(dbConfig);
 
+    // Shared AbortController - SIGTERM aborts all collectors instantly
+    const shutdownController = new AbortController();
+
+    const shutdown = () => {
+      console.info('[Worker] Shutdown signal received, aborting collectors...');
+      shutdownController.abort(new DOMException('Shutdown', 'AbortError'));
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
     console.info('[Worker] Running database migrations...');
-    await prepareDatabase(db);
+    await prepareDatabase(db, shutdownController.signal);
 
     // Auto-seed localhost agent in dev mode (gated by DEV_AGENT_TOKEN env var)
     const { seedDevAgent } = await import('./dev-seed');
@@ -84,16 +94,6 @@ async function main() {
     } catch (err) {
       console.error('[Worker] Failed to read Proxmox poll interval from settings, using default:', err instanceof Error ? err.message : err);
     }
-
-    // Shared AbortController - SIGTERM aborts all collectors instantly
-    const shutdownController = new AbortController();
-
-    const shutdown = () => {
-      console.info('[Worker] Shutdown signal received, aborting collectors...');
-      shutdownController.abort(new DOMException('Shutdown', 'AbortError'));
-    };
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
 
     // Use AsyncDisposableStack for automatic cleanup of optional collectors
     {

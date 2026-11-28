@@ -9,11 +9,12 @@ describe('prepareDatabase', () => {
     const order: string[] = [];
     let finishMigrations!: () => void;
     const migrating = new Promise<void>((resolve) => { finishMigrations = resolve; });
-    const backfill = async (_db: DatabaseClient, options?: { waitForLock?: boolean }) => {
-      order.push(`backfill waitForLock=${options?.waitForLock}`);
+    const shutdown = new AbortController();
+    const backfill = async (_db: DatabaseClient, options?: { waitForLock?: { signal: AbortSignal } }) => {
+      order.push(`backfill waits on the shutdown signal: ${options?.waitForLock?.signal === shutdown.signal}`);
     };
 
-    const prepared = prepareDatabase(db, {
+    const prepared = prepareDatabase(db, shutdown.signal, {
       migrate: async () => {
         order.push('migrate start');
         await migrating;
@@ -25,7 +26,7 @@ describe('prepareDatabase', () => {
     finishMigrations();
     await (await prepared).backfill;
 
-    expect(order).toEqual(['migrate start', 'migrate end', 'backfill waitForLock=true']);
+    expect(order).toEqual(['migrate start', 'migrate end', 'backfill waits on the shutdown signal: true']);
   });
 
   it('returns once migrated without waiting for a backfill that is still waiting on the lock', async () => {
@@ -33,7 +34,7 @@ describe('prepareDatabase', () => {
     const lock = new Promise<void>((resolve) => { releaseLock = resolve; });
     let backfillDone = false;
 
-    const { backfill } = await prepareDatabase(db, {
+    const { backfill } = await prepareDatabase(db, new AbortController().signal, {
       migrate: async () => {},
       backfill: async () => {
         await lock;
@@ -49,7 +50,7 @@ describe('prepareDatabase', () => {
 
   it('logs a failed backfill instead of rejecting', async () => {
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
-    const { backfill } = await prepareDatabase(db, {
+    const { backfill } = await prepareDatabase(db, new AbortController().signal, {
       migrate: async () => {},
       backfill: async () => { throw new Error('lost connection'); },
     });
