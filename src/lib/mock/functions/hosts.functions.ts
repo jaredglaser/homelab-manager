@@ -51,7 +51,7 @@ const mockHosts: readonly HostListItem[] = [
     id: 2,
     name: 'media-server',
     agentUrl: 'http://192.168.1.20:9090',
-    capabilities: { docker: true, zfs: true },
+    capabilities: { docker: true },
     agentVersion: '0.1.0',
     agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
     agentImageTag: 'latest',

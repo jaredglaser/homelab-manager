@@ -259,10 +259,10 @@ export async function handleRotateHostKeypair(
  */
 export async function handleCreatePendingHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
-  data: { name: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+  data: { name: string; capabilities?: { docker?: boolean } },
 ): Promise<{ host: HostListItem; publicJwk: JWK }> {
   const name = data.name.trim();
-  const capabilities = data.capabilities ?? { docker: false, zfs: false };
+  const capabilities = data.capabilities ?? { docker: false };
   const existing = await deps.repo.findByName(name);
   const host = existing ?? (await deps.repo.create({
     name,

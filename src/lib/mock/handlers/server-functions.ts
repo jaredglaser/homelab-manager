@@ -54,6 +54,13 @@ const registry: Record<string, ServerFnMock> = {
 
   // ZFS
   getHistoricalZFSStats: fn(zfsFns.getHistoricalZFSStats),
+  listZfsNodes: fn(zfsFns.listZfsNodes),
+  createZfsNode: withData(zfsFns.createZfsNode),
+  getZfsNodeSetupScript: withData(zfsFns.getZfsNodeSetupScript),
+  scanZfsNodeHostKey: withData(zfsFns.scanZfsNodeHostKey),
+  confirmZfsNodeHostKey: withData(zfsFns.confirmZfsNodeHostKey),
+  verifyZfsNode: withData(zfsFns.verifyZfsNode),
+  removeZfsNode: withData(zfsFns.removeZfsNode),
 
   // Proxmox
   getHistoricalProxmoxStats: fn(proxmoxFns.getHistoricalProxmoxStats),
@@ -145,7 +152,7 @@ async function decodePayload(request: Request): Promise<ServerFnPayload> {
  * touching the shared mocks. `page.route` cannot do this: the service worker
  * answers the request before it reaches Playwright's network layer.
  */
-function readOverride(name: string): { hit: boolean; value: unknown } {
+export function readOverride(name: string): { hit: boolean; value: unknown } {
   const overrides = (globalThis as { __mockServerFnOverrides?: Record<string, unknown> })
     .__mockServerFnOverrides;
   if (overrides && Object.prototype.hasOwnProperty.call(overrides, name)) {

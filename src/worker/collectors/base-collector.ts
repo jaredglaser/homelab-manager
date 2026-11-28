@@ -22,6 +22,7 @@ export abstract class BaseCollector implements AsyncDisposable {
   private _dockerDebugLogging = false;
   private _dbFlushDebugLogging = false;
   private _repository: StatsRepository | undefined;
+  private wakeController = new AbortController();
 
   constructor(
     protected readonly db: DatabaseClient | undefined,
@@ -92,27 +93,40 @@ export abstract class BaseCollector implements AsyncDisposable {
           `[${this.name}] Collection error (cycle #${cycleCount}):` +
           ` code=${errCode} message=${errMsg}`
         );
-        if (!(await this.backoffSleep())) break;
+        if (!(await this.backoffSleep(this.retryFloorMs(err)))) break;
       }
     }
 
     console.log(`[${this.name}] Stopped gracefully after ${cycleCount} cycles`);
   }
 
-  /** Sleeps for the current backoff window; returns false if aborted during the sleep. */
-  private async backoffSleep(): Promise<boolean> {
-    const backoffMs = backoffDelayMs(this.consecutiveErrors, {
+  /** Sleeps for the current backoff window, or at least `floorMs`. Returns false if aborted during the sleep, true when woken early. */
+  private async backoffSleep(floorMs = 0): Promise<boolean> {
+    const backoffMs = Math.max(floorMs, backoffDelayMs(this.consecutiveErrors, {
       baseMs: BASE_BACKOFF_MS,
       capMs: MAX_BACKOFF_MS,
       maxExponent: MAX_BACKOFF_EXPONENT,
-    });
+    }));
     this.debugLog(`[${this.name}] Retrying in ${backoffMs}ms (attempt ${this.consecutiveErrors})...`);
+    const wake = this.wakeController.signal;
     try {
-      await abortableSleep(backoffMs, this.signal);
+      if (!wake.aborted) await abortableSleep(backoffMs, AbortSignal.any([this.signal, wake]));
       return true;
     } catch {
-      return false;
+      return !this.signal.aborted;
+    } finally {
+      if (wake.aborted) this.wakeController = new AbortController();
     }
+  }
+
+  /** The shortest wait before retrying after `err`. Collectors override it for failures a quick retry cannot fix. */
+  protected retryFloorMs(_err: unknown): number {
+    return 0;
+  }
+
+  /** Ends a backoff wait now, for a retry the user asked for. A wake that arrives mid-attempt makes the next backoff return at once. */
+  wake(): void {
+    this.wakeController.abort();
   }
 
   stop(): void {

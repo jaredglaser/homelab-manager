@@ -10,6 +10,8 @@ import { serverFnErrorMessage } from '@/lib/errors/server-fn-error-copy'
 import { useMuxChannel } from '@/lib/mux/use-mux-channel'
 import { agentInventoryChannel } from '@/lib/channels/agent-inventory'
 import { useToast } from '@/hooks/toastAtom'
+import { AGENT_ZFS_MOVED_MESSAGE, agentNeedsZfsNode, type ZfsNodeSummary } from '@/lib/zfs/node-state'
+import { useZfsNodes } from '@/hooks/useZfsNodes'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -45,6 +47,7 @@ export type AgentsOverviewProps = {
   feedbackByHost: Record<number, AgentRowFeedback>
   onUpdate: (hostId: number) => void
   onRetry: () => void
+  zfsNodes?: readonly Pick<ZfsNodeSummary, 'name' | 'address'>[]
 }
 
 const STATUS_BADGE: Record<AgentInventoryEntry['status'], { label: string; variant: 'success' | 'destructive' | 'warning' | 'outline' }> = {
@@ -114,11 +117,13 @@ function AgentRow({
   agent,
   busy,
   feedback,
+  needsZfsNode,
   onUpdate,
 }: {
   agent: AgentInventoryEntry
   busy: 'update' | undefined
   feedback: AgentRowFeedback | undefined
+  needsZfsNode: boolean
   onUpdate: () => void
 }) {
   return (
@@ -134,6 +139,9 @@ function AgentRow({
           </div>
           <span className="text-xs font-mono text-muted-foreground block truncate">{agent.agentUrl}</span>
           {agent.status !== 'online' && agent.failure && <AgentFailure failure={agent.failure} />}
+          {needsZfsNode && (
+            <p className="text-xs text-muted-foreground break-words" data-testid={`agent-zfs-moved-${agent.name}`}>{AGENT_ZFS_MOVED_MESSAGE}</p>
+          )}
         </div>
         <div className="flex items-center gap-4 shrink-0 ml-auto">
           <Button
@@ -176,6 +184,7 @@ export function AgentsOverviewView({
   feedbackByHost,
   onUpdate,
   onRetry,
+  zfsNodes = [],
 }: AgentsOverviewProps) {
   if (isLoading) {
     return (
@@ -232,6 +241,7 @@ export function AgentsOverviewView({
           agent={agent}
           busy={busyByHost[agent.id]}
           feedback={feedbackByHost[agent.id]}
+          needsZfsNode={agentNeedsZfsNode(agent, zfsNodes)}
           onUpdate={() => onUpdate(agent.id)}
         />
       ))}
@@ -308,6 +318,7 @@ export default function AgentsOverview() {
     })
   }, [])
 
+  const { data: zfsNodes = [] } = useZfsNodes()
   const { data: agents = [], isLoading, isError } = useQuery({
     queryKey: AGENTS_INVENTORY_QUERY_KEY,
     queryFn: async () => {
@@ -400,6 +411,7 @@ export default function AgentsOverview() {
         feedbackByHost={feedbackByHost}
         onUpdate={(hostId) => updateMutation.mutate(hostId)}
         onRetry={() => void queryClient.invalidateQueries({ queryKey: AGENTS_INVENTORY_QUERY_KEY })}
+        zfsNodes={zfsNodes}
       />
     </div>
   )

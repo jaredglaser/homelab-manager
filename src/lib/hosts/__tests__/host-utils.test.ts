@@ -193,7 +193,7 @@ describe('generated enrollment files carry the build tag', () => {
       hostName: 'test-host',
       agentTrustedPubkey: 'pubkey',
       agentImage: getAgentImage(),
-      capabilities: { docker: true, zfs: false },
+      capabilities: { docker: true },
     });
     expect(env).toContain('AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:dev\n');
   });

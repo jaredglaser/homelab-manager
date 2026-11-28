@@ -16,39 +16,46 @@ describe('generateZFSSnapshot', () => {
     expect(rows1).toEqual(rows2);
   });
 
-  it('produces valid ZFSStatsRow shapes', () => {
+  it('produces valid ZFSStatsRow shapes, with no I/O for device groups and spares', () => {
     const rows = generateZFSSnapshot(time);
     for (const row of rows) {
       expect(row.time).toBe(time.getTime());
       expect(typeof row.host).toBe('string');
       expect(typeof row.pool).toBe('string');
       expect(typeof row.entity).toBe('string');
-      expect(['pool', 'vdev', 'disk']).toContain(row.entity_type);
+      expect(['pool', 'group', 'vdev', 'disk']).toContain(row.entity_type);
       expect(typeof row.indent).toBe('number');
-      expect(typeof row.read_ops_per_sec).toBe('number');
-      expect(typeof row.write_ops_per_sec).toBe('number');
-      expect(typeof row.read_bytes_per_sec).toBe('number');
-      expect(typeof row.write_bytes_per_sec).toBe('number');
-      expect(typeof row.utilization_percent).toBe('number');
+      const silent = row.entity_type === 'group' || row.entity === 'rust/@spares/sdk';
+      for (const value of [row.read_ops_per_sec, row.write_ops_per_sec, row.read_bytes_per_sec, row.write_bytes_per_sec]) {
+        if (silent) expect(value).toBeNull();
+        else expect(typeof value).toBe('number');
+      }
     }
   });
 
   it('includes correct entity types and indentation', () => {
     const rows = generateZFSSnapshot(time);
-    const pools = rows.filter((r) => r.entity_type === 'pool');
-    const vdevs = rows.filter((r) => r.entity_type === 'vdev');
-    const disks = rows.filter((r) => r.entity_type === 'disk');
+    for (const type of ['pool', 'group', 'vdev', 'disk'] as const) {
+      expect(rows.filter((r) => r.entity_type === type)).toHaveLength(ZFS_ENTITIES.filter((e) => e.entityType === type).length);
+    }
+    for (const pool of rows.filter((r) => r.entity_type === 'pool')) expect(pool.indent).toBe(0);
+    for (const group of rows.filter((r) => r.entity_type === 'group')) expect(group.indent).toBe(2);
+  });
 
-    const expectedPools = ZFS_ENTITIES.filter((e) => e.entityType === 'pool').length;
-    const expectedVdevs = ZFS_ENTITIES.filter((e) => e.entityType === 'vdev').length;
-    const expectedDisks = ZFS_ENTITIES.filter((e) => e.entityType === 'disk').length;
+  it('includes a pool with every kind of device group', () => {
+    const groups = generateZFSSnapshot(time).filter((r) => r.entity_type === 'group').map((r) => r.entity);
+    expect(groups).toEqual(['rust/@special', 'rust/@dedup', 'rust/@logs', 'rust/@cache', 'rust/@spares']);
+  });
 
-    expect(pools.length).toBe(expectedPools);
-    expect(vdevs.length).toBe(expectedVdevs);
-    expect(disks.length).toBe(expectedDisks);
-
-    for (const pool of pools) expect(pool.indent).toBe(0);
-    for (const vdev of vdevs) expect(vdev.indent).toBe(2);
+  it('reports no capacity for disks inside a vdev, as zpool does', () => {
+    const rows = generateZFSSnapshot(time);
+    const vdevs = new Set(rows.filter((r) => r.entity_type === 'vdev').map((r) => r.entity));
+    const nested = rows.filter((r) => r.entity_type === 'disk' && vdevs.has(r.entity.slice(0, r.entity.lastIndexOf('/'))));
+    expect(nested.length).toBeGreaterThan(0);
+    for (const disk of nested) {
+      expect(disk.capacity_alloc).toBeNull();
+      expect(disk.capacity_free).toBeNull();
+    }
   });
 });
 

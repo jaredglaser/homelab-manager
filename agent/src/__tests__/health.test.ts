@@ -1,30 +1,9 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { handleHealth, handleInfo } from '../routes/health';
-import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 
 beforeAll(() => {
   console.error = mock(() => {});
 });
-
-const zfsAvailable: ZfsCapabilities = {
-  available: true,
-  version: '2.2.2',
-  tier: 1,
-  permissions: [],
-};
-
-const zfsWithSnapshots: ZfsCapabilities = {
-  available: true,
-  version: '2.2.2',
-  tier: 2,
-  permissions: ['destroy', 'hold', 'rollback', 'send', 'snapshot'],
-};
-
-const zfsUnavailable: ZfsCapabilities = {
-  available: false,
-  tier: 0,
-  permissions: [],
-};
 
 function mockDockerClient() {
   return {
@@ -39,15 +18,7 @@ function mockDockerClient() {
 
 describe('handleHealth', () => {
   test('returns healthy status when Docker is available', async () => {
-    const response = await handleHealth(mockDockerClient() as any, zfsUnavailable);
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body).toEqual({ status: 'healthy' });
-  });
-
-  test('returns healthy status when only ZFS is available', async () => {
-    const response = await handleHealth(null, zfsAvailable);
+    const response = await handleHealth(mockDockerClient() as any);
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -55,26 +26,26 @@ describe('handleHealth', () => {
   });
 
   test('does not expose version or capability detail (endpoint is unauthenticated)', async () => {
-    const response = await handleHealth(mockDockerClient() as any, zfsWithSnapshots);
+    const response = await handleHealth(mockDockerClient() as any);
     const body = await response.json();
 
     expect(Object.keys(body)).toEqual(['status']);
   });
 
-  test('returns unhealthy when neither capability is available', async () => {
-    const response = await handleHealth(null, zfsUnavailable);
+  test('returns unhealthy when Docker is not configured', async () => {
+    const response = await handleHealth(null);
     const body = await response.json();
 
     expect(response.status).toBe(503);
     expect(body).toEqual({ status: 'unhealthy' });
   });
 
-  test('returns unhealthy when Docker unreachable and no ZFS', async () => {
+  test('returns unhealthy when Docker is unreachable', async () => {
     const mockDocker = {
       version: mock(() => Promise.reject(new Error('Connection refused'))),
     };
 
-    const response = await handleHealth(mockDocker as any, zfsUnavailable);
+    const response = await handleHealth(mockDocker as any);
     const body = await response.json();
 
     expect(response.status).toBe(503);
@@ -84,7 +55,7 @@ describe('handleHealth', () => {
 
 describe('handleInfo', () => {
   test('reports the resolved agent image', async () => {
-    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, async () => ({
+    const response = await handleInfo(mockDockerClient() as any, async () => ({
       image: 'ghcr.io/jaredglaser/homelab-manager-agent:dev',
       tag: 'dev',
     }));
@@ -95,7 +66,7 @@ describe('handleInfo', () => {
   });
 
   test('reports null image fields when the agent could not determine its image', async () => {
-    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, async () => ({ image: null, tag: null }));
+    const response = await handleInfo(mockDockerClient() as any, async () => ({ image: null, tag: null }));
     const body = await response.json();
 
     expect(body.agentImage).toBeNull();
@@ -103,7 +74,7 @@ describe('handleInfo', () => {
   });
 
   test('reports null image fields when no image was resolved at all', async () => {
-    const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
+    const response = await handleInfo(mockDockerClient() as any);
     const body = await response.json();
 
     expect(body.agentImage).toBeNull();
@@ -111,14 +82,14 @@ describe('handleInfo', () => {
   });
 
   test('reports the running agent image digest', async () => {
-    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, undefined, async () => 'sha256:' + 'c'.repeat(64));
+    const response = await handleInfo(mockDockerClient() as any, undefined, async () => 'sha256:' + 'c'.repeat(64));
     const body = await response.json();
 
     expect(body.agentImageDigest).toBe('sha256:' + 'c'.repeat(64));
   });
 
   test('reports a null agent image digest when the agent cannot inspect itself', async () => {
-    const response = await handleInfo(mockDockerClient() as any, zfsAvailable, undefined);
+    const response = await handleInfo(mockDockerClient() as any, undefined);
     const body = await response.json();
 
     expect(body.agentImageDigest).toBeNull();
@@ -131,8 +102,8 @@ describe('handleInfo', () => {
       return call === 1 ? { image: null, tag: null } : { image: 'ghcr.io/x/agent:dev', tag: 'dev' };
     };
 
-    const first = await (await handleInfo(mockDockerClient() as any, zfsAvailable, resolveImage)).json();
-    const second = await (await handleInfo(mockDockerClient() as any, zfsAvailable, resolveImage)).json();
+    const first = await (await handleInfo(mockDockerClient() as any, resolveImage)).json();
+    const second = await (await handleInfo(mockDockerClient() as any, resolveImage)).json();
 
     expect(first.agentImageTag).toBeNull();
     expect(second.agentImageTag).toBe('dev');
@@ -142,9 +113,9 @@ describe('handleInfo', () => {
     const original = process.env.AGENT_SOURCE_HASH;
     try {
       process.env.AGENT_SOURCE_HASH = 'e'.repeat(64);
-      expect((await (await handleInfo(mockDockerClient() as any, zfsAvailable)).json()).agentSourceHash).toBe('e'.repeat(64));
+      expect((await (await handleInfo(mockDockerClient() as any)).json()).agentSourceHash).toBe('e'.repeat(64));
       process.env.AGENT_SOURCE_HASH = '';
-      expect((await (await handleInfo(mockDockerClient() as any, zfsAvailable)).json()).agentSourceHash).toBeNull();
+      expect((await (await handleInfo(mockDockerClient() as any)).json()).agentSourceHash).toBeNull();
     } finally {
       if (original === undefined) delete process.env.AGENT_SOURCE_HASH;
       else process.env.AGENT_SOURCE_HASH = original;
@@ -155,7 +126,7 @@ describe('handleInfo', () => {
     const original = process.env.AGENT_VERSION;
     process.env.AGENT_VERSION = '1.2.3';
     try {
-      const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
+      const response = await handleInfo(mockDockerClient() as any);
       const body = await response.json();
 
       expect(body.agentVersion).toBe('1.2.3');
@@ -169,7 +140,7 @@ describe('handleInfo', () => {
     const original = process.env.AGENT_VERSION;
     delete process.env.AGENT_VERSION;
     try {
-      const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
+      const response = await handleInfo(mockDockerClient() as any);
       const body = await response.json();
       const expected = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD']).stdout.toString().trim();
 
@@ -185,7 +156,7 @@ describe('handleInfo', () => {
     const docker = mockDockerClient() as unknown as Parameters<typeof handleInfo>[0];
     try {
       // Warm the revision first: the initial resolution may legitimately spawn.
-      await (await handleInfo(docker, zfsAvailable)).json();
+      await (await handleInfo(docker)).json();
 
       const spawned: string[][] = [];
       const realSpawnSync = Bun.spawnSync;
@@ -194,8 +165,8 @@ describe('handleInfo', () => {
         return realSpawnSync(command);
       }) as typeof Bun.spawnSync;
       try {
-        await (await handleInfo(docker, zfsAvailable)).json();
-        await (await handleInfo(docker, zfsAvailable)).json();
+        await (await handleInfo(docker)).json();
+        await (await handleInfo(docker)).json();
       } finally {
         Bun.spawnSync = realSpawnSync;
       }
@@ -206,83 +177,38 @@ describe('handleInfo', () => {
     }
   });
 
-  test('reports Docker and ZFS capabilities when both available', async () => {
-    const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
+  test('reports the Docker capability and no ZFS capability', async () => {
+    const response = await handleInfo(mockDockerClient() as any);
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.status).toBe('healthy');
     const expected = Bun.spawnSync(['git', 'rev-parse', '--short', 'HEAD']).stdout.toString().trim();
     expect(body.agentVersion).toBe(expected);
-    expect(body.capabilities.docker).toEqual({
-      available: true,
-      version: '24.0.7',
-      apiVersion: '1.43',
-    });
-    expect(body.capabilities.zfs).toEqual({
-      available: true,
-      version: '2.2.2',
-      tier: 1,
-      permissions: [],
+    expect(body.capabilities).toEqual({
+      docker: { available: true, version: '24.0.7', apiVersion: '1.43' },
     });
   });
 
-  test('reports only Docker when ZFS unavailable', async () => {
-    const response = await handleInfo(mockDockerClient() as any, zfsUnavailable);
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.status).toBe('healthy');
-    expect(body.capabilities.docker.available).toBe(true);
-    expect(body.capabilities.zfs).toEqual({ available: false });
-  });
-
-  test('reports only ZFS when Docker is null', async () => {
-    const response = await handleInfo(null, zfsWithSnapshots);
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.status).toBe('healthy');
-    expect(body.capabilities.docker).toEqual({ available: false });
-    expect(body.capabilities.zfs).toEqual({
-      available: true,
-      version: '2.2.2',
-      tier: 2,
-      permissions: ['destroy', 'hold', 'rollback', 'send', 'snapshot'],
-    });
-  });
-
-  test('returns unhealthy when neither available', async () => {
-    const response = await handleInfo(null, zfsUnavailable);
+  test('returns unhealthy when Docker is not configured', async () => {
+    const response = await handleInfo(null);
     const body = await response.json();
 
     expect(response.status).toBe(503);
     expect(body.status).toBe('unhealthy');
-    expect(body.capabilities.docker).toEqual({ available: false });
-    expect(body.capabilities.zfs).toEqual({ available: false });
+    expect(body.capabilities).toEqual({ docker: { available: false } });
   });
 
-  test('returns healthy with Docker when no ZFS capabilities provided', async () => {
-    const response = await handleInfo(mockDockerClient() as any);
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.status).toBe('healthy');
-    expect(body.capabilities.docker.available).toBe(true);
-    expect(body.capabilities.zfs).toEqual({ available: false });
-  });
-
-  test('returns unhealthy when Docker unreachable and no ZFS', async () => {
+  test('returns unhealthy when Docker is unreachable', async () => {
     const mockDocker = {
       version: mock(() => Promise.reject(new Error('Connection refused'))),
     };
 
-    const response = await handleInfo(mockDocker as any, zfsUnavailable);
+    const response = await handleInfo(mockDocker as any);
     const body = await response.json();
 
     expect(response.status).toBe(503);
     expect(body.status).toBe('unhealthy');
-    expect(body.capabilities.docker).toEqual({ available: false });
-    expect(body.capabilities.zfs).toEqual({ available: false });
+    expect(body.capabilities).toEqual({ docker: { available: false } });
   });
 });

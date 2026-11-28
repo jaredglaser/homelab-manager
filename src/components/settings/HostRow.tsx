@@ -106,9 +106,6 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
             {host.capabilities?.docker && (
               <Badge variant="outline" className="h-4 text-[10px]">Docker</Badge>
             )}
-            {host.capabilities?.zfs && (
-              <Badge variant="outline" className="h-4 text-[10px]">ZFS</Badge>
-            )}
             {host.agentImageTag && <AgentTagBadge host={host} expectedImageTag={expectedImageTag} />}
           </div>
         </div>

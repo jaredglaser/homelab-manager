@@ -38,6 +38,7 @@ export class HostsListener implements AsyncDisposable {
     private readonly dbConfig: DatabaseConfig,
     private readonly onChange: HostChangeHandler,
     private readonly signal: AbortSignal,
+    private readonly channel: string = HOSTS_NOTIFY_CHANNEL,
   ) {
     this.client = this.createClient();
   }
@@ -68,7 +69,7 @@ export class HostsListener implements AsyncDisposable {
   private async connectAndListen(): Promise<void> {
     await this.client.connect();
     this.connected = true;
-    await this.client.query(`LISTEN ${HOSTS_NOTIFY_CHANNEL}`);
+    await this.client.query(`LISTEN ${this.channel}`);
 
     this.client.on('notification', (msg) => {
       void this.dispatch(msg.payload ?? null);

@@ -16,7 +16,6 @@ const originalConsoleLog = console.log;
 function makeWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
   const base: WorkerConfig = {
     docker: { enabled: true },
-    zfs: { enabled: true },
     proxmox: { enabled: false },
     collection: { interval: 1000 },
     // Most tests exercise collection itself; plaintext http agents are the
@@ -336,7 +335,7 @@ describe('HostCollectorManager', () => {
     // Worker docker disabled, host has only docker capability
     const hosts = [makeHost('a', { capabilities: { docker: true, zfs: false } })];
     const manager = new HostCollectorManager(
-      makeWorkerConfig({ docker: { enabled: false }, zfs: { enabled: true } } as Partial<WorkerConfig>),
+      makeWorkerConfig({ docker: { enabled: false } } as Partial<WorkerConfig>),
       controller.signal,
       async () => hosts,
       okSigner,

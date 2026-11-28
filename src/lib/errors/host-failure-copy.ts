@@ -71,7 +71,7 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
     includeDetail: false,
   },
   'agent-unhealthy': {
-    headline: 'The agent answered but reports that it is unhealthy, because it can reach neither Docker nor ZFS.',
+    headline: 'The agent answered but reports that it is unhealthy, because it cannot reach Docker.',
     fix: 'Check that the Docker socket or daemon on the agent host is running and mounted into the agent container, then check again.',
     includeDetail: false,
   },

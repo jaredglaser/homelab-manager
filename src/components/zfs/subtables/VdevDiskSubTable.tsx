@@ -3,12 +3,8 @@ import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import type { DataTableFeatures } from '@/components/ui/datatable/tableFeatures';
 import { DataTable } from '@/components/ui/datatable/DataTable';
 import type { ZFSTableRow } from '@/components/zfs/ZFSPoolsTable';
-import DiskSubTable from '@/components/zfs/subtables/DiskSubTable';
 
-/**
- * Nested DataTable for vdev and disk rows within an expanded pool.
- * Vdevs with disk children render a DiskSubTable via renderDetailPanel.
- */
+/** Nested DataTable for the device rows of an expanded pool, group or vdev, one level per table. */
 const VdevDiskSubTable = memo(function VdevDiskSubTable({
   vdevsAndDisks,
   columns,
@@ -23,7 +19,7 @@ const VdevDiskSubTable = memo(function VdevDiskSubTable({
   const vdevExpanded = useMemo<ExpandedState>(() => {
     const state: Record<string, boolean> = {};
     for (const row of vdevsAndDisks) {
-      if (row.type === 'vdev' && row.canExpand) {
+      if (row.canExpand) {
         state[row.id] = isVdevExpanded(row.id);
       }
     }
@@ -50,15 +46,17 @@ const VdevDiskSubTable = memo(function VdevDiskSubTable({
 
   const renderVdevDetail = useCallback(
     (row: ZFSTableRow): ReactNode => {
-      if (row.type !== 'vdev' || !row.canExpand || !row.children?.length) return null;
+      if (!row.canExpand || !row.children?.length) return null;
       return (
-        <DiskSubTable
-          disks={row.children}
+        <VdevDiskSubTable
+          vdevsAndDisks={row.children}
           columns={columns}
+          isVdevExpanded={isVdevExpanded}
+          toggleVdevExpanded={toggleVdevExpanded}
         />
       );
     },
-    [columns],
+    [columns, isVdevExpanded, toggleVdevExpanded],
   );
 
   return (

@@ -9,7 +9,6 @@ import { EntityMetadataRepository } from '@/lib/database/repositories/entity-met
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
 import { ContainerInventoryCollector } from './collectors/container-inventory-collector';
-import { ZFSCollector } from './collectors/zfs-collector';
 import { resolveAgentUrl } from './collector-factory';
 
 export interface HostCollectorBundle {
@@ -59,10 +58,6 @@ function shouldStartDocker(workerConfig: WorkerConfig, caps: HostCapabilities | 
   return Boolean(workerConfig.docker.enabled && caps?.docker);
 }
 
-function shouldStartZfs(workerConfig: WorkerConfig, caps: HostCapabilities | undefined): boolean {
-  return Boolean(workerConfig.zfs.enabled && caps?.zfs);
-}
-
 function isPlainHttpUrl(url: string): boolean {
   try {
     return new URL(url).protocol === 'http:';
@@ -86,7 +81,6 @@ export function defaultHostCollectorFactory(
     const runners: Promise<void>[] = [];
     const resolved = { ...host, agentUrl: resolveAgentUrl(host.agentUrl) };
     const dockerWanted = shouldStartDocker(workerConfig, host.capabilities);
-    const zfsWanted = shouldStartZfs(workerConfig, host.capabilities);
 
     if (dockerWanted) {
       const stats = stack.use(new AgentStatsCollector(db, workerConfig, resolved, signer, controller, undefined, caCertPem));
@@ -106,12 +100,6 @@ export function defaultHostCollectorFactory(
       );
       collectors.push(inventory);
       runners.push(inventory.run());
-    }
-
-    if (zfsWanted) {
-      const zfs = stack.use(new ZFSCollector(db, workerConfig, resolved, signer, controller, undefined, caCertPem));
-      collectors.push(zfs);
-      runners.push(zfs.run());
     }
 
     return { collectors, runners };
@@ -271,9 +259,7 @@ export class HostCollectorManager implements AsyncDisposable {
       return;
     }
 
-    const dockerWanted = shouldStartDocker(this.workerConfig, host.capabilities);
-    const zfsWanted = shouldStartZfs(this.workerConfig, host.capabilities);
-    if (!dockerWanted && !zfsWanted) {
+    if (!shouldStartDocker(this.workerConfig, host.capabilities)) {
       console.info(`[HostCollectorManager] No applicable capabilities for ${host.name}, skipping`);
       return;
     }

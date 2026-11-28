@@ -286,12 +286,12 @@ describe('handleCreatePendingHost', () => {
 
   it('refreshes capabilities on a pending host when they changed', async () => {
     const repo = mockRepo({
-      findByName: mock((_n: string) => Promise.resolve(mockRow({ capabilities: { docker: true } }))),
-      update: mock(() => Promise.resolve(mockRow({ capabilities: { docker: true, zfs: true } }))),
+      findByName: mock((_n: string) => Promise.resolve(mockRow({ capabilities: { docker: false } }))),
+      update: mock(() => Promise.resolve(mockRow({ capabilities: { docker: true } }))),
     });
     const deps = createDeps(repo);
-    await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true, zfs: true } });
-    expect(repo.update).toHaveBeenCalledWith(1, { capabilities: { docker: true, zfs: true } });
+    await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true } });
+    expect(repo.update).toHaveBeenCalledWith(1, { capabilities: { docker: true } });
   });
 
   it('does not update a pending host whose capabilities already match', async () => {
@@ -308,7 +308,7 @@ describe('handleCreatePendingHost', () => {
       findByName: mock((_n: string) => Promise.resolve(mockRow({ status: 'healthy' }))),
     });
     const deps = createDeps(repo);
-    const result = await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: true, zfs: true } });
+    const result = await handleCreatePendingHost(deps, { name: 'dev', capabilities: { docker: false } });
     expect(repo.update).not.toHaveBeenCalled();
     expect(result.host.status).toBe('healthy');
   });
@@ -340,7 +340,7 @@ describe('handleCreatePendingHost', () => {
   it('trims the host name', async () => {
     const deps = createDeps();
     await handleCreatePendingHost(deps, { name: '  padded  ' });
-    expect(deps.repo.create).toHaveBeenCalledWith({ name: 'padded', agentUrl: '', capabilities: { docker: false, zfs: false } });
+    expect(deps.repo.create).toHaveBeenCalledWith({ name: 'padded', agentUrl: '', capabilities: { docker: false } });
   });
 
   it('keeps a pre-existing record when the keypair read fails', async () => {

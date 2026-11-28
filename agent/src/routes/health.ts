@@ -1,6 +1,5 @@
 import type Dockerode from 'dockerode';
 import type { AgentImageInfo } from '../lib/agent-image';
-import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 // CI stamps AGENT_VERSION from the release tag at image build time. Local dev
 // falls back to the short commit hash, matching what non-tag CI images report.
 let gitRevision: string | undefined;
@@ -48,13 +47,11 @@ async function getDockerCapability(
 
 async function checkHealthy(
   docker: Dockerode | null,
-  zfsCapabilities?: ZfsCapabilities
-): Promise<{ dockerCapability: DockerCapability; zfsAvailable: boolean; isHealthy: boolean }> {
+): Promise<{ dockerCapability: DockerCapability; isHealthy: boolean }> {
   const dockerCapability = docker
     ? await getDockerCapability(docker)
     : { available: false };
-  const zfsAvailable = zfsCapabilities?.available ?? false;
-  return { dockerCapability, zfsAvailable, isHealthy: dockerCapability.available || zfsAvailable };
+  return { dockerCapability, isHealthy: dockerCapability.available };
 }
 
 /**
@@ -64,14 +61,12 @@ async function checkHealthy(
  * version and capability data.
  *
  * @param docker - Dockerode client, or null when Docker is not configured
- * @param zfsCapabilities - Pre-detected ZFS capabilities (detected once at startup)
  * @returns 200 with status healthy, or 503 with status unhealthy
  */
 export async function handleHealth(
   docker: Dockerode | null,
-  zfsCapabilities?: ZfsCapabilities
 ): Promise<Response> {
-  const { isHealthy } = await checkHealthy(docker, zfsCapabilities);
+  const { isHealthy } = await checkHealthy(docker);
   return Response.json(
     { status: isHealthy ? 'healthy' : 'unhealthy' },
     { status: isHealthy ? 200 : 503 }
@@ -80,20 +75,18 @@ export async function handleHealth(
 
 /**
  * Detailed agent info for the authenticated /info endpoint: agent version plus
- * Docker and ZFS capability detail.
+ * Docker capability detail.
  *
  * @param docker - Dockerode client, or null when Docker is not configured
- * @param zfsCapabilities - Pre-detected ZFS capabilities (detected once at startup)
  * @param resolveImage - Lazy resolver for this agent's image; null fields mean undetermined
  * @returns An HTTP Response whose JSON body includes status, agentVersion, agent image, and capabilities
  */
 export async function handleInfo(
   docker: Dockerode | null,
-  zfsCapabilities?: ZfsCapabilities,
   resolveImage?: () => Promise<AgentImageInfo>,
   resolveDigest?: () => Promise<string | null>
 ): Promise<Response> {
-  const { dockerCapability, zfsAvailable, isHealthy } = await checkHealthy(docker, zfsCapabilities);
+  const { dockerCapability, isHealthy } = await checkHealthy(docker);
   const agentImage = await resolveImage?.();
   const agentImageDigest = await resolveDigest?.();
 
@@ -107,14 +100,6 @@ export async function handleInfo(
       agentSourceHash: process.env.AGENT_SOURCE_HASH || null,
       capabilities: {
         docker: dockerCapability,
-        zfs: zfsAvailable
-          ? {
-              available: true,
-              version: zfsCapabilities!.version,
-              tier: zfsCapabilities!.tier,
-              permissions: zfsCapabilities!.permissions,
-            }
-          : { available: false },
       },
     },
     { status: isHealthy ? 200 : 503 }

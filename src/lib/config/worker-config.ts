@@ -4,9 +4,6 @@ const WorkerConfigSchema = z.object({
   docker: z.object({
     enabled: z.boolean(),
   }),
-  zfs: z.object({
-    enabled: z.boolean(),
-  }),
   proxmox: z.object({
     enabled: z.boolean(),
   }),
@@ -34,9 +31,6 @@ export function loadWorkerConfig(): WorkerConfig {
   const config = {
     docker: {
       enabled: process.env.WORKER_DOCKER_ENABLED === 'true',
-    },
-    zfs: {
-      enabled: process.env.WORKER_ZFS_ENABLED === 'true',
     },
     proxmox: {
       enabled: process.env.WORKER_PROXMOX_ENABLED === 'true',

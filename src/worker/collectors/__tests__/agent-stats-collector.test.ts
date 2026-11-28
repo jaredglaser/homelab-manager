@@ -47,7 +47,6 @@ function watchFirstPush(collector: AgentStatsCollector): Promise<void> {
 
 const defaultConfig = {
   docker: { enabled: true },
-  zfs: { enabled: false },
   proxmox: { enabled: false },
   collection: { interval: 1000 },
 } as any;

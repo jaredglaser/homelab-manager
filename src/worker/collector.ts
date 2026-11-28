@@ -11,6 +11,7 @@ import { ProxmoxCollector } from './collectors/proxmox-collector';
 import { createCollectors } from './collector-factory';
 import { HostCollectorManager, defaultHostCollectorFactory } from './host-collector-manager';
 import { HostsListener } from './hosts-listener';
+import { startZfsNodeCollection } from './zfs-node-wiring';
 import { AgentInventorySweeper } from './agent-inventory-sweeper';
 import { AGENT_INVENTORY_NOTIFY_CHANNEL } from '@/lib/hosts/agent-inventory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
@@ -50,7 +51,6 @@ async function main() {
     console.info('[Worker] Configuration loaded:', {
       database: `${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
       docker: workerConfig.docker.enabled,
-      zfs: workerConfig.zfs.enabled,
       proxmox: workerConfig.proxmox.enabled,
       collectionInterval: `${workerConfig.collection.interval}ms`,
     });
@@ -155,6 +155,8 @@ async function main() {
       await hostsListener.start();
       await hostManager.reconcile();
 
+      const zfsNodes = await startZfsNodeCollection(db, dbConfig, keyring, shutdownController.signal, stack);
+
       // Worker stays alive even with zero collectors initially: a host added
       // through the wizard later will spin up its collectors via the listener.
       const initialRunners = [...staticRunners, ...hostManager.runners()];
@@ -178,7 +180,7 @@ async function main() {
             SETTINGS_KEYS.proxmox.updateInterval,
           ],
           (key, value) => handleSettingChange(
-            () => [...staticCollectors, ...hostManager.collectors()],
+            () => [...staticCollectors, ...hostManager.collectors(), ...zfsNodes.collectors()],
             key,
             value,
           ),
@@ -230,7 +232,7 @@ async function main() {
         }
         shutdownController.signal.addEventListener('abort', () => resolve(), { once: true });
       });
-      await Promise.allSettled([...staticRunners, ...hostManager.runners(), sweeperRunner]);
+      await Promise.allSettled([...staticRunners, ...hostManager.runners(), ...zfsNodes.runners(), sweeperRunner]);
     }
     // AsyncDisposableStack disposes here - cleans up
 

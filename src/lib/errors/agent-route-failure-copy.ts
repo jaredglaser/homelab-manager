@@ -153,16 +153,6 @@ const AGENT_ROUTE_FAILURE_COPY: Record<AgentRouteFailureCode, HostFailureCopy> =
     fix: 'Fix the cause that Docker reports on the agent host, then run the operation again.',
     includeDetail: true,
   },
-  zfs_unavailable: {
-    headline: 'ZFS is not available on this agent host.',
-    fix: 'Make sure the ZFS tools are installed where the agent runs and restart the agent. If this host has no ZFS pools, stop collecting ZFS data from it.',
-    includeDetail: false,
-  },
-  zfs_pool_list_failed: {
-    headline: 'The agent could not list the ZFS pools on its host.',
-    fix: 'Run zpool list on the agent host to see why it fails, then run the operation again.',
-    includeDetail: false,
-  },
 };
 
 export function agentRouteFailureCopy(code: AgentRouteFailureCode): HostFailureCopy {

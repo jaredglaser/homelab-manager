@@ -7,8 +7,6 @@ import { handleLogStream } from './routes/logs';
 import { handleStackDeploy, handleStackUpdate, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus, handleStackInventory, handleGetStackCompose } from './routes/stacks';
 import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
-import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
-import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { createAgentImageResolver, resolveRunningAgentDigest } from './lib/agent-image';
 import { handleExecSocket, handleExecMessage } from './routes/exec';
 import { handleAgentUpdate } from './routes/agent-update';
@@ -141,12 +139,10 @@ if (DOCKER_HOST) {
   });
 }
 
-const zfsCapabilities = await detectZfsCapabilities();
-
 const resolveAgentImage = createAgentImageResolver(docker, AGENT_CONTAINER_NAME, process.env.AGENT_IMAGE);
 
-if (!docker && !zfsCapabilities.available) {
-  console.error('No capabilities available. Set DOCKER_HOST for Docker support, or ensure zpool is installed for ZFS support.');
+if (!docker) {
+  console.error('Docker is not configured. Set DOCKER_HOST to the Docker socket proxy the agent reads. ZFS is no longer read through the agent: add the machine as a ZFS node on the Hosts page.');
   process.exit(1);
 }
 
@@ -154,8 +150,8 @@ if (!docker && !zfsCapabilities.available) {
  * Match a request to its route handler. Returns a Response if matched, or null for 404.
  */
 function matchRoute(request: Request, url: URL): Promise<Response> | Response | null {
-  if (url.pathname === '/health' && request.method === 'GET') return handleHealth(docker, zfsCapabilities);
-  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, zfsCapabilities, resolveAgentImage, () => resolveRunningAgentDigest(docker, AGENT_CONTAINER_NAME));
+  if (url.pathname === '/health' && request.method === 'GET') return handleHealth(docker);
+  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, resolveAgentImage, () => resolveRunningAgentDigest(docker, AGENT_CONTAINER_NAME));
   if (url.pathname === '/auth/verify' && request.method === 'GET') return Response.json({ status: 'ok' });
 
   if (docker) {
@@ -183,9 +179,6 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
     if (url.pathname === '/stacks/inventory' && request.method === 'GET') return handleStackInventory(STACKS_DIR);
     if (url.pathname === '/stacks/compose' && request.method === 'GET') return handleGetStackCompose(request, STACKS_DIR);
   }
-
-  if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);
-  if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
 
   if (url.pathname === '/agent/update' && request.method === 'POST') {
     return handleAgentUpdate(docker, AGENT_CONTAINER_NAME, PORT, request);
@@ -246,8 +239,6 @@ Bun.serve<ExecWebSocketData>({
 
 if (docker) console.info(`Docker capability: enabled (${DOCKER_HOST})`);
 else console.info('Docker capability: disabled (DOCKER_HOST not set)');
-if (zfsCapabilities.available) console.info(`ZFS capability: tier ${zfsCapabilities.tier} (v${zfsCapabilities.version ?? 'unknown'})`);
-else console.info('ZFS capability: disabled (zpool not found)');
 console.info(`Using stacks directory: ${STACKS_DIR}`);
 let stacksStat: ReturnType<typeof statSync> | null = null;
 try {

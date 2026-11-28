@@ -87,6 +87,10 @@ void mock.module('@/hooks/toastAtom', () => ({
   useToast: () => ({ showToast: mockShowToast }),
 }))
 
+mock.module('@/data/zfs/functions', () => ({
+  listZfsNodes: () => Promise.resolve([]),
+}))
+
 mock.module('@/data/hosts/functions', () => ({
   listAgentsInventory: () => listAgentsInventory(),
   updateAgent: (data: { data: { hostId: number } }) => updateAgent(data),
@@ -168,7 +172,7 @@ describe('AgentsOverviewView', () => {
     {
       code: 'agent-unhealthy',
       status: 'unreachable',
-      copy: 'The agent answered but reports that it is unhealthy, because it can reach neither Docker nor ZFS. Check that the Docker socket or daemon on the agent host is running and mounted into the agent container, then check again.',
+      copy: 'The agent answered but reports that it is unhealthy, because it cannot reach Docker. Check that the Docker socket or daemon on the agent host is running and mounted into the agent container, then check again.',
       showsDetail: false,
     },
     {
@@ -315,6 +319,32 @@ describe('AgentsOverviewView', () => {
     expect(screen.getByLabelText('Update agent on homeserver').hasAttribute('disabled')).toBe(true)
     expect(screen.getByLabelText('Update agent on media-server').hasAttribute('disabled')).toBe(false)
     expect(screen.getByText('Update confirmed, agent now on v0.3.0')).toBeDefined()
+  })
+
+  it('tells the user to add a ZFS node for an agent that still has ZFS turned on, and only on that row', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    render(
+      <AgentsOverviewView
+        {...makeProps({ agents: [makeAgent({ capabilities: { docker: true, zfs: true } }), makeAgent({ id: 2, name: 'media-server' })] })}
+      />,
+    )
+    expect(screen.getByTestId('agent-zfs-moved-homeserver').textContent).toBe(
+      'ZFS is no longer read through the agent. Add this machine as a ZFS node to see its pools.',
+    )
+    expect(screen.queryByTestId('agent-zfs-moved-media-server')).toBeNull()
+  })
+
+  it('stops telling the user to add a ZFS node once one has the agent host name or address', async () => {
+    const { AgentsOverviewView } = await import('@/components/agents/AgentsOverview')
+    const agents = [
+      makeAgent({ capabilities: { docker: true, zfs: true } }),
+      makeAgent({ id: 2, name: 'nas', agentUrl: 'https://10.0.0.7:9090', capabilities: { docker: true, zfs: true } }),
+      makeAgent({ id: 3, name: 'backup', agentUrl: 'https://10.0.0.8:9090', capabilities: { docker: true, zfs: true } }),
+    ]
+    render(<AgentsOverviewView {...makeProps({ agents, zfsNodes: [{ name: 'HomeServer', address: '192.168.9.9' }, { name: 'pve-nas', address: '10.0.0.7' }] })} />)
+    expect(screen.queryByTestId('agent-zfs-moved-homeserver')).toBeNull()
+    expect(screen.queryByTestId('agent-zfs-moved-nas')).toBeNull()
+    expect(screen.getByTestId('agent-zfs-moved-backup')).toBeDefined()
   })
 
   it('renders the update-available warning with the apply guidance on that row and in a callout', async () => {

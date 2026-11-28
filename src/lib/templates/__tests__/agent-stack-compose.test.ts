@@ -16,41 +16,19 @@ const dockerOnlyConfig: AgentStackConfig = {
   hostName: 'test-host',
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-  capabilities: { docker: true, zfs: false },
+  capabilities: { docker: true },
 };
 
-const zfsOnlyConfig: AgentStackConfig = {
+const noDockerConfig: AgentStackConfig = {
   hostName: 'test-host',
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:v1.0.0',
-  capabilities: { docker: false, zfs: true },
-  hlmZfsUid: 1100,
-  hlmZfsGid: 1100,
-};
-
-const dockerZfsConfig: AgentStackConfig = {
-  hostName: 'test-host',
-  agentTrustedPubkey: MOCK_PUBKEY,
-  agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-  capabilities: { docker: true, zfs: true },
-  hlmZfsUid: 1100,
-  hlmZfsGid: 1100,
-  dockerGid: 999,
+  capabilities: { docker: false },
 };
 
 describe('generateAgentStackCompose', () => {
   it('generates correct YAML for Docker-only host', () => {
     const result = generateAgentStackCompose(dockerOnlyConfig);
-    expect(result).toMatchSnapshot();
-  });
-
-  it('generates correct YAML for ZFS-only host', () => {
-    const result = generateAgentStackCompose(zfsOnlyConfig);
-    expect(result).toMatchSnapshot();
-  });
-
-  it('generates full stack YAML for Docker + ZFS host', () => {
-    const result = generateAgentStackCompose(dockerZfsConfig);
     expect(result).toMatchSnapshot();
   });
 
@@ -67,13 +45,12 @@ describe('generateAgentStackCompose', () => {
       driver: 'bridge',
     });
 
-    const zfsResult = generateAgentStackCompose(zfsOnlyConfig);
-    const zfsParsed = parseYaml(zfsResult);
-    expect(zfsParsed.networks).toBeUndefined();
+    const noDockerParsed = parseYaml(generateAgentStackCompose(noDockerConfig));
+    expect(noDockerParsed.networks).toBeUndefined();
   });
 
   it('references AGENT_TRUSTED_PUBKEY from the .env in all cases, without embedding the key', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+    for (const config of [dockerOnlyConfig, noDockerConfig]) {
       const result = generateAgentStackCompose(config);
       const parsed = parseYaml(result);
       expect(parsed.services.agent.environment.AGENT_TRUSTED_PUBKEY).toBe('${AGENT_TRUSTED_PUBKEY}');
@@ -85,14 +62,14 @@ describe('generateAgentStackCompose', () => {
   });
 
   it('passes AGENT_IMAGE through so the agent can report its own tag', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+    for (const config of [dockerOnlyConfig, noDockerConfig]) {
       const parsed = parseYaml(generateAgentStackCompose(config));
       expect(parsed.services.agent.environment.AGENT_IMAGE).toBe('${AGENT_IMAGE}');
     }
   });
 
   it('uses restart: unless-stopped for every long-running service', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+    for (const config of [dockerOnlyConfig, noDockerConfig]) {
       const result = generateAgentStackCompose(config);
       const parsed = parseYaml(result);
       for (const [name, service] of Object.entries(
@@ -106,8 +83,7 @@ describe('generateAgentStackCompose', () => {
   it('gives the agent access to the stacks dir only when it lacks it, before the agent starts', () => {
     const cases: [AgentStackConfig, string, string][] = [
       [dockerOnlyConfig, 'agent:agent', 'setpriv --reuid=agent --regid=agent --clear-groups'],
-      [zfsOnlyConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}', 'setpriv --reuid=${HLM_ZFS_UID} --regid=${HLM_ZFS_GID} --clear-groups'],
-      [dockerZfsConfig, '${HLM_ZFS_UID}:${HLM_ZFS_GID}', 'setpriv --reuid=${HLM_ZFS_UID} --regid=${HLM_ZFS_GID} --groups=${DOCKER_GID}'],
+      [noDockerConfig, 'agent:agent', 'setpriv --reuid=agent --regid=agent --clear-groups'],
     ];
     for (const [config, owner, asAgent] of cases) {
       const parsed = parseYaml(generateAgentStackCompose(config));
@@ -135,7 +111,7 @@ describe('generateAgentStackCompose', () => {
   const stacksMount =
     '${HLM_STACKS_DIR:-/opt/homelab-manager/stacks}:/opt/homelab-manager/stacks';
 
-  it('Docker-only: no ZFS mounts, no user config, has socket-proxy', () => {
+  it('Docker host: no host mounts beyond the stacks dir, no user config, has socket-proxy', () => {
     const result = generateAgentStackCompose(dockerOnlyConfig);
     const parsed = parseYaml(result);
 
@@ -151,55 +127,18 @@ describe('generateAgentStackCompose', () => {
   });
 
   it('agent mounts the stacks dir so files survive container recreation', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+    for (const config of [dockerOnlyConfig, noDockerConfig]) {
       const parsed = parseYaml(generateAgentStackCompose(config));
       expect(parsed.services.agent.volumes).toContain(stacksMount);
     }
-  });
-
-  it('ZFS-only: no socket-proxy, no DOCKER_HOST, has ZFS mounts + user', () => {
-    const result = generateAgentStackCompose(zfsOnlyConfig);
-    const parsed = parseYaml(result);
-
-    expect(parsed.services['socket-proxy']).toBeUndefined();
-    expect(parsed.services.agent.environment.DOCKER_HOST).toBeUndefined();
-    expect(Object.keys(parsed.services.agent.depends_on)).toEqual(['stacks-dir-init']);
-
-    expect(parsed.services.agent.volumes).toEqual([
-      stacksMount,
-      '/usr/sbin/zpool:/usr/sbin/zpool:ro',
-      '/usr/sbin/zfs:/usr/sbin/zfs:ro',
-      '/dev/zfs:/dev/zfs',
-    ]);
-    expect(parsed.services.agent.user).toBe('${HLM_ZFS_UID}:${HLM_ZFS_GID}');
-  });
-
-  it('Docker + ZFS: full stack with all features', () => {
-    const result = generateAgentStackCompose(dockerZfsConfig);
-    const parsed = parseYaml(result);
-
-    expect(parsed.services['socket-proxy']).toBeDefined();
-    expect(parsed.services.agent.environment.DOCKER_HOST).toBe(
-      'tcp://socket-proxy:2375'
-    );
-    expect(parsed.services.agent.depends_on['socket-proxy']).toEqual({ condition: 'service_started' });
-
-    expect(parsed.services.agent.volumes).toEqual([
-      stacksMount,
-      '/usr/sbin/zpool:/usr/sbin/zpool:ro',
-      '/usr/sbin/zfs:/usr/sbin/zfs:ro',
-      '/dev/zfs:/dev/zfs',
-    ]);
-    expect(parsed.services.agent.user).toBe('${HLM_ZFS_UID}:${HLM_ZFS_GID}');
-    expect(parsed.services.agent.group_add).toEqual(['${DOCKER_GID}']);
   });
 
   it('generates the agent and its stacks-dir init, plus the socket proxy for docker hosts', () => {
     const dockerParsed = parseYaml(generateAgentStackCompose(dockerOnlyConfig));
     expect(Object.keys(dockerParsed.services).sort()).toEqual(['agent', 'socket-proxy', 'stacks-dir-init']);
 
-    const zfsParsed = parseYaml(generateAgentStackCompose(zfsOnlyConfig));
-    expect(Object.keys(zfsParsed.services).sort()).toEqual(['agent', 'stacks-dir-init']);
+    const noDockerParsed = parseYaml(generateAgentStackCompose(noDockerConfig));
+    expect(Object.keys(noDockerParsed.services).sort()).toEqual(['agent', 'stacks-dir-init']);
   });
 
   it('agent gets TLS env, ca trust, and an https healthcheck override', () => {
@@ -216,7 +155,7 @@ describe('generateAgentStackCompose', () => {
   });
 
   it('TLS paths never vary with the host name', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+    for (const config of [dockerOnlyConfig, noDockerConfig]) {
       const parsed = parseYaml(generateAgentStackCompose(config));
       const agent = parsed.services['agent'];
       expect(agent.environment.TLS_CERT_PATH).toBe('/opt/homelab-manager/stacks/hlm-agent-tls/cert.pem');
@@ -225,9 +164,8 @@ describe('generateAgentStackCompose', () => {
   });
 
   it('agent attached to both internal and public networks when docker capability', () => {
-    const zfsResult = generateAgentStackCompose(zfsOnlyConfig);
-    const zfsParsed = parseYaml(zfsResult);
-    expect(zfsParsed.services.agent.networks).toBeUndefined();
+    const noDockerParsed = parseYaml(generateAgentStackCompose(noDockerConfig));
+    expect(noDockerParsed.services.agent.networks).toBeUndefined();
 
     const dockerResult = generateAgentStackCompose(dockerOnlyConfig);
     const dockerParsed = parseYaml(dockerResult);
@@ -235,20 +173,8 @@ describe('generateAgentStackCompose', () => {
     expect(dockerParsed.services.agent.networks).toContain('agent-public');
   });
 
-  it('ZFS-only: top-level networks key is absent', () => {
-    const result = generateAgentStackCompose(zfsOnlyConfig);
-    const parsed = parseYaml(result);
-    expect(parsed.networks).toBeUndefined();
-  });
-
-  it('neither docker nor zfs: minimal agent only', () => {
-    const noneConfig: AgentStackConfig = {
-      hostName: 'test-host',
-      agentTrustedPubkey: MOCK_PUBKEY,
-      agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-      capabilities: { docker: false, zfs: false },
-    };
-    const result = generateAgentStackCompose(noneConfig);
+  it('no docker: minimal agent only', () => {
+    const result = generateAgentStackCompose(noDockerConfig);
     const parsed = parseYaml(result);
     expect(parsed.services['socket-proxy']).toBeUndefined();
     expect(parsed.services['agent']).toBeDefined();
@@ -264,18 +190,8 @@ describe('generateAgentStackEnv', () => {
     expect(result).toMatchSnapshot();
   });
 
-  it('generates env for ZFS-only host', () => {
-    const result = generateAgentStackEnv(zfsOnlyConfig);
-    expect(result).toMatchSnapshot();
-  });
-
-  it('generates env for Docker + ZFS host', () => {
-    const result = generateAgentStackEnv(dockerZfsConfig);
-    expect(result).toMatchSnapshot();
-  });
-
   it('always includes images and port but not HLM_AGENT_TOKEN key', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+    for (const config of [dockerOnlyConfig, noDockerConfig]) {
       const result = generateAgentStackEnv(config);
       expect(result).not.toContain('HLM_AGENT_TOKEN=');
       expect(result).toContain('AGENT_IMAGE=');
@@ -289,66 +205,6 @@ describe('generateAgentStackEnv', () => {
     expect(result).not.toContain('AGENT_TOKEN');
   });
 
-  it('includes ZFS UIDs only when zfs capability', () => {
-    const dockerResult = generateAgentStackEnv(dockerOnlyConfig);
-    expect(dockerResult).not.toContain('HLM_ZFS_UID');
-    expect(dockerResult).not.toContain('HLM_ZFS_GID');
-
-    const zfsResult = generateAgentStackEnv(zfsOnlyConfig);
-    expect(zfsResult).toContain('HLM_ZFS_UID=1100');
-    expect(zfsResult).toContain('HLM_ZFS_GID=1100');
-  });
-
-  it('includes DOCKER_GID only when both docker and zfs', () => {
-    const dockerResult = generateAgentStackEnv(dockerOnlyConfig);
-    expect(dockerResult).not.toContain('DOCKER_GID');
-
-    const zfsResult = generateAgentStackEnv(zfsOnlyConfig);
-    expect(zfsResult).not.toContain('DOCKER_GID');
-
-    const bothResult = generateAgentStackEnv(dockerZfsConfig);
-    expect(bothResult).toContain('DOCKER_GID=999');
-  });
-
-  it('throws when zfs is true but hlmZfsUid is missing', () => {
-    const bad: AgentStackConfig = {
-      hostName: 'test-host',
-      agentTrustedPubkey: MOCK_PUBKEY,
-      agentImage: 'img',
-      capabilities: { docker: false, zfs: true },
-      hlmZfsGid: 1100,
-    };
-    expect(() => generateAgentStackEnv(bad)).toThrow(
-      'hlmZfsUid and hlmZfsGid are required when zfs capability is enabled'
-    );
-  });
-
-  it('throws when zfs is true but hlmZfsGid is missing', () => {
-    const bad: AgentStackConfig = {
-      hostName: 'test-host',
-      agentTrustedPubkey: MOCK_PUBKEY,
-      agentImage: 'img',
-      capabilities: { docker: false, zfs: true },
-      hlmZfsUid: 1100,
-    };
-    expect(() => generateAgentStackEnv(bad)).toThrow(
-      'hlmZfsUid and hlmZfsGid are required when zfs capability is enabled'
-    );
-  });
-
-  it('throws when docker and zfs are true but dockerGid is missing', () => {
-    const bad: AgentStackConfig = {
-      hostName: 'test-host',
-      agentTrustedPubkey: MOCK_PUBKEY,
-      agentImage: 'img',
-      capabilities: { docker: true, zfs: true },
-      hlmZfsUid: 1100,
-      hlmZfsGid: 1100,
-    };
-    expect(() => generateAgentStackEnv(bad)).toThrow(
-      'dockerGid is required when both docker and zfs capabilities are enabled'
-    );
-  });
   it('generates exactly the documented env lines for a docker host', () => {
     const result = generateAgentStackEnv(dockerOnlyConfig);
     expect(result).toBe(
@@ -360,5 +216,4 @@ describe('generateAgentStackEnv', () => {
       ].join('\n') + '\n',
     );
   });
-
 });

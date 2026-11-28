@@ -14,6 +14,8 @@ import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import { parseStatsTopic, type StatsTopicSource } from '@/lib/mux/protocol';
+import { readOverride } from '@/lib/mock/handlers/server-functions';
+import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
 const LOG_INTERVAL_MS = 3000;
 const STATS_INTERVAL_MS = 1000;
@@ -114,11 +116,13 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
       topicCleanups.set(topic, agentInventoryUpdates.on((message) => {
         client.send(eventFrame(topic, 'data', message));
       }));
-      void import('@/lib/mock/functions/hosts.functions').then(({ listAgentsInventory }) =>
-        listAgentsInventory().then((entries) => {
-          client.send(eventFrame(topic, 'data', { entries, sweptAt: new Date().toISOString() }));
-        }),
-      );
+      const override = readOverride('listAgentsInventory');
+      const load = override.hit
+        ? Promise.resolve(override.value as AgentInventoryEntry[])
+        : import('@/lib/mock/functions/hosts.functions').then(({ listAgentsInventory }) => listAgentsInventory());
+      void load.then((entries) => {
+        client.send(eventFrame(topic, 'data', { entries, sweptAt: new Date().toISOString() }));
+      });
       return;
     }
     if (topic === 'stack-status') {

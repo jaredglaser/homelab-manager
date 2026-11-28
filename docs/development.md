@@ -4,7 +4,7 @@
 
 - [Bun](https://bun.sh) (package manager and runtime)
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
-- *(Optional)* A host running ZFS for pool monitoring (via agent sidecar)
+- *(Optional)* A host running ZFS for pool monitoring (read over SSH, see the self-hosting guide)
 - *(Optional)* A Proxmox VE cluster with an API token for monitoring
 
 ## Environment Setup

@@ -46,10 +46,11 @@ import {
   assertServiceKeyUnification,
   assertTierColumnCoverage,
   assertWeightedRollup,
+  assertZfsLegacyEntities,
   captureRowCounts,
 } from './assertions';
 import { Checks } from './checks';
-import { LEGACY_RESTART_DEPLOY, NULL_INVARIANT_ROWS } from './fixture';
+import { LEGACY_RESTART_DEPLOY, NULL_INVARIANT_ROWS, ZFS_LEGACY } from './fixture';
 import { createPool, recreateDatabase, waitForDatabase } from './db';
 import { seed } from './seed';
 
@@ -174,6 +175,10 @@ async function runUpgrade(): Promise<void> {
     await assertNullMetricDilution(pool, checks);
     await assertAggregateTierValues(pool, checks);
     await assertHourlyAverageViews(pool, checks);
+    // Once 054 is in the base, the seeded legacy rows are never rewritten, so there is nothing to assert.
+    if (added.includes(ZFS_LEGACY.migration)) {
+      await assertZfsLegacyEntities(pool, checks);
+    }
 
     const backfillSql = readFileSync(
       join(REPO_ROOT, 'migrations', '037_backfill_container_service_keys.sql'),

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
-import { StatsRepository, resolveStatsTier } from '../stats-repository';
+import { StatsRepository, resolveStatsTier, type NewZFSStat } from '../stats-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
 import { resetDegradedRowEnums } from '@/lib/database/repositories/row-enum';
 
@@ -163,126 +163,88 @@ describe('StatsRepository', () => {
   });
 
   describe('insertZFSStats', () => {
+    const zfsStat = (overrides: Partial<NewZFSStat> = {}): NewZFSStat => ({
+      time: new Date('2024-01-01'),
+      host: 'server1',
+      pool: 'tank',
+      entity: 'tank',
+      entityType: 'pool',
+      indent: 0,
+      capacityAllocBytes: '1000',
+      capacityFreeBytes: '2000',
+      readOpsPerSec: 10,
+      writeOpsPerSec: 5,
+      readBytesPerSec: 1024,
+      writeBytesPerSec: 512,
+      state: 'ONLINE',
+      readErrors: '0',
+      writeErrors: '1',
+      checksumErrors: '2',
+      ...overrides,
+    });
+
     it('should skip insert for empty rows', async () => {
       await repo.insertZFSStats([]);
       expect(mockPool.queries).toHaveLength(0);
     });
 
     it('should insert rows with correct parameters', async () => {
-      const rows = [
-        {
-          time: new Date('2024-01-01'),
-          host: 'server1',
-          pool: 'tank',
-          entity: 'tank',
-          entityType: 'pool',
-          indent: 0,
-          capacityAlloc: 1000,
-          capacityFree: 2000,
-          readOpsPerSec: 10,
-          writeOpsPerSec: 5,
-          readBytesPerSec: 1024,
-          writeBytesPerSec: 512,
-        },
-      ];
-
-      await repo.insertZFSStats(rows);
+      await repo.insertZFSStats([zfsStat()]);
 
       expect(mockPool.queries).toHaveLength(1);
       expect(mockPool.queries[0].sql).toContain('INSERT INTO zfs_stats');
+      expect(mockPool.queries[0].params.slice(1, 12)).toEqual([
+        ['server1'], ['tank'], ['tank'], ['pool'], [0], ['1000'], ['2000'], [10], [5], [1024], [512],
+      ]);
     });
 
-    it('should truncate capacity_alloc/capacity_free to whole numbers for the bigint columns', async () => {
-      const rows = [
-        {
-          time: new Date('2024-01-01'),
-          host: 'server1',
-          pool: 'tank',
-          entity: 'tank',
-          entityType: 'pool',
-          indent: 0,
-          capacityAlloc: 1234.9,
-          capacityFree: 5678.1,
-          readOpsPerSec: 10,
-          writeOpsPerSec: 5,
-          readBytesPerSec: 1024,
-          writeBytesPerSec: 512,
-        },
-      ];
+    it('stores the device state and its cumulative error counters', async () => {
+      await repo.insertZFSStats([zfsStat({ state: 'DEGRADED', checksumErrors: '18446744073709551615' })]);
 
-      await repo.insertZFSStats(rows);
+      expect(mockPool.queries[0].sql).toContain('state, read_errors, write_errors, checksum_errors');
+      expect(mockPool.queries[0].params.slice(13)).toEqual([['DEGRADED'], ['0'], ['1'], ['18446744073709551615']]);
+    });
+
+    it('binds byte counts past 2^53 to the bigint columns as exact decimal text', async () => {
+      await repo.insertZFSStats([zfsStat({ capacityAllocBytes: '9007199254740993', capacityFreeBytes: '18446744073709551615' })]);
 
       const params = mockPool.queries[0].params;
-      // Params follow the INSERT column order (..., capacity_alloc, capacity_free, ...).
-      expect(params[6]).toEqual([1234]);
-      expect(params[7]).toEqual([5678]);
+      expect(mockPool.queries[0].sql).toContain('$7::bigint[], $8::bigint[]');
+      expect(params[6]).toEqual(['9007199254740993']);
+      expect(params[7]).toEqual(['18446744073709551615']);
     });
 
-    it('should derive utilization_percent from capacityAlloc/capacityFree', async () => {
-      const rows = [
-        {
-          time: new Date('2024-01-01'),
-          host: 'server1',
-          pool: 'tank',
-          entity: 'tank',
-          entityType: 'pool',
-          indent: 0,
-          capacityAlloc: 750,
-          capacityFree: 250,
-          readOpsPerSec: 0,
-          writeOpsPerSec: 0,
-          readBytesPerSec: 0,
-          writeBytesPerSec: 0,
-        },
-      ];
-
-      await repo.insertZFSStats(rows);
+    it('should derive utilization_percent from the capacity', async () => {
+      await repo.insertZFSStats([zfsStat({ capacityAllocBytes: '750', capacityFreeBytes: '250' })]);
 
       expect(mockPool.queries[0].params[12]).toEqual([75]);
     });
 
     it('should treat zero total capacity as 0% utilization instead of dividing by zero', async () => {
-      const rows = [
-        {
-          time: new Date('2024-01-01'),
-          host: 'server1',
-          pool: 'tank',
-          entity: 'tank',
-          entityType: 'pool',
-          indent: 0,
-          capacityAlloc: 0,
-          capacityFree: 0,
-          readOpsPerSec: 0,
-          writeOpsPerSec: 0,
-          readBytesPerSec: 0,
-          writeBytesPerSec: 0,
-        },
-      ];
+      await repo.insertZFSStats([zfsStat({ capacityAllocBytes: '0', capacityFreeBytes: '0' })]);
 
-      await repo.insertZFSStats(rows);
+      expect(mockPool.queries[0].params[12]).toEqual([0]);
+    });
 
-      const utilization = mockPool.queries[0].params[12] as number[];
-      expect(utilization[0]).toBe(0);
-      expect(Number.isFinite(utilization[0])).toBe(true);
+    it('stores NULL, not 0, for a node with no capacity and no I/O', async () => {
+      await repo.insertZFSStats([zfsStat({
+        entity: 'tank/@spares/sdz',
+        entityType: 'disk',
+        capacityAllocBytes: null,
+        capacityFreeBytes: null,
+        readOpsPerSec: null,
+        writeOpsPerSec: null,
+        readBytesPerSec: null,
+        writeBytesPerSec: null,
+      })]);
+
+      expect(mockPool.queries[0].params.slice(6, 13)).toEqual([[null], [null], [null], [null], [null], [null], [null]]);
     });
 
     it('should propagate errors', async () => {
       mockPool.setError(new Error('ZFS DB error'));
 
-      await expect(repo.insertZFSStats([{
-        time: new Date(),
-        host: 'server1',
-        pool: 'tank',
-        entity: 'tank',
-        entityType: 'pool',
-        indent: 0,
-        capacityAlloc: 0,
-        capacityFree: 0,
-        readOpsPerSec: 0,
-        writeOpsPerSec: 0,
-        readBytesPerSec: 0,
-        writeBytesPerSec: 0,
-      }])).rejects.toThrow('ZFS DB error');
+      await expect(repo.insertZFSStats([zfsStat()])).rejects.toThrow('ZFS DB error');
     });
   });
 
@@ -396,6 +358,31 @@ describe('StatsRepository', () => {
       expect(result).toHaveLength(1);
       expect(result[0].host).toBe('default-host');
       mockPool.setDefault([]);
+    });
+
+    it('drops a row whose entity_type this build does not know instead of failing the read', async () => {
+      const row = (entity_type: string) => ({
+        time: new Date('2024-01-01T00:00:00.000Z'),
+        host: 'server1',
+        pool: 'tank',
+        entity: 'tank',
+        entity_type,
+        indent: 0,
+        capacity_alloc: null,
+        capacity_free: null,
+        read_ops_per_sec: null,
+        write_ops_per_sec: null,
+        read_bytes_per_sec: null,
+        write_bytes_per_sec: null,
+        utilization_percent: null,
+      });
+      mockPool.pushResult([row('pool'), row('future_type'), row('group')]);
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const result = await repo.getZFSStatsSince(new Date('2024-01-01T00:00:00Z'));
+
+      expect(result.map((r) => r.entity_type)).toEqual(['pool', 'group']);
+      errorSpy.mockRestore();
     });
 
     it('should map a zfs row through toZFSStatsRow', async () => {

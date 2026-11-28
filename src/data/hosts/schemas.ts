@@ -9,8 +9,7 @@ export const createPendingHostSchema = z.object({
   name: hostNameSchema,
   capabilities: z.object({
     docker: z.boolean().optional().default(false),
-    zfs: z.boolean().optional().default(false),
-  }).optional().default({ docker: false, zfs: false }),
+  }).optional().default({ docker: false }),
 });
 
 export const removeHostSchema = z.object({

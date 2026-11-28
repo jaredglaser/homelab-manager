@@ -90,14 +90,14 @@ docker compose down -v
 | Service | Image | Description |
 |---------|-------|-------------|
 | `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (raw stats kept 24 hours, 1-minute aggregates 30 days, 1-hour aggregates forever; automatic compression per tier). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
-| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - connects to agent sidecars (Docker/ZFS) and polls Proxmox, writes stats to TimescaleDB. Also applies database migrations on startup. |
+| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - connects to agent sidecars (Docker), reads ZFS nodes over SSH and polls Proxmox, writes stats to TimescaleDB. Also applies database migrations on startup. |
 | `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Streams stats from TimescaleDB to connected clients over the `/api/mux` WebSocket. |
 
 Two more images run on **monitored hosts** (not in this compose file). The Add Host wizard generates a compose stack for them during enrollment:
 
 | Image | Description |
 |-------|-------------|
-| `ghcr.io/jaredglaser/homelab-manager-agent` | Agent sidecar deployed on each monitored Docker/ZFS host |
+| `ghcr.io/jaredglaser/homelab-manager-agent` | Agent sidecar deployed on each monitored Docker host |
 | `lscr.io/linuxserver/socket-proxy:latest` | Restricted Docker socket proxy (API allowlist - the socket is mounted read-only, with grants for the specific write operations the agent needs), deployed only on hosts with the Docker capability. The agent talks to Docker through it instead of getting the raw socket |
 
 ### Image tags
@@ -135,14 +135,7 @@ Then run `docker compose up -d` in the agent stack directory.
 
 A host shows no tag until it has completed one health check against an agent new enough to report one. An agent works this out from the `AGENT_IMAGE` environment variable the generated compose passes it, falling back to inspecting its own container over the Docker socket.
 
-Hosts enrolled before this existed have no `AGENT_IMAGE` line in their compose file. Docker-capable ones recover on their own through the self-inspection fallback. A **ZFS-only** host has no Docker socket and cannot, so add the variable to the `agent` service in its compose file and re-up:
-
-```yaml
-services:
-  agent:
-    environment:
-      AGENT_IMAGE: ${AGENT_IMAGE}
-```
+Hosts enrolled before this existed have no `AGENT_IMAGE` line in their compose file. They recover on their own through the self-inspection fallback.
 
 ---
 
@@ -207,7 +200,7 @@ Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular hom
 
 ### Agent Environment
 
-These variables are set on each **agent** container (not on the dashboard or worker). The Add Host wizard (**Settings → Managed Hosts → Add Host**) generates a ready-to-use compose stack for the agent, including a Docker socket proxy and any ZFS device/binary mounts, so you normally never write this by hand. The variables below are for reference when customizing the generated stack.
+These variables are set on each **agent** container (not on the dashboard or worker). The Add Host wizard (**Settings → Managed Hosts → Add Host**) generates a ready-to-use compose stack for the agent, including a Docker socket proxy, so you normally never write this by hand. The variables below are for reference when customizing the generated stack.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -225,11 +218,30 @@ Docker monitoring works through agent sidecars. Deploy the agent container on ea
 
 ### ZFS Monitoring
 
-ZFS monitoring works through agent sidecars (the same agents used for Docker management). When you register a managed host with ZFS capability, the worker connects to the agent's `/zfs/stats/stream` SSE endpoint to receive real-time `zpool iostat` data. No SSH configuration is needed.
+The worker reads each ZFS node over SSH, with a key the app generates for that node. It runs two read-only commands and nothing else: `zpool_influxdb --execd --no-histograms` once a second for the counters, and `zpool status -j --json-int` every 5 seconds for the layout, device groups, cache and spares. Both ship with OpenZFS 2.3 and 2.4 (Proxmox VE 9.0 to 9.3). The Docker agent no longer reads ZFS.
 
-The agent image does not ship ZFS tooling; the ZFS capability requires bind-mounting the host's binaries and device node into the agent container (`/usr/sbin/zpool` and `/usr/sbin/zfs` read-only, plus `/dev/zfs`), and running the container as a uid/gid with permission on `/dev/zfs`. The Add Host wizard generates all of this when you enable the ZFS capability; if you hand-write the agent compose file and omit the mounts, the agent logs "ZFS capability: disabled" at startup because it cannot find the `zpool` binary.
+The worker and the dashboard both need to reach each node's SSH port: the worker collects, and the dashboard runs the connect and verify steps.
 
-> **Setup:** Deploy the wizard-generated agent stack on a host with ZFS pools, then register the host in **Settings → Managed Hosts** with the `zfs` capability enabled.
+**Add a node:** on the **Hosts** page, under **ZFS nodes**, select **Add ZFS node** and enter a name, the node's address and its SSH port. The worker address is optional: when given, the node accepts the key only from that address (`from=` in `authorized_keys`).
+
+The next step shows a setup script. Run it on the node as root. It:
+
+- stops before changing anything if the node has no ed25519 host key (`ssh-keygen -A` creates one), if a user named `hlm` exists that the script did not create, or if `/var/lib/hlm`, `/var/lib/hlm/.ssh` or the dispatcher's directory is a link or not owned by root;
+- creates a system user `hlm` with no password, no login shell (its shell is the dispatcher below) and `nogroup` as its group;
+- installs a dispatcher at `/usr/local/libexec/homelab-manager/zfs-read` that runs only the two commands above, with fixed arguments, and refuses everything else;
+- writes one line to `/var/lib/hlm/.ssh/authorized_keys`: `restrict,command="/usr/local/libexec/homelab-manager/zfs-read"` and the app's public key, so the key cannot open a shell, allocate a terminal or forward ports. The home directory, `.ssh` and `authorized_keys` belong to root, so `hlm` cannot change them, and a stray `authorized_keys2` is deleted;
+- installs `/etc/ssh/sshd_config.d/homelab-manager-hlm.conf`, a `Match User hlm` block that allows only that one key file and turns off forwarding, tunnels and terminals, checks it with `sshd -t`, and reloads sshd;
+- prints the node's ed25519 host key fingerprint as its last line.
+
+`hlm` is a dedicated user because Proxmox shares root's `authorized_keys` across the cluster. The read ioctls behind both commands need no privilege, and the kernel refuses pool actions (destroy, export, scrub) to a non-root user.
+
+Then select **I ran it, connect**. The dashboard reads the host key without logging in and shows its fingerprint. Compare it with the last line of the setup script and confirm. The fingerprint is pinned, and the dashboard runs both commands once and lists the pools it found. Collection starts within a few seconds.
+
+**When a node's host key changes**, the app reads nothing from it and the node shows a notice on the Hosts and ZFS pages. It retries every 5 minutes, so a node that comes back with the confirmed key collects again on its own. If you reinstalled the node, run the setup script again (its last line prints the new fingerprint) and select **Confirm new key** on the node's row. If you did not, something may be impersonating the node: do not confirm.
+
+**Remove a node** from its row. Collection stops at once and its stored history is kept. To revoke the key on the node, run `userdel hlm` there.
+
+A Docker agent registered with the old ZFS capability shows a notice on the Hosts page. Its ZFS mounts and `HLM_ZFS_*` variables are no longer used and can be removed from its compose file. Add the machine as a ZFS node instead. Rows the agent wrote keep their host name, so a node added under the same name continues their history.
 
 ### Proxmox VE Monitoring
 
@@ -286,7 +298,6 @@ The worker always runs and applies database migrations on startup; individual co
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WORKER_DOCKER_ENABLED` | `true` | Enable Docker stats collection. Default `true` in the compose file. The app itself treats unset as disabled. |
-| `WORKER_ZFS_ENABLED` | `false` | Enable ZFS stats collection |
 | `WORKER_PROXMOX_ENABLED` | `false` | Enable Proxmox stats collection |
 | `WORKER_COLLECTION_INTERVAL_MS` | `1000` | Collection interval in milliseconds |
 | `WORKER_LOCALHOST_AGENT` | - | Docker-internal hostname to substitute for `localhost` agent URLs (e.g. `hlm-agent`). Set this when the worker and an agent container run on the same Docker host; without it, `localhost` agent URLs resolve to the worker container itself rather than the agent container. |
@@ -311,7 +322,7 @@ Encrypted columns use a versioned keyring so a new master key can be enrolled wi
 
 5. Remove the old key from `.env` (and its compose line if you added one), then `docker compose up -d` again.
 
-The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window. It covers `stack_secrets`, `agent_keypairs`, and `git_tokens`; active login sessions are not re-encrypted, so a login that predates the rotation may need to sign in again after step 5 removes the old key.
+The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window. It covers `stack_secrets`, `agent_keypairs`, `git_tokens` and the ZFS node keys in `zfs_nodes`; active login sessions are not re-encrypted, so a login that predates the rotation may need to sign in again after step 5 removes the old key.
 
 ## Backup and Restore
 
@@ -399,9 +410,8 @@ OIDC_REDIRECT_URI=https://homelab.example.com/api/auth/callback
 # Docker: no env vars needed; register hosts with the Docker capability
 # in Settings → Managed Hosts after deploying an agent sidecar.
 
-# ZFS: no worker env vars needed; deploy the wizard-generated agent stack
-# (includes the required zpool/zfs/dev mounts) and register the host with
-# the ZFS capability in Settings → Managed Hosts.
+# ZFS: no env vars needed; add each node on the Hosts page under ZFS nodes
+# and run the setup script it shows on the node.
 
 # Proxmox VE
 PROXMOX_HOST=192.168.1.100
@@ -410,7 +420,6 @@ PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 # Worker
 # WORKER_DOCKER_ENABLED=true
-# WORKER_ZFS_ENABLED=false
 WORKER_PROXMOX_ENABLED=true
 # WORKER_COLLECTION_INTERVAL_MS=1000
 # WORKER_LOCALHOST_AGENT=hlm-agent
@@ -475,8 +484,11 @@ If the manager's per-host certificate record is lost (for example, a database re
 
 If provisioning reports that the agent did not serve the new certificate over HTTPS within the retry window, and the agent has no Docker capability (its logs say `Docker capability: disabled`) or runs an agent version too old to restart itself, restart it manually with `docker restart hlm-agent` and re-run provisioning.
 
-**ZFS host shows no pools**
-- The agent needs the host's `zpool`/`zfs` binaries and `/dev/zfs` mounted into its container (the wizard-generated stack includes these). Check the agent logs for "ZFS capability: disabled".
+**ZFS node shows no pools**
+- Check that the node's host key is confirmed and that its notice on the Hosts page does not name a problem.
+- "refused the app's key": run the setup script on the node again. Running it again is safe and replaces the key line.
+- "missing zpool_influxdb": update `zfsutils-linux`. The dispatcher looks for it at `/bin/zpool_influxdb` and `/usr/lib/zfs-linux/zpool_influxdb`.
+- "stopped answering ZFS reads": a pool may be suspended or a disk hanging. Check `zpool status` on the node. The worker keeps the session and asks again every 10 seconds, writing the last known layout meanwhile.
 
 **Port conflict on 3000**
 - Set `WEB_PORT` to any available port in your `.env`.

@@ -22,15 +22,20 @@ graph TD
         EntityMetadata["entity_metadata"]
         StackSecrets["stack_secrets"]
         AgentKeypairs["agent_keypairs"]
+        ZfsNodes["zfs_nodes"]
     end
 
     subgraph Worker["Background Worker"]
-        Collectors["Collectors<br/>(Docker, AgentStats, ZFS, Proxmox, ContainerInventory)"]
+        Collectors["Collectors<br/>(AgentStats, ZfsNode, Proxmox, ContainerInventory)"]
     end
 
     subgraph Hosts["Managed Docker Hosts"]
-        Agent1["Agent Sidecar<br/>(Docker + ZFS)"]
-        Agent2["Agent Sidecar<br/>(Docker + ZFS)"]
+        Agent1["Agent Sidecar<br/>(Docker)"]
+        Agent2["Agent Sidecar<br/>(Docker)"]
+    end
+
+    subgraph ZfsHosts["ZFS Nodes"]
+        Node1["hlm user + dispatcher<br/>(zpool_influxdb, zpool status)"]
     end
 
     ProxmoxHost["Proxmox VE<br/>REST API"]
@@ -48,6 +53,7 @@ graph TD
     Collectors -->|"INSERT"| ContainerEvents
     Collectors -->|"SSE"| Agent1
     Collectors -->|"SSE"| Agent2
+    Collectors -->|"SSH"| Node1
     Collectors --> ProxmoxHost
 ```
 
@@ -72,7 +78,7 @@ flowchart LR
     Agent --> SSE --> WK --> DB
 ```
 
-The worker connects to agent sidecars on each managed host via SSE. For Docker stats, the agent pre-computes metrics (CPU%, memory%, network/block I/O rates) before streaming, so the worker receives ready-to-insert rows. For ZFS, the agent streams raw `zpool iostat` output which the worker parses and rate-calculates. Proxmox is a direct REST API poll (no agent).
+The worker connects to agent sidecars on each managed host via SSE. For Docker stats, the agent pre-computes metrics (CPU%, memory%, network/block I/O rates) before streaming, so the worker receives ready-to-insert rows. ZFS nodes are read over SSH (no agent, see [ZFS Nodes](#zfs-nodes-srclibzfs)). Proxmox is a direct REST API poll (no agent).
 
 ### Stage 2: Real-Time Streaming (Server -> Browser)
 
@@ -92,7 +98,7 @@ flowchart LR
 
 1. **Agent sidecars** run alongside each managed Docker host, streaming stats and container events
 2. **AgentStatsCollector** connects to each agent's `/stats/stream` endpoint and receives pre-computed Docker metrics (CPU%, memory, network/block I/O rates)
-3. **ZFSCollector** connects to each agent's `/zfs/stats/stream` endpoint, parses `zpool iostat` output, and calculates rates
+3. **ZfsNodeCollector** holds one SSH session per ZFS node, reads `zpool_influxdb` counters once a second and `zpool status -j` every 5 seconds, and turns the counters into rates
 4. **ContainerInventoryCollector** connects to each agent's `/containers/events` endpoint and persists container inventory events to `docker_container_events`
 5. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows, and inserts into TimescaleDB
 6. Stats are **inserted** into TimescaleDB wide hypertables
@@ -101,6 +107,18 @@ flowchart LR
 9. **Subscribe protocol** - the client sends `{ type: 'sub' | 'unsub', ref, topics }`; each command is answered by one `{ type: 'ack', ref, ok }` (with `error`/`code` on rejection), and topic data arrives as `{ type: 'event', topic, kind, payload }` with `kind` of `data`, `backlog_start`, `backlog_done`, `stream_end`, `error`, or `dropped`. Re-subscribing a topic restarts its adapter and re-delivers initial state (snapshots or log backlog) - that is the resync mechanism; after every reconnect the client re-sends its full topic set. Bulk frames are shed under socket backpressure and reported as `dropped` counts, and a session holds at most 250 topics (circuit breaker)
 10. The **`useTimeSeriesStream` hook** preloads history via REST, then merges topic updates into a time-windowed buffer with stale detection; shed frames surface as gap markers
 11. **Virtualized tables** render via the shared `DataTable` component (CSS Grid + conditional `useVirtualizer`). Tables under 150 rows use `contentVisibility: 'auto'` so the browser natively skips layout/paint for off-screen rows while preserving Collapse animations on nested detail panels (which break under virtualization); larger tables enable contained virtualization. Per-entity stale indicators highlight hosts that stop reporting
+
+## ZFS Nodes (`src/lib/zfs/`)
+
+A ZFS node is its own kind of host, stored in `zfs_nodes` (address, port, user, the app's ed25519 private key encrypted with the master keyring, the pinned host key fingerprint, the fingerprint a node presented that is waiting for a confirm, state and last success). Server functions in `src/data/zfs/functions.tsx` add, confirm, verify and remove nodes. Adding and removing is admin only, a verify (the row's **Check** button) is admin or operator, and every role can list them. The private key never leaves the server.
+
+**Node side** (`node-setup-script.ts`): the setup script creates the `hlm` user with the dispatcher as its shell, installs the dispatcher, and writes one `authorized_keys` line with `restrict,command="<dispatcher>"` (plus `from=` when the worker address is given). The dispatcher matches `SSH_ORIGINAL_COMMAND` as a whole string against `zpool_influxdb --execd --no-histograms` and `zpool status -j --json-int`, execs the binary with fixed arguments, exits 127 when the binary is missing and 126 for anything else. The read ioctls need no capability, so the kernel itself refuses pool actions to `hlm`.
+
+**Host keys:** the transport (`ssh-transport.ts`, ssh2) negotiates only the ed25519 host key, so its SHA256 fingerprint is the one the setup script prints. The add flow reads the key with a verifier that refuses it, so nothing runs before the user confirms it. `zfs_nodes.host_key_fingerprint` is pinned only to the fingerprint the node last presented. Every connect checks it, and a mismatch records `host_key_changed` with the presented fingerprint, reads nothing, and retries every 5 minutes. The transport offers ed25519 first and refuses any other key type. A node with no pin that offers none is `no_ed25519_key`, and a pinned node that offers none is `host_key_changed`, so the app never tells the user to regenerate the key of what may be an impostor. Confirm and Check notify the worker with the node's name, and its collector skips the rest of its wait.
+
+**Collection** (`src/worker/collectors/zfs-node-collector.ts`, `src/worker/zfs-node-manager.ts`): one collector per node with a confirmed key, reconciled on `NOTIFY zfs_nodes_change` (sent on add, confirm, verify and remove, never on the worker's own state writes). A node whose key the worker cannot decrypt is marked `key_unreadable` and skipped, and removal waits at most 5 seconds for a collector, so neither blocks the other nodes. A session has a long-lived `zpool_influxdb --execd` channel asked once a second (one request outstanding at a time) and a `zpool status -j` exec every fifth sample, never two at once. A sample is complete when every layout pool's `zpool_vdev_stats` line has arrived or after a tick with no new output, and layout pools the walk skipped get status-only rows. A read with no answer for 10 seconds shows the `timeout` notice: a hung `zpool status` keeps the last layout, and an empty or hung `zpool_influxdb` answer runs a liveness command, which tells a node that is still up from a dead connection (`unreachable`). A node that is still up gets status-only rows for that sample, and the next request goes out on the same session. Backoff resets only after a session stayed up a minute. After a key mismatch, a refused key or a missing ed25519 key, the next try waits at least 5 minutes, so the node's auth log is not flooded. A Confirm or Check wakes the collector, and a wake that arrives during an attempt makes its next backoff return at once. Each node runs on its own loop, so a suspended pool on one node never delays another. The layout from `zpool status` places devices under their vdevs and device groups (`@special`, `@dedup`, `@logs`, `@cache`, `@spares`), which `zpool_influxdb` does not label, and adds the cache and spare devices it does not report. Rates come from counter deltas over the node's own clock. A device's first sample in a session, and any sample whose counters went backwards (reboot, export and import), is blank. Byte counts and error counters stay exact as decimal strings into the bigint columns.
+
+**Entities:** `zfs_stats.host` is the node name and `entity` is `pool/...` with `@group` segments, so two cluster nodes with a pool named `rpool` stay apart (`pve1/rpool`, `pve2/rpool` on the page). A node with no pools writes one `host` row per sample.
 
 ## Proxmox Data Model
 
@@ -131,7 +149,7 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 
 | Component | Location | Description |
 |-----------|----------|-------------|
-| Agent container | `agent/` | Sidecar for Docker/ZFS operations on managed hosts |
+| Agent container | `agent/` | Sidecar for Docker operations on managed hosts |
 | Deploy pipeline | `src/lib/deploy/` | Trigger-agnostic deploy orchestration |
 | Git management | `src/lib/git/` | In-app bare git repo with HTTP smart protocol |
 | Crypto helpers | `src/lib/crypto/` | Master key resolution, JWE encrypted-value, Ed25519 agent JWT signing |
@@ -142,14 +160,14 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 
 ### Managed Hosts & Agent Architecture
 
-Hosts are registered via the Settings UI and stored in the `managed_hosts` database table with agent connection details and capabilities (docker, zfs).
+Hosts are registered via the Settings UI and stored in the `managed_hosts` database table with agent connection details and capabilities (docker). A `zfs` flag left from before ZFS moved to SSH only shows a notice on the Hosts page.
 
 **Collector creation** (`src/worker/collector-factory.ts`):
-- `createCollectors()`: env-configured collectors (Proxmox only; Docker and ZFS always go through managed hosts)
+- `createCollectors()`: env-configured collectors (Proxmox only; Docker goes through managed hosts and ZFS through ZFS nodes)
 - `resolveAgentUrl()`: rewrites localhost agent URLs to Docker-internal hostnames via `WORKER_LOCALHOST_AGENT` env var
 
 **Managed-host collector lifecycle** (`src/worker/host-collector-manager.ts`):
-- `HostCollectorManager`: owns one `AsyncDisposableStack` per registered host, each containing `AgentStatsCollector`, `ContainerInventoryCollector`, and/or `ZFSCollector` depending on the host's capabilities. `reconcile()` is the sole mutator: it adds collectors for new hosts, disposes them for removed hosts, and recreates them when a host's `agentUrl` or capabilities change. Reconcile calls are serialised through an internal promise chain so back-to-back notifications don't race.
+- `HostCollectorManager`: owns one `AsyncDisposableStack` per registered host, each containing `AgentStatsCollector` and `ContainerInventoryCollector` when the host has the Docker capability. `reconcile()` is the sole mutator: it adds collectors for new hosts, disposes them for removed hosts, and recreates them when a host's `agentUrl` or capabilities change. Reconcile calls are serialised through an internal promise chain so back-to-back notifications don't race.
 
 **JWT signing**: Per-agent Ed25519 keypairs are stored encrypted in `agent_keypairs`. The deploy pipeline signs a short-lived JWT for each request; the agent verifies it against its trusted public JWK. Hosts with no keypair are skipped with a logged warning.
 
@@ -157,7 +175,7 @@ Hosts are registered via the Settings UI and stored in the `managed_hosts` datab
 
 ### Agent Container (`agent/`)
 
-A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode. Capabilities are auto-detected at startup (Docker via `DOCKER_HOST` env var, ZFS via `zpool` binary presence).
+A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode. It needs Docker (`DOCKER_HOST`) and exits at startup without it.
 
 **Architecture:**
 - Ed25519 JWT authentication (trusted public JWK loaded from `AGENT_TRUSTED_PUBKEY[_FILE]` at startup; per-request JWTs verified against it). JWTs carry `aud` set to the managed host name; the agent verifies it against the required `AGENT_HOST_NAME` so a token minted for another host is rejected
@@ -171,7 +189,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Liveness heartbeat, status only (unauthenticated) |
-| GET | `/info` | Agent version, the image reference and tag the agent runs, and Docker/ZFS capability detail (authenticated) |
+| GET | `/info` | Agent version, the image reference and tag the agent runs, and Docker capability detail (authenticated) |
 | GET | `/auth/verify` | JWT verification |
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
@@ -191,8 +209,6 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | WS | `/exec/:containerId` | Interactive shell into a container (WebSocket) |
 | GET | `/tls/challenge` | Issue a single-use nonce for the enrollment handshake |
 | POST | `/tls/enroll` | Enroll a TLS certificate for the agent, verified against a signed challenge (manager-driven) |
-| GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
-| GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
 | POST | `/agent/update` | Spawn a helper container that replaces the agent with the digest-pinned target image |
 
 **Streamed compose output:** the six compose POST routes (`deploy`, `update`, `teardown`, `restart`, `start`, `stop`) answer with JSON unless the request's `Accept` header lists `text/event-stream`. Then, once the request is validated and its files are written, the agent opens an SSE stream of named events: `start` (run id, action, stack), `phase` (`prepare`, `pull`, `up`, `down`, `restart`, `start` or `stop`, with its timeout except for `prepare`, which runs several processes), `line` (one output line from stdout or stderr, cut at 4096 characters), and a final `result` (status, exit code, timeout and failed phase, plus how many lines past the 8 MiB per-run cap, charged per serialized frame, were dropped and, only when some were, a `tail` of the newest dropped lines, at most 100 and 32 KiB serialized, so the end of the output is not lost). Each frame after `start` carries a `seq` that rises by one. The schemas are in `agent/src/types/protocol.ts`. The run is owned by an in-memory registry (`agent/src/lib/compose-run.ts`), not by the request: a client that disconnects leaves compose running, and finished runs keep their result and last lines for 10 minutes (20 runs at most). Validation, size, path and file-write errors stay JSON with the same statuses as before.
@@ -356,6 +372,7 @@ At-rest encryption uses a versioned keyring of symmetric keys (base64, 256-bit) 
 
 - **Stack secrets** (`stack_secrets` table): name/value pairs stored as JWE-encrypted blobs. The deploy pipeline resolves `${SECRET:name}` references in compose files before dispatching to agents (`src/lib/crypto/encrypted-value.ts`)
 - **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted. The public JWK is written to the wizard-generated .env at the Compose File step (the compose references it as `${AGENT_TRUSTED_PUBKEY}`), so the deployed agent trusts the manager from first boot (`src/data/hosts/handlers.ts`). The dev compose flow writes the JWK to `data/dev-agent-pubkey.json` and the agent loads it via `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)
+- **ZFS node keys** (`zfs_nodes.private_key_jwe`): one OpenSSH ed25519 private key per node, JWE-encrypted. `bun run migrate-secrets` re-encrypts them with the other encrypted columns. The worker compares the decrypted key, not the ciphertext, so a rotation keeps running sessions
 - `src/lib/crypto/master-key.ts` handles key resolution and exports the AES-GCM key object used by the JWE helpers
 
 ### Stacks UI

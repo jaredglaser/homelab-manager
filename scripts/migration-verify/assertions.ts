@@ -22,6 +22,7 @@ import {
   SPARSE_HOUR,
   ZFS_ENTITIES,
   ZFS_HOST,
+  ZFS_LEGACY,
   ZFS_POOL,
   nullMetricDilutedAverage,
   nullMetricRawAverage,
@@ -1669,5 +1670,25 @@ export async function assertNullInvariantRepair(pool: Pool, checks: Checks): Pro
       NULL_INVARIANT_ROWS.metadataEntity,
     ]),
     0
+  );
+}
+
+/** Runs after the rollup backfill, so `_1m` shows whether the rebuilt aggregate holds the rewritten entities. */
+export async function assertZfsLegacyEntities(pool: Pool, checks: Checks): Promise<void> {
+  const entities = async (relation: string): Promise<string[]> => {
+    const result = await pool.query<{ entity: string }>(
+      `SELECT DISTINCT entity FROM ${relation} WHERE host = $1 ORDER BY entity`,
+      [ZFS_LEGACY.host]
+    );
+    return result.rows.map((row) => row.entity);
+  };
+  const expected = ZFS_LEGACY.rows.flatMap((row) => (row.expected === null ? [] : [row.expected]));
+
+  checks.sameSet('054 drops the agent address from zfs_stats entities and the group header rows', await entities('zfs_stats'), expected);
+  checks.sameSet('the rebuilt zfs_stats_1m holds only the rewritten entities', await entities('zfs_stats_1m'), expected);
+  checks.equal(
+    '054 keeps every sample of a rewritten pool line, so its history joins the new rows',
+    await count(pool, 'SELECT count(*) FROM zfs_stats WHERE host = $1 AND entity = $2', [ZFS_LEGACY.host, 'legacy-tank']),
+    ZFS_LEGACY.samples
   );
 }
