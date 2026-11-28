@@ -17,9 +17,13 @@ mockModule<typeof import('@/lib/mux/mux-connection')>('@/lib/mux/mux-connection'
 }));
 
 let historyRows: ProxmoxStatsRow[] = [];
+let preloadGate: Promise<void> | null = null;
 mockModule<typeof ProxmoxFunctions>('@/data/proxmox/functions', (real) => ({
   ...real,
-  getHistoricalProxmoxStats: (() => Promise.resolve(historyRows)) as unknown as typeof real.getHistoricalProxmoxStats,
+  getHistoricalProxmoxStats: (async () => {
+    await preloadGate;
+    return historyRows;
+  }) as unknown as typeof real.getHistoricalProxmoxStats,
 }));
 
 const { Route } = await import('@/routes/proxmox');
@@ -116,6 +120,7 @@ beforeEach(() => {
   queryClient.clear();
   seedSession('viewer');
   historyRows = clusterRows('pve.lan', 'homelab', 'web-vm');
+  preloadGate = null;
   errorSpy = spyOn(console, 'error').mockImplementation(mock(() => {}));
 });
 
@@ -137,6 +142,18 @@ describe('Proxmox page, worker state', () => {
     await waitFor(() => expect(screen.queryByText(/Can't reach Proxmox/) === null).toBe(true));
     expect(screen.getByText('web-vm')).toBeTruthy();
     expect(fakeMux.subscriptionCount('proxmox-state')).toBe(1);
+  });
+
+  it('shows w3 only once the preload has settled, in its long form when the preload brought data', async () => {
+    let open!: () => void;
+    preloadGate = new Promise((resolve) => { open = resolve; });
+    renderPage();
+    sendState([connection({ state: 'unreachable' })]);
+    expect(await screen.findByText('Loading Proxmox cluster data...')).toBeTruthy();
+    expect(screen.queryByText(/Can't reach Proxmox/) === null).toBe(true);
+
+    open();
+    expect(await screen.findByText("Can't reach Proxmox at pve.lan:8006. Showing the last data, from 10:42 AM.")).toBeTruthy();
   });
 
   it('leaves the time out of w3 when no data is on screen, though Proxmox answered before', async () => {

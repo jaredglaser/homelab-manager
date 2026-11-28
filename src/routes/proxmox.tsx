@@ -78,7 +78,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
 
   const preloadFn = useCallback(preloadProxmoxStats, [])
 
-  const { data: initialData } = useQuery({
+  const { data: initialData, status: preloadStatus } = useQuery({
     queryKey: PROXMOX_PRELOAD_KEY,
     queryFn: preloadProxmoxStats,
     staleTime: PRELOAD_STALE_TIME,
@@ -126,9 +126,12 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   }, [overview, onOverviewChange])
 
   const notices = useMemo(() => {
-    const fromState = proxmoxStateNotices(collectorState, use12HourTime, overview !== null)
+    let dataOnScreen: boolean | null = null
+    if (overview !== null) dataOnScreen = true
+    else if (preloadStatus === 'error' || (preloadStatus === 'success' && initialData.length === 0)) dataOnScreen = false
+    const fromState = proxmoxStateNotices(collectorState, use12HourTime, dataOnScreen)
     return stream.error ? [{ key: 'live-connection', text: PROXMOX_LIVE_CONNECTION_LOST }, ...fromState] : fromState
-  }, [collectorState, use12HourTime, overview, stream.error])
+  }, [collectorState, use12HourTime, overview, preloadStatus, initialData, stream.error])
 
   return (
     <>
@@ -139,7 +142,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
           <ProxmoxHostView overview={overview} />
         </>
       )}
-      {!overview && !stream.error && proxmoxDataExpected(collectorState) && (
+      {!overview && !stream.error && (proxmoxDataExpected(collectorState) || preloadStatus === 'pending') && (
         <div className="flex items-center gap-3 py-12">
           <Spinner className="size-5" />
           <p className="text-base">Loading Proxmox cluster data...</p>

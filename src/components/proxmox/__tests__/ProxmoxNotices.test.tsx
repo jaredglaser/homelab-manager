@@ -92,6 +92,13 @@ describe('proxmoxStateNotices', () => {
     ]);
   });
 
+  it('holds back w3 until it is known whether data is on screen, and keeps the other notices', () => {
+    const notices = proxmoxStateNotices({
+      connections: [connection({ connectionId: 'a', state: 'unreachable' }), connection({ connectionId: 'b', state: 'token_rejected' })],
+    }, true, null);
+    expect(notices.map((n) => n.text)).toEqual([PROXMOX_TOKEN_REJECTED]);
+  });
+
   it('says only where Proxmox is when no data is on screen, even with a last success recorded', () => {
     const texts = proxmoxStateNotices({ connections: [connection({ state: 'unreachable' })] }, true, false).map((n) => n.text);
     expect(texts).toEqual(["Can't reach Proxmox at pve.lan:8006."]);

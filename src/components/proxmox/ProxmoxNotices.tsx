@@ -38,11 +38,14 @@ export interface ProxmoxNotice {
   text: string
 }
 
-/** Notices for the worker's recorded state. `null` means the state has not arrived yet, which shows nothing. */
+/**
+ * Notices for the worker's recorded state. A `null` snapshot (not arrived yet) shows nothing, and a
+ * `null` dataOnScreen (preload still running) holds back w3, whose wording depends on it.
+ */
 export function proxmoxStateNotices(
   snapshot: ProxmoxStateMessage | null,
   use12Hour: boolean,
-  dataOnScreen: boolean,
+  dataOnScreen: boolean | null,
 ): ProxmoxNotice[] {
   if (snapshot === null) return []
   if (snapshot.connections.length === 0) return [{ key: 'not-set-up', text: PROXMOX_NOT_SET_UP }]
@@ -54,7 +57,7 @@ export function proxmoxStateNotices(
       case 'collector_off':
         return [{ key, text: PROXMOX_COLLECTOR_OFF }]
       case 'unreachable':
-        return [{ key, text: unreachableMessage(connection, use12Hour, dataOnScreen) }]
+        return dataOnScreen === null ? [] : [{ key, text: unreachableMessage(connection, use12Hour, dataOnScreen) }]
       case 'token_rejected':
         return [{ key, text: PROXMOX_TOKEN_REJECTED }]
       case 'certificate_refused':
