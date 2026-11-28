@@ -209,7 +209,7 @@ export interface ZFSEntityDef {
   /** Null where zpool reports no capacity: device groups and spares. */
   capacityAlloc: number | null;
   capacityFree: number | null;
-  /** Null for device groups and spares, which zpool iostat reports no I/O for. */
+  /** Null where the agent sends no I/O. */
   activity: ActivityProfile | null;
 }
 
@@ -300,11 +300,10 @@ const SYSTEM_ACTIVITY: ActivityProfile = {
 
 export const ZFS_ENTITIES: readonly ZFSEntityDef[] = [
   // ── application pool ──────────────────────────────────────────────────────
-  // A row's parent is its entity minus the last segment. Group segments start with '@'.
   { host: 'nas01', pool: 'application', entity: 'application',              entityType: 'pool', indent: 0, capacityAlloc: 1_800_000_000_000, capacityFree: 1_200_000_000_000, activity: APP_POOL_ACTIVITY },
   { host: 'nas01', pool: 'application', entity: 'application/mirror-0',     entityType: 'vdev', indent: 2, capacityAlloc: 1_800_000_000_000, capacityFree: 1_200_000_000_000, activity: APP_POOL_ACTIVITY },
-  { host: 'nas01', pool: 'application', entity: 'application/mirror-0/nvme0n1', entityType: 'disk', indent: 4, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
-  { host: 'nas01', pool: 'application', entity: 'application/mirror-0/nvme1n1', entityType: 'disk', indent: 4, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'application', entity: 'application/mirror-0/nvme0n1', entityType: 'disk', indent: 4, capacityAlloc: null, capacityFree: null, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'application', entity: 'application/mirror-0/nvme1n1', entityType: 'disk', indent: 4, capacityAlloc: null, capacityFree: null, activity: APP_DISK_ACTIVITY },
 
   // ── rust pool ─────────────────────────────────────────────────────────────
   { host: 'nas01', pool: 'rust', entity: 'rust',          entityType: 'pool', indent: 0, capacityAlloc: 33_600_000_000_000, capacityFree: 14_400_000_000_000, activity: RUST_POOL_ACTIVITY },
@@ -312,13 +311,15 @@ export const ZFS_ENTITIES: readonly ZFSEntityDef[] = [
   // 8 drives - each carries ~1/8 of pool I/O
   ...(['sdc', 'sdd', 'sde', 'sdf', 'sdg', 'sdh', 'sdi', 'sdj'] as const).map((disk): ZFSEntityDef => ({
     host: 'nas01', pool: 'rust', entity: `rust/raidz2-0/${disk}`, entityType: 'disk', indent: 4,
-    capacityAlloc: 0, capacityFree: 0, activity: RUST_DISK_ACTIVITY,
+    capacityAlloc: null, capacityFree: null, activity: RUST_DISK_ACTIVITY,
   })),
-  // Device groups: a mirrored special vdev for metadata, a log device, an L2ARC cache device and a hot spare
+  // Device groups: a mirrored special vdev for metadata, a dedup table device, a log device, an L2ARC cache device and a hot spare
   { host: 'nas01', pool: 'rust', entity: 'rust/@special',                  entityType: 'group', indent: 2, capacityAlloc: null, capacityFree: null, activity: null },
   { host: 'nas01', pool: 'rust', entity: 'rust/@special/mirror-1',         entityType: 'vdev',  indent: 4, capacityAlloc: 120_000_000_000, capacityFree: 880_000_000_000, activity: APP_DISK_ACTIVITY },
-  { host: 'nas01', pool: 'rust', entity: 'rust/@special/mirror-1/nvme2n1', entityType: 'disk',  indent: 6, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
-  { host: 'nas01', pool: 'rust', entity: 'rust/@special/mirror-1/nvme3n1', entityType: 'disk',  indent: 6, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@special/mirror-1/nvme2n1', entityType: 'disk',  indent: 6, capacityAlloc: null, capacityFree: null, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@special/mirror-1/nvme3n1', entityType: 'disk',  indent: 6, capacityAlloc: null, capacityFree: null, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@dedup',                    entityType: 'group', indent: 2, capacityAlloc: null, capacityFree: null, activity: null },
+  { host: 'nas01', pool: 'rust', entity: 'rust/@dedup/nvme6n1',            entityType: 'disk',  indent: 4, capacityAlloc: 20_000_000_000, capacityFree: 230_000_000_000, activity: APP_DISK_ACTIVITY },
   { host: 'nas01', pool: 'rust', entity: 'rust/@logs',                     entityType: 'group', indent: 2, capacityAlloc: null, capacityFree: null, activity: null },
   { host: 'nas01', pool: 'rust', entity: 'rust/@logs/nvme4n1p1',           entityType: 'disk',  indent: 4, capacityAlloc: 0, capacityFree: 16_000_000_000, activity: APP_DISK_ACTIVITY },
   { host: 'nas01', pool: 'rust', entity: 'rust/@cache',                    entityType: 'group', indent: 2, capacityAlloc: null, capacityFree: null, activity: null },

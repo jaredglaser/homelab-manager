@@ -42,9 +42,20 @@ describe('generateZFSSnapshot', () => {
     for (const group of rows.filter((r) => r.entity_type === 'group')) expect(group.indent).toBe(2);
   });
 
-  it('includes a pool with special, log, cache and spare device groups', () => {
+  it('includes a pool with every kind of device group', () => {
     const groups = generateZFSSnapshot(time).filter((r) => r.entity_type === 'group').map((r) => r.entity);
-    expect(groups).toEqual(['rust/@special', 'rust/@logs', 'rust/@cache', 'rust/@spares']);
+    expect(groups).toEqual(['rust/@special', 'rust/@dedup', 'rust/@logs', 'rust/@cache', 'rust/@spares']);
+  });
+
+  it('reports no capacity for disks inside a vdev, as zpool does', () => {
+    const rows = generateZFSSnapshot(time);
+    const vdevs = new Set(rows.filter((r) => r.entity_type === 'vdev').map((r) => r.entity));
+    const nested = rows.filter((r) => r.entity_type === 'disk' && vdevs.has(r.entity.slice(0, r.entity.lastIndexOf('/'))));
+    expect(nested.length).toBeGreaterThan(0);
+    for (const disk of nested) {
+      expect(disk.capacity_alloc).toBeNull();
+      expect(disk.capacity_free).toBeNull();
+    }
   });
 });
 

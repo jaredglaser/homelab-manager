@@ -16,10 +16,9 @@ test('shows the device groups of a pool inside it, under their labels', async ({
 
   await page.locator('[role="button"]').filter({ hasText: /^rust/ }).first().click();
 
-  for (const label of ['Special devices', 'Log devices', 'Cache devices', 'Spares']) {
+  for (const label of ['Special devices', 'Dedup devices', 'Log devices', 'Cache devices', 'Spares']) {
     await expect(page.getByText(label, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText('Dedup devices', { exact: true })).toHaveCount(0);
 });
 
 test('tells the operator to update an agent too old to report ZFS stats', async ({ page }) => {
