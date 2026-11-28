@@ -196,6 +196,7 @@ describe('recordProxmoxStartupState', () => {
   function makeStore() {
     return {
       record: mock(async () => {}),
+      recordCollectingIfUnknown: mock(async () => {}),
       removeAllExcept: mock(async () => {}),
     };
   }
@@ -251,13 +252,7 @@ describe('recordProxmoxStartupState', () => {
     await recordProxmoxStartupState(store, createWorkerConfig({ proxmox: { enabled: true } }));
 
     expect(store.removeAllExcept).toHaveBeenCalledWith(['pve.lan']);
-    expect(store.record).toHaveBeenCalledWith({
-      connectionId: 'pve.lan',
-      host: 'pve.lan',
-      port: 8007,
-      state: 'collecting',
-      reason: null,
-      lastSuccessAt: null,
-    });
+    expect(store.recordCollectingIfUnknown).toHaveBeenCalledWith({ connectionId: 'pve.lan', host: 'pve.lan', port: 8007 });
+    expect(store.record).not.toHaveBeenCalled();
   });
 });

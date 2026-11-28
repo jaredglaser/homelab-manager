@@ -3,6 +3,7 @@ import type { Checks } from './checks';
 import { HOST_PROBE_FAILURE_CODES, MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
+import { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
 import {
   ACTIVE_CONTAINER,
   TLS_HOST,
@@ -1749,5 +1750,24 @@ export async function assertProxmoxStateNotify(pool: Pool, checks: Checks): Prom
   } finally {
     await listener.query('UNLISTEN proxmox_state_change').catch(() => undefined);
     listener.release();
+  }
+}
+
+/** A worker restart must not replace a recorded failure with the startup `collecting` row. */
+export async function assertStartupCollectingWrite(pool: Pool, checks: Checks): Promise<void> {
+  const repo = new ProxmoxStateRepository(pool);
+  const ids = { failed: 'ci-startup-failed', off: 'ci-startup-off', absent: 'ci-startup-absent' };
+  try {
+    await repo.record({ connectionId: ids.failed, host: 'a.lan', port: 8006, state: 'token_rejected', reason: 'HTTP 401', lastSuccessAt: null });
+    await repo.record({ connectionId: ids.off, host: 'b.lan', port: 8006, state: 'collector_off', reason: null, lastSuccessAt: null });
+    for (const [id, host] of [[ids.failed, 'a.lan'], [ids.off, 'b.lan'], [ids.absent, 'c.lan']]) {
+      await repo.recordCollectingIfUnknown({ connectionId: id, host, port: 8006 });
+    }
+    const states = new Map((await repo.list()).map((c) => [c.connectionId, c.state]));
+    checks.equal('the startup write keeps a recorded token_rejected', states.get(ids.failed), 'token_rejected');
+    checks.equal('the startup write replaces collector_off with collecting', states.get(ids.off), 'collecting');
+    checks.equal('the startup write inserts collecting where no row exists', states.get(ids.absent), 'collecting');
+  } finally {
+    await pool.query('DELETE FROM proxmox_collector_state WHERE connection_id = ANY($1::text[])', [Object.values(ids)]);
   }
 }

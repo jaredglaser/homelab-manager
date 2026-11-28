@@ -59,7 +59,7 @@ export function createCollectors(
 
 /** Without a row here at startup the page reads "not set up" until the first poll ends, which can take 15 s. */
 export async function recordProxmoxStartupState(
-  store: Pick<ProxmoxStateRepository, 'record' | 'removeAllExcept'>,
+  store: Pick<ProxmoxStateRepository, 'record' | 'recordCollectingIfUnknown' | 'removeAllExcept'>,
   workerConfig: WorkerConfig,
 ): Promise<void> {
   if (!isProxmoxConfigured()) {
@@ -69,11 +69,15 @@ export async function recordProxmoxStartupState(
   const config = loadProxmoxConfig();
   const connectionId = proxmoxConnectionId(config);
   await store.removeAllExcept([connectionId]);
+  if (workerConfig.proxmox.enabled) {
+    await store.recordCollectingIfUnknown({ connectionId, host: config.host, port: config.port });
+    return;
+  }
   await store.record({
     connectionId,
     host: config.host,
     port: config.port,
-    state: workerConfig.proxmox.enabled ? 'collecting' : 'collector_off',
+    state: 'collector_off',
     reason: null,
     lastSuccessAt: null,
   });

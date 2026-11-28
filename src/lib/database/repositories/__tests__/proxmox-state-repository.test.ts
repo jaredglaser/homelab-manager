@@ -32,6 +32,14 @@ describe('ProxmoxStateRepository', () => {
     expect(mock.queries[0].params).toEqual(['pve.lan', 'pve.lan', 8006, 'unreachable', '/cluster/status: Connection refused', null]);
   });
 
+  it('writes the startup collecting row only over no row or a collector_off one', async () => {
+    await repo.recordCollectingIfUnknown({ connectionId: 'pve.lan', host: 'pve.lan', port: 8006 });
+
+    expect(mock.queries[0].sql).toContain("VALUES ($1, $2, $3, 'collecting', now())");
+    expect(mock.queries[0].sql).toContain("WHERE proxmox_collector_state.state = 'collector_off'");
+    expect(mock.queries[0].params).toEqual(['pve.lan', 'pve.lan', 8006]);
+  });
+
   it('deletes the rows of every other connection', async () => {
     await repo.removeAllExcept(['pve.lan']);
 

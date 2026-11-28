@@ -46,6 +46,25 @@ export class ProxmoxStateRepository {
     );
   }
 
+  /**
+   * The startup `collecting` row: written only where no state is recorded or the collector was off,
+   * so a restart does not hide a recorded failure until the first poll fails again.
+   */
+  async recordCollectingIfUnknown(write: Omit<ProxmoxCollectorStateWrite, 'state' | 'reason' | 'lastSuccessAt'>): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO proxmox_collector_state (connection_id, host, port, state, updated_at)
+       VALUES ($1, $2, $3, 'collecting', now())
+       ON CONFLICT (connection_id) DO UPDATE SET
+         host = EXCLUDED.host,
+         port = EXCLUDED.port,
+         state = 'collecting',
+         reason = NULL,
+         updated_at = now()
+       WHERE proxmox_collector_state.state = 'collector_off'`,
+      [write.connectionId, write.host, write.port],
+    );
+  }
+
   /** Drops the rows of connections the worker no longer has, so a removed connection stops showing its last state. */
   async removeAllExcept(connectionIds: string[]): Promise<void> {
     await this.pool.query(

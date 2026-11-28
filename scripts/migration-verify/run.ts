@@ -37,6 +37,7 @@ import {
   assertRateRollupMatchesRaw,
   assertCompressedProxmoxChunk,
   assertProxmoxStateNotify,
+  assertStartupCollectingWrite,
   assertRollupBackfill,
   assertRowCountsPreserved,
   assertSchema,
@@ -101,6 +102,7 @@ async function runFresh(): Promise<void> {
     await assertTierColumnCoverage(pool, checks);
     await assertAgentTlsCertificates(pool, checks);
     await assertProxmoxStateNotify(pool, checks);
+    await assertStartupCollectingWrite(pool, checks);
     checks.report();
   } finally {
     await pool.end();
