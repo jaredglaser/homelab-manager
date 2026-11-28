@@ -122,16 +122,12 @@ export class ProxmoxConnectionRepository {
   /** Removes the connection and its recorded state. Its stats rows stay. */
   async remove(id: number): Promise<ProxmoxConnectionSummary | null> {
     const result = await this.pool.query<ConnectionRow>(
-      `WITH gone AS (
-         DELETE FROM proxmox_connections WHERE id = $1 RETURNING id, name, address, port, token_id, allow_self_signed
-       ), state AS (
-         DELETE FROM proxmox_collector_state WHERE connection_id IN (SELECT id::text FROM gone)
-       )
-       SELECT id, name, address, port, token_id, allow_self_signed FROM gone`,
+      'DELETE FROM proxmox_connections WHERE id = $1 RETURNING id, name, address, port, token_id, allow_self_signed',
       [id],
     );
     const row = result.rows.at(0);
     if (!row) return null;
+    await this.pool.query('DELETE FROM proxmox_collector_state WHERE connection_id = $1', [String(id)]);
     await this.notifyChange(id);
     return toSummary(row);
   }

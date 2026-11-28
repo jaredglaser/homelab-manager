@@ -82,6 +82,7 @@ class FakeDatabase {
       Object.assign(row, { name, address, port, token_id: tokenId, token_secret_jwe: jwe ?? row.token_secret_jwe, allow_self_signed: allow });
       return [this.summary(row)];
     }
+    if (sql.startsWith('DELETE FROM proxmox_collector_state')) return [];
     if (sql.includes('DELETE FROM proxmox_connections')) {
       const row = this.rows.get(params[0] as number);
       if (!row) return [];
