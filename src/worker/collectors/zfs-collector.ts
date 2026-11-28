@@ -1,23 +1,30 @@
 import {
   readLegacyZfsLineFrame,
+  ZFS_HEALTH_EVENT,
+  zZfsHealthFrame,
   zZfsStatsFrame,
   type ZfsCapacity,
   type ZfsDevice,
+  type ZfsDeviceHealth,
   type ZfsGroup,
   type ZfsIo,
+  type ZfsPoolHealth,
   type ZfsStatsFrame,
 } from '@homelab-manager/agent/types/protocol';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
+import { ZfsHealthRepository } from '@/lib/database/repositories/zfs-health-repository';
 import { zfsEntitySegment, zfsGroupSegment } from '@/lib/utils/zfs-hierarchy-builder';
-import type { ZFSEntityType } from '@/types/zfs';
+import type { ZFSEntityType, ZFSNodeHealth, ZFSPoolHealth } from '@/types/zfs';
 import { BaseCollector } from './base-collector';
-import { connectAgentSseStream } from './agent-sse-stream';
+import { AgentSseNamedEvent, connectAgentSseStream } from './agent-sse-stream';
 
 /** Injectable connector so tests can supply parsed events without opening a byte stream. */
 type StreamConnector = typeof connectAgentSseStream;
+
+type HealthWriter = Pick<ZfsHealthRepository, 'recordHealth' | 'recordUnreadable' | 'recordDisconnected'>;
 
 export class AgentZfsFrameError extends Error {
   constructor(message: string) {
@@ -81,6 +88,29 @@ export function zfsFrameToRows(frame: ZfsStatsFrame, host: string): NewZFSStat[]
   return rows;
 }
 
+/** The pool's node first, then its devices with the same entities `zfsFrameToRows` gives them. */
+export function poolHealthToRecord(pool: ZfsPoolHealth): ZFSPoolHealth {
+  const poolEntity = zfsEntitySegment(pool.name);
+  const nodes: ZFSNodeHealth[] = [{ entity: poolEntity, entityType: 'pool', state: pool.state, errors: null }];
+  const addDevice = (device: ZfsDeviceHealth, parent: string): void => {
+    const entity = `${parent}/${zfsEntitySegment(device.name)}`;
+    nodes.push({ entity, entityType: device.kind, state: device.state, errors: device.errors });
+    if (device.kind === 'vdev') {
+      for (const child of device.children) addDevice(child, entity);
+    }
+  };
+  for (const child of pool.children) {
+    if (child.kind !== 'group') {
+      addDevice(child, poolEntity);
+      continue;
+    }
+    const entity = `${poolEntity}/${zfsGroupSegment(child.group)}`;
+    nodes.push({ entity, entityType: 'group', state: null, errors: null });
+    for (const device of child.children) addDevice(device, entity);
+  }
+  return { pool: pool.name, scan: pool.scan, nodes };
+}
+
 /** Stamped with the agent's own clock, like samples, so it orders against the samples of an agent updated later. */
 export function agentOutdatedRow(host: string, time: Date): NewZFSStat {
   return nodeRow({ time, host, pool: '' }, '', 'agent_outdated', 0, null, null);
@@ -95,6 +125,7 @@ export class ZFSCollector extends BaseCollector {
   private readonly signer: () => Promise<string>;
   private readonly streamConnector: StreamConnector;
   private readonly caCertPem: string | null;
+  private healthWriter: HealthWriter | undefined;
 
   constructor(
     db: DatabaseClient,
@@ -104,6 +135,7 @@ export class ZFSCollector extends BaseCollector {
     abortController?: AbortController,
     streamConnector?: StreamConnector,
     caCertPem?: string | null,
+    healthWriter?: HealthWriter,
   ) {
     super(db, config, abortController);
     this.host = host;
@@ -111,9 +143,46 @@ export class ZFSCollector extends BaseCollector {
     this.name = `ZFSCollector[${host.name}]`;
     this.streamConnector = streamConnector ?? connectAgentSseStream;
     this.caCertPem = caCertPem ?? null;
+    this.healthWriter = healthWriter;
   }
 
+  private get health(): HealthWriter {
+    if (!this.healthWriter) {
+      if (!this.db) throw new Error(`${this.name} has no DatabaseClient to build a ZfsHealthRepository from`);
+      this.healthWriter = new ZfsHealthRepository(this.db.getPool());
+    }
+    return this.healthWriter;
+  }
+
+  /** Any end of the stream but a stop marks the host offline, so the page shows its last health with when it was seen. */
   protected async collect(): Promise<void> {
+    try {
+      await this.readStream();
+    } finally {
+      if (!this.signal.aborted) {
+        await this.health.recordDisconnected(this.host.name).catch((err: unknown) => {
+          console.error(`[${this.name}] Could not record the agent as offline:`, err);
+        });
+      }
+    }
+  }
+
+  /** A health frame off the contract is recorded as unreadable, so a bad health frame cannot stop the stats. */
+  private async recordHealth(data: unknown): Promise<void> {
+    const parsed = zZfsHealthFrame.safeParse(data);
+    if (!parsed.success) {
+      console.error(`[${this.name}] The agent sent a ZFS health frame off the contract: ${parsed.error.message}`);
+      await this.health.recordUnreadable(this.host.name);
+      return;
+    }
+    if (parsed.data.status === 'unreadable') {
+      await this.health.recordUnreadable(this.host.name);
+      return;
+    }
+    await this.health.recordHealth(this.host.name, parsed.data.pools.map(poolHealthToRecord));
+  }
+
+  private async readStream(): Promise<void> {
     this.debugLog(`[${this.name}] Connecting to ${this.host.agentUrl}/zfs/stats/stream`);
 
     const stream = await this.streamConnector({
@@ -122,6 +191,7 @@ export class ZFSCollector extends BaseCollector {
       signer: this.signer,
       signal: this.signal,
       caCertPem: this.caCertPem,
+      namedEvents: [ZFS_HEALTH_EVENT],
     });
 
     this.debugLog(`[${this.name}] Connected, reading ZFS stats SSE stream`);
@@ -133,6 +203,11 @@ export class ZFSCollector extends BaseCollector {
     try {
       for await (const raw of stream) {
         if (this.signal.aborted) break;
+
+        if (raw instanceof AgentSseNamedEvent) {
+          await this.recordHealth(raw.data);
+          continue;
+        }
 
         const parsed = zZfsStatsFrame.safeParse(raw);
         if (!parsed.success) {

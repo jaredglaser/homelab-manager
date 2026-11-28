@@ -1,6 +1,8 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
-import type { ZfsPool, ZfsStatsFrame } from '@homelab-manager/agent/types/protocol';
+import { ZFS_HEALTH_EVENT, type ZfsHealthFrame, type ZfsPool, type ZfsPoolHealth, type ZfsStatsFrame } from '@homelab-manager/agent/types/protocol';
 import { AgentZfsFrameError, ZFSCollector } from '../zfs-collector';
+import { AgentSseNamedEvent } from '../agent-sse-stream';
+import type { ZFSPoolHealth } from '@/types/zfs';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
 import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
@@ -415,5 +417,131 @@ describe('ZFSCollector', () => {
       collector.dbFlushDebugLogging = true;
       collector.dbFlushDebugLogging = false;
     });
+  });
+});
+
+describe('ZFSCollector pool health', () => {
+  const TANK_HEALTH: ZfsPoolHealth = {
+    name: 'tank',
+    state: 'degraded',
+    scan: { kind: 'resilver', state: 'running', percentDone: 42, endedAt: null, repairedBytes: 1024, errors: 0 },
+    children: [
+      {
+        kind: 'vdev',
+        name: 'mirror-0',
+        state: 'degraded',
+        errors: { read: 0, write: 0, checksum: 0 },
+        children: [
+          { kind: 'disk', name: 'sda', state: 'faulted', errors: { read: 3, write: 0, checksum: 12 } },
+          { kind: 'disk', name: '/var/lib/zfs/b.img', state: 'online', errors: { read: 0, write: 0, checksum: 0 } },
+        ],
+      },
+      { kind: 'group', group: 'spares', children: [{ kind: 'disk', name: 'sdz', state: 'online', errors: null }] },
+    ],
+  };
+
+  const healthEvent = (frame: ZfsHealthFrame | unknown) => new AgentSseNamedEvent(ZFS_HEALTH_EVENT, frame);
+
+  function writer() {
+    const calls: Array<[string, ...unknown[]]> = [];
+    return {
+      calls,
+      recordHealth: async (host: string, pools: ZFSPoolHealth[]) => { calls.push(['health', host, pools]); },
+      recordUnreadable: async (host: string) => { calls.push(['unreadable', host]); },
+      recordDisconnected: async (host: string) => { calls.push(['disconnected', host]); },
+    };
+  }
+
+  async function run(frames: unknown[], abort?: AbortController) {
+    const db = createMockDb();
+    const health = writer();
+    const collector = new ZFSCollector(
+      db.db, defaultConfig, sampleHost, async () => 'test-token', abort ?? new AbortController(), fixedStream(frames), null, health,
+    );
+    db.patchRepository(collector);
+    await (collector as any).collect();
+    return { health: health.calls, rows: db.insertedRows };
+  }
+
+  let errorSpy: ReturnType<typeof spyOn<Console, 'error'>>;
+  beforeEach(() => {
+    errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
+  it('asks the stream for the health event', async () => {
+    const connect = mock(fixedStream([]));
+    const collector = new ZFSCollector(
+      createMockDb().db, defaultConfig, sampleHost, async () => 'test-token', new AbortController(), connect as unknown as StreamConnector, null, writer(),
+    );
+    await (collector as any).collect();
+    expect((connect.mock.calls[0][0] as unknown as { namedEvents: string[] }).namedEvents).toEqual([ZFS_HEALTH_EVENT]);
+  });
+
+  it('records each pool with the entities its stats rows have', async () => {
+    const { health } = await run([healthEvent({ v: 1, time: 1, status: 'ok', pools: [TANK_HEALTH] }), frame([TANK])]);
+
+    expect(health[0]).toEqual(['health', 'test-zfs', [{
+      pool: 'tank',
+      scan: TANK_HEALTH.scan,
+      nodes: [
+        { entity: 'tank', entityType: 'pool', state: 'degraded', errors: null },
+        { entity: 'tank/mirror-0', entityType: 'vdev', state: 'degraded', errors: { read: 0, write: 0, checksum: 0 } },
+        { entity: 'tank/mirror-0/sda', entityType: 'disk', state: 'faulted', errors: { read: 3, write: 0, checksum: 12 } },
+        { entity: 'tank/mirror-0/%2Fvar%2Flib%2Fzfs%2Fb.img', entityType: 'disk', state: 'online', errors: { read: 0, write: 0, checksum: 0 } },
+        { entity: 'tank/@spares', entityType: 'group', state: null, errors: null },
+        { entity: 'tank/@spares/sdz', entityType: 'disk', state: 'online', errors: null },
+      ],
+    }]]);
+  });
+
+  it('records the whole health each time, so cleared counters and an exported pool replace what was stored', async () => {
+    const cleared: ZfsPoolHealth = { ...TANK_HEALTH, children: [{ kind: 'disk', name: 'sda', state: 'online', errors: { read: 0, write: 0, checksum: 0 } }] };
+    const { health } = await run([
+      healthEvent({ v: 1, time: 1, status: 'ok', pools: [TANK_HEALTH] }),
+      healthEvent({ v: 1, time: 2, status: 'ok', pools: [cleared] }),
+      healthEvent({ v: 1, time: 3, status: 'ok', pools: [] }),
+    ]);
+
+    expect((health[1][2] as ZFSPoolHealth[])[0].nodes[1]).toEqual({ entity: 'tank/sda', entityType: 'disk', state: 'online', errors: { read: 0, write: 0, checksum: 0 } });
+    expect(health[2]).toEqual(['health', 'test-zfs', []]);
+  });
+
+  it('records unreadable health and keeps writing the stats', async () => {
+    const { health, rows } = await run([healthEvent({ v: 1, time: 1, status: 'unreadable' }), frame([TANK])]);
+
+    expect(health[0]).toEqual(['unreadable', 'test-zfs']);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('records a health frame off the contract as unreadable, logs it, and keeps writing the stats', async () => {
+    const { health, rows } = await run([healthEvent({ v: 1, time: 1, status: 'ok', pools: [{ name: 'tank' }] }), frame([TANK])]);
+
+    expect(health[0]).toEqual(['unreadable', 'test-zfs']);
+    expect(rows).toHaveLength(1);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the host offline when the stream ends', async () => {
+    const { health } = await run([healthEvent({ v: 1, time: 1, status: 'ok', pools: [] })]);
+    expect(health.at(-1)).toEqual(['disconnected', 'test-zfs']);
+  });
+
+  it('records the host offline when the agent cannot be reached, and still throws into the backoff', async () => {
+    const health = writer();
+    const connect: StreamConnector = async () => { throw new Error('Agent returned 502: Bad Gateway'); };
+    const collector = new ZFSCollector(createMockDb().db, defaultConfig, sampleHost, async () => 'test-token', new AbortController(), connect, null, health);
+
+    await expect((collector as any).collect()).rejects.toThrow('Agent returned 502');
+    expect(health.calls).toEqual([['disconnected', 'test-zfs']]);
+  });
+
+  it('records nothing when the worker stops the stream', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const { health } = await run([healthEvent({ v: 1, time: 1, status: 'ok', pools: [] })], abort);
+    expect(health).toEqual([]);
   });
 });

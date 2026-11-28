@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { AgentSseStreamError, connectAgentSseStream } from '@/worker/collectors/agent-sse-stream';
+import { AgentSseNamedEvent, AgentSseStreamError, connectAgentSseStream } from '@/worker/collectors/agent-sse-stream';
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -254,6 +254,32 @@ describe('connectAgentSseStream', () => {
     });
 
     expect(await collect(gen)).toEqual([{ foo: 1 }]);
+  });
+
+  it('yields the named events it is asked for, in order with the data frames, and skips the rest', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`event: zfs-health\ndata: {"status":"ok"}\n\n`));
+        controller.enqueue(encoder.encode(`event: containers\ndata: {"ids":["abc123"]}\n\n`));
+        controller.enqueue(encoder.encode(`data: {"foo":1}\n\n`));
+        controller.close();
+      },
+    });
+    const fetchFn: FetchFn = mock(async () =>
+      new Response(stream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
+    );
+
+    const gen = await connectAgentSseStream({
+      agentUrl: 'http://host:9090',
+      path: '/zfs/stats/stream',
+      signer: async () => 'tok',
+      signal: new AbortController().signal,
+      fetchFn,
+      namedEvents: ['zfs-health'],
+    });
+
+    expect(await collect(gen)).toEqual([new AgentSseNamedEvent('zfs-health', { status: 'ok' }), { foo: 1 }]);
   });
 
   it('drops malformed JSON frames and continues with the next valid one', async () => {

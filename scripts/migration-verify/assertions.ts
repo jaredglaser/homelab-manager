@@ -3,6 +3,7 @@ import type { Checks } from './checks';
 import { HOST_PROBE_FAILURE_CODES, MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
+import { ZfsHealthRepository } from '@/lib/database/repositories/zfs-health-repository';
 import {
   ACTIVE_CONTAINER,
   TLS_HOST,
@@ -1623,4 +1624,60 @@ export async function assertZfsLegacyEntities(pool: Pool, checks: Checks): Promi
     await count(pool, 'SELECT count(*) FROM zfs_stats WHERE host = $1 AND entity = $2', [ZFS_LEGACY.host, 'legacy-tank']),
     ZFS_LEGACY.samples
   );
+}
+
+const ZFS_HEALTH_HOST = 'ci-zfs-health';
+const ZFS_HEALTH_NOTIFY_TIMEOUT_MS = 5000;
+
+/** Health rows notify on every write, follow their host's renames and deletes, and keep when a host was last seen. */
+export async function assertZfsHostHealth(pool: Pool, checks: Checks): Promise<void> {
+  const listener = await pool.connect();
+  const payloads: string[] = [];
+  let wake: (() => void) | null = null;
+  listener.on('notification', (msg) => {
+    if (msg.channel !== 'zfs_health_change') return;
+    payloads.push(msg.payload ?? '');
+    wake?.();
+  });
+  const next = (count: number) => new Promise<boolean>((resolve) => {
+    if (payloads.length >= count) return resolve(true);
+    const timer = setTimeout(() => resolve(false), ZFS_HEALTH_NOTIFY_TIMEOUT_MS);
+    wake = () => {
+      if (payloads.length < count) return;
+      clearTimeout(timer);
+      resolve(true);
+    };
+  });
+  const repo = new ZfsHealthRepository(pool);
+  const renamed = `${ZFS_HEALTH_HOST}-renamed`;
+  try {
+    await listener.query('LISTEN zfs_health_change');
+    await pool.query(
+      `INSERT INTO managed_hosts (name, agent_url, capabilities) VALUES ($1, 'http://ci-zfs:9090', '{"zfs": true}')`,
+      [ZFS_HEALTH_HOST]
+    );
+    const pools = [{ pool: 'tank', scan: null, nodes: [{ entity: 'tank', entityType: 'pool' as const, state: 'degraded' as const, errors: null }] }];
+    await repo.recordHealth(ZFS_HEALTH_HOST, pools);
+    checks.equal('a zfs_host_health insert sends zfs_health_change', await next(1), true);
+    await repo.recordDisconnected(ZFS_HEALTH_HOST);
+    checks.equal('a zfs_host_health update sends zfs_health_change', await next(2), true);
+    const [offline] = await repo.list();
+    await repo.recordDisconnected(ZFS_HEALTH_HOST);
+    const [again] = await repo.list();
+    checks.equal('the stored pools survive the host going offline', JSON.stringify(offline?.pools), JSON.stringify(pools));
+    checks.equal('a second offline write keeps when the host was last seen', again?.lastSeenAt, offline?.lastSeenAt);
+    await repo.recordUnreadable(ZFS_HEALTH_HOST);
+    const [unreadable] = await repo.list();
+    checks.equal('unreadable health keeps the stored pools', JSON.stringify(unreadable?.pools), JSON.stringify(pools));
+    await pool.query('UPDATE managed_hosts SET name = $2 WHERE name = $1', [ZFS_HEALTH_HOST, renamed]);
+    checks.equal('a host rename carries its health row', (await repo.list())[0]?.host, renamed);
+    await pool.query('DELETE FROM managed_hosts WHERE name = $1', [renamed]);
+    const deleted = payloads.length + 1;
+    checks.equal('deleting the host deletes its health and sends zfs_health_change', await next(deleted), true);
+    checks.equal('no health row outlives its host', (await repo.list()).length, 0);
+  } finally {
+    await pool.query('DELETE FROM managed_hosts WHERE name = ANY($1::text[])', [[ZFS_HEALTH_HOST, renamed]]);
+    await listener.query('UNLISTEN zfs_health_change').catch(() => undefined);
+    listener.release();
+  }
 }

@@ -36,6 +36,12 @@ export interface AgentSseConnectOptions {
   caCertPem?: string | null;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetchFn?: FetchFn;
+  /** Named events to yield as `AgentSseNamedEvent`. Every other named event is skipped. */
+  namedEvents?: readonly string[];
+}
+
+export class AgentSseNamedEvent {
+  constructor(readonly event: string, readonly data: unknown) {}
 }
 
 /**
@@ -89,12 +95,13 @@ export async function connectAgentSseStream(
     throw new AgentSseStreamError('Agent response has no body', undefined, url);
   }
 
-  return readFrames(response.body, options.signal);
+  return readFrames(response.body, options.signal, new Set(options.namedEvents ?? []));
 }
 
 async function* readFrames(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal,
+  namedEvents: ReadonlySet<string>,
 ): AsyncGenerator<unknown, void, void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -117,7 +124,9 @@ async function* readFrames(
         const lines = message.split('\n');
         // Named events (e.g. "event: containers") carry a different payload shape
         // than default stats/event frames; only default `data:` frames are stats.
-        if (lines.some((line) => line.startsWith('event:'))) continue;
+        const eventLine = lines.find((line) => line.startsWith('event:'));
+        const event = eventLine?.slice('event:'.length).trim();
+        if (event !== undefined && !namedEvents.has(event)) continue;
 
         const dataLine = lines.find((line) => line.startsWith('data: '));
         // No `data:` field: a heartbeat comment frame (bare `:` line, sent by the
@@ -127,7 +136,8 @@ async function* readFrames(
 
         const jsonStr = dataLine.slice(6);
         try {
-          yield JSON.parse(jsonStr);
+          const data: unknown = JSON.parse(jsonStr);
+          yield event === undefined ? data : new AgentSseNamedEvent(event, data);
         } catch {
           console.error(`[AgentSseStream] Dropped malformed SSE frame: ${jsonStr.slice(0, 100)}`);
         }

@@ -1,4 +1,10 @@
-import type { ZfsGroupKind } from '@homelab-manager/agent/types/protocol';
+import { z } from 'zod';
+import {
+  zZfsDeviceErrors,
+  zZfsHealthState,
+  zZfsScan,
+  type ZfsGroupKind,
+} from '@homelab-manager/agent/types/protocol';
 
 /**
  * `host` and `agent_outdated` are host-level rows with no pool: `host` stands for a sample with no pools
@@ -69,3 +75,32 @@ export interface ZFSHostStats {
 
 /** Complete multi-host ZFS hierarchy: hosts -> pools -> devices */
 export type ZFSHostHierarchy = Map<string, ZFSHostStats>;
+
+/** The health of one pool, group, vdev or disk. `entity` is the node's `zfs_stats` entity. A group has no state. */
+export const zZFSNodeHealth = z.object({
+  entity: z.string().min(1),
+  entityType: z.enum(['pool', 'group', 'vdev', 'disk']),
+  state: zZfsHealthState.nullable(),
+  errors: zZfsDeviceErrors.nullable(),
+});
+export type ZFSNodeHealth = z.infer<typeof zZFSNodeHealth>;
+
+/** `nodes` starts with the pool's own node, then its devices in tree order. */
+export const zZFSPoolHealth = z.object({
+  pool: z.string().min(1),
+  scan: zZfsScan.nullable(),
+  nodes: z.array(zZFSNodeHealth).min(1),
+});
+export type ZFSPoolHealth = z.infer<typeof zZFSPoolHealth>;
+
+export const zZFSHostHealth = z.object({
+  host: z.string().min(1),
+  /** False while the agent cannot read pool health. `pools` is then the last health it could read. */
+  readable: z.boolean(),
+  /** False while the worker has no stream from the agent. `pools` is then as it was at `lastSeenAt`. */
+  connected: z.boolean(),
+  /** Epoch ms. */
+  lastSeenAt: z.number(),
+  pools: z.array(zZFSPoolHealth),
+});
+export type ZFSHostHealth = z.infer<typeof zZFSHostHealth>;

@@ -46,6 +46,7 @@ import {
   assertServiceKeyUnification,
   assertTierColumnCoverage,
   assertWeightedRollup,
+  assertZfsHostHealth,
   assertZfsLegacyEntities,
   captureRowCounts,
 } from './assertions';
@@ -98,6 +99,7 @@ async function runFresh(): Promise<void> {
     await assertAggregateRegistry(pool, checks);
     await assertTierColumnCoverage(pool, checks);
     await assertAgentTlsCertificates(pool, checks);
+    await assertZfsHostHealth(pool, checks);
     checks.report();
   } finally {
     await pool.end();
