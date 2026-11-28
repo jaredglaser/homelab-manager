@@ -4,8 +4,11 @@ import { PROXMOX_ENTITY_TYPE_VALUES, type ProxmoxStatsRow } from '@/types/proxmo
 import type { ZFSStatsRow } from '@/types/zfs';
 import { parseRowEnumOr } from '@/lib/database/repositories/row-enum';
 
-/** Insert shape for proxmox_stats: same as the read row, but `time` stays a Date for the timestamptz bind. */
-export type NewProxmoxStat = Omit<ProxmoxStatsRow, 'time'> & { time: Date };
+/**
+ * Insert shape for proxmox_stats: the read row with `time` as a Date for the timestamptz bind, plus the raw
+ * netin/netout counters, which are stored but never read back (the rates are).
+ */
+export type NewProxmoxStat = Omit<ProxmoxStatsRow, 'time'> & { time: Date; netin: number | null; netout: number | null };
 
 /** Domain shape docker collectors emit; no `docker_stats` column knowledge. */
 export interface NewDockerStat {
@@ -91,8 +94,10 @@ interface ProxmoxStatsQueryRow {
   max_disk: number | null;
   uptime: number | null;
   vmid: number | null;
-  netin: number | null;
-  netout: number | null;
+  net_in_bytes_per_sec: number | null;
+  net_out_bytes_per_sec: number | null;
+  disk_read_bytes_per_sec: number | null;
+  disk_write_bytes_per_sec: number | null;
   storage_type: string | null;
   storage_content: string | null;
   storage_avail: number | null;
@@ -464,6 +469,10 @@ export class StatsRepository {
       const vmids: (number | null)[] = [];
       const netins: (number | null)[] = [];
       const netouts: (number | null)[] = [];
+      const netInRates: (number | null)[] = [];
+      const netOutRates: (number | null)[] = [];
+      const diskReadRates: (number | null)[] = [];
+      const diskWriteRates: (number | null)[] = [];
       const storageTypes: (string | null)[] = [];
       const storageContents: (string | null)[] = [];
       const storageAvails: (number | null)[] = [];
@@ -488,6 +497,10 @@ export class StatsRepository {
         vmids.push(row.vmid);
         netins.push(row.netin);
         netouts.push(row.netout);
+        netInRates.push(row.net_in_bytes_per_sec);
+        netOutRates.push(row.net_out_bytes_per_sec);
+        diskReadRates.push(row.disk_read_bytes_per_sec);
+        diskWriteRates.push(row.disk_write_bytes_per_sec);
         storageTypes.push(row.storage_type);
         storageContents.push(row.storage_content);
         storageAvails.push(row.storage_avail);
@@ -501,14 +514,16 @@ export class StatsRepository {
           cpu, max_cpu, mem, max_mem, disk, max_disk, uptime,
           vmid, netin, netout,
           storage_type, storage_content, storage_avail, storage_shared,
-          cluster_version
+          cluster_version,
+          net_in_bytes_per_sec, net_out_bytes_per_sec, disk_read_bytes_per_sec, disk_write_bytes_per_sec
         )
         SELECT * FROM unnest(
           $1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
           $8::float8[], $9::float8[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[],
           $15::int[], $16::bigint[], $17::bigint[],
           $18::text[], $19::text[], $20::bigint[], $21::boolean[],
-          $22::int[]
+          $22::int[],
+          $23::float8[], $24::float8[], $25::float8[], $26::float8[]
         )`,
         [
           times, hosts, entityTypes, nodes, entityIds, entityNames, statuses,
@@ -516,6 +531,7 @@ export class StatsRepository {
           vmids, netins, netouts,
           storageTypes, storageContents, storageAvails, storageShareds,
           clusterVersions,
+          netInRates, netOutRates, diskReadRates, diskWriteRates,
         ]
       );
     } catch (err) {
@@ -532,7 +548,8 @@ export class StatsRepository {
          mem::float8 AS mem, max_mem::float8 AS max_mem,
          disk::float8 AS disk, max_disk::float8 AS max_disk,
          uptime::float8 AS uptime,
-         vmid, netin::float8 AS netin, netout::float8 AS netout,
+         vmid,
+         net_in_bytes_per_sec, net_out_bytes_per_sec, disk_read_bytes_per_sec, disk_write_bytes_per_sec,
          storage_type, storage_content, storage_avail::float8 AS storage_avail,
          storage_shared, cluster_version
        FROM proxmox_stats WHERE time > $1 ORDER BY time ASC`,
@@ -550,7 +567,8 @@ export class StatsRepository {
          mem::float8 AS mem, max_mem::float8 AS max_mem,
          disk::float8 AS disk, max_disk::float8 AS max_disk,
          uptime::float8 AS uptime,
-         vmid, netin::float8 AS netin, netout::float8 AS netout,
+         vmid,
+         net_in_bytes_per_sec, net_out_bytes_per_sec, disk_read_bytes_per_sec, disk_write_bytes_per_sec,
          storage_type, storage_content, storage_avail::float8 AS storage_avail,
          storage_shared, cluster_version
        FROM ${tier.relation}
@@ -619,8 +637,10 @@ function toProxmoxStatsRow(row: ProxmoxStatsQueryRow): ProxmoxStatsRow | null {
     max_disk: row.max_disk,
     uptime: row.uptime,
     vmid: row.vmid,
-    netin: row.netin,
-    netout: row.netout,
+    net_in_bytes_per_sec: row.net_in_bytes_per_sec,
+    net_out_bytes_per_sec: row.net_out_bytes_per_sec,
+    disk_read_bytes_per_sec: row.disk_read_bytes_per_sec,
+    disk_write_bytes_per_sec: row.disk_write_bytes_per_sec,
     storage_type: row.storage_type,
     storage_content: row.storage_content,
     storage_avail: row.storage_avail,

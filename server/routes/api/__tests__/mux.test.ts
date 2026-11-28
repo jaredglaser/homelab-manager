@@ -1182,6 +1182,7 @@ describe('topic adapters and an abort before they subscribe', () => {
     ['user-settings', async () => (await import('@/lib/settings/settings-broadcast-service')).userSettingsBroadcastService],
     ['stack-status', async () => (await import('@/lib/stacks/stack-status-broadcast-service')).stackStatusBroadcastService],
     ['image-updates', async () => (await import('@/lib/stacks/image-update-broadcast-service')).imageUpdateBroadcastService],
+    ['proxmox-state', async () => (await import('@/lib/proxmox/proxmox-state-broadcast-service')).proxmoxStateBroadcastService],
     ['stats:docker', async () => (await import('@/lib/database/subscription-service')).statsPollService],
   ];
   const subscribingTopics = subscribingServices.map(([topic]) => topic);
@@ -1297,6 +1298,7 @@ describe('topic adapters and an abort before they subscribe', () => {
   it.each([
     ['inventory', { type: 'init', containers: [] }, { type: 'init', containers: [] }],
     ['agent-inventory', { hosts: [] }, { hosts: [] }],
+    ['proxmox-state', { connections: [] }, { connections: [] }],
     ['stack-status', { type: 'deploy_changed', stack: 'plex', host: 'server1' }, { type: 'deploy_changed', stack: 'plex', host: 'server1' }],
     [
       'image-updates',

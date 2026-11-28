@@ -346,8 +346,11 @@ export interface ProxmoxEntityDef {
   cpu: MetricProfile | null;
   mem: MetricProfile | null;
   disk: MetricProfile | null;
-  netin: MetricProfile | null;
-  netout: MetricProfile | null;
+  /** Per-second rate profiles, as the worker would compute them from the counters */
+  netInRate: MetricProfile | null;
+  netOutRate: MetricProfile | null;
+  diskReadRate: MetricProfile | null;
+  diskWriteRate: MetricProfile | null;
 }
 
 export const PROXMOX_HOST = '192.168.1.100';
@@ -360,7 +363,7 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     vmid: null, maxCpu: null, maxMem: null, maxDisk: null, uptime: 0,
     storageType: null, storageContent: null, storageAvail: null, storageShared: null,
     clusterVersion: 8,
-    cpu: null, mem: null, disk: null, netin: null, netout: null,
+    cpu: null, mem: null, disk: null, netInRate: null, netOutRate: null, diskReadRate: null, diskWriteRate: null,
   },
 
   // ── Nodes ──────────────────────────────────────────────────────────────────
@@ -373,7 +376,7 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     cpu: { base: 0.25, amplitude: 0.15, periodMs: 10 * MINUTE, noiseLevel: 0.05, min: 0.02, max: 0.9 },
     mem: { base: 18_000_000_000, amplitude: 4_000_000_000, periodMs: 30 * MINUTE, noiseLevel: 1_000_000_000, min: 8_000_000_000, max: 30_000_000_000 },
     disk: { base: 120_000_000_000, amplitude: 20_000_000_000, periodMs: HOUR, noiseLevel: 5_000_000_000, min: 50_000_000_000, max: 400_000_000_000 },
-    netin: null, netout: null,
+    netInRate: null, netOutRate: null, diskReadRate: null, diskWriteRate: null,
   },
   {
     entityType: 'node', host: PROXMOX_HOST, node: 'pve2',
@@ -384,7 +387,7 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     cpu: { base: 0.35, amplitude: 0.2, periodMs: 8 * MINUTE, noiseLevel: 0.08, min: 0.03, max: 0.95 },
     mem: { base: 10_000_000_000, amplitude: 2_000_000_000, periodMs: 20 * MINUTE, noiseLevel: 800_000_000, min: 4_000_000_000, max: 15_000_000_000 },
     disk: { base: 80_000_000_000, amplitude: 15_000_000_000, periodMs: HOUR, noiseLevel: 4_000_000_000, min: 30_000_000_000, max: 200_000_000_000 },
-    netin: null, netout: null,
+    netInRate: null, netOutRate: null, diskReadRate: null, diskWriteRate: null,
   },
 
   // ── QEMU VMs ───────────────────────────────────────────────────────────────
@@ -397,8 +400,13 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     cpu: { base: 0.15, amplitude: 0.1, periodMs: 8 * MINUTE, noiseLevel: 0.05, min: 0.01, max: 0.8 },
     mem: { base: 2_500_000_000, amplitude: 500_000_000, periodMs: 20 * MINUTE, noiseLevel: 200_000_000, min: 1_000_000_000, max: 3_800_000_000 },
     disk: { base: 15_000_000_000, amplitude: 2_000_000_000, periodMs: HOUR, noiseLevel: 500_000_000, min: 5_000_000_000, max: 30_000_000_000 },
-    netin: { base: 200_000, amplitude: 150_000, periodMs: 5 * MINUTE, noiseLevel: 80_000, min: 1_000, max: 1_000_000 },
-    netout: { base: 150_000, amplitude: 100_000, periodMs: 5 * MINUTE, noiseLevel: 60_000, min: 1_000, max: 800_000 },
+    netInRate: { base: 200_000, amplitude: 150_000, periodMs: 5 * MINUTE, noiseLevel: 80_000, min: 1_000, max: 1_000_000 },
+
+    netOutRate: { base: 150_000, amplitude: 100_000, periodMs: 5 * MINUTE, noiseLevel: 60_000, min: 1_000, max: 800_000 },
+
+    diskReadRate: { base: 2_000_000, amplitude: 1_500_000, periodMs: 7 * MINUTE, noiseLevel: 600_000, min: 0, max: 20_000_000 },
+
+    diskWriteRate: { base: 1_000_000, amplitude: 800_000, periodMs: 9 * MINUTE, noiseLevel: 400_000, min: 0, max: 10_000_000 },
   },
   {
     entityType: 'qemu', host: PROXMOX_HOST, node: 'pve1',
@@ -409,8 +417,13 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     cpu: { base: 0.3, amplitude: 0.2, periodMs: 6 * MINUTE, noiseLevel: 0.1, min: 0.02, max: 0.95 },
     mem: { base: 5_500_000_000, amplitude: 1_000_000_000, periodMs: 15 * MINUTE, noiseLevel: 400_000_000, min: 3_000_000_000, max: 7_800_000_000 },
     disk: { base: 60_000_000_000, amplitude: 10_000_000_000, periodMs: HOUR, noiseLevel: 3_000_000_000, min: 20_000_000_000, max: 120_000_000_000 },
-    netin: { base: 500_000, amplitude: 400_000, periodMs: 5 * MINUTE, noiseLevel: 200_000, min: 5_000, max: 3_000_000 },
-    netout: { base: 300_000, amplitude: 200_000, periodMs: 5 * MINUTE, noiseLevel: 100_000, min: 2_000, max: 2_000_000 },
+    netInRate: { base: 500_000, amplitude: 400_000, periodMs: 5 * MINUTE, noiseLevel: 200_000, min: 5_000, max: 3_000_000 },
+
+    netOutRate: { base: 300_000, amplitude: 200_000, periodMs: 5 * MINUTE, noiseLevel: 100_000, min: 2_000, max: 2_000_000 },
+
+    diskReadRate: { base: 2_000_000, amplitude: 1_500_000, periodMs: 7 * MINUTE, noiseLevel: 600_000, min: 0, max: 20_000_000 },
+
+    diskWriteRate: { base: 1_000_000, amplitude: 800_000, periodMs: 9 * MINUTE, noiseLevel: 400_000, min: 0, max: 10_000_000 },
   },
 
   // ── LXC Containers ─────────────────────────────────────────────────────────
@@ -423,8 +436,13 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     cpu: { base: 0.05, amplitude: 0.03, periodMs: 10 * MINUTE, noiseLevel: 0.02, min: 0.005, max: 0.3 },
     mem: { base: 200_000_000, amplitude: 50_000_000, periodMs: HOUR, noiseLevel: 20_000_000, min: 100_000_000, max: 480_000_000 },
     disk: { base: 2_000_000_000, amplitude: 200_000_000, periodMs: HOUR, noiseLevel: 50_000_000, min: 500_000_000, max: 7_000_000_000 },
-    netin: { base: 20_000, amplitude: 15_000, periodMs: 5 * MINUTE, noiseLevel: 8_000, min: 500, max: 100_000 },
-    netout: { base: 15_000, amplitude: 10_000, periodMs: 5 * MINUTE, noiseLevel: 5_000, min: 500, max: 80_000 },
+    netInRate: { base: 20_000, amplitude: 15_000, periodMs: 5 * MINUTE, noiseLevel: 8_000, min: 500, max: 100_000 },
+
+    netOutRate: { base: 15_000, amplitude: 10_000, periodMs: 5 * MINUTE, noiseLevel: 5_000, min: 500, max: 80_000 },
+
+    diskReadRate: { base: 2_000_000, amplitude: 1_500_000, periodMs: 7 * MINUTE, noiseLevel: 600_000, min: 0, max: 20_000_000 },
+
+    diskWriteRate: { base: 1_000_000, amplitude: 800_000, periodMs: 9 * MINUTE, noiseLevel: 400_000, min: 0, max: 10_000_000 },
   },
   {
     entityType: 'lxc', host: PROXMOX_HOST, node: 'pve2',
@@ -435,8 +453,13 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     cpu: { base: 0.2, amplitude: 0.15, periodMs: 8 * MINUTE, noiseLevel: 0.06, min: 0.01, max: 0.85 },
     mem: { base: 2_500_000_000, amplitude: 600_000_000, periodMs: 20 * MINUTE, noiseLevel: 250_000_000, min: 800_000_000, max: 3_800_000_000 },
     disk: { base: 20_000_000_000, amplitude: 5_000_000_000, periodMs: HOUR, noiseLevel: 1_500_000_000, min: 5_000_000_000, max: 45_000_000_000 },
-    netin: { base: 400_000, amplitude: 300_000, periodMs: 5 * MINUTE, noiseLevel: 150_000, min: 5_000, max: 2_000_000 },
-    netout: { base: 350_000, amplitude: 250_000, periodMs: 5 * MINUTE, noiseLevel: 120_000, min: 3_000, max: 1_500_000 },
+    netInRate: { base: 400_000, amplitude: 300_000, periodMs: 5 * MINUTE, noiseLevel: 150_000, min: 5_000, max: 2_000_000 },
+
+    netOutRate: { base: 350_000, amplitude: 250_000, periodMs: 5 * MINUTE, noiseLevel: 120_000, min: 3_000, max: 1_500_000 },
+
+    diskReadRate: { base: 2_000_000, amplitude: 1_500_000, periodMs: 7 * MINUTE, noiseLevel: 600_000, min: 0, max: 20_000_000 },
+
+    diskWriteRate: { base: 1_000_000, amplitude: 800_000, periodMs: 9 * MINUTE, noiseLevel: 400_000, min: 0, max: 10_000_000 },
   },
 
   // ── Storages ───────────────────────────────────────────────────────────────
@@ -448,7 +471,7 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     clusterVersion: null,
     cpu: null, mem: null,
     disk: { base: 40_000_000_000, amplitude: 5_000_000_000, periodMs: HOUR, noiseLevel: 1_000_000_000, min: 10_000_000_000, max: 90_000_000_000 },
-    netin: null, netout: null,
+    netInRate: null, netOutRate: null, diskReadRate: null, diskWriteRate: null,
   },
   {
     entityType: 'storage', host: PROXMOX_HOST, node: 'pve1',
@@ -458,7 +481,7 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     clusterVersion: null,
     cpu: null, mem: null,
     disk: { base: 800_000_000_000, amplitude: 50_000_000_000, periodMs: HOUR, noiseLevel: 20_000_000_000, min: 200_000_000_000, max: 1_800_000_000_000 },
-    netin: null, netout: null,
+    netInRate: null, netOutRate: null, diskReadRate: null, diskWriteRate: null,
   },
   {
     entityType: 'storage', host: PROXMOX_HOST, node: 'pve2',
@@ -468,6 +491,6 @@ export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
     clusterVersion: null,
     cpu: null, mem: null,
     disk: { base: 30_000_000_000, amplitude: 4_000_000_000, periodMs: HOUR, noiseLevel: 1_000_000_000, min: 5_000_000_000, max: 90_000_000_000 },
-    netin: null, netout: null,
+    netInRate: null, netOutRate: null, diskReadRate: null, diskWriteRate: null,
   },
 ];

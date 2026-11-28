@@ -190,6 +190,57 @@ export const PROXMOX_SUPPORTING_ENTITIES = [
   PROXMOX_STORAGE_ENTITY,
 ] as const;
 
+/**
+ * A guest carrying the per-second rates migration 052 adds, seeded only after the head migrations
+ * because a base schema has no column to hold them. Three minutes of one closed hour: a running
+ * minute whose first point has no rate, a stopped minute with no rate at all, and half a minute at a
+ * higher rate whose disk-write rate is missing for its first rows. An hourly average weighted by every
+ * row would come out lower than the rates the page showed, which is the dilution each
+ * `<rate>_rate_count` exists to prevent.
+ */
+export const RATE_GUEST = {
+  host: 'ci-proxmox-rates',
+  entityType: 'qemu',
+  entityId: '300',
+  entityName: 'ci-rate-vm',
+  node: 'ci-node-1',
+  vmid: 300,
+  /** Minute offsets from the start of the previous whole hour */
+  runningMinute: 10,
+  stoppedMinute: 11,
+  burstMinute: 12,
+  runningRate: 100,
+  burstRate: 400,
+  burstSamples: 30,
+  /** Leading burst rows with no disk-write rate while the other three rates are present */
+  burstDiskWriteGap: 10,
+} as const;
+
+export const RATE_COLUMNS = [
+  'net_in_bytes_per_sec',
+  'net_out_bytes_per_sec',
+  'disk_read_bytes_per_sec',
+  'disk_write_bytes_per_sec',
+] as const;
+
+export function rateCountColumn(column: string): string {
+  return column.replace('_bytes_per_sec', '_rate_count');
+}
+
+/**
+ * Rows in a raw proxmox_stats chunk that is compressed before the head migrations run, so 052 adds its
+ * rate columns to, and rebuilds the rollups over, a hypertable holding compressed data, as a
+ * long-running install does.
+ */
+export const COMPRESSED_PROXMOX = {
+  host: 'ci-proxmox-compressed',
+  entityId: 'ci-compressed-node',
+  samples: 20,
+  ageDays: 3,
+} as const;
+
+export const PROXMOX_STATE_PROBE_ID = 'ci-notify-probe';
+
 export const PROXMOX_SUPPORTING_SAMPLES = 60;
 export const PROXMOX_SUPPORTING_GAP_MINUTES = 1;
 
@@ -205,6 +256,7 @@ export const EXPECTED_TABLES = [
   'image_update_checks',
   'managed_hosts',
   'migrations',
+  'proxmox_collector_state',
   'proxmox_stats',
   'sessions',
   'settings',

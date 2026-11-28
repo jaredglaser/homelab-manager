@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import ProxmoxStatusSummary from '../ProxmoxStatusSummary';
-import type { ProxmoxClusterOverview, ProxmoxNode, ProxmoxVM, ProxmoxContainer } from '@/types/proxmox';
+import type { ProxmoxClusterOverview, ProxmoxGuest, ProxmoxNode } from '@/types/proxmox';
 
 function makeNode(node: string): ProxmoxNode {
   return {
+    host: 'pve.lan',
     node,
     status: 'online',
     cpu: 0,
@@ -14,15 +15,15 @@ function makeNode(node: string): ProxmoxNode {
     disk: 0,
     maxdisk: 0,
     uptime: 0,
-    type: 'node',
-    id: `node/${node}`,
   };
 }
 
-function makeVM(vmid: number, node: string): ProxmoxVM & { node: string } {
+function makeGuest(vmid: number, name: string, node: string): ProxmoxGuest {
   return {
+    host: 'pve.lan',
+    node,
     vmid,
-    name: `vm${vmid}`,
+    name,
     status: 'running',
     cpu: 0,
     cpus: 2,
@@ -31,36 +32,15 @@ function makeVM(vmid: number, node: string): ProxmoxVM & { node: string } {
     disk: 0,
     maxdisk: 0,
     uptime: 0,
-    netin: 0,
-    netout: 0,
-    diskread: 0,
-    diskwrite: 0,
-    node,
+    netInBytesPerSec: null,
+    netOutBytesPerSec: null,
+    diskReadBytesPerSec: null,
+    diskWriteBytesPerSec: null,
   };
 }
 
-function makeContainer(vmid: number, node: string): ProxmoxContainer & { node: string } {
-  return {
-    vmid,
-    name: `ct${vmid}`,
-    status: 'running',
-    type: 'lxc',
-    cpu: 0,
-    cpus: 1,
-    mem: 0,
-    maxmem: 0,
-    disk: 0,
-    maxdisk: 0,
-    uptime: 0,
-    netin: 0,
-    netout: 0,
-    diskread: 0,
-    diskwrite: 0,
-    swap: 0,
-    maxswap: 0,
-    node,
-  };
-}
+const makeVM = (vmid: number, node: string) => makeGuest(vmid, `vm${vmid}`, node);
+const makeContainer = (vmid: number, node: string) => makeGuest(vmid, `ct${vmid}`, node);
 
 function makeOverview(overrides: Partial<ProxmoxClusterOverview> = {}): ProxmoxClusterOverview {
   return {

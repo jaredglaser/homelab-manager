@@ -1,11 +1,36 @@
 import type {
   ProxmoxClusterOverview,
+  ProxmoxGuest,
   ProxmoxNode,
-  ProxmoxVM,
-  ProxmoxContainer,
   ProxmoxStorage,
   ProxmoxStatsRow,
 } from '@/types/proxmox';
+
+/** Live-stream entity key: the connection's host first, so two clusters that both have a guest 100 never share a key. */
+export function proxmoxEntityKey(row: Pick<ProxmoxStatsRow, 'host' | 'entity_type' | 'entity_id'>): string {
+  return `${row.host}/${row.entity_type}/${row.entity_id}`;
+}
+
+function toGuest(r: ProxmoxStatsRow): ProxmoxGuest {
+  return {
+    host: r.host,
+    node: r.node ?? '',
+    vmid: r.vmid ?? 0,
+    name: r.entity_name ?? '',
+    status: r.status ?? 'stopped',
+    cpu: r.cpu ?? 0,
+    cpus: r.max_cpu ?? 0,
+    mem: Number(r.mem ?? 0),
+    maxmem: Number(r.max_mem ?? 0),
+    disk: Number(r.disk ?? 0),
+    maxdisk: Number(r.max_disk ?? 0),
+    uptime: Number(r.uptime ?? 0),
+    netInBytesPerSec: r.net_in_bytes_per_sec,
+    netOutBytesPerSec: r.net_out_bytes_per_sec,
+    diskReadBytesPerSec: r.disk_read_bytes_per_sec,
+    diskWriteBytesPerSec: r.disk_write_bytes_per_sec,
+  };
+}
 
 /**
  * Builds a ProxmoxClusterOverview from the latest ProxmoxStatsRow entries keyed by entity.
@@ -25,7 +50,7 @@ export function buildProxmoxOverview(
   for (const row of latestByEntity.values()) {
     switch (row.entity_type) {
       case 'cluster':
-        clusterRow = row;
+        if (!clusterRow || row.host < clusterRow.host) clusterRow = row;
         break;
       case 'node':
         nodeRows.push(row);
@@ -48,10 +73,10 @@ export function buildProxmoxOverview(
   const quorate = clusterRow?.status === 'quorate';
   const version = clusterRow?.cluster_version ?? 0;
 
-  // Reconstruct node objects
   const nodes: ProxmoxNode[] = nodeRows.map((r) => ({
+    host: r.host,
     node: r.entity_id,
-    status: (r.status ?? 'unknown') as 'online' | 'offline' | 'unknown',
+    status: (r.status ?? 'unknown') as ProxmoxNode['status'],
     cpu: r.max_cpu ? (r.cpu ?? 0) / r.max_cpu : 0,
     maxcpu: r.max_cpu ?? 0,
     mem: Number(r.mem ?? 0),
@@ -59,53 +84,14 @@ export function buildProxmoxOverview(
     disk: Number(r.disk ?? 0),
     maxdisk: Number(r.max_disk ?? 0),
     uptime: Number(r.uptime ?? 0),
-    type: 'node',
-    id: `node/${r.entity_id}`,
   }));
 
-  // Reconstruct VMs
-  const vms: (ProxmoxVM & { node: string })[] = vmRows.map((r) => ({
-    vmid: r.vmid ?? 0,
-    name: r.entity_name ?? '',
-    status: (r.status ?? 'stopped') as 'running' | 'stopped' | 'paused' | 'suspended',
-    cpu: r.cpu ?? 0,
-    cpus: r.max_cpu ?? 0,
-    mem: Number(r.mem ?? 0),
-    maxmem: Number(r.max_mem ?? 0),
-    disk: Number(r.disk ?? 0),
-    maxdisk: Number(r.max_disk ?? 0),
-    uptime: Number(r.uptime ?? 0),
-    netin: Number(r.netin ?? 0),
-    netout: Number(r.netout ?? 0),
-    diskread: 0,
-    diskwrite: 0,
-    node: r.node ?? '',
-  }));
-
-  // Reconstruct containers
-  const containers: (ProxmoxContainer & { node: string })[] = containerRows.map((r) => ({
-    vmid: r.vmid ?? 0,
-    name: r.entity_name ?? '',
-    status: (r.status ?? 'stopped') as 'running' | 'stopped',
-    type: 'lxc',
-    cpu: r.cpu ?? 0,
-    cpus: r.max_cpu ?? 0,
-    mem: Number(r.mem ?? 0),
-    maxmem: Number(r.max_mem ?? 0),
-    disk: Number(r.disk ?? 0),
-    maxdisk: Number(r.max_disk ?? 0),
-    uptime: Number(r.uptime ?? 0),
-    netin: Number(r.netin ?? 0),
-    netout: Number(r.netout ?? 0),
-    diskread: 0,
-    diskwrite: 0,
-    swap: 0,
-    maxswap: 0,
-    node: r.node ?? '',
-  }));
+  const vms = vmRows.map(toGuest);
+  const containers = containerRows.map(toGuest);
 
   // Reconstruct storages
-  const storages: (ProxmoxStorage & { node: string })[] = storageRows.map((r) => ({
+  const storages: ProxmoxStorage[] = storageRows.map((r) => ({
+    host: r.host,
     storage: r.entity_name ?? '',
     type: r.storage_type ?? '',
     content: r.storage_content ?? '',

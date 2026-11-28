@@ -11,6 +11,8 @@ import {
   PROXMOX_SUPPORTING_ENTITIES,
   PROXMOX_SUPPORTING_GAP_MINUTES,
   PROXMOX_SUPPORTING_SAMPLES,
+  RATE_GUEST,
+  COMPRESSED_PROXMOX,
   SPARSE_HOUR,
   ZFS_DECIMATED_GAP_MINUTES,
   ZFS_DECIMATED_SAMPLES,
@@ -52,6 +54,7 @@ export async function seed(pool: Pool): Promise<void> {
   await seedZfs(pool);
   await seedProxmoxCounters(pool);
   await seedProxmoxSupporting(pool);
+  await seedCompressedProxmoxChunk(pool);
   await seedEntityMetadata(pool);
   await seedServiceKeyUnification(pool);
   await seedImageUpdateChecks(pool);
@@ -407,6 +410,24 @@ async function seedProxmoxSupporting(pool: Pool): Promise<void> {
   }
 }
 
+async function seedCompressedProxmoxChunk(pool: Pool): Promise<void> {
+  await pool.query(
+    `INSERT INTO proxmox_stats ${PROXMOX_COLUMNS}
+     SELECT
+       now() - make_interval(days => $3::int) + make_interval(secs => s),
+       $1, 'node', $2, $2, $2, 'online',
+       0.5, 4, 1073741824, 4294967296, 1073741824, 10737418240, 3600 + s,
+       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+     FROM generate_series(0, $4::int - 1) AS s`,
+    [COMPRESSED_PROXMOX.host, COMPRESSED_PROXMOX.entityId, COMPRESSED_PROXMOX.ageDays, COMPRESSED_PROXMOX.samples]
+  );
+  await pool.query(
+    `SELECT compress_chunk(c, if_not_compressed => true)
+     FROM show_chunks('proxmox_stats', older_than => make_interval(days => $1::int - 1)) AS c`,
+    [COMPRESSED_PROXMOX.ageDays]
+  );
+}
+
 async function seedEntityMetadata(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO entity_metadata (source, entity, key, value, updated_at)
@@ -526,5 +547,37 @@ async function seedNullInvariantRows(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO entity_metadata (source, entity, key, value) VALUES ('docker', $1, 'icon', NULL)`,
     [NULL_INVARIANT_ROWS.metadataEntity]
+  );
+}
+
+/**
+ * Raw rows for RATE_GUEST, which only the head schema can hold. Each rate column is a fixed
+ * multiple of the net-in rate.
+ */
+export async function seedProxmoxRates(pool: Pool): Promise<void> {
+  const minute = (offset: number) => `date_trunc('hour', now()) - INTERVAL '1 hour' + make_interval(mins => ${offset})`;
+  const insert = (start: string, samples: number, rate: string, status: string, diskWriteGap = 0) => pool.query(
+    `INSERT INTO proxmox_stats (
+       time, host, entity_type, node, entity_id, entity_name, status, vmid,
+       net_in_bytes_per_sec, net_out_bytes_per_sec, disk_read_bytes_per_sec, disk_write_bytes_per_sec
+     )
+     SELECT ${start} + make_interval(secs => s), $1, $2, $3, $4, $5, '${status}', $6::int,
+       r, 2 * r, 3 * r, CASE WHEN s < $8::int THEN NULL ELSE 4 * r END
+     FROM generate_series(0, $7::int - 1) AS s, LATERAL (SELECT ${rate} AS r) rate`,
+    [RATE_GUEST.host, RATE_GUEST.entityType, RATE_GUEST.node, RATE_GUEST.entityId, RATE_GUEST.entityName, RATE_GUEST.vmid, samples, diskWriteGap]
+  );
+  await insert(
+    minute(RATE_GUEST.runningMinute),
+    60,
+    `CASE WHEN s = 0 THEN NULL ELSE ${RATE_GUEST.runningRate} + (s % 3) END::double precision`,
+    'running'
+  );
+  await insert(minute(RATE_GUEST.stoppedMinute), 60, 'NULL::double precision', 'stopped');
+  await insert(
+    minute(RATE_GUEST.burstMinute),
+    RATE_GUEST.burstSamples,
+    `${RATE_GUEST.burstRate}::double precision`,
+    'running',
+    RATE_GUEST.burstDiskWriteGap
   );
 }

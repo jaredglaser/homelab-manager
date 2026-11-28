@@ -8,6 +8,7 @@ import { settingsChannel, userSettingsChannel } from '@/lib/channels/settings';
 import { USER_SETTINGS_KEYS, isUserSettingsKey } from '@/lib/constants/settings-keys';
 import { stackStatusChannel } from '@/lib/channels/stack-status';
 import { dockerInventoryChannel } from '@/lib/channels/docker-inventory';
+import { proxmoxStateChannel } from '@/lib/channels/proxmox-state';
 
 interface MuxFrame {
   type: string;
@@ -178,5 +179,38 @@ describe('mock mux ws handlers', () => {
     conn.command('sub', ['bogus']);
     const error = conn.frames.find((f) => f.kind === 'error');
     expect(error?.payload).toEqual({ message: 'Unsupported topic: bogus', gone: true });
+  });
+});
+
+describe('mock proxmox-state topic', () => {
+  const overrides = globalThis as { __mockProxmoxState?: unknown; __mockMuxTopicErrors?: string[] };
+
+  afterEach(() => {
+    delete overrides.__mockProxmoxState;
+    delete overrides.__mockMuxTopicErrors;
+  });
+
+  it('serves one collecting connection by default, valid for the channel', () => {
+    const conn = connect();
+    conn.command('sub', ['proxmox-state']);
+    const [frame] = conn.dataFrames('proxmox-state');
+    const parsed = proxmoxStateChannel.schema.parse(frame.payload);
+    expect(parsed.connections.map((c) => c.state)).toEqual(['collecting']);
+  });
+
+  it('serves the state an e2e init script seeded', () => {
+    overrides.__mockProxmoxState = [];
+    const conn = connect();
+    conn.command('sub', ['proxmox-state']);
+    expect(conn.dataFrames('proxmox-state')[0].payload).toEqual({ connections: [] });
+  });
+
+  it('answers a topic named in the error override with a retrying error frame', () => {
+    overrides.__mockMuxTopicErrors = ['stats:proxmox'];
+    const conn = connect();
+    conn.command('sub', ['stats:proxmox']);
+    expect(conn.frames.find((f) => f.topic === 'stats:proxmox')).toEqual({
+      type: 'event', topic: 'stats:proxmox', kind: 'error', payload: { message: 'Mock stream failure', gone: false },
+    });
   });
 });

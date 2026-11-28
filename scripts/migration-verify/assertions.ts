@@ -3,6 +3,7 @@ import type { Checks } from './checks';
 import { HOST_PROBE_FAILURE_CODES, MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
+import { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
 import {
   ACTIVE_CONTAINER,
   TLS_HOST,
@@ -18,6 +19,11 @@ import {
   PROXMOX_CLUSTER_ENTITY,
   PROXMOX_HOST,
   PROXMOX_STORAGE_ENTITY,
+  RATE_COLUMNS,
+  RATE_GUEST,
+  rateCountColumn,
+  COMPRESSED_PROXMOX,
+  PROXMOX_STATE_PROBE_ID,
   REMOVED_COLUMNS,
   SPARSE_HOUR,
   ZFS_ENTITIES,
@@ -224,6 +230,11 @@ export interface TierProbe {
   key: string[];
   weightedAverageColumns: string[];
   lastValueColumns: string[];
+  /**
+   * The tier column counting the rows that carry this probe's weighted columns, when those columns
+   * can be NULL on rows that still count in `sample_count`. The hourly tier weights by it instead.
+   */
+  weightColumn?: string;
 }
 
 /**
@@ -308,6 +319,12 @@ const PROXMOX_PROBES: TierProbe[] = [
     weightedAverageColumns: [],
     lastValueColumns: ['cluster_version'],
   },
+  ...RATE_COLUMNS.map((column): TierProbe => ({
+    key: [RATE_GUEST.host, RATE_GUEST.entityType, RATE_GUEST.entityId],
+    weightedAverageColumns: [column],
+    lastValueColumns: [],
+    weightColumn: rateCountColumn(column),
+  })),
 ];
 
 export const AGGREGATE_TIERS: AggregateTier[] = [
@@ -366,6 +383,11 @@ export const AGGREGATE_TIERS: AggregateTier[] = [
     probes: PROXMOX_PROBES,
   },
 ];
+
+/** What one source row weighs for this probe: raw rows count once, `_1m` rows carry the probe's count. */
+function probeSourceWeight(tier: AggregateTier, probe: TierProbe): string {
+  return tier.sourceWeight === '1' ? '1' : (probe.weightColumn ?? tier.sourceWeight);
+}
 
 function viewColumnFor(tier: AggregateTier, column: string): string {
   return tier.weightedColumnShape === 'weighted_sum' ? `${column}_sum` : column;
@@ -556,6 +578,11 @@ export async function captureRowCounts(pool: Pool): Promise<RowCountSnapshot> {
     pool,
     'SELECT count(*) FROM proxmox_stats WHERE host = $1',
     [PROXMOX_HOST]
+  );
+  snapshot['proxmox_stats/compressed'] = await count(
+    pool,
+    'SELECT count(*) FROM proxmox_stats WHERE host = $1',
+    [COMPRESSED_PROXMOX.host]
   );
   snapshot['managed_hosts'] = await count(pool, 'SELECT count(*) FROM managed_hosts');
   snapshot['entity_metadata'] = await count(pool, 'SELECT count(*) FROM entity_metadata WHERE value IS NOT NULL');
@@ -1019,6 +1046,7 @@ export async function assertTierColumnCoverage(pool: Pool, checks: Checks): Prom
       for (const column of probe.lastValueColumns) {
         claimed.add(column);
       }
+      if (probe.weightColumn) claimed.add(probe.weightColumn);
     }
 
     checks.sameSet(`every ${tier.view} column is claimed by a tier probe`, columns, [...claimed]);
@@ -1054,7 +1082,7 @@ export async function assertHourlyAverageViews(pool: Pool, checks: Checks): Prom
           `WITH ${probeCte}
            SELECT
              (SELECT ${column} FROM ${avgView}, probe WHERE ${where}) AS view_value,
-             (SELECT ${column}_sum / NULLIF(sample_count, 0) FROM ${tier.view}, probe
+             (SELECT ${column}_sum / NULLIF(${probe.weightColumn ?? 'sample_count'}, 0) FROM ${tier.view}, probe
               WHERE ${where}) AS expected`,
           probe.key
         );
@@ -1071,7 +1099,7 @@ export async function assertHourlyAverageViews(pool: Pool, checks: Checks): Prom
         checks.equal(`${label} arrives as a JS number, not numeric text`, typeof row.view_value, 'number');
         const expected = Number(row.expected);
         checks.closeTo(
-          `${label} divides the weighted sum by sample_count`,
+          `${label} divides the weighted sum by ${probe.weightColumn ?? 'sample_count'}`,
           Number(row.view_value),
           expected,
           toleranceFor(expected)
@@ -1146,6 +1174,24 @@ async function assertTierProbe(
     );
   }
 
+  if (probe.weightColumn && probe.weightedAverageColumns.length > 0) {
+    const carrier = probe.weightedAverageColumns[0];
+    const rowFilter = tier.sourceWeight === '1' ? ` AND ${carrier} IS NOT NULL` : '';
+    const weights = await selectRow<{ view_value: string | null; expected: string | null }>(
+      pool,
+      `WITH ${probeCte}
+       SELECT
+         (SELECT ${probe.weightColumn} FROM ${viewFrom} WHERE ${viewWhere}) AS view_value,
+         (SELECT sum(${probeSourceWeight(tier, probe)}) FROM ${sourceFrom} WHERE ${sourceWhere}${rowFilter}) AS expected`,
+      probe.key
+    );
+    checks.equal(
+      `${tier.view}.${probe.weightColumn} ${suffix} counts the source rows that carry a value`,
+      Number(weights?.view_value),
+      Number(weights?.expected)
+    );
+  }
+
   const weightedSum = tier.weightedColumnShape === 'weighted_sum';
   for (const column of probe.weightedAverageColumns) {
     const viewColumn = viewColumnFor(tier, column);
@@ -1154,7 +1200,7 @@ async function assertTierProbe(
       pool,
       `WITH ${probeCte},
        source_rows AS (
-         SELECT ${column} AS value, ${tier.sourceWeight} AS weight
+         SELECT ${column} AS value, ${probeSourceWeight(tier, probe)} AS weight
          FROM ${sourceFrom} WHERE ${sourceWhere} AND ${column} IS NOT NULL
        )
        SELECT
@@ -1670,4 +1716,126 @@ export async function assertNullInvariantRepair(pool: Pool, checks: Checks): Pro
     ]),
     0
   );
+}
+
+/**
+ * End to end over the cascade: the hourly rate a history read gets from `proxmox_stats_1h_avg`
+ * equals the plain mean of the raw rates the live page showed in that hour. Rows with no rate (the
+ * first point, a stopped minute) take no part in either side.
+ */
+export async function assertRateRollupMatchesRaw(pool: Pool, checks: Checks): Promise<void> {
+  for (const column of RATE_COLUMNS) {
+    const row = await selectRow<{ hourly: number | null; raw: string | null; diluted: string | null }>(
+      pool,
+      `WITH bucket AS (
+         SELECT date_trunc('hour', min(time)) AS lo FROM proxmox_stats
+         WHERE host = $1 AND entity_type = $2 AND entity_id = $3
+       )
+       SELECT
+         (SELECT ${column} FROM proxmox_stats_1h_avg, bucket
+          WHERE host = $1 AND entity_type = $2 AND entity_id = $3 AND time = bucket.lo) AS hourly,
+         (SELECT avg(${column}) FROM proxmox_stats, bucket
+          WHERE host = $1 AND entity_type = $2 AND entity_id = $3
+            AND time >= bucket.lo AND time < bucket.lo + INTERVAL '1 hour') AS raw,
+         (SELECT sum(${column}) / count(*) FROM proxmox_stats, bucket
+          WHERE host = $1 AND entity_type = $2 AND entity_id = $3
+            AND time >= bucket.lo AND time < bucket.lo + INTERVAL '1 hour') AS diluted`,
+      [RATE_GUEST.host, RATE_GUEST.entityType, RATE_GUEST.entityId]
+    );
+    if (row?.hourly == null || row.raw == null || row.diluted == null) {
+      checks.record(`${column} hourly and raw rates are both populated`, false, `hourly=${row?.hourly} raw=${row?.raw}`);
+      continue;
+    }
+    const raw = Number(row.raw);
+    checks.closeTo(`proxmox_stats_1h_avg.${column} matches the raw rates the page showed`, Number(row.hourly), raw, toleranceFor(raw));
+    checks.equal(
+      `the ${column} fixture tells a weighted rate from one diluted by rows with no rate`,
+      Math.abs(raw - Number(row.diluted)) > toleranceFor(raw),
+      true
+    );
+  }
+}
+
+/**
+ * 052 adds columns to proxmox_stats while a chunk of it is compressed. The seeded chunk has to stay
+ * compressed and its rows readable through the new columns, which read as NULL.
+ */
+export async function assertCompressedProxmoxChunk(pool: Pool, checks: Checks): Promise<void> {
+  const row = await selectRow<{ compressed_chunks: string; rows_without_rate: string }>(
+    pool,
+    `SELECT
+       (SELECT count(*) FROM timescaledb_information.chunks
+        WHERE hypertable_name = 'proxmox_stats' AND is_compressed) AS compressed_chunks,
+       (SELECT count(*) FROM proxmox_stats WHERE host = $1 AND net_in_bytes_per_sec IS NULL) AS rows_without_rate`,
+    [COMPRESSED_PROXMOX.host]
+  );
+  checks.equal('a raw proxmox_stats chunk is still compressed after 052', Number(row?.compressed_chunks) > 0, true);
+  checks.equal(
+    'rows in the compressed chunk read through the new rate columns',
+    Number(row?.rows_without_rate),
+    COMPRESSED_PROXMOX.samples
+  );
+}
+
+const NOTIFY_TIMEOUT_MS = 5000;
+
+/** The page learns of a new worker state only through this NOTIFY, so a write that sends none leaves it stale. */
+export async function assertProxmoxStateNotify(pool: Pool, checks: Checks): Promise<void> {
+  const listener = await pool.connect();
+  const payloads: string[] = [];
+  let wake: (() => void) | null = null;
+  listener.on('notification', (msg) => {
+    if (msg.channel !== 'proxmox_state_change') return;
+    payloads.push(msg.payload ?? '');
+    wake?.();
+  });
+  const next = (count: number) => new Promise<boolean>((resolve) => {
+    if (payloads.length >= count) return resolve(true);
+    const timer = setTimeout(() => resolve(false), NOTIFY_TIMEOUT_MS);
+    wake = () => {
+      if (payloads.length < count) return;
+      clearTimeout(timer);
+      resolve(true);
+    };
+  });
+  try {
+    await listener.query('LISTEN proxmox_state_change');
+    await pool.query(
+      `INSERT INTO proxmox_collector_state (connection_id, host, port, state)
+       VALUES ($1, 'ci-notify.lan', 8006, 'unreachable')`,
+      [PROXMOX_STATE_PROBE_ID]
+    );
+    checks.equal('a proxmox_collector_state insert sends proxmox_state_change', await next(1), true);
+    await pool.query("UPDATE proxmox_collector_state SET state = 'collecting' WHERE connection_id = $1", [PROXMOX_STATE_PROBE_ID]);
+    checks.equal('a proxmox_collector_state update sends proxmox_state_change', await next(2), true);
+    await pool.query('DELETE FROM proxmox_collector_state WHERE connection_id = $1', [PROXMOX_STATE_PROBE_ID]);
+    checks.equal('a proxmox_collector_state delete sends proxmox_state_change', await next(3), true);
+    checks.sameSet(
+      'every proxmox_state_change carries the connection id',
+      [...new Set(payloads)],
+      [PROXMOX_STATE_PROBE_ID]
+    );
+  } finally {
+    await listener.query('UNLISTEN proxmox_state_change').catch(() => undefined);
+    listener.release();
+  }
+}
+
+/** A worker restart must not replace a recorded failure with the startup `collecting` row. */
+export async function assertStartupCollectingWrite(pool: Pool, checks: Checks): Promise<void> {
+  const repo = new ProxmoxStateRepository(pool);
+  const ids = { failed: 'ci-startup-failed', off: 'ci-startup-off', absent: 'ci-startup-absent' };
+  try {
+    await repo.record({ connectionId: ids.failed, host: 'a.lan', port: 8006, state: 'token_rejected', reason: 'HTTP 401', lastSuccessAt: null });
+    await repo.record({ connectionId: ids.off, host: 'b.lan', port: 8006, state: 'collector_off', reason: null, lastSuccessAt: null });
+    for (const [id, host] of [[ids.failed, 'a.lan'], [ids.off, 'b.lan'], [ids.absent, 'c.lan']]) {
+      await repo.recordCollectingIfUnknown({ connectionId: id, host, port: 8006 });
+    }
+    const states = new Map((await repo.list()).map((c) => [c.connectionId, c.state]));
+    checks.equal('the startup write keeps a recorded token_rejected', states.get(ids.failed), 'token_rejected');
+    checks.equal('the startup write replaces collector_off with collecting', states.get(ids.off), 'collecting');
+    checks.equal('the startup write inserts collecting where no row exists', states.get(ids.absent), 'collecting');
+  } finally {
+    await pool.query('DELETE FROM proxmox_collector_state WHERE connection_id = ANY($1::text[])', [Object.values(ids)]);
+  }
 }

@@ -592,6 +592,10 @@ describe('StatsRepository', () => {
           vmid: null,
           netin: null,
           netout: null,
+          net_in_bytes_per_sec: null,
+          net_out_bytes_per_sec: null,
+          disk_read_bytes_per_sec: null,
+          disk_write_bytes_per_sec: null,
           storage_type: null,
           storage_content: null,
           storage_avail: null,
@@ -631,6 +635,10 @@ describe('StatsRepository', () => {
           vmid: null,
           netin: null,
           netout: null,
+          net_in_bytes_per_sec: null,
+          net_out_bytes_per_sec: null,
+          disk_read_bytes_per_sec: null,
+          disk_write_bytes_per_sec: null,
           storage_type: null,
           storage_content: null,
           storage_avail: null,
@@ -655,6 +663,10 @@ describe('StatsRepository', () => {
           vmid: 100,
           netin: 1000000,
           netout: 500000,
+          net_in_bytes_per_sec: 1500,
+          net_out_bytes_per_sec: 750,
+          disk_read_bytes_per_sec: 2048,
+          disk_write_bytes_per_sec: 1024,
           storage_type: null,
           storage_content: null,
           storage_avail: null,
@@ -679,6 +691,10 @@ describe('StatsRepository', () => {
           vmid: null,
           netin: null,
           netout: null,
+          net_in_bytes_per_sec: null,
+          net_out_bytes_per_sec: null,
+          disk_read_bytes_per_sec: null,
+          disk_write_bytes_per_sec: null,
           storage_type: 'dir',
           storage_content: 'rootdir,images',
           storage_avail: 80e9,
@@ -698,6 +714,12 @@ describe('StatsRepository', () => {
       expect(mockPool.queries[0].params[17]).toEqual([null, null, 'dir']);
       // Verify cluster_versions array
       expect(mockPool.queries[0].params[21]).toEqual([5, null, null]);
+      expect(mockPool.queries[0].params.slice(22)).toEqual([
+        [null, 1500, null],
+        [null, 750, null],
+        [null, 2048, null],
+        [null, 1024, null],
+      ]);
     });
 
     it('should propagate errors', async () => {
@@ -721,6 +743,10 @@ describe('StatsRepository', () => {
         vmid: null,
         netin: null,
         netout: null,
+        net_in_bytes_per_sec: null,
+        net_out_bytes_per_sec: null,
+        disk_read_bytes_per_sec: null,
+        disk_write_bytes_per_sec: null,
         storage_type: null,
         storage_content: null,
         storage_avail: null,
@@ -748,7 +774,8 @@ describe('StatsRepository', () => {
         node: 'pve1', entity_id: 'pve1', entity_name: 'pve1',
         status: 'online', cpu: 1, max_cpu: 4,
         mem: null, max_mem: null, disk: null, max_disk: null,
-        uptime: null, vmid: null, netin: null, netout: null,
+        uptime: null, vmid: null,
+        net_in_bytes_per_sec: null, net_out_bytes_per_sec: null, disk_read_bytes_per_sec: null, disk_write_bytes_per_sec: null,
         storage_type: null, storage_content: null, storage_avail: null,
         storage_shared: null, cluster_version: null,
       }];
@@ -766,7 +793,8 @@ describe('StatsRepository', () => {
         node: 'pve1', entity_id: 'pve1', entity_name: 'pve1',
         status: 'online', cpu: 1, max_cpu: 4,
         mem: null, max_mem: null, disk: null, max_disk: null,
-        uptime: null, vmid: null, netin: null, netout: null,
+        uptime: null, vmid: null,
+        net_in_bytes_per_sec: null, net_out_bytes_per_sec: null, disk_read_bytes_per_sec: null, disk_write_bytes_per_sec: null,
         storage_type: null, storage_content: null, storage_avail: null,
         storage_shared: null, cluster_version: null,
       };
@@ -785,7 +813,8 @@ describe('StatsRepository', () => {
         time: new Date(), host: 'h', entity_type: 'vm',
         node: null, entity_id: 'x', entity_name: null, status: null, cpu: null, max_cpu: null,
         mem: null, max_mem: null, disk: null, max_disk: null,
-        uptime: null, vmid: null, netin: null, netout: null,
+        uptime: null, vmid: null,
+        net_in_bytes_per_sec: null, net_out_bytes_per_sec: null, disk_read_bytes_per_sec: null, disk_write_bytes_per_sec: null,
         storage_type: null, storage_content: null, storage_avail: null,
         storage_shared: null, cluster_version: null,
       };
@@ -803,7 +832,8 @@ describe('StatsRepository', () => {
         time: new Date(), host: 'h', entity_type: 'vm',
         node: null, entity_id: 'x', entity_name: null, status: null, cpu: null, max_cpu: null,
         mem: null, max_mem: null, disk: null, max_disk: null,
-        uptime: null, vmid: null, netin: null, netout: null,
+        uptime: null, vmid: null,
+        net_in_bytes_per_sec: null, net_out_bytes_per_sec: null, disk_read_bytes_per_sec: null, disk_write_bytes_per_sec: null,
         storage_type: null, storage_content: null, storage_avail: null,
         storage_shared: null, cluster_version: null,
       }]);
@@ -830,7 +860,8 @@ describe('StatsRepository', () => {
         node: null, entity_id: 'cluster', entity_name: 'test',
         status: null, cpu: null, max_cpu: null,
         mem: null, max_mem: null, disk: null, max_disk: null,
-        uptime: null, vmid: null, netin: null, netout: null,
+        uptime: null, vmid: null,
+        net_in_bytes_per_sec: null, net_out_bytes_per_sec: null, disk_read_bytes_per_sec: null, disk_write_bytes_per_sec: null,
         storage_type: null, storage_content: null, storage_avail: null,
         storage_shared: null, cluster_version: 3,
       }];
@@ -1038,8 +1069,8 @@ describe('StatsRepository', () => {
         expect(sql).toContain('disk::float8 AS disk');
         expect(sql).toContain('max_disk::float8 AS max_disk');
         expect(sql).toContain('uptime::float8 AS uptime');
-        expect(sql).toContain('netin::float8 AS netin');
-        expect(sql).toContain('netout::float8 AS netout');
+        expect(sql).toContain('net_in_bytes_per_sec, net_out_bytes_per_sec, disk_read_bytes_per_sec, disk_write_bytes_per_sec');
+        expect(sql).not.toContain('netin');
         expect(sql).toContain('storage_avail::float8 AS storage_avail');
       }
       expect(rawSql).toContain('FROM proxmox_stats WHERE');

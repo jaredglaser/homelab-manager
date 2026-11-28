@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import {
+  LOCK_RETRY_MS,
   runStatsRollupBackfill,
   STATS_BACKFILL_ADVISORY_LOCK_KEY,
 } from '@/lib/database/stats-rollup-backfill';
@@ -56,6 +57,17 @@ function createFakeDb(client: FakeClient): DatabaseClient {
   } as unknown as DatabaseClient;
 }
 
+const WAITING_MESSAGE = '[StatsBackfill] Another process is running the backfill, waiting for it to finish';
+
+function abortWhen(client: FakeClient, shutdown: AbortController, matches: (text: string) => boolean): void {
+  const query = client.query.bind(client);
+  client.query = async (text: string, values?: unknown[]) => {
+    const result = await query(text, values);
+    if (matches(text)) shutdown.abort(new DOMException('Shutdown', 'AbortError'));
+    return result;
+  };
+}
+
 function texts(client: FakeClient): string[] {
   return client.calls.map((call) => call.text);
 }
@@ -67,9 +79,9 @@ function refreshCalls(client: FakeClient, view: string): string[] {
 }
 
 describe('runStatsRollupBackfill', () => {
-  let infoSpy: ReturnType<typeof spyOn>;
-  let errorSpy: ReturnType<typeof spyOn>;
-  let nowSpy: ReturnType<typeof spyOn>;
+  let infoSpy: ReturnType<typeof spyOn<Console, 'info'>>;
+  let errorSpy: ReturnType<typeof spyOn<Console, 'error'>>;
+  let nowSpy: ReturnType<typeof spyOn<DateConstructor, 'now'>>;
 
   beforeEach(() => {
     infoSpy = spyOn(console, 'info').mockImplementation(() => {});
@@ -217,6 +229,128 @@ describe('runStatsRollupBackfill', () => {
     expect(texts(client)).toEqual(['SELECT pg_try_advisory_lock($1) AS acquired']);
     expect(client.calls[0].values).toEqual([STATS_BACKFILL_ADVISORY_LOCK_KEY]);
     expect(client.releaseCount).toBe(1);
+  });
+
+  describe('waiting for the lock', () => {
+    let timeoutSpy: ReturnType<typeof spyOn<typeof globalThis, 'setTimeout'>>;
+    const sleeps: number[] = [];
+
+    beforeEach(() => {
+      sleeps.length = 0;
+      timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void, ms: number) => {
+        sleeps.push(ms);
+        cb();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout);
+    });
+
+    afterEach(() => {
+      timeoutSpy.mockRestore();
+    });
+
+    test('retries until another process releases the lock, then backfills', async () => {
+      const client = createFakeClient();
+      const query = client.query.bind(client);
+      let attempts = 0;
+      client.query = async (text: string, values?: unknown[]) => {
+        if (text.includes('pg_try_advisory_lock')) {
+          client.calls.push({ text, values });
+          attempts += 1;
+          return { rows: [{ acquired: attempts === 3 }] };
+        }
+        return query(text, values);
+      };
+
+      await runStatsRollupBackfill(createFakeDb(client), { waitForLock: true, signal: new AbortController().signal });
+
+      expect(attempts).toBe(3);
+      expect(sleeps).toEqual([LOCK_RETRY_MS, LOCK_RETRY_MS]);
+      expect(infoSpy.mock.calls.filter((call: unknown[]) => call[0] === WAITING_MESSAGE)).toHaveLength(1);
+      expect(refreshCalls(client, 'zfs_stats_1m').length).toBeGreaterThan(0);
+      expect(texts(client).at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+    });
+
+    test('gives up the wait on shutdown and releases the connection', async () => {
+      const shutdown = new AbortController();
+      const client = createFakeClient({ lockAcquired: false });
+      timeoutSpy.mockImplementation(((_cb: () => void, ms: number) => {
+        sleeps.push(ms);
+        queueMicrotask(() => shutdown.abort(new DOMException('Shutdown', 'AbortError')));
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout);
+
+      await runStatsRollupBackfill(createFakeDb(client), { waitForLock: true, signal: shutdown.signal });
+
+      expect(texts(client).filter((text) => text.includes('advisory'))).toEqual(['SELECT pg_try_advisory_lock($1) AS acquired']);
+      expect(refreshCalls(client, 'zfs_stats_1m')).toEqual([]);
+      expect(client.releaseCount).toBe(1);
+      expect(infoSpy).toHaveBeenCalledWith('[StatsBackfill] Shutting down before the lock was taken, skipping');
+    });
+  });
+
+  describe('shutdown after the lock is taken', () => {
+    test('stops between refresh windows, leaves retention unapplied, and unlocks', async () => {
+      const shutdown = new AbortController();
+      const client = createFakeClient();
+      abortWhen(client, shutdown, (text) => text.startsWith("CALL refresh_continuous_aggregate('docker_stats_1m'"));
+
+      await runStatsRollupBackfill(createFakeDb(client), { signal: shutdown.signal });
+
+      const all = texts(client);
+      expect(refreshCalls(client, 'docker_stats_1m')).toHaveLength(1);
+      expect(refreshCalls(client, 'docker_stats_1h')).toEqual([]);
+      expect(all.filter((text) => text.includes('add_retention_policy'))).toEqual([]);
+      expect(all.at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+      expect(client.releaseCount).toBe(1);
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    test('still logs a real error as a failure when it comes after shutdown', async () => {
+      const shutdown = new AbortController();
+      const client = createFakeClient();
+      const query = client.query.bind(client);
+      const lost = new Error('connection lost');
+      client.query = async (text: string, values?: unknown[]) => {
+        if (text.startsWith("CALL refresh_continuous_aggregate('docker_stats_1m'")) {
+          client.calls.push({ text, values });
+          shutdown.abort(new DOMException('Shutdown', 'AbortError'));
+          throw lost;
+        }
+        return query(text, values);
+      };
+
+      await runStatsRollupBackfill(createFakeDb(client), { signal: shutdown.signal });
+
+      expect(errorSpy).toHaveBeenCalledWith('[StatsBackfill] docker_stats failed, retention left unapplied:', lost);
+      expect(infoSpy).not.toHaveBeenCalledWith('[StatsBackfill] Shutting down, docker_stats is left with retention unapplied for the next start');
+      expect(texts(client).filter((text) => text.includes('add_retention_policy'))).toEqual([]);
+      expect(texts(client).at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+    });
+
+    test('starts no further source once one has finished', async () => {
+      const shutdown = new AbortController();
+      const client = createFakeClient();
+      abortWhen(client, shutdown, (text) => text === "SELECT add_retention_policy('docker_stats', INTERVAL '24 hours', if_not_exists => TRUE)");
+
+      await runStatsRollupBackfill(createFakeDb(client), { signal: shutdown.signal });
+
+      const all = texts(client);
+      expect(all.filter((text) => text.includes('to_regclass'))).toHaveLength(1);
+      expect(all.filter((text) => text.includes('zfs_stats'))).toEqual([]);
+      expect(all.at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+      expect(client.releaseCount).toBe(1);
+    });
+
+    test('takes no connection when shutdown came first', async () => {
+      const shutdown = new AbortController();
+      shutdown.abort(new DOMException('Shutdown', 'AbortError'));
+      let connects = 0;
+      const db = { getPool: () => ({ connect: async () => { connects += 1; return createFakeClient(); } }) } as unknown as DatabaseClient;
+
+      await runStatsRollupBackfill(db, { waitForLock: true, signal: shutdown.signal });
+
+      expect(connects).toBe(0);
+    });
   });
 
   test('releases the lock and the connection after a failing source', async () => {

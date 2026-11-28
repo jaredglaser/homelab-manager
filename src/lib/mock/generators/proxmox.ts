@@ -1,9 +1,13 @@
 import type { ProxmoxStatsRow } from '@/types/proxmox';
-import { generateMetric } from '@/lib/mock/patterns';
+import { generateMetric, type MetricProfile } from '@/lib/mock/patterns';
 import { PROXMOX_ENTITIES } from '@/lib/mock/entities';
 
 /** Session-scoped reference for uptime calculation - entities show uptime relative to demo session start. */
 const UPTIME_REFERENCE_MS = Date.now();
+
+function rate(timeMs: number, entityKey: string, metric: string, profile: MetricProfile | null): number | null {
+  return profile ? Math.round(generateMetric(timeMs, entityKey, metric, profile)) : null;
+}
 
 /**
  * Generate a single Proxmox stats snapshot for a given timestamp.
@@ -33,8 +37,10 @@ export function generateProxmoxSnapshot(time: Date): ProxmoxStatsRow[] {
       max_disk: e.maxDisk,
       uptime: e.uptime > 0 ? e.uptime + elapsedSeconds : null,
       vmid: e.vmid,
-      netin: e.netin ? Math.round(generateMetric(timeMs, entityKey, 'netin', e.netin)) : null,
-      netout: e.netout ? Math.round(generateMetric(timeMs, entityKey, 'netout', e.netout)) : null,
+      net_in_bytes_per_sec: rate(timeMs, entityKey, 'netin', e.netInRate),
+      net_out_bytes_per_sec: rate(timeMs, entityKey, 'netout', e.netOutRate),
+      disk_read_bytes_per_sec: rate(timeMs, entityKey, 'diskread', e.diskReadRate),
+      disk_write_bytes_per_sec: rate(timeMs, entityKey, 'diskwrite', e.diskWriteRate),
       storage_type: e.storageType,
       storage_content: e.storageContent,
       storage_avail: e.storageAvail,

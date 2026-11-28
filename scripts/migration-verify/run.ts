@@ -34,6 +34,10 @@ import {
   assertHourlyAverageViews,
   assertIdleContainerIdentity,
   assertNullMetricDilution,
+  assertRateRollupMatchesRaw,
+  assertCompressedProxmoxChunk,
+  assertProxmoxStateNotify,
+  assertStartupCollectingWrite,
   assertRollupBackfill,
   assertRowCountsPreserved,
   assertSchema,
@@ -51,7 +55,7 @@ import {
 import { Checks } from './checks';
 import { LEGACY_RESTART_DEPLOY, NULL_INVARIANT_ROWS } from './fixture';
 import { createPool, recreateDatabase, waitForDatabase } from './db';
-import { seed } from './seed';
+import { seed, seedProxmoxRates } from './seed';
 
 type MigrationRunner = (db: DatabaseClient) => Promise<void>;
 
@@ -97,6 +101,8 @@ async function runFresh(): Promise<void> {
     await assertAggregateRegistry(pool, checks);
     await assertTierColumnCoverage(pool, checks);
     await assertAgentTlsCertificates(pool, checks);
+    await assertProxmoxStateNotify(pool, checks);
+    await assertStartupCollectingWrite(pool, checks);
     checks.report();
   } finally {
     await pool.end();
@@ -148,6 +154,8 @@ async function runUpgrade(): Promise<void> {
 
     const after = await captureRowCounts(pool);
     assertRowCountsPreserved(before, after, checks);
+    // Before the backfill, whose raw retention would drop this three-day-old chunk.
+    await assertCompressedProxmoxChunk(pool, checks);
 
     await assertSchema(pool, checks);
     await assertReadInvariantConstraints(pool, checks);
@@ -158,6 +166,10 @@ async function runUpgrade(): Promise<void> {
       await assertNullInvariantRepair(pool, checks);
     }
     await assertIdleContainerIdentity(pool, checks);
+
+    // Seeded only now: the base schema has no rate columns. After the row-count snapshot, so the
+    // preserved-row checks compare like with like.
+    await seedProxmoxRates(pool);
 
     // Both of the above read state the backfill changes: it adds the retention policies that
     // assertSchema requires the migrations not to add, and raw retention covers the 31-day-old
@@ -174,6 +186,8 @@ async function runUpgrade(): Promise<void> {
     await assertNullMetricDilution(pool, checks);
     await assertAggregateTierValues(pool, checks);
     await assertHourlyAverageViews(pool, checks);
+    await assertRateRollupMatchesRaw(pool, checks);
+    await assertProxmoxStateNotify(pool, checks);
 
     const backfillSql = readFileSync(
       join(REPO_ROOT, 'migrations', '037_backfill_container_service_keys.sql'),

@@ -3,18 +3,19 @@ import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
-import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
+import { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { createCollectors } from './collector-factory';
+import { createCollectors, recordProxmoxStartupState } from './collector-factory';
 import { HostCollectorManager, defaultHostCollectorFactory } from './host-collector-manager';
 import { HostsListener } from './hosts-listener';
 import { AgentInventorySweeper } from './agent-inventory-sweeper';
 import { AGENT_INVENTORY_NOTIFY_CHANNEL } from '@/lib/hosts/agent-inventory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
+import { prepareDatabase } from './prepare-database';
 
 function handleSettingChange(getCollectors: () => BaseCollector[], key: string, value: string | null): void {
   const collectors = getCollectors();
@@ -33,6 +34,13 @@ function handleSettingChange(getCollectors: () => BaseCollector[], key: string, 
       }
     }
   }
+}
+
+async function closeConnections(): Promise<void> {
+  console.info('[Worker] Closing connections...');
+  proxmoxConnectionManager.clearAll();
+  await databaseConnectionManager.closeAll();
+  console.info('[Worker] Shutdown complete');
 }
 
 /**
@@ -58,8 +66,28 @@ async function main() {
     console.info('[Worker] Connecting to PostgreSQL...');
     const db = await databaseConnectionManager.getClient(dbConfig);
 
+    // Shared AbortController - SIGTERM aborts all collectors instantly
+    const shutdownController = new AbortController();
+
+    const shutdown = () => {
+      console.info('[Worker] Shutdown signal received, aborting collectors...');
+      shutdownController.abort(new DOMException('Shutdown', 'AbortError'));
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
     console.info('[Worker] Running database migrations...');
-    await runMigrations(db);
+    await prepareDatabase(db, shutdownController.signal, async () => {
+      try {
+        await recordProxmoxStartupState(new ProxmoxStateRepository(db.getPool()), workerConfig);
+      } catch (err) {
+        console.error('[Worker] Failed to record the Proxmox collector state:', err instanceof Error ? err.message : err);
+      }
+    });
+    if (shutdownController.signal.aborted) {
+      await closeConnections();
+      return;
+    }
 
     // Auto-seed localhost agent in dev mode (gated by DEV_AGENT_TOKEN env var)
     const { seedDevAgent } = await import('./dev-seed');
@@ -84,16 +112,6 @@ async function main() {
     } catch (err) {
       console.error('[Worker] Failed to read Proxmox poll interval from settings, using default:', err instanceof Error ? err.message : err);
     }
-
-    // Shared AbortController - SIGTERM aborts all collectors instantly
-    const shutdownController = new AbortController();
-
-    const shutdown = () => {
-      console.info('[Worker] Shutdown signal received, aborting collectors...');
-      shutdownController.abort(new DOMException('Shutdown', 'AbortError'));
-    };
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
 
     // Use AsyncDisposableStack for automatic cleanup of optional collectors
     {
@@ -234,11 +252,7 @@ async function main() {
     }
     // AsyncDisposableStack disposes here - cleans up
 
-    console.info('[Worker] Closing connections...');
-    proxmoxConnectionManager.clearAll();
-    await databaseConnectionManager.closeAll();
-
-    console.info('[Worker] Shutdown complete');
+    await closeConnections();
   } catch (err) {
     console.error('[Worker] Fatal error:', err);
     process.exit(1);

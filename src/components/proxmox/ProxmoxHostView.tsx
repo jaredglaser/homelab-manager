@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { ChevronRight, Server } from 'lucide-react'
-import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
+import type { ProxmoxClusterOverview, ProxmoxGuest, ProxmoxStorage, GuestRow } from '@/types/proxmox'
 import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
 import { EMPTY_CELL } from '@/components/ui/table'
 import { formatUptime } from '@/components/proxmox/utils'
@@ -11,6 +11,29 @@ import { StorageSection } from '@/components/proxmox/StorageSection'
 
 interface ProxmoxHostViewProps {
   overview: ProxmoxClusterOverview
+}
+
+/** Expansion and grouping key for a node: the connection's host plus the node name, which repeats across clusters. */
+function nodeKey(item: { host: string; node: string }): string {
+  return `${item.host}/${item.node}`
+}
+
+function toGuestRow(guest: ProxmoxGuest): GuestRow {
+  return {
+    host: guest.host,
+    node: guest.node,
+    vmid: guest.vmid,
+    name: guest.name,
+    status: guest.status,
+    cpu: guest.cpu,
+    cpus: guest.cpus,
+    mem: guest.mem,
+    maxmem: guest.maxmem,
+    netInBytesPerSec: guest.netInBytesPerSec,
+    netOutBytesPerSec: guest.netOutBytesPerSec,
+    diskReadBytesPerSec: guest.diskReadBytesPerSec,
+    diskWriteBytesPerSec: guest.diskWriteBytesPerSec,
+  }
 }
 
 export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewProps>) {
@@ -22,48 +45,21 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
   } = useProxmoxSettings()
   const { general: { showSparklines, useAbbreviatedUnits } } = useGeneralSettings()
 
-  // Group data by node (memoized to avoid recomputing on expansion toggles)
   const { vmsByNode, containersByNode, storageByNode, sortedNodes } = useMemo(() => {
     const vms = new Map<string, GuestRow[]>()
     const cts = new Map<string, GuestRow[]>()
-    const storage = new Map<string, (typeof overview.storages)[number][]>()
-
-    for (const vm of overview.vms) {
-      if (!vms.has(vm.node)) vms.set(vm.node, [])
-      vms.get(vm.node)!.push({
-        vmid: vm.vmid,
-        name: vm.name,
-        status: vm.status,
-        cpu: vm.cpu,
-        cpus: vm.cpus,
-        mem: vm.mem,
-        maxmem: vm.maxmem,
-        netin: vm.netin,
-        netout: vm.netout,
-      })
+    const storage = new Map<string, ProxmoxStorage[]>()
+    const push = <T,>(map: Map<string, T[]>, key: string, value: T) => {
+      const list = map.get(key)
+      if (list) list.push(value)
+      else map.set(key, [value])
     }
 
-    for (const ct of overview.containers) {
-      if (!cts.has(ct.node)) cts.set(ct.node, [])
-      cts.get(ct.node)!.push({
-        vmid: ct.vmid,
-        name: ct.name,
-        status: ct.status,
-        cpu: ct.cpu,
-        cpus: ct.cpus,
-        mem: ct.mem,
-        maxmem: ct.maxmem,
-        netin: ct.netin,
-        netout: ct.netout,
-      })
-    }
+    for (const vm of overview.vms) push(vms, nodeKey(vm), toGuestRow(vm))
+    for (const ct of overview.containers) push(cts, nodeKey(ct), toGuestRow(ct))
+    for (const s of overview.storages) push(storage, nodeKey(s), s)
 
-    for (const s of overview.storages) {
-      if (!storage.has(s.node)) storage.set(s.node, [])
-      storage.get(s.node)!.push(s)
-    }
-
-    const sorted = [...overview.nodes].sort((a, b) => a.node.localeCompare(b.node))
+    const sorted = [...overview.nodes].sort((a, b) => a.host.localeCompare(b.host) || a.node.localeCompare(b.node))
 
     return { vmsByNode: vms, containersByNode: cts, storageByNode: storage, sortedNodes: sorted }
   }, [overview.vms, overview.containers, overview.storages, overview.nodes])
@@ -71,25 +67,26 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
   return (
     <div className="bg-card border border-border rounded-sm overflow-x-auto">
       {sortedNodes.map((node, nodeIdx) => {
-        const vms = vmsByNode.get(node.node) || []
-        const containers = containersByNode.get(node.node) || []
-        const storages = storageByNode.get(node.node) || []
-        const hostExpanded = isProxmoxHostExpanded(node.node)
+        const key = nodeKey(node)
+        const vms = vmsByNode.get(key) || []
+        const containers = containersByNode.get(key) || []
+        const storages = storageByNode.get(key) || []
+        const hostExpanded = isProxmoxHostExpanded(key)
 
         const cpuPercent = (node.cpu * 100).toFixed(1)
         const memPercent = node.maxmem > 0 ? ((node.mem / node.maxmem) * 100).toFixed(1) : '0'
         const diskPercent = node.maxdisk > 0 ? ((node.disk / node.maxdisk) * 100).toFixed(1) : '0'
 
         return (
-          <div key={node.node}>
+          <div key={key}>
             {/* Host accordion row */}
             <div
               role="button"
               tabIndex={0}
               aria-expanded={hostExpanded}
-              aria-controls={`proxmox-host-panel-${node.node}`}
-              onClick={() => toggleProxmoxHostExpanded(node.node)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
+              aria-controls={`proxmox-host-panel-${key}`}
+              onClick={() => toggleProxmoxHostExpanded(key)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(key); } }}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
                 nodeIdx > 0 ? 'border-t border-border' : ''
               } ${hostExpanded ? 'bg-accent' : 'bg-level2'}`}
@@ -115,13 +112,13 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
 
             {/* Expanded sections */}
             <Collapsible open={hostExpanded}>
-            <CollapsibleContent id={`proxmox-host-panel-${node.node}`}>
+            <CollapsibleContent id={`proxmox-host-panel-${key}`}>
               {vms.length > 0 && (
                 <GuestSection
                   label="Virtual Machines"
                   guests={vms}
-                  expanded={isProxmoxSectionExpanded(`${node.node}-vm`)}
-                  onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-vm`)}
+                  expanded={isProxmoxSectionExpanded(`${key}-vm`)}
+                  onToggle={() => toggleProxmoxSectionExpanded(`${key}-vm`)}
                   showSparklines={showSparklines}
                   useAbbreviatedUnits={useAbbreviatedUnits}
                 />
@@ -131,8 +128,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
                 <GuestSection
                   label="LXC Containers"
                   guests={containers}
-                  expanded={isProxmoxSectionExpanded(`${node.node}-ct`)}
-                  onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-ct`)}
+                  expanded={isProxmoxSectionExpanded(`${key}-ct`)}
+                  onToggle={() => toggleProxmoxSectionExpanded(`${key}-ct`)}
                   showSparklines={showSparklines}
                   useAbbreviatedUnits={useAbbreviatedUnits}
                 />
@@ -141,8 +138,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               {storages.length > 0 && (
                 <StorageSection
                   storages={storages}
-                  expanded={isProxmoxSectionExpanded(`${node.node}-storage`)}
-                  onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-storage`)}
+                  expanded={isProxmoxSectionExpanded(`${key}-storage`)}
+                  onToggle={() => toggleProxmoxSectionExpanded(`${key}-storage`)}
                   showSparklines={showSparklines}
                   useAbbreviatedUnits={useAbbreviatedUnits}
                 />
