@@ -57,11 +57,7 @@ export function createCollectors(
   return { collectors, runners };
 }
 
-/**
- * Brings proxmox_collector_state in line with this worker's configuration at startup: no row when no
- * connection is set up, `collector_off` when one is set up but the collector is disabled. A running
- * collector writes its own state from its first poll on.
- */
+/** Without a row here at startup the page reads "not set up" until the first poll ends, which can take 15 s. */
 export async function recordProxmoxStartupState(
   store: Pick<ProxmoxStateRepository, 'record' | 'removeAllExcept'>,
   workerConfig: WorkerConfig,
@@ -73,14 +69,12 @@ export async function recordProxmoxStartupState(
   const config = loadProxmoxConfig();
   const connectionId = proxmoxConnectionId(config);
   await store.removeAllExcept([connectionId]);
-  if (!workerConfig.proxmox.enabled) {
-    await store.record({
-      connectionId,
-      host: config.host,
-      port: config.port,
-      state: 'collector_off',
-      reason: null,
-      lastSuccessAt: null,
-    });
-  }
+  await store.record({
+    connectionId,
+    host: config.host,
+    port: config.port,
+    state: workerConfig.proxmox.enabled ? 'collecting' : 'collector_off',
+    reason: null,
+    lastSuccessAt: null,
+  });
 }

@@ -243,7 +243,7 @@ describe('recordProxmoxStartupState', () => {
     });
   });
 
-  it('only drops other connections when the collector runs, leaving its state to the collector', async () => {
+  it('records collecting before the first poll when the collector runs, so the page waits instead of reading not set up', async () => {
     configure();
     const { recordProxmoxStartupState } = await import('../collector-factory');
     const store = makeStore();
@@ -251,6 +251,13 @@ describe('recordProxmoxStartupState', () => {
     await recordProxmoxStartupState(store, createWorkerConfig({ proxmox: { enabled: true } }));
 
     expect(store.removeAllExcept).toHaveBeenCalledWith(['pve.lan']);
-    expect(store.record).not.toHaveBeenCalled();
+    expect(store.record).toHaveBeenCalledWith({
+      connectionId: 'pve.lan',
+      host: 'pve.lan',
+      port: 8007,
+      state: 'collecting',
+      reason: null,
+      lastSuccessAt: null,
+    });
   });
 });
