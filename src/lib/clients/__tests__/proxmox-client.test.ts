@@ -16,7 +16,7 @@ function createConfig(overrides?: Partial<ProxmoxConfig>): ProxmoxConfig {
 }
 
 describe('ProxmoxClient', () => {
-  let fetchSpy: ReturnType<typeof spyOn>;
+  let fetchSpy: ReturnType<typeof spyOn<typeof globalThis, 'fetch'>>;
 
   beforeEach(() => {
     fetchSpy = spyOn(globalThis, 'fetch');
@@ -296,8 +296,9 @@ describe('ProxmoxClient', () => {
       nowSpy.mockImplementation(() => now);
       try {
         const client = new ProxmoxClient(createConfig());
-        const body = () => new Response(JSON.stringify({ data: [{ id: 7 }] }), { status: 200 });
-        fetchSpy.mockImplementation(async () => body());
+        for (let call = 0; call < 4; call++) {
+          fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: 7 }] }), { status: 200 }));
+        }
         await client.getClusterResources();
         now += 30_000;
         await client.getClusterResources();

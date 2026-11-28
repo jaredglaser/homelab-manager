@@ -79,9 +79,9 @@ function refreshCalls(client: FakeClient, view: string): string[] {
 }
 
 describe('runStatsRollupBackfill', () => {
-  let infoSpy: ReturnType<typeof spyOn>;
-  let errorSpy: ReturnType<typeof spyOn>;
-  let nowSpy: ReturnType<typeof spyOn>;
+  let infoSpy: ReturnType<typeof spyOn<Console, 'info'>>;
+  let errorSpy: ReturnType<typeof spyOn<Console, 'error'>>;
+  let nowSpy: ReturnType<typeof spyOn<DateConstructor, 'now'>>;
 
   beforeEach(() => {
     infoSpy = spyOn(console, 'info').mockImplementation(() => {});
@@ -232,7 +232,7 @@ describe('runStatsRollupBackfill', () => {
   });
 
   describe('waiting for the lock', () => {
-    let timeoutSpy: ReturnType<typeof spyOn>;
+    let timeoutSpy: ReturnType<typeof spyOn<typeof globalThis, 'setTimeout'>>;
     const sleeps: number[] = [];
 
     beforeEach(() => {
