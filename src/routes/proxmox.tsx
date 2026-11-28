@@ -18,7 +18,7 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/lib/constants/preload-queries'
 import { buildProxmoxOverview, proxmoxEntityKey } from '@/lib/utils/proxmox-overview-builder'
 import { proxmoxStatsChannel } from '@/lib/channels/proxmox-stats'
-import { proxmoxStateChannel, type ProxmoxStateMessage } from '@/lib/channels/proxmox-state'
+import { keepLatestProxmoxState, PROXMOX_STATE_QUERY_KEY, proxmoxStateChannel, type ProxmoxStateMessage } from '@/lib/channels/proxmox-state'
 import { useMuxQuery } from '@/lib/mux/use-mux-channel'
 import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
 import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
@@ -64,10 +64,6 @@ interface ProxmoxContentProps {
   onOverviewChange: (overview: ProxmoxClusterOverview | null) => void;
 }
 
-const PROXMOX_STATE_QUERY_KEY = ['proxmox-state']
-
-const keepLatestState = (_prev: ProxmoxStateMessage | null, next: ProxmoxStateMessage) => next
-
 /**
  * Live Proxmox content. The worker's recorded state decides the notices (not set up,
  * unreachable, token rejected, certificate refused) and the last data stays on screen under them.
@@ -98,7 +94,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   const { state: collectorState } = useMuxQuery(proxmoxStateChannel, {
     queryKey: PROXMOX_STATE_QUERY_KEY,
     initial: null as ProxmoxStateMessage | null,
-    fold: keepLatestState,
+    fold: keepLatestProxmoxState,
   })
 
   // Update the last-update atom when new rows arrive

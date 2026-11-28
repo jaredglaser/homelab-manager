@@ -22,3 +22,7 @@ export const proxmoxStateChannel: MuxChannel<typeof zProxmoxStateSnapshotWire> =
   topic: PROXMOX_STATE_TOPIC,
   schema: zProxmoxStateSnapshotWire,
 };
+
+export const PROXMOX_STATE_QUERY_KEY = ['proxmox-state'] as const;
+
+export const keepLatestProxmoxState = (_prev: ProxmoxStateMessage | null, next: ProxmoxStateMessage): ProxmoxStateMessage | null => next;
