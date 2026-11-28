@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import {
+  LOCK_RETRY_MS,
   runStatsRollupBackfill,
   STATS_BACKFILL_ADVISORY_LOCK_KEY,
 } from '@/lib/database/stats-rollup-backfill';
@@ -217,6 +218,62 @@ describe('runStatsRollupBackfill', () => {
     expect(texts(client)).toEqual(['SELECT pg_try_advisory_lock($1) AS acquired']);
     expect(client.calls[0].values).toEqual([STATS_BACKFILL_ADVISORY_LOCK_KEY]);
     expect(client.releaseCount).toBe(1);
+  });
+
+  describe('waiting for the lock', () => {
+    let timeoutSpy: ReturnType<typeof spyOn>;
+    const sleeps: number[] = [];
+
+    beforeEach(() => {
+      sleeps.length = 0;
+      timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void, ms: number) => {
+        sleeps.push(ms);
+        cb();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout);
+    });
+
+    afterEach(() => {
+      timeoutSpy.mockRestore();
+    });
+
+    test('retries until another process releases the lock, then backfills', async () => {
+      const client = createFakeClient();
+      const query = client.query.bind(client);
+      let attempts = 0;
+      client.query = async (text: string, values?: unknown[]) => {
+        if (text.includes('pg_try_advisory_lock')) {
+          client.calls.push({ text, values });
+          attempts += 1;
+          return { rows: [{ acquired: attempts === 3 }] };
+        }
+        return query(text, values);
+      };
+
+      await runStatsRollupBackfill(createFakeDb(client), { waitForLock: { signal: new AbortController().signal } });
+
+      expect(attempts).toBe(3);
+      expect(sleeps).toEqual([LOCK_RETRY_MS, LOCK_RETRY_MS]);
+      expect(refreshCalls(client, 'zfs_stats_1m').length).toBeGreaterThan(0);
+      expect(texts(client).at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+    });
+
+    test('gives up the wait on shutdown and releases the connection', async () => {
+      const shutdown = new AbortController();
+      const client = createFakeClient({ lockAcquired: false });
+      timeoutSpy.mockImplementation(((_cb: () => void, ms: number) => {
+        sleeps.push(ms);
+        queueMicrotask(() => shutdown.abort(new DOMException('Shutdown', 'AbortError')));
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout);
+
+      await runStatsRollupBackfill(createFakeDb(client), { waitForLock: { signal: shutdown.signal } });
+
+      expect(texts(client).filter((text) => text.includes('advisory'))).toEqual(['SELECT pg_try_advisory_lock($1) AS acquired']);
+      expect(refreshCalls(client, 'zfs_stats_1m')).toEqual([]);
+      expect(client.releaseCount).toBe(1);
+      expect(infoSpy).toHaveBeenCalledWith('[StatsBackfill] Shutting down before another process released the lock, skipping');
+    });
   });
 
   test('releases the lock and the connection after a failing source', async () => {

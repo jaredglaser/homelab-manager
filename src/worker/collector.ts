@@ -3,7 +3,6 @@ import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
-import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
@@ -16,6 +15,7 @@ import { AgentInventorySweeper } from './agent-inventory-sweeper';
 import { AGENT_INVENTORY_NOTIFY_CHANNEL } from '@/lib/hosts/agent-inventory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
+import { prepareDatabase } from './prepare-database';
 
 function handleSettingChange(getCollectors: () => BaseCollector[], key: string, value: string | null): void {
   const collectors = getCollectors();
@@ -59,8 +59,24 @@ async function main() {
     console.info('[Worker] Connecting to PostgreSQL...');
     const db = await databaseConnectionManager.getClient(dbConfig);
 
+    // Shared AbortController - SIGTERM aborts all collectors instantly
+    const shutdownController = new AbortController();
+
+    const shutdown = () => {
+      console.info('[Worker] Shutdown signal received, aborting collectors...');
+      shutdownController.abort(new DOMException('Shutdown', 'AbortError'));
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
     console.info('[Worker] Running database migrations...');
-    await runMigrations(db);
+    await prepareDatabase(db, shutdownController.signal, async () => {
+      try {
+        await recordProxmoxStartupState(new ProxmoxStateRepository(db.getPool()), workerConfig);
+      } catch (err) {
+        console.error('[Worker] Failed to record the Proxmox collector state:', err instanceof Error ? err.message : err);
+      }
+    });
 
     // Auto-seed localhost agent in dev mode (gated by DEV_AGENT_TOKEN env var)
     const { seedDevAgent } = await import('./dev-seed');
@@ -86,25 +102,10 @@ async function main() {
       console.error('[Worker] Failed to read Proxmox poll interval from settings, using default:', err instanceof Error ? err.message : err);
     }
 
-    // Shared AbortController - SIGTERM aborts all collectors instantly
-    const shutdownController = new AbortController();
-
-    const shutdown = () => {
-      console.info('[Worker] Shutdown signal received, aborting collectors...');
-      shutdownController.abort(new DOMException('Shutdown', 'AbortError'));
-    };
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
-
     // Use AsyncDisposableStack for automatic cleanup of optional collectors
     {
       await using stack = new AsyncDisposableStack();
 
-      try {
-        await recordProxmoxStartupState(new ProxmoxStateRepository(db.getPool()), workerConfig);
-      } catch (err) {
-        console.error('[Worker] Failed to record the Proxmox collector state:', err instanceof Error ? err.message : err);
-      }
       const { collectors: staticCollectors, runners: staticRunners } = createCollectors(
         db, workerConfig, shutdownController, stack, proxmoxPollIntervalMs,
       );
