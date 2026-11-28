@@ -11,6 +11,30 @@
 -- refilled from raw, and their retention re-added, only when runStatsRollupBackfill runs after this
 -- migration, which the worker does once it has migrated.
 
+-- A refresh locks an aggregate's materialization before its source. Taking the locks in any other
+-- order, as ALTER TABLE proxmox_stats before the drops did, deadlocks with a running refresh policy.
+DO $$
+DECLARE
+  cagg text;
+  materialization regclass;
+BEGIN
+  IF to_regclass('proxmox_stats_1h_avg') IS NOT NULL THEN
+    LOCK TABLE proxmox_stats_1h_avg IN ACCESS EXCLUSIVE MODE;
+  END IF;
+  FOREACH cagg IN ARRAY ARRAY['proxmox_stats_1h', 'proxmox_stats_1m'] LOOP
+    CONTINUE WHEN to_regclass(cagg) IS NULL;
+    EXECUTE format('LOCK TABLE %I IN ACCESS EXCLUSIVE MODE', cagg);
+    SELECT format('%I.%I', materialization_hypertable_schema, materialization_hypertable_name)::regclass
+      INTO materialization
+      FROM timescaledb_information.continuous_aggregates
+      WHERE view_schema = current_schema() AND view_name = cagg;
+    IF materialization IS NOT NULL THEN
+      EXECUTE format('LOCK TABLE %s IN ACCESS EXCLUSIVE MODE', materialization);
+    END IF;
+  END LOOP;
+  LOCK TABLE proxmox_stats IN ACCESS EXCLUSIVE MODE;
+END $$;
+
 ALTER TABLE proxmox_stats
   ADD COLUMN IF NOT EXISTS net_in_bytes_per_sec DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS net_out_bytes_per_sec DOUBLE PRECISION,
