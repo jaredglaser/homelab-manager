@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -153,12 +153,17 @@ describe('setup script', () => {
     expect(script.indexOf('if ! sshd -t; then')).toBeLessThan(script.indexOf('systemctl reload ssh'));
   });
 
-  test.skipIf(!Bun.which('sshd', { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' }))('writes a drop-in sshd accepts, which applies to hlm only', () => {
+  const sshd = Bun.which('sshd', { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' });
+  const sshKeygen = Bun.which('ssh-keygen', { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' });
+  test.skipIf(!sshd || !sshKeygen || !existsSync('/run/sshd'))('writes a drop-in sshd accepts, which applies to hlm only', () => {
+    const hostKey = join(dir, 'host_ed25519');
+    rmSync(hostKey, { force: true });
+    expect(Bun.spawnSync([sshKeygen!, '-q', '-t', 'ed25519', '-N', '', '-f', hostKey]).exitCode).toBe(0);
     const config = join(dir, 'sshd_config');
-    writeFileSync(config, `HostKey /etc/ssh/ssh_host_ed25519_key\nUsePAM no\n${buildSshdDropIn()}PermitTTY yes\n`);
-    const sshd = Bun.which('sshd', { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' })!;
-    expect(Bun.spawnSync([sshd, '-t', '-f', config]).exitCode).toBe(0);
-    const forUser = (user: string) => Bun.spawnSync([sshd, '-T', '-f', config, '-C', `user=${user},host=localhost,addr=127.0.0.1`]).stdout.toString();
+    writeFileSync(config, `HostKey ${hostKey}\nUsePAM no\n${buildSshdDropIn()}PermitTTY yes\n`);
+    const check = Bun.spawnSync([sshd!, '-t', '-f', config]);
+    expect({ code: check.exitCode, stderr: check.stderr.toString() }).toEqual({ code: 0, stderr: '' });
+    const forUser = (user: string) => Bun.spawnSync([sshd!, '-T', '-f', config, '-C', `user=${user},host=localhost,addr=127.0.0.1`]).stdout.toString();
     expect(forUser('hlm')).toContain('permittty no');
     expect(forUser('hlm')).toContain('allowtcpforwarding no');
     expect(forUser('root')).toContain('permittty yes');
