@@ -2,6 +2,7 @@ import { describe, it, expect, mock } from 'bun:test';
 import { AgentInventoryBroadcastService } from '../agent-inventory-broadcast-service';
 import type { AgentInventorySnapshot } from '@/lib/hosts/agent-inventory';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
+import type { PoolClient } from 'pg';
 
 function snapshot(id: number): AgentInventorySnapshot {
   return {
@@ -13,12 +14,12 @@ function snapshot(id: number): AgentInventorySnapshot {
         capabilities: {},
         status: 'online',
         version: '0.1.0',
-        versionSource: 'stored',
         agentImage: null,
         agentImageTag: null,
         agentImageDigest: null,
         agentOutOfDate: false,
-            lastError: null,
+        failure: null,
+        update: null,
         checkedAt: new Date().toISOString(),
       },
     ],
@@ -166,6 +167,84 @@ describe('AgentInventoryBroadcastService', () => {
     expect(received.length).toBe(1);
 
     unsub();
+    await service.stop();
+  });
+});
+
+describe('AgentInventoryBroadcastService with its default database wiring', () => {
+  it('listens for sweeps and host changes on a pooled connection and builds the snapshot from the stored hosts', async () => {
+    const client = fakePoolClient();
+    const pool = { connect: mock(() => Promise.resolve(client)) };
+    const repoPools: unknown[] = [];
+    void mock.module('@/lib/clients/database-client', () => ({
+      databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => pool }) },
+    }));
+    void mock.module('@/lib/database/repositories/host-repository', () => ({
+      HOSTS_NOTIFY_CHANNEL: 'managed_hosts_change',
+      HostRepository: class {
+        constructor(p: unknown) {
+          repoPools.push(p);
+        }
+        findAll = () => Promise.resolve([]);
+      },
+    }));
+    const service = new AgentInventoryBroadcastService();
+    const received: AgentInventorySnapshot[] = [];
+    try {
+      service.subscribe((s) => received.push(s));
+      await waitForCondition(() => received.length > 0 && (client.query as ReturnType<typeof mock>).mock.calls.length === 2);
+
+      expect(received).toEqual([{ entries: [], sweptAt: null }]);
+      expect(repoPools).toEqual([pool]);
+      expect((client.query as ReturnType<typeof mock>).mock.calls.map((c) => c[0])).toEqual([
+        'LISTEN agent_inventory_change',
+        'LISTEN managed_hosts_change',
+      ]);
+    } finally {
+      await service.stop();
+    }
+  });
+});
+
+describe('AgentInventoryBroadcastService re-subscribe while connecting', () => {
+  function listeningPoolClient() {
+    const state = { listened: false, released: false, notify: null as null | ((msg: { channel: string }) => void) };
+    const client = {
+      on: (event: string, cb: (msg: { channel: string }) => void) => {
+        if (event === 'notification') state.notify = cb;
+      },
+      query: (sql: string) => {
+        if (sql.startsWith('LISTEN')) state.listened = true;
+        return Promise.resolve({ rows: [] });
+      },
+      release: () => { state.released = true; },
+      removeAllListeners: () => undefined,
+    } as unknown as PoolClient;
+    return { client, state };
+  }
+
+  it('ends with one LISTEN client when a re-subscribe lands while the first client is still being acquired', async () => {
+    const clients = [listeningPoolClient(), listeningPoolClient()];
+    const acquisitions: ((client: PoolClient) => void)[] = [];
+    let version = 1;
+    const service = new AgentInventoryBroadcastService({
+      getPoolClient: () => new Promise((resolve) => acquisitions.push(resolve)),
+      loadSnapshot: () => Promise.resolve(snapshot(version++)),
+    });
+
+    service.subscribe(() => undefined)();
+    const received: AgentInventorySnapshot[] = [];
+    service.subscribe((s) => received.push(s));
+    acquisitions.forEach((resolve, i) => resolve(clients[i].client));
+    const handed = clients.slice(0, acquisitions.length).map((c) => c.state);
+    await waitForCondition(() => received.length >= 1 && handed.every((s) => s.released || s.listened));
+
+    const live = handed.filter((s) => s.listened && !s.released);
+    expect(live).toHaveLength(1);
+
+    live[0].notify!({ channel: 'agent_inventory_change' });
+    await waitForCondition(() => received.length >= 2);
+    expect(received.at(-1)?.entries[0].id).toBe(version - 1);
     await service.stop();
   });
 });

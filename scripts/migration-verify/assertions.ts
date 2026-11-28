@@ -1,5 +1,8 @@
 import type { Pool } from 'pg';
 import type { Checks } from './checks';
+import { HOST_PROBE_FAILURE_CODES, MAX_FAILURE_DETAIL_LENGTH } from '@/lib/errors/host-failure-copy';
+import { HostRepository } from '@/lib/database/repositories/host-repository';
+import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import {
   ACTIVE_CONTAINER,
   TLS_HOST,
@@ -25,12 +28,164 @@ import {
   sparseHourNaiveAverage,
   sparseHourRawAverage,
   BACKFILL_SENTINEL,
+  LEGACY_RESTART_DEPLOY,
+  NULL_INVARIANT_ROWS,
   UNIFY_COMPOSE,
   UNIFY_DESTROYED,
   UNIFY_ORPHAN,
   UNIFY_PLAIN,
   UNIFY_REPLICA,
 } from './fixture';
+
+const FAILURE_CHECK_VIOLATION = '23514';
+
+async function assertManagedHostFailureCheck(pool: Pool, checks: Checks): Promise<void> {
+  const client = await pool.connect();
+  const accepts = async (status: string, code: string | null, detail: string | null): Promise<boolean> => {
+    await client.query('SAVEPOINT failure_attempt');
+    try {
+      await client.query(
+        `UPDATE managed_hosts SET status = $2, failure_code = $3, failure_detail = $4 WHERE name = $1`,
+        ['failure-check-host', status, code, detail]
+      );
+      return true;
+    } catch (err) {
+      if ((err as { code?: string }).code !== FAILURE_CHECK_VIOLATION) throw err;
+      return false;
+    } finally {
+      await client.query('ROLLBACK TO SAVEPOINT failure_attempt');
+    }
+  };
+
+  try {
+    await client.query('BEGIN');
+    await client.query(`INSERT INTO managed_hosts (name, agent_url) VALUES ('failure-check-host', 'http://localhost:9090')`);
+    for (const code of HOST_PROBE_FAILURE_CODES) {
+      checks.equal(`managed_hosts accepts the ${code} failure code on an unhealthy row`, await accepts('unhealthy', code, 'detail'), true);
+    }
+    checks.equal('managed_hosts accepts a pending row carrying a cause', await accepts('pending', 'awaiting-enrollment', 'detail'), true);
+    checks.equal('managed_hosts accepts a healthy row with no cause', await accepts('healthy', null, null), true);
+    checks.equal('managed_hosts rejects a failure code outside the probe set', await accepts('unhealthy', 'bogus', null), false);
+    checks.equal('managed_hosts rejects a failure detail with no code', await accepts('unhealthy', null, 'detail'), false);
+    checks.equal('managed_hosts rejects a healthy row carrying a cause', await accepts('healthy', 'offline', null), false);
+
+    const repo = new HostRepository({ query: (sql: string, params?: unknown[]) => client.query(sql, params) } as unknown as Pool);
+    const URL = 'http://localhost:9090';
+    const idRow = await client.query(`SELECT id FROM managed_hosts WHERE name = 'failure-check-host'`);
+    const id = Number((idRow.rows[0] as { id: number }).id);
+    const stateAfter = async (setup: string, write: () => Promise<void>): Promise<string> => {
+      await client.query('SAVEPOINT write_attempt');
+      try {
+        await client.query(setup);
+        await write();
+        const row = (await client.query(
+          `SELECT status, failure_code, char_length(failure_detail) AS detail_length FROM managed_hosts WHERE id = ${id}`
+        )).rows[0] as { status: string; failure_code: string | null; detail_length: number | null };
+        return `${row.status}/${row.failure_code ?? '-'}/${row.detail_length ?? '-'}`;
+      } finally {
+        await client.query('ROLLBACK TO SAVEPOINT write_attempt');
+      }
+    };
+    const pendingFailure = { status: 'pending', failure: { code: 'offline', detail: null } } as const;
+    checks.equal(
+      'a pending verdict does not land on a row a concurrent check already verified',
+      await stateAfter(`UPDATE managed_hosts SET status = 'healthy' WHERE id = ${id}`, () => repo.updateHealth(id, pendingFailure, URL)),
+      'healthy/-/-'
+    );
+    checks.equal(
+      'a pending verdict lands on a row that is still pending',
+      await stateAfter(`UPDATE managed_hosts SET status = 'pending' WHERE id = ${id}`, () => repo.updateHealth(id, pendingFailure, URL)),
+      'pending/offline/-'
+    );
+    checks.equal(
+      'a healthy verdict verifies a pending row',
+      await stateAfter(`UPDATE managed_hosts SET status = 'pending' WHERE id = ${id}`, () => repo.updateHealth(id, { status: 'healthy', failure: null }, URL)),
+      'healthy/-/-'
+    );
+    checks.equal(
+      'a verdict probed at an old URL does not land after the URL changed',
+      await stateAfter(`UPDATE managed_hosts SET status = 'healthy' WHERE id = ${id}`, () =>
+        repo.updateHealth(id, { status: 'unhealthy', failure: { code: 'offline', detail: null } }, 'http://old:9090')),
+      'healthy/-/-'
+    );
+    checks.equal(
+      'a failure detail is stored cut to the limit',
+      await stateAfter(`UPDATE managed_hosts SET status = 'healthy' WHERE id = ${id}`, () =>
+        repo.updateHealth(id, { status: 'unhealthy', failure: { code: 'offline', detail: 'x'.repeat(MAX_FAILURE_DETAIL_LENGTH + 80) } }, URL)),
+      `unhealthy/offline/${MAX_FAILURE_DETAIL_LENGTH}`
+    );
+  } finally {
+    await client.query('ROLLBACK').catch(() => undefined);
+    client.release();
+  }
+}
+
+async function assertManagedHostAgentUpdate(pool: Pool, checks: Checks): Promise<void> {
+  const client = await pool.connect();
+  const accepts = async (state: string | null, result: string | null, at: string | null): Promise<boolean> => {
+    await client.query('SAVEPOINT update_attempt');
+    try {
+      await client.query(
+        `UPDATE managed_hosts SET agent_update_state = $2, agent_update_result = $3::jsonb, agent_update_at = $4 WHERE name = $1`,
+        ['agent-update-host', state, result, at]
+      );
+      return true;
+    } catch (err) {
+      if ((err as { code?: string }).code !== FAILURE_CHECK_VIOLATION) throw err;
+      return false;
+    } finally {
+      await client.query('ROLLBACK TO SAVEPOINT update_attempt');
+    }
+  };
+  const NOW = '2026-11-27T10:00:00Z';
+  const RESULT = JSON.stringify({ healthy: true, outcome: 'already_current' });
+
+  try {
+    await client.query('BEGIN');
+    await client.query(`INSERT INTO managed_hosts (name, agent_url) VALUES ('agent-update-host', 'http://localhost:9090')`);
+    checks.equal('managed_hosts accepts a row with no agent update', await accepts(null, null, null), true);
+    checks.equal('managed_hosts accepts a running agent update', await accepts('running', null, NOW), true);
+    checks.equal('managed_hosts accepts an interrupted agent update', await accepts('interrupted', null, NOW), true);
+    checks.equal('managed_hosts accepts an errored agent update', await accepts('errored', null, NOW), true);
+    checks.equal('managed_hosts accepts a finished agent update with its result', await accepts('done', RESULT, NOW), true);
+    checks.equal('managed_hosts rejects a finished agent update with no result', await accepts('done', null, NOW), false);
+    checks.equal('managed_hosts rejects a running agent update carrying a result', await accepts('running', RESULT, NOW), false);
+    checks.equal('managed_hosts rejects an agent update with no time', await accepts('running', null, null), false);
+    checks.equal('managed_hosts rejects an agent update state outside the set', await accepts('paused', null, NOW), false);
+
+    const repo = new HostRepository({ query: (sql: string, params?: unknown[]) => client.query(sql, params) } as unknown as Pool);
+    const id = Number(((await client.query(`SELECT id FROM managed_hosts WHERE name = 'agent-update-host'`)).rows[0] as { id: number }).id);
+    const startedAt = new Date('2026-11-27T10:00:00.123Z');
+    const endedAt = new Date('2026-11-27T10:00:40.456Z');
+    const longAgo = new Date('2026-11-27T09:00:00Z');
+    checks.equal('an agent update claims a host with none running', await repo.claimAgentUpdate(id, startedAt, longAgo), true);
+    checks.equal('a second agent update is refused while the first runs', await repo.claimAgentUpdate(id, endedAt, longAgo), false);
+    await repo.settleAgentUpdate(id, endedAt, { state: 'interrupted' }, endedAt);
+    checks.equal('a settle for another start time leaves the running update alone', (await repo.findById(id))?.agentUpdate?.state, 'running');
+    await repo.settleAgentUpdate(id, startedAt, { state: 'done', result: { healthy: true, outcome: 'updated', version: '2.0.0' } }, endedAt);
+    const settled = (await repo.findById(id))?.agentUpdate;
+    checks.equal(
+      'a settled agent update reads back with its result and end time',
+      JSON.stringify(settled),
+      JSON.stringify({ state: 'done', at: endedAt, result: { healthy: true, outcome: 'updated', version: '2.0.0' } })
+    );
+    await repo.claimAgentUpdate(id, startedAt, longAgo);
+    checks.equal('a running update that started before the given bound is taken over', await repo.claimAgentUpdate(id, endedAt, endedAt), true);
+    await repo.settleAgentUpdate(id, endedAt, { state: 'done', result: { healthy: false, code: 'agent_reported_error', message: 'x'.repeat(2000) } }, endedAt);
+    checks.equal(
+      'a stored refusal message is cut to the failure detail limit',
+      Number(((await client.query(`SELECT char_length(agent_update_result->>'message') AS n FROM managed_hosts WHERE id = ${id}`)).rows[0] as { n: number }).n),
+      MAX_FAILURE_DETAIL_LENGTH
+    );
+    await repo.claimAgentUpdate(id, startedAt, longAgo);
+    checks.equal('recovery leaves an update that started after the process alone', (await repo.interruptAgentUpdates(new Date('2026-11-27T09:00:00Z'), endedAt)).length, 0);
+    checks.equal('recovery marks an update that started before the process', JSON.stringify(await repo.interruptAgentUpdates(endedAt, endedAt)), JSON.stringify([id]));
+    checks.equal('a recovered agent update reads as interrupted', (await repo.findById(id))?.agentUpdate?.state, 'interrupted');
+  } finally {
+    await client.query('ROLLBACK').catch(() => undefined);
+    client.release();
+  }
+}
 
 const RELATIVE_EPSILON = 1e-9;
 /** uptime is the slowest counter in the fixture; its bucket AVG trails its LAST by ~29.5. */
@@ -279,6 +434,23 @@ export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
     true
   );
 
+  const managedHostFailureColumns = new Set(
+    await selectColumn<string>(
+      pool,
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'managed_hosts'
+         AND column_name IN ('failure_code', 'failure_detail')`
+    )
+  );
+  checks.sameSet(
+    'managed_hosts carries the probe failure columns',
+    [...managedHostFailureColumns],
+    ['failure_code', 'failure_detail']
+  );
+
+  await assertManagedHostFailureCheck(pool, checks);
+  await assertManagedHostAgentUpdate(pool, checks);
+
   const zfsHost = await selectRow<{ is_nullable: string }>(
     pool,
     `SELECT is_nullable FROM information_schema.columns
@@ -385,6 +557,16 @@ export async function captureRowCounts(pool: Pool): Promise<RowCountSnapshot> {
     'SELECT count(*) FROM proxmox_stats WHERE host = $1',
     [PROXMOX_HOST]
   );
+  snapshot['managed_hosts'] = await count(pool, 'SELECT count(*) FROM managed_hosts');
+  snapshot['entity_metadata'] = await count(pool, 'SELECT count(*) FROM entity_metadata WHERE value IS NOT NULL');
+  const nullStatusHosts = await count(pool, 'SELECT count(*) FROM managed_hosts WHERE name = $1', [
+    NULL_INVARIANT_ROWS.host,
+  ]);
+  if (nullStatusHosts > 0) snapshot[NULL_INVARIANT_ROWS.countLabel] = nullStatusHosts;
+  const legacyRestarts = await count(pool, 'SELECT count(*) FROM deploy_history WHERE stack = $1', [
+    LEGACY_RESTART_DEPLOY.stack,
+  ]);
+  if (legacyRestarts > 0) snapshot[LEGACY_RESTART_DEPLOY.countLabel] = legacyRestarts;
   return snapshot;
 }
 
@@ -1361,6 +1543,131 @@ export async function assertAgentTlsCertificates(pool: Pool, checks: Checks): Pr
   checks.equal(
     'deleting the host deletes its certificate row',
     await count(pool, 'SELECT count(*) FROM agent_tls_certificates'),
+    0
+  );
+}
+
+export async function assertReadInvariantConstraints(pool: Pool, checks: Checks): Promise<void> {
+  for (const [table, column] of [['managed_hosts', 'status'], ['entity_metadata', 'value']]) {
+    const info = await selectRow<{ is_nullable: string }>(
+      pool,
+      `SELECT is_nullable FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+      [table, column]
+    );
+    checks.equal(`${table}.${column} is NOT NULL`, info?.is_nullable, 'NO');
+  }
+
+  const definition = await selectRow<{ definition: string }>(
+    pool,
+    `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+     WHERE conname = 'deploy_history_action_check' AND conrelid = 'deploy_history'::regclass`
+  );
+  checks.equal('deploy_history action CHECK no longer allows restart', definition?.definition.includes("'restart'"), false);
+  checks.equal('deploy_history action CHECK allows update', definition?.definition.includes("'update'"), true);
+
+  const triggerCheck = await selectRow<{ definition: string }>(
+    pool,
+    `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+     WHERE conname = 'deploy_history_trigger_check' AND conrelid = 'deploy_history'::regclass`
+  );
+  checks.equal('deploy_history trigger CHECK lists manual_rollback', triggerCheck?.definition.includes("'manual_rollback'"), true);
+
+  const refusalCode = async (row: { host: string; trigger: string; action: string; postSuccess?: string }): Promise<string | undefined> => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO managed_hosts (name, agent_url) VALUES ($1, 'http://localhost:9090')`,
+        [row.host]
+      );
+      await client.query(
+        `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, trigger, action, post_success)
+         VALUES ('ci-enum-check', $1, 'sha', 'c', 'e', $2, $3, $4)`,
+        [row.host, row.trigger, row.action, row.postSuccess ?? null]
+      );
+      return undefined;
+    } catch (err) {
+      return (err as { code?: string }).code;
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  };
+
+  checks.equal(
+    'the database refuses a restart deploy row',
+    await refusalCode({ host: 'ci-action-check', trigger: 'ui', action: 'restart' }),
+    '23514'
+  );
+  checks.equal(
+    'the database refuses an unknown deploy trigger',
+    await refusalCode({ host: 'ci-trigger-check', trigger: 'cron', action: 'deploy' }),
+    '23514'
+  );
+  checks.equal(
+    'the database refuses an unknown post_success hook',
+    await refusalCode({ host: 'ci-post-success-check', trigger: 'ui', action: 'deploy', postSuccess: 'notify' }),
+    '23514'
+  );
+}
+
+/** Drives the real repository reads, since the typed read path throws on an action outside DeployAction. */
+export async function assertLegacyRestartDeploy(pool: Pool, checks: Checks): Promise<void> {
+  const row = await selectRow<{ action: string; status: string }>(
+    pool,
+    'SELECT action, status FROM deploy_history WHERE stack = $1',
+    [LEGACY_RESTART_DEPLOY.stack]
+  );
+  checks.equal('the legacy restart row is relabeled deploy', row?.action, 'deploy');
+  checks.equal('the legacy restart row keeps its status', row?.status, LEGACY_RESTART_DEPLOY.status);
+
+  const repository = new DeployRepository(pool);
+  const settle = async <T>(read: () => Promise<T>): Promise<T | string> => {
+    try {
+      return await read();
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  };
+
+  const latest = await settle(() => repository.getLatestSuccessful(LEGACY_RESTART_DEPLOY.stack, DOCKER_HOST));
+  checks.equal(
+    'getLatestSuccessful reads the relabeled row',
+    typeof latest === 'string' ? latest : latest?.action,
+    'deploy'
+  );
+  const perStack = await settle(() => repository.getLatestDeployPerStack());
+  checks.equal(
+    'getLatestDeployPerStack reads the relabeled row',
+    typeof perStack === 'string' ? perStack : perStack.find(r => r.stack === LEGACY_RESTART_DEPLOY.stack)?.action,
+    'deploy'
+  );
+  const history = await settle(() => repository.getDeployHistory(LEGACY_RESTART_DEPLOY.stack, DOCKER_HOST, 10));
+  checks.equal(
+    'getDeployHistory reads the relabeled row',
+    typeof history === 'string' ? history : history.map(r => r.action).join(','),
+    'deploy'
+  );
+}
+
+export async function assertNullInvariantRepair(pool: Pool, checks: Checks): Promise<void> {
+  const host = await selectRow<{ status: string }>(pool, 'SELECT status FROM managed_hosts WHERE name = $1', [
+    NULL_INVARIANT_ROWS.host,
+  ]);
+  checks.equal('a managed host with a NULL status becomes unhealthy', host?.status, 'unhealthy');
+  checks.equal(
+    'no repaired host is left pending, which would allow plaintext enrollment',
+    await count(pool, `SELECT count(*) FROM managed_hosts WHERE name = $1 AND status = 'pending'`, [
+      NULL_INVARIANT_ROWS.host,
+    ]),
+    0
+  );
+  checks.equal(
+    'an entity_metadata row with a NULL value is deleted',
+    await count(pool, 'SELECT count(*) FROM entity_metadata WHERE entity = $1', [
+      NULL_INVARIANT_ROWS.metadataEntity,
+    ]),
     0
   );
 }

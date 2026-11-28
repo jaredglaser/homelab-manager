@@ -1,5 +1,5 @@
 import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
-import { agentFetch, isMissingPinError, toPlainHttpUrl } from '@/lib/clients/agent-http';
+import { agentFetch, isCertificateRejectionError, isMissingPinError, toPlainHttpUrl } from '@/lib/clients/agent-http';
 
 export interface AgentInfoDetail {
   version?: string;
@@ -7,6 +7,7 @@ export interface AgentInfoDetail {
   agentImage?: string | null;
   agentImageTag?: string | null;
   agentImageDigest?: string | null;
+  agentSourceHash?: string | null;
   infoSupported?: boolean;
 }
 
@@ -14,8 +15,15 @@ export interface AgentInfoDetail {
  * Why a health check failed. `offline` means nothing answered at the network level. `unreachable`
  * means something answered but is not a healthy agent. `awaiting-enrollment` means the agent
  * answered on plain HTTP because it holds no certificate, so no https pin can match it.
+ * `agent-unhealthy` means the agent answered /health and reported itself unhealthy (no Docker and no ZFS).
+ * `certificate-rejected` means TLS verification refused the agent's certificate (pin mismatch, expired, or a name the URL uses that it does not cover).
  */
-export type AgentHealthFailureReason = 'offline' | 'unreachable' | 'awaiting-enrollment';
+export type AgentHealthFailureReason =
+  | 'offline'
+  | 'unreachable'
+  | 'awaiting-enrollment'
+  | 'agent-unhealthy'
+  | 'certificate-rejected';
 
 export type AgentHealthResult =
   | ({ healthy: true } & AgentInfoDetail)
@@ -26,6 +34,8 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
 // The agent-side parsers are not a control here: a hostile agent puts what it likes in
 // the JSON body, and these land in unbounded TEXT columns every user then loads.
 const MAX_REPORTED_FIELD_LENGTH = 256;
+
+const MAX_UNHEALTHY_BODY_BYTES = 4096;
 
 function boundedAgentField(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -83,6 +93,7 @@ async function fetchAgentInfo(
       agentImage: boundedAgentField(data.agentImage),
       agentImageTag: boundedAgentField(data.agentImageTag),
       agentImageDigest: boundedAgentField(data.agentImageDigest),
+      agentSourceHash: boundedAgentField(data.agentSourceHash),
       infoSupported: true,
     };
   } catch (err) {
@@ -123,6 +134,9 @@ export async function checkAgentHealth(
     }
 
     if (!response.ok) {
+      if (response.status === 503 && (await reportsItselfUnhealthy(response))) {
+        return { healthy: false, reason: 'agent-unhealthy', error: 'Agent reported itself unhealthy' };
+      }
       return {
         healthy: false,
         reason: 'unreachable',
@@ -168,12 +182,59 @@ export async function checkAgentHealth(
       }
     }
 
+    if (isCertificateRejectionError(err)) {
+      return {
+        healthy: false,
+        reason: 'certificate-rejected',
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
     return {
       healthy: false,
       reason: 'offline',
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+async function reportsItselfUnhealthy(response: Response): Promise<boolean> {
+  const text = await readBoundedText(response, MAX_UNHEALTHY_BODY_BYTES);
+  if (text === null) return false;
+  try {
+    return (JSON.parse(text) as AgentHealthCheckResponse | null)?.status === 'unhealthy';
+  } catch {
+    return false;
+  }
+}
+
+/** Null when the body is larger than the limit: the agent's own body is a few dozen bytes, so anything bigger is not it. */
+async function readBoundedText(response: Response, maxBytes: number): Promise<string | null> {
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 /** A plain-HTTP /health body carrying a status field identifies the agent, whether it reports healthy or not. */

@@ -246,8 +246,9 @@ Files are discovered with `git ls-files --cached --others --exclude-standard` fi
 bun's test-name patterns, so untracked new test files are included and gitignored trees are not.
 Pass substring filters (`bun run test:all -- src/lib`) to shrink the set, or `--shards=N` to
 override the shard count (defaults to CPU count, capped at 12). Failing shards print the tail of
-their output; full per-shard logs land in `.tmp/test-parallel/`. Coverage runs stay
-single-process because Bun cannot merge V8 coverage tables across processes.
+their output. Full per-shard logs land in `.tmp/test-parallel/`. `bun run test` and
+`bun run test:coverage` use Bun's own `--parallel` workers instead, which report one merged
+coverage table for the gate to read.
 
 ### Coverage Requirements
 
@@ -303,6 +304,37 @@ The flow inventory, including what is covered and what is still open, lives in
 
 Playwright's browser must be available; in a fresh checkout run
 `bunx playwright install chromium` first.
+
+### End-to-End Auth (real server + Pocket ID)
+
+The MSW lane cannot emit a real HttpOnly Set-Cookie, so the session cookie
+contract (name, attributes, Max-Age against `SESSION_TTL_HOURS`, the single-name
+read on https, logout deleting the server-side session row) is verified by a
+separate lane that builds the real Nitro app and runs it against a real Pocket ID
+and Postgres. Specs are named `*.authhttp.e2e.ts` and `*.authhttps.e2e.ts`, run
+only via `playwright.auth.config.ts`, and are excluded from the MSW `app` project:
+
+```bash
+bun run test:e2e:auth        # Build realapp, seed Pocket ID, run the lane
+bun run test:e2e:auth:run    # Specs only, against an already-built + seeded setup
+```
+
+Pocket ID and Postgres must already be reachable. The `e2e-auth` job in
+`.github/workflows/ci.yml` shows the service containers and the env a local
+run needs (`POCKET_ID_URL`, `POCKET_ID_API_KEY`, `POSTGRES_*`, `MASTER_KEY`).
+
+The lane writes users and sessions, so the seed, the servers and the specs
+refuse to run unless `POSTGRES_DB` is exactly `homelab_test`. Export it in the
+shell: `.env.example` ships `POSTGRES_DB="homelab"`. Every Bun process in the
+lane (seed, migrations, servers, TLS proxy) starts with `--no-env-file`, so a
+`.env` file is never read and the Bun and Playwright processes see the same
+shell values. The servers also force `AUTH_DISABLED=false`, drop `AUTH_ENABLED`,
+and use the fixed `SESSION_TTL_HOURS` from `e2e/auth/lane-config.ts` (3, so a
+hard-coded 8 hour default cannot pass). Any other variable exported in the shell
+(`POSTGRES_SSL`, `MASTER_KEY_FILE`, ...) still reaches the servers. The specs
+also read and edit the `sessions` table directly (expiry, role, logout deleting
+the row). Servers are never reused between runs, because the seed rotates the
+OIDC client secret on every run and a leftover server would hold the old one.
 
 ## Type Checking
 

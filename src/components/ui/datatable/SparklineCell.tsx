@@ -24,8 +24,8 @@ interface SparklineCellProps {
  * Sparkline cell with stale-data handling.
  *
  * The accumulator lives in an external store keyed by seriesKey, so it survives
- * the unmount/remount the virtualizer triggers when repositioning rows (CLAUDE.md
- * gotcha 12). Ingest is idempotent and runs before the store read, so a data
+ * the unmount/remount the virtualizer triggers when repositioning rows
+ * (AGENTS.md#virtualizer-remount-state). Ingest is idempotent and runs before the store read, so a data
  * update settles in a single commit (no second commit per stream tick across the
  * many on-screen sparklines).
  */

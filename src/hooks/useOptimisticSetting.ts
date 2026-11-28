@@ -1,9 +1,10 @@
 import { useCallback } from 'react';
 import { useSetAtom } from 'jotai';
-import { rawSettingsAtom, parseExpandedSet } from '@/hooks/settingsAtom';
+import { rawSettingsAtom } from '@/hooks/settingsAtom';
 import { useToast } from '@/hooks/toastAtom';
-import { updateSetting } from '@/data/settings/functions';
+import { updateSetting, updateUserSetting } from '@/data/settings/functions';
 import type { SettingsKey } from '@/data/settings/schemas';
+import { isUserSettingsKey } from '@/lib/constants/settings-keys';
 
 export type OptimisticSetter = (
   key: SettingsKey,
@@ -13,8 +14,9 @@ export type OptimisticSetter = (
 /**
  * Shared optimistic-update primitive used by every domain settings hook.
  *
- * Writes the new value into `rawSettingsAtom` immediately, then persists to
- * the database. On persist failure the previous value is restored and a
+ * Writes the new value into `rawSettingsAtom` immediately, then persists it:
+ * a display preference to the signed-in user's own settings, any other key to
+ * the shared server settings. On persist failure the previous value is restored and a
  * toast is shown. Only subscribes to the raw atom's setter, not its value,
  * so the hook itself never triggers a re-render when any setting changes.
  */
@@ -33,7 +35,10 @@ export function useOptimisticSetting(): OptimisticSetter {
         return { ...raw, [key]: newValue };
       });
 
-      updateSetting({ data: { key, value: newValue! } }).catch((err: unknown) => {
+      const persist = isUserSettingsKey(key)
+        ? updateUserSetting({ data: { key, value: newValue! } })
+        : updateSetting({ data: { key, value: newValue! } });
+      persist.catch((err: unknown) => {
         console.error(`Failed to persist setting "${key}":`, err);
         setRaw(current => {
           if (previousValue === undefined) {
@@ -48,19 +53,4 @@ export function useOptimisticSetting(): OptimisticSetter {
     },
     [setRaw, showToast],
   );
-}
-
-/**
- * Toggle-in-set helper: parses the JSON-encoded string, flips `item`
- * membership, and returns the re-encoded string. Used by every expanded-set
- * setting (hosts, containers, pools, etc.).
- */
-export function toggleInSet(raw: string | undefined, item: string): string {
-  const set = parseExpandedSet(raw);
-  if (set.has(item)) {
-    set.delete(item);
-  } else {
-    set.add(item);
-  }
-  return JSON.stringify(Array.from(set));
 }

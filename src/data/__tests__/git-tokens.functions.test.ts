@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
 import type { GitTokenWithUser } from '@/lib/database/repositories/git-token-repository';
-import { withStartContext } from '@/lib/test/start-context';
+import { withStartContext, runRoleMiddlewareOnClientPath } from '@/lib/test/start-context';
 import { mockModule } from '@/lib/test/mock-module';
 
 // Mutable per-test auth context: the mocked auth middleware injects this user.
@@ -13,6 +13,8 @@ const SYNTHETIC_OPERATOR: AuthUser = {
   name: 'Operator',
   role: 'operator',
 };
+
+runRoleMiddlewareOnClientPath();
 
 mockModule<typeof import('@/middleware/auth-middleware')>('@/middleware/auth-middleware', (real) => ({ ...real, 
   authMiddleware: {

@@ -784,3 +784,87 @@ describe('DockerInventoryBroadcastService: zod validation at NOTIFY boundary', (
     await service.stop();
   });
 });
+
+describe('DockerInventoryBroadcastService with its default database wiring', () => {
+  it('listens on a pooled connection and sends the running containers from the event log, without destroyed ones', async () => {
+    const poolClient = createMockPoolClient();
+    const pool = { connect: mock(() => Promise.resolve(poolClient)) };
+    const upsert: DockerContainerEventRow = {
+      at: new Date('2026-04-16T10:00:00Z'),
+      host: 'server1',
+      containerId: 'abc123',
+      eventType: 'upsert',
+      state: 'running',
+      name: 'plex',
+      image: 'plexinc/pms-docker:latest',
+      imageDigest: null,
+      labels: {},
+      ports: [],
+      mounts: [],
+      composeProject: null,
+      serviceKey: null,
+      startedAt: null,
+      finishedAt: null,
+      exitCode: null,
+    };
+    const destroyed: DockerContainerEventRow = {
+      at: new Date('2026-04-16T10:01:00Z'),
+      host: 'server1',
+      containerId: 'def456',
+      eventType: 'destroy',
+    };
+    void mock.module('@/lib/clients/database-client', () => ({
+      databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => pool }) },
+    }));
+    void mock.module('@/lib/database/repositories/docker-container-event-repository', () => ({
+      DockerContainerEventRepository: class {
+        getCurrentSnapshot = () => Promise.resolve([upsert, destroyed]);
+      },
+    }));
+    const service = new DockerInventoryBroadcastService();
+    const received: DockerInventoryBroadcastEvent[] = [];
+    try {
+      service.subscribe((e) => received.push(e));
+      await waitForCondition(() => received.length > 0);
+
+      expect(poolClient.querySql).toBe('LISTEN docker_container_change');
+      expect(received).toEqual([{ type: 'init', containers: [rowToInventory(upsert)] }]);
+    } finally {
+      await service.stop();
+    }
+  });
+});
+
+describe('DockerInventoryBroadcastService re-subscribe while connecting', () => {
+  it('ends with one LISTEN client when a re-subscribe lands while the first client is still being acquired', async () => {
+    const clients = [createMockPoolClient(), createMockPoolClient()];
+    const acquisitions: ((client: PoolClient) => void)[] = [];
+    const service = new DockerInventoryBroadcastService({
+      getPoolClient: () => new Promise<PoolClient>((resolve) => acquisitions.push(resolve)),
+      loadSnapshot: () => Promise.resolve([container1]),
+    });
+
+    service.subscribe(() => undefined)();
+    const received: DockerInventoryBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    acquisitions.forEach((resolve, i) => resolve(clients[i] as unknown as PoolClient));
+    const handed = clients.slice(0, acquisitions.length);
+    await waitForCondition(() => received.length >= 1 && handed.every((c) => c.released || c.querySql !== null));
+
+    const live = handed.filter((c) => c.querySql === 'LISTEN docker_container_change' && !c.released);
+    expect(live).toHaveLength(1);
+    expect(received[0]).toEqual({ type: 'init', containers: [container1] });
+
+    live[0].emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'def456',
+        event_type: 'destroy',
+      }),
+    });
+    expect(received.map((e) => e.type)).toEqual(['init', 'destroy']);
+    await service.stop();
+  });
+});

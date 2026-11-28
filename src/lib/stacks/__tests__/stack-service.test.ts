@@ -515,6 +515,34 @@ describe('controlStackForHost', () => {
     ).rejects.toThrow(/docker compose start failed/);
   });
 
+  test('bounds the agent output in the error to 16 KiB and marks the omission', async () => {
+    const raw = `${Array.from({ length: 1000 }, (_, i) => `${String(i).padStart(5, '0')} ${'x'.repeat(94)}`).join('\n')}\nno such service: web`;
+    mockStart.mockResolvedValueOnce({ success: false, logs: raw });
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+
+    const failure = await controlStackForHost('server1', 'start', { stack: 'myapp', scope: 'stack' }).catch((err: Error) => err);
+
+    const message = (failure as Error).message;
+    expect(message).toStartWith('docker compose start failed: 00000 ');
+    expect(message).toMatch(/\[\.\.\. \d+ lines? \(\d+\.\d KiB\) omitted \.\.\.\]/);
+    expect(Buffer.byteLength(message.slice('docker compose start failed: '.length))).toBeLessThanOrEqual(16 * 1024);
+    expect(message).toEndWith('no such service: web');
+    errorSpy.mockRestore();
+  });
+
+  test('keeps agent output of 16 KiB or less unchanged in the error', async () => {
+    const raw = `${'z'.repeat(99)}\n`.repeat(100);
+    mockStop.mockResolvedValueOnce({ success: false, logs: raw });
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+
+    const failure = await controlStackForHost('server1', 'stop', { stack: 'myapp', scope: 'stack' }).catch((err: Error) => err);
+
+    expect((failure as Error).message).toBe(`docker compose stop failed: ${raw}`);
+    errorSpy.mockRestore();
+  });
+
   test('rethrows when the agent call itself fails', async () => {
     mockStop.mockRejectedValueOnce(new Error('agent unreachable'));
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
@@ -538,7 +566,7 @@ describe('controlStackForHost', () => {
 
 describe('resolveDeleteStack', () => {
   test('teardown branch: calls triggerDeploy with postSuccess=removeFromManifest and returns teardown-pending', async () => {
-    const { resolveDeleteStack } = await import('../delete-stack-resolver');
+    const { resolveDeleteStack } = await import('@/lib/stacks/delete-stack-resolver');
     const triggerDeploy = mock().mockResolvedValue({ deployId: 123 });
     const commitRemove = mock();
     const result = await resolveDeleteStack('plex', 'homeserver', true, {
@@ -558,7 +586,7 @@ describe('resolveDeleteStack', () => {
   });
 
   test('unmanage branch: commits manifest removal and returns removed', async () => {
-    const { resolveDeleteStack } = await import('../delete-stack-resolver');
+    const { resolveDeleteStack } = await import('@/lib/stacks/delete-stack-resolver');
     const triggerDeploy = mock();
     const commitRemove = mock().mockResolvedValue({ commitSha: 'sha-xyz' });
     const result = await resolveDeleteStack('plex', 'homeserver', false, {

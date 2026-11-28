@@ -1,11 +1,12 @@
 {
-  "include": ["**/*.ts", "**/*.tsx"],
+  "include": ["**/*.ts", "**/*.tsx", "scripts/eslint-rules/*.d.mts"],
+  "exclude": ["node_modules", "agent"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
     "module": "ESNext",
     "lib": ["ES2022", "DOM", "DOM.Iterable", "esnext.disposable"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "bun"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",

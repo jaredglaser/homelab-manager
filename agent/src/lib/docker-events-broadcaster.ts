@@ -11,6 +11,13 @@ export const ZERO_TIMESTAMP = '0001-01-01T00:00:00Z';
 /** States in which ExitCode is meaningful. Docker returns 0 while running, which is misleading. */
 const TERMINAL_STATES = new Set(['exited', 'dead']);
 
+/** The one-shot init the generated agent compose runs before the agent. It stays Exited, so it is not inventory. */
+export const AGENT_INIT_ROLE = 'agent-init';
+
+function isHiddenContainer(labels: Record<string, string> | undefined): boolean {
+  return labels?.['hlm.role'] === AGENT_INIT_ROLE;
+}
+
 /** Actions that trigger state updates. */
 const RELEVANT_ACTIONS = new Set(['start', 'stop', 'die', 'restart', 'create', 'destroy', 'pause', 'unpause']);
 
@@ -88,6 +95,7 @@ export interface RawPortCandidate {
   containerPort: number;
   protocol: string | undefined;
   hostIp: string | null | undefined;
+  // eslint-disable-next-line local/no-overwide-union -- the list and inspect API shapes differ: one sends the port as text, the other as a number
   hostPort: string | number | null | undefined;
 }
 
@@ -277,6 +285,8 @@ async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
   if (eventType !== 'container') return;
   if (!action || !RELEVANT_ACTIONS.has(action)) return;
   if (!containerId) return;
+  // Docker puts the container's labels in the event attributes.
+  if (isHiddenContainer(event.Actor?.Attributes)) return;
 
   if (action === 'destroy') {
     state.containers.delete(containerId);
@@ -316,7 +326,7 @@ async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
  * that container with null timestamps/exit code, don't fail the whole init.
  */
 async function listAndEnrichContainers(docker: Dockerode): Promise<MinimalContainerInfo[]> {
-  const listed = await docker.listContainers({ all: true });
+  const listed = (await docker.listContainers({ all: true })).filter((c) => !isHiddenContainer(c.Labels));
   const enriched = await Promise.all(
     listed.map(async (c): Promise<MinimalContainerInfo> => {
       try {

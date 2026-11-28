@@ -1,18 +1,23 @@
 import { useCallback, useMemo } from 'react';
-import { useAtomValue } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import {
   dockerSettingsAtom,
-  stacksSettingsAtom,
   type Settings,
   type MemoryDisplayMode,
   type DecimalSettings,
 } from '@/hooks/settingsAtom';
-import { useOptimisticSetting, toggleInSet } from '@/hooks/useOptimisticSetting';
+import {
+  dockerCollapsedHostsAtom,
+  dockerContainerShellsAtom,
+  dockerExpandedContainersAtom,
+  stacksExpandedAtom,
+  toggledInSet,
+} from '@/hooks/browserLayout';
+import { useOptimisticSetting } from '@/hooks/useOptimisticSetting';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 export interface DockerSettingsValue {
   docker: Settings['docker'];
-  stacks: Settings['stacks'];
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
   setChartWindowSeconds: (seconds: number) => void;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
@@ -27,14 +32,16 @@ export interface DockerSettingsValue {
 }
 
 /**
- * Docker-dashboard settings: memory display, decimals, chart window, and host
- * / container / stack expansion state. Subscribes only to the docker and
- * stacks slices: ZFS/Proxmox/General changes do not re-render consumers.
+ * Docker-dashboard settings: memory display, decimals and chart window are stored per user (see
+ * `USER_SETTINGS_KEYS`). Host / container / stack expansion and the per-container shell are kept in this browser only.
  */
 export function useDockerSettings(): DockerSettingsValue {
   const docker = useAtomValue(dockerSettingsAtom);
-  const stacks = useAtomValue(stacksSettingsAtom);
   const optimisticSet = useOptimisticSetting();
+  const [collapsedHosts, setCollapsedHosts] = useAtom(dockerCollapsedHostsAtom);
+  const [expandedContainers, setExpandedContainers] = useAtom(dockerExpandedContainersAtom);
+  const [expandedStacks, setExpandedStacks] = useAtom(stacksExpandedAtom);
+  const [containerShells, setContainerShells] = useAtom(dockerContainerShellsAtom);
 
   const setMemoryDisplayMode = useCallback((mode: MemoryDisplayMode) => {
     optimisticSet(SETTINGS_KEYS.docker.memoryDisplayMode, () => mode);
@@ -49,57 +56,46 @@ export function useDockerSettings(): DockerSettingsValue {
   }, [optimisticSet]);
 
   const toggleHostExpanded = useCallback((hostName: string) => {
-    optimisticSet(SETTINGS_KEYS.docker.expandedHosts, prev => toggleInSet(prev, hostName));
-  }, [optimisticSet]);
+    setCollapsedHosts(prev => toggledInSet(prev, hostName));
+  }, [setCollapsedHosts]);
 
   const isHostExpanded = useCallback(
     (hostName: string, totalHosts: number): boolean => {
       if (totalHosts === 1) return true;
-      return !docker.expandedHosts.has(hostName);
+      return !collapsedHosts.has(hostName);
     },
-    [docker.expandedHosts],
+    [collapsedHosts],
   );
 
   const toggleContainerExpanded = useCallback((containerId: string) => {
-    optimisticSet(SETTINGS_KEYS.docker.expandedContainers, prev => toggleInSet(prev, containerId));
-  }, [optimisticSet]);
+    setExpandedContainers(prev => toggledInSet(prev, containerId));
+  }, [setExpandedContainers]);
 
   const isContainerExpanded = useCallback(
-    (containerId: string): boolean => docker.expandedContainers.has(containerId),
-    [docker.expandedContainers],
+    (containerId: string): boolean => expandedContainers.has(containerId),
+    [expandedContainers],
   );
 
   const toggleStackExpanded = useCallback((stackEntityId: string) => {
-    optimisticSet(SETTINGS_KEYS.stacks.expandedStacks, prev => toggleInSet(prev, stackEntityId));
-  }, [optimisticSet]);
+    setExpandedStacks(prev => toggledInSet(prev, stackEntityId));
+  }, [setExpandedStacks]);
 
   const isStackExpanded = useCallback(
-    (stackEntityId: string): boolean => stacks.expandedStacks.has(stackEntityId),
-    [stacks.expandedStacks],
+    (stackEntityId: string): boolean => expandedStacks.has(stackEntityId),
+    [expandedStacks],
   );
 
   const setContainerShell = useCallback((containerKey: string, shell: string) => {
-    optimisticSet(SETTINGS_KEYS.docker.containerShells, (prev) => {
-      const current: Record<string, string> = (() => {
-        try {
-          const p = JSON.parse(prev ?? '{}') as unknown;
-          return (typeof p === 'object' && p !== null && !Array.isArray(p))
-            ? (p as Record<string, string>)
-            : {};
-        } catch { return {}; }
-      })();
-      return JSON.stringify({ ...current, [containerKey]: shell });
-    });
-  }, [optimisticSet]);
+    setContainerShells(prev => ({ ...prev, [containerKey]: shell }));
+  }, [setContainerShells]);
 
   const getContainerShell = useCallback(
-    (containerKey: string): string | undefined => docker.containerShells[containerKey],
-    [docker.containerShells],
+    (containerKey: string): string | undefined => containerShells[containerKey],
+    [containerShells],
   );
 
   return useMemo<DockerSettingsValue>(() => ({
     docker,
-    stacks,
     setMemoryDisplayMode,
     setChartWindowSeconds,
     setDockerDecimal,
@@ -113,7 +109,6 @@ export function useDockerSettings(): DockerSettingsValue {
     getContainerShell,
   }), [
     docker,
-    stacks,
     setMemoryDisplayMode,
     setChartWindowSeconds,
     setDockerDecimal,

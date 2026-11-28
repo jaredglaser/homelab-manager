@@ -1,6 +1,13 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
 import { render, screen, fireEvent } from '@testing-library/react';
 import StackActionBar from '../StackActionBar';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('StackActionBar', () => {
   const defaultProps = {
@@ -17,6 +24,61 @@ describe('StackActionBar', () => {
     expect(screen.getByText('Update images')).toBeDefined();
     expect(screen.getByText('Teardown')).toBeDefined();
     expect(screen.getByText('Delete Stack')).toBeDefined();
+  });
+
+  it('shows a viewer Update images disabled with the role reason, and a click calls nothing', async () => {
+    seedSession('viewer');
+    const onUpdate = mock(() => undefined);
+    render(<StackActionBar {...defaultProps} onUpdate={onUpdate} />);
+    const user = setupUser();
+    const update = screen.getByRole('button', { name: 'Update images' });
+    expect(update.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(update);
+    await user.hover(update);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it('lets an operator run Update images', () => {
+    seedSession('operator');
+    const onUpdate = mock(() => undefined);
+    render(<StackActionBar {...defaultProps} onUpdate={onUpdate} />);
+    const update = screen.getByRole('button', { name: 'Update images' });
+    expect(update.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(update);
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a viewer Deploy, Teardown and Delete Stack disabled with the role reason, and clicking them calls nothing', async () => {
+    seedSession('viewer');
+    const handlers = { onDeploy: mock(() => undefined), onTeardown: mock(() => undefined), onDelete: mock(() => undefined) };
+    render(<StackActionBar {...defaultProps} {...handlers} />);
+    const user = setupUser();
+    for (const name of ['Deploy', 'Teardown', 'Delete Stack']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(roleReasonOf(button)).toBe(VIEWER_DENIED_COPY);
+      fireEvent.click(button);
+    }
+    await user.hover(screen.getByRole('button', { name: 'Delete Stack' }));
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(handlers.onDeploy).not.toHaveBeenCalled();
+    expect(handlers.onTeardown).not.toHaveBeenCalled();
+    expect(handlers.onDelete).not.toHaveBeenCalled();
+  });
+
+  it.each(['admin', 'operator'] as const)('lets an %s run Deploy, Teardown and Delete Stack', (role) => {
+    seedSession(role);
+    const handlers = { onDeploy: mock(() => undefined), onTeardown: mock(() => undefined), onDelete: mock(() => undefined) };
+    render(<StackActionBar {...defaultProps} {...handlers} />);
+    for (const name of ['Deploy', 'Teardown', 'Delete Stack']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.getAttribute('aria-disabled')).toBeNull();
+      fireEvent.click(button);
+    }
+    expect(handlers.onDeploy).toHaveBeenCalledTimes(1);
+    expect(handlers.onTeardown).toHaveBeenCalledTimes(1);
+    expect(handlers.onDelete).toHaveBeenCalledTimes(1);
   });
 
   it('buttons are enabled when not deploying', () => {

@@ -1,0 +1,4 @@
+[test]
+preload = ["../src/lib/test/test-timeout.ts", "../src/lib/test/network-guard.ts"]
+# Agent tests load the guard but run few of its branches, so counting it drops agent line coverage below the gate. The root package tests it.
+coveragePathIgnorePatterns = ["../src/lib/test/network-guard.ts"]

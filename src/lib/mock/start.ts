@@ -8,6 +8,8 @@
  */
 export async function startMockServiceWorker(): Promise<void> {
   const { worker } = await import('@/lib/mock/browser');
+  const { seedDemoLayout } = await import('@/lib/mock/generators/settings');
+  seedDemoLayout();
   const base = import.meta.env.BASE_URL || '/';
 
   // The worker tees every mocked response and ships one branch to the page for
@@ -25,7 +27,7 @@ export async function startMockServiceWorker(): Promise<void> {
     },
     // The app also talks to static assets, icons, and HMR endpoints that have no
     // handler; let those reach the real (dev) server untouched.
-    onUnhandledRequest: 'bypass',
+    onUnhandledFrame: 'bypass',
     quiet: true,
   });
 

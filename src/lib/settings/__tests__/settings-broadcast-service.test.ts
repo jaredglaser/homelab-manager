@@ -4,6 +4,7 @@ import type { SettingsWireMessage } from '@/types/settings';
 import type { PoolClient } from 'pg';
 import { waitForCondition } from '@/lib/test/wait-for-condition';
 import { mockSetTimeout } from '@/lib/test/mock-timers';
+import { mockModule } from '@/lib/test/mock-module';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -244,5 +245,211 @@ describe('SettingsBroadcastService', () => {
         timers.restore();
       }
     });
+  });
+});
+
+describe('SettingsBroadcastService with its default database wiring', () => {
+  it('listens on a pooled connection and reads settings through the settings repository', async () => {
+    const poolClient = createMockPoolClient();
+    const pool = { connect: mock(() => Promise.resolve(poolClient)) };
+    const repoPools: unknown[] = [];
+    void mock.module('@/lib/clients/database-client', () => ({
+      databaseConnectionManager: { getClient: () => Promise.resolve({ getPool: () => pool }) },
+    }));
+    mockModule<typeof import('@/lib/database/repositories/settings-repository')>('@/lib/database/repositories/settings-repository', (real) => ({
+      ...real,
+      SettingsRepository: class {
+        constructor(p: unknown) {
+          repoPools.push(p);
+        }
+        getAll = () => Promise.resolve(new Map([['theme', 'dark']]));
+        get = (key: string) => Promise.resolve(key === 'theme' ? 'light' : null);
+      },
+    }));
+    const service = new SettingsBroadcastService();
+    const received: SettingsWireMessage[] = [];
+    try {
+      service.subscribe((m) => received.push(m), undefined);
+      await waitForCondition(() => poolClient.querySql !== null && received.length > 0);
+
+      expect(poolClient.querySql).toBe('LISTEN settings_change');
+      expect(received).toEqual([{ type: 'init', settings: { theme: 'dark' } }]);
+
+      poolClient.emit('notification', { channel: 'settings_change', payload: 'theme' });
+      await waitForCondition(() => received.length > 1);
+
+      expect(received[1]).toEqual({ type: 'change', key: 'theme', value: 'light' });
+      expect(repoPools).toEqual([pool, pool]);
+    } finally {
+      await service.stop();
+    }
+  });
+});
+
+describe('SettingsBroadcastService scoped by user', () => {
+  let poolClient: MockPoolClient;
+  let service: SettingsBroadcastService<number>;
+  const stored = new Map<number, Map<string, string>>();
+
+  beforeEach(() => {
+    poolClient = createMockPoolClient();
+    stored.clear();
+    stored.set(1, new Map([['general/use12HourTime', 'false']]));
+    stored.set(2, new Map([['general/use12HourTime', 'true']]));
+    service = new SettingsBroadcastService<number>({
+      getPoolClient: () => Promise.resolve(poolClient as unknown as PoolClient),
+      channel: 'user_settings_change',
+      parseNotification: (payload) => {
+        const [id, key] = payload.split(':');
+        return id && key ? { scope: Number(id), key } : null;
+      },
+      loadAllSettings: (userId) => Promise.resolve(new Map(stored.get(userId))),
+      loadSingleSetting: (key, userId) => Promise.resolve(stored.get(userId)?.get(key) ?? null),
+    });
+  });
+
+  afterEach(async () => {
+    await service.stop();
+  });
+
+  it("sends each subscriber its own user's init, listening on the user channel", async () => {
+    const one: SettingsWireMessage[] = [];
+    const two: SettingsWireMessage[] = [];
+    service.subscribe((m) => one.push(m), 1);
+    service.subscribe((m) => two.push(m), 2);
+    await waitForCondition(() => one.length > 0 && two.length > 0 && poolClient.querySql !== null);
+
+    expect(poolClient.querySql).toBe('LISTEN user_settings_change');
+    expect(one).toEqual([{ type: 'init', settings: { 'general/use12HourTime': 'false' } }]);
+    expect(two).toEqual([{ type: 'init', settings: { 'general/use12HourTime': 'true' } }]);
+  });
+
+  it('delivers a change only to subscribers of the user it names', async () => {
+    const one: SettingsWireMessage[] = [];
+    const two: SettingsWireMessage[] = [];
+    service.subscribe((m) => one.push(m), 1);
+    service.subscribe((m) => two.push(m), 2);
+    await waitForCondition(() => one.length > 0 && two.length > 0 && poolClient.notificationHandlers.length > 0);
+
+    stored.get(2)?.set('general/use12HourTime', 'false');
+    poolClient.emit('notification', { channel: 'user_settings_change', payload: '2:general/use12HourTime' });
+    poolClient.emit('notification', { channel: 'user_settings_change', payload: 'garbage' });
+    await waitForCondition(() => two.length > 1);
+
+    expect(two[1]).toEqual({ type: 'change', key: 'general/use12HourTime', value: 'false' });
+    expect(one).toHaveLength(1);
+  });
+
+  it('skips the database read for a change to a user with no open client', async () => {
+    const reads: string[] = [];
+    const counting = new SettingsBroadcastService<number>({
+      getPoolClient: () => Promise.resolve(poolClient as unknown as PoolClient),
+      channel: 'user_settings_change',
+      parseNotification: (payload) => ({ scope: Number(payload.split(':')[0]), key: payload.split(':')[1] }),
+      loadAllSettings: (userId) => Promise.resolve(new Map(stored.get(userId))),
+      loadSingleSetting: (key, userId) => {
+        reads.push(`${userId}:${key}`);
+        return Promise.resolve(stored.get(userId)?.get(key) ?? null);
+      },
+    });
+    const one: SettingsWireMessage[] = [];
+    counting.subscribe((m) => one.push(m), 1);
+    await waitForCondition(() => one.length > 0 && poolClient.notificationHandlers.length > 0);
+
+    poolClient.emit('notification', { channel: 'user_settings_change', payload: '2:general/use12HourTime' });
+    poolClient.emit('notification', { channel: 'user_settings_change', payload: '1:general/use12HourTime' });
+    await waitForCondition(() => one.length > 1);
+
+    expect(reads).toEqual(['1:general/use12HourTime']);
+    await counting.stop();
+  });
+});
+
+describe('SettingsBroadcastService re-subscribe while connecting', () => {
+  it('ends with one LISTEN client when a re-subscribe lands while the first client is still being acquired', async () => {
+    const clients = [createMockPoolClient(), createMockPoolClient()];
+    const acquisitions: ((client: PoolClient) => void)[] = [];
+    const service = new SettingsBroadcastService({
+      getPoolClient: () => new Promise<PoolClient>((resolve) => acquisitions.push(resolve)),
+      loadAllSettings: () => Promise.resolve(new Map([['theme', 'dark']])),
+      loadSingleSetting: () => Promise.resolve('light'),
+    });
+
+    service.subscribe(() => undefined, undefined)();
+    const received: SettingsWireMessage[] = [];
+    service.subscribe((m) => received.push(m), undefined);
+    acquisitions.forEach((resolve, i) => resolve(clients[i] as unknown as PoolClient));
+    const handed = clients.slice(0, acquisitions.length);
+    await waitForCondition(() => received.length >= 1 && handed.every((c) => c.released || c.querySql !== null));
+
+    const live = handed.filter((c) => c.querySql === 'LISTEN settings_change' && !c.released);
+    expect(live).toHaveLength(1);
+    expect(received[0]).toEqual({ type: 'init', settings: { theme: 'dark' } });
+
+    live[0].emit('notification', { channel: 'settings_change', payload: 'theme' });
+    await waitForCondition(() => received.length >= 2);
+    expect(received[1]).toEqual({ type: 'change', key: 'theme', value: 'light' });
+    await service.stop();
+  });
+
+  it('ends with one LISTEN client when a re-subscribe lands while a reconnect attempt is acquiring its client', async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const reconnects: (() => void)[] = [];
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number) => {
+      if ((ms ?? 0) < 500) return realSetTimeout(fn, ms);
+      reconnects.push(fn);
+      return reconnects.length as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+    const clients: MockPoolClient[] = [];
+    const acquisitions: ((client: PoolClient) => void)[] = [];
+    let connects = 0;
+    const service = new SettingsBroadcastService({
+      getPoolClient: () => {
+        connects++;
+        if (connects === 1) return Promise.reject(new Error('db down'));
+        return new Promise<PoolClient>((resolve) => acquisitions.push(resolve));
+      },
+      loadAllSettings: () => Promise.resolve(new Map([['theme', 'dark']])),
+      loadSingleSetting: () => Promise.resolve('light'),
+    });
+    const handOut = (resolve: (client: PoolClient) => void) => {
+      const client = createMockPoolClient();
+      clients.push(client);
+      resolve(client as unknown as PoolClient);
+    };
+
+    try {
+      const unsubscribeFirst = service.subscribe(() => undefined, undefined);
+      await waitForCondition(() => reconnects.length === 1);
+      reconnects.shift()?.();
+      await waitForCondition(() => acquisitions.length === 1);
+      unsubscribeFirst();
+      const received: SettingsWireMessage[] = [];
+      service.subscribe((m) => received.push(m), undefined);
+      await waitForCondition(() => acquisitions.length === 2);
+
+      handOut(acquisitions[0]);
+      await waitForCondition(() => clients[0].released);
+      handOut(acquisitions[1]);
+      await waitForCondition(() => received.length >= 1 && clients[1].querySql !== null);
+      while (reconnects.length > 0) {
+        const pending = acquisitions.length;
+        reconnects.shift()?.();
+        await waitForCondition(() => acquisitions.length > pending);
+        handOut(acquisitions[pending]);
+        await waitForCondition(() => clients[pending].querySql !== null || clients[pending].released);
+      }
+
+      const live = clients.filter((c) => c.querySql === 'LISTEN settings_change' && !c.released);
+      expect(live).toHaveLength(1);
+      live[0].emit('notification', { channel: 'settings_change', payload: 'theme' });
+      await waitForCondition(() => received.length >= 2);
+      expect(received.filter((m) => m.type === 'change')).toEqual([{ type: 'change', key: 'theme', value: 'light' }]);
+    } finally {
+      await service.stop();
+      setTimeoutSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 });

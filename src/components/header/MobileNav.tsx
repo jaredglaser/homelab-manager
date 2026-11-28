@@ -104,7 +104,7 @@ export default function MobileNav() {
         {currentLabel ?? 'Homelab Manager'}
       </span>
 
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet open={open} busy={false} onOpenChange={setOpen}>
         <SheetContent side="left" aria-label="Main navigation">
           <SheetHeader>
             <SheetTitle>Homelab Manager</SheetTitle>

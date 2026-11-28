@@ -270,7 +270,7 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
   }
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose() }}>
+    <Dialog open={open} busy={isGenerating} onOpenChange={(isOpen) => { if (!isOpen) handleClose() }}>
       <DialogContent>
         <DialogTitle>Generate Git Token</DialogTitle>
         <DialogBody className="flex flex-col gap-4 pt-1">
@@ -305,8 +305,8 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
             <Button variant="ghost" onClick={handleClose}>Done</Button>
           ) : (
             <>
-              <Button variant="ghost" onClick={handleClose} disabled={isGenerating}>Cancel</Button>
-              <Button onClick={handleGenerate} disabled={!label.trim() || isGenerating}>
+              <Button variant="ghost" onClick={handleClose}>Cancel</Button>
+              <Button onClick={handleGenerate} disabled={!label.trim()}>
                 {isGenerating ? <Spinner className="size-4" /> : 'Generate'}
               </Button>
             </>
@@ -460,7 +460,7 @@ export function AuthManagementCard() {
   )
 }
 
-function formatDate(date: Date | string | null | undefined): string {
+function formatDate(date: Date | null | undefined): string {
   if (!date) return EMPTY_CELL
   const parsed = new Date(date)
   if (Number.isNaN(parsed.getTime())) return EMPTY_CELL

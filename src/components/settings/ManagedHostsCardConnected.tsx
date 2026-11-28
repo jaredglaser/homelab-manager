@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listHosts, createPendingHost, removeHost, checkHostHealth, updateHost, getHostPublicJwk, rotateHostKeypair, rotateHostTls } from '@/data/hosts/functions'
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
 import type { PendingHostState } from '@/components/settings/AddHostWizard'
+import type { HostListItem } from '@/lib/hosts/host-utils'
 import { useToast } from '@/hooks/toastAtom'
 import { tlsFailureGuidance, type TlsFailureGuidance } from '@/lib/errors/tls-failure-copy'
 import { hostFailureMessage } from '@/lib/errors/host-failure-copy'
@@ -171,9 +172,12 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   })
 
   const updateMutation = useMutation({
+    // The settings page and the host page each mount this card, so an update queues behind one still in flight from the other.
+    scope: { id: 'managed-host-update' },
     mutationFn: ({ hostId, name, agentUrl }: { hostId: number; name: string; agentUrl: string }) =>
       updateHost({ data: { hostId, name, agentUrl } }),
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      queryClient.setQueryData<HostListItem[]>(HOSTS_QUERY_KEY, (hosts) => hosts?.map((h) => (h.id === updated.id ? updated : h)))
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       showToast('Host updated', 'success')
     },
@@ -280,7 +284,9 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       onDiscard={discardPendingHost}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
       isRemoving={removeMutation.isPending}
-      onUpdate={(hostId, name, agentUrl) => updateMutation.mutate({ hostId, name, agentUrl })}
+      onUpdate={(hostId, name, agentUrl) =>
+        updateMutation.mutateAsync({ hostId, name, agentUrl }).then(() => true, () => false)
+      }
       isUpdating={updateMutation.isPending}
       onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
       checkingHostIds={checkingHostIds}

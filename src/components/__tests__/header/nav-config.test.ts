@@ -1,11 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { mockModule } from '@/lib/test/mock-module';
+import { Server } from 'lucide-react'
 
-const mockPrefetchQuery = mock(() => Promise.resolve())
+const mockQuery = mock(() => Promise.resolve())
 
 mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real, 
   queryClient: {
-    prefetchQuery: mockPrefetchQuery,
+    query: mockQuery,
   },
 }))
 
@@ -27,7 +28,7 @@ mockModule<typeof import('@/lib/constants/preload-queries')>('@/lib/constants/pr
 const { NAV_ITEMS, SETTINGS_SECTIONS, PREFETCH_STALE_TIME, handlePrefetch } = await import('@/components/header/nav-config')
 
 beforeEach(() => {
-  mockPrefetchQuery.mockClear()
+  mockQuery.mockClear()
 })
 
 describe('NAV_ITEMS', () => {
@@ -37,7 +38,17 @@ describe('NAV_ITEMS', () => {
 
   it('has the correct routes', () => {
     const routes = NAV_ITEMS.map((i) => i.to)
-    expect(routes).toEqual(['/docker', '/stacks', '/zfs', '/proxmox', '/agents', '/settings'])
+    expect(routes).toEqual(['/docker', '/stacks', '/zfs', '/proxmox', '/hosts', '/settings'])
+  })
+
+  it('labels the hosts route Hosts with the Server icon', () => {
+    const hosts = NAV_ITEMS.find((i) => i.to === '/hosts')
+    expect(hosts?.label).toBe('Hosts')
+    expect(hosts?.Icon).toBe(Server)
+  })
+
+  it('has no Agents label', () => {
+    expect(NAV_ITEMS.some((i) => i.label === 'Agents')).toBe(false)
   })
 
   it('has correct hasMenu flags', () => {
@@ -51,8 +62,8 @@ describe('NAV_ITEMS', () => {
 })
 
 describe('SETTINGS_SECTIONS', () => {
-  it('has exactly 6 entries', () => {
-    expect(SETTINGS_SECTIONS.length).toBe(6)
+  it('has exactly 7 entries', () => {
+    expect(SETTINGS_SECTIONS.length).toBe(7)
   })
 
   it('has the expected ids in order', () => {
@@ -61,6 +72,7 @@ describe('SETTINGS_SECTIONS', () => {
       'general',
       'docker-dashboard',
       'zfs-dashboard',
+      'data-collection',
       'data-retention',
       'managed-hosts',
       'developer',
@@ -75,55 +87,55 @@ describe('PREFETCH_STALE_TIME', () => {
 })
 
 describe('handlePrefetch', () => {
-  it('calls prefetchQuery for /docker', async () => {
+  it('calls query for /docker', async () => {
     handlePrefetch('/docker')
-    expect(mockPrefetchQuery).toHaveBeenCalledTimes(1)
-    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
+    expect(mockQuery).toHaveBeenCalledTimes(1)
+    const args = (mockQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
     expect(args.queryKey).toEqual(['preload', 'docker-stats'])
     expect(args.staleTime).toBe(PREFETCH_STALE_TIME)
   })
 
-  it('calls prefetchQuery for /zfs', () => {
+  it('calls query for /zfs', () => {
     handlePrefetch('/zfs')
-    expect(mockPrefetchQuery).toHaveBeenCalledTimes(1)
-    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
+    expect(mockQuery).toHaveBeenCalledTimes(1)
+    const args = (mockQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
     expect(args.queryKey).toEqual(['preload', 'zfs-stats'])
     expect(args.staleTime).toBe(PREFETCH_STALE_TIME)
   })
 
-  it('calls prefetchQuery for /proxmox', () => {
+  it('calls query for /proxmox', () => {
     handlePrefetch('/proxmox')
-    expect(mockPrefetchQuery).toHaveBeenCalledTimes(1)
-    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
+    expect(mockQuery).toHaveBeenCalledTimes(1)
+    const args = (mockQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
     expect(args.queryKey).toEqual(['preload', 'proxmox-stats'])
     expect(args.staleTime).toBe(PREFETCH_STALE_TIME)
   })
 
-  it('calls prefetchQuery for /stacks', () => {
+  it('calls query for /stacks', () => {
     handlePrefetch('/stacks')
-    expect(mockPrefetchQuery).toHaveBeenCalledTimes(1)
-    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
+    expect(mockQuery).toHaveBeenCalledTimes(1)
+    const args = (mockQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
     expect(args.queryKey).toEqual(['stacks-list'])
     expect(args.staleTime).toBe(PREFETCH_STALE_TIME)
   })
 
   it('is a no-op for /settings', () => {
     handlePrefetch('/settings')
-    expect(mockPrefetchQuery).not.toHaveBeenCalled()
+    expect(mockQuery).not.toHaveBeenCalled()
   })
 
-  it('does not throw or produce an unhandled rejection when prefetchQuery rejects', async () => {
+  it('does not throw or produce an unhandled rejection when query rejects', async () => {
     // First call: resolved mock so the .not.toThrow() check doesn't consume the rejection.
-    mockPrefetchQuery.mockResolvedValueOnce(undefined)
-    // Second call: rejects — this is the one tested for unhandled rejection.
-    mockPrefetchQuery.mockImplementationOnce(() => Promise.reject(new Error('network error')))
+    mockQuery.mockResolvedValueOnce(undefined)
+    // Second call: rejects. This is the one tested for unhandled rejection.
+    mockQuery.mockImplementationOnce(() => Promise.reject(new Error('network error')))
     expect(() => handlePrefetch('/docker')).not.toThrow()
     let unhandledRejection = false
     const handler = () => { unhandledRejection = true }
     process.on('unhandledRejection', handler)
     handlePrefetch('/docker')
     // Wait on the promise handlePrefetch's .catch() attaches to, so the rejection is handled first.
-    const rejectingCall = mockPrefetchQuery.mock.results.at(-1)?.value as Promise<unknown> | undefined
+    const rejectingCall = mockQuery.mock.results.at(-1)?.value as Promise<unknown> | undefined
     expect(rejectingCall).toBeDefined()
     await rejectingCall?.catch(() => {})
     process.off('unhandledRejection', handler)

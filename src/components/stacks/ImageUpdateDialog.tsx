@@ -181,7 +181,8 @@ export default function ImageUpdateDialog({
             : <>Click "Update images" in the stack action bar to update {unbreakable(imageBase)} to the newest published version.</>;
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+    // busy stays false: closing mid-check loses nothing, and busy would lock Close for the whole registry round trip.
+    <Dialog open={open} busy={false} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent className="max-w-5xl">
         <DialogTitle className="flex items-center gap-2 py-3 text-sm font-medium min-w-0">
           <span className="font-mono truncate min-w-0">{container.image}</span>
@@ -277,6 +278,7 @@ export default function ImageUpdateDialog({
         <DialogFooter className="grid grid-cols-2 items-center gap-x-3 gap-y-1 sm:grid-cols-[1fr_auto_auto]">
           <p className="col-span-2 text-xs text-muted-foreground sm:col-span-1 sm:col-start-1 sm:row-start-1">{footerText}</p>
           <Button
+            requires="write"
             variant="ghost"
             className="col-start-1 row-start-3 text-foreground sm:col-start-2 sm:row-start-1 sm:row-span-2"
             disabled={recheckMutation.isPending}

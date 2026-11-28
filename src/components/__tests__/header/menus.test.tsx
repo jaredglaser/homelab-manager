@@ -21,7 +21,7 @@ mockModule<typeof import('@/lib/utils/icon-resolver')>('@/lib/utils/icon-resolve
 }))
 
 mockModule<typeof import('@/lib/query-client')>('@/lib/query-client', (real) => ({ ...real, 
-  queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
+  queryClient: { query: mock(() => Promise.resolve()) },
 }))
 
 mockModule<typeof import('@/lib/constants/preload-queries')>('@/lib/constants/preload-queries', (real) => ({ ...real, 
@@ -83,10 +83,10 @@ beforeEach(() => {
 })
 
 describe('SettingsMenuContent', () => {
-  it('renders one link per SETTINGS_SECTIONS entry (6 total)', () => {
+  it('renders one link per SETTINGS_SECTIONS entry (7 total)', () => {
     const { container } = render(<SettingsMenuContent />, { wrapper: createWrapper() })
     const links = container.querySelectorAll('a')
-    expect(links.length).toBe(6)
+    expect(links.length).toBe(7)
   })
 
   it('calls close context when a link is clicked', () => {
@@ -107,6 +107,7 @@ describe('SettingsMenuContent', () => {
     expect(screen.getByText('General')).not.toBeNull()
     expect(screen.getByText('Docker Dashboard')).not.toBeNull()
     expect(screen.getByText('ZFS Dashboard')).not.toBeNull()
+    expect(screen.getByText('Data Collection')).not.toBeNull()
     expect(screen.getByText('Data Retention')).not.toBeNull()
     expect(screen.getByText('Managed Hosts')).not.toBeNull()
     expect(screen.getByText('Developer')).not.toBeNull()
@@ -115,7 +116,7 @@ describe('SettingsMenuContent', () => {
   it('renders links with hash matching each section id', () => {
     const { container } = render(<SettingsMenuContent />, { wrapper: createWrapper() })
     const links = Array.from(container.querySelectorAll('a'))
-    const expectedHashes = ['general', 'docker-dashboard', 'zfs-dashboard', 'data-retention', 'managed-hosts', 'developer']
+    const expectedHashes = ['general', 'docker-dashboard', 'zfs-dashboard', 'data-collection', 'data-retention', 'managed-hosts', 'developer']
     expectedHashes.forEach((hash, i) => {
       expect(links[i].getAttribute('href')).toBe(`/settings#${hash}`)
     })

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
-import { initBareRepo, commitFiles, getLog, diffCommits } from '../repo';
+import { initBareRepo, commitFiles, getLog, diffCommits } from '@/lib/git/repo';
 
 describe('getLog', () => {
   let testDir: string;

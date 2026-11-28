@@ -1,9 +1,22 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { provisionHostTls, isRestartConnectionLoss, isServedCertUnverifiable, isTransientEnrollmentFailure, toHttpsAgentUrl, TlsProvisionFailure } from '../agent-provisioning-service';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
-import { enrollmentPayload } from '../../crypto/agent-jwt';
+import { tlsFailureMessage } from '@/lib/errors/tls-failure-copy';
+import { agentResponse } from '@/lib/test/agent-response';
+import { enrollmentPayload } from '@/lib/crypto/agent-jwt';
+import { mockModule } from '@/lib/test/mock-module';
+import { mockSetTimeout } from '@/lib/test/mock-timers';
+import type * as DnsPromises from 'node:dns/promises';
 import type { TlsFailureCode } from '@homelab-manager/agent/types';
+
+// A real lookup waits out a lost UDP reply (2s resolver retry), which is the whole test budget.
+const dnsLookup = mock((hostname: string): Promise<{ address: string; family: number }> =>
+  hostname === 'localhost'
+    ? Promise.resolve({ address: '127.0.0.1', family: 4 })
+    : Promise.reject(Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND' })),
+);
+mockModule<typeof DnsPromises>('node:dns/promises', (real) => ({ ...real, lookup: dnsLookup }));
 
 const CERT_PEM = '-----BEGIN CERTIFICATE-----\nFAKECERT\n-----END CERTIFICATE-----\n';
 const OLD_CERT_PEM = '-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n';
@@ -16,7 +29,7 @@ interface FetchCall {
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  return agentResponse(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
 /** The GET /tls/challenge reply that opens every enrollment handshake. */
@@ -527,7 +540,7 @@ describe('provisionHostTls', () => {
 
   it('surfaces a plain-text restart error body', async () => {
     const { deps } = makeDeps({
-      fetchResponses: [challengeResponse(), enrollResponse(), new Response('docker daemon down', { status: 500 })],
+      fetchResponses: [challengeResponse(), enrollResponse(), agentResponse('docker daemon down', { status: 500 })],
       caCertPem: OLD_CERT_PEM,
     });
     await expect(provisionHostTls('myhost', 'https://myhost.lan:9090', deps)).rejects.toThrow(
@@ -680,9 +693,8 @@ describe('provisionHostTls', () => {
     });
     await provisionHostTls('myhost', 'http://localhost:9090', deps);
     const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
-    const sans = JSON.parse(enrollInit.body ?? '{}').sans as string[];
-    expect(sans).toContain('localhost');
-    expect(sans.filter((san) => san === 'localhost')).toHaveLength(1);
+    expect(dnsLookup).toHaveBeenCalledWith('localhost');
+    expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual(['localhost', '127.0.0.1']);
   });
 
   it('the default IP resolver returns null for an unresolvable name', async () => {
@@ -696,7 +708,24 @@ describe('provisionHostTls', () => {
       'host-that-does-not-resolve.invalid',
       'localhost',
     ]);
-  }, 20000);
+  });
+
+  it('the default IP resolver gives up on a lookup that never answers', async () => {
+    dnsLookup.mockImplementationOnce(() => new Promise(() => undefined));
+    const timers = mockSetTimeout({ fireImmediately: true });
+    try {
+      const { deps, fetchCalls } = makeDeps({
+        fetchResponses: [challengeResponse(), enrollResponse()],
+        healthResults: [true],
+      });
+      await provisionHostTls('myhost', 'http://myhost.lan:9090', deps);
+      expect(timers.delays).toEqual([3000]);
+      const enrollInit = fetchCalls[1].init as RequestInit & { body?: string };
+      expect(JSON.parse(enrollInit.body ?? '{}').sans).toEqual(['myhost.lan', 'localhost']);
+    } finally {
+      timers.restore();
+    }
+  });
 });
 
 describe('provisionHostTls enrollment handshake', () => {
@@ -823,6 +852,216 @@ describe('provisionHostTls enrollment handshake', () => {
       /TLS enrollment failed: the agent returned no usable enrollment challenge/,
     );
     expect(fetchCalls.some((c) => c.url.endsWith('/tls/enroll'))).toBe(false);
+  });
+});
+
+const PROXY_502_PAGE = '<html><head><title>502 Bad Gateway</title></head><body>nginx</body></html>';
+
+function proxyResponse(status = 502): Response {
+  return new Response(PROXY_502_PAGE, { status, headers: { 'Content-Type': 'text/html' } });
+}
+
+const NOT_ANSWERING_MESSAGE =
+  'Something other than the agent answered (HTTP 502). Check that the agent URL points at the agent and that any proxy in front of it is running, then try again.';
+
+describe('provisionHostTls when something other than the agent answers', () => {
+  it('reports a header-less 502 on the challenge as not the agent, and never enrolls', async () => {
+    const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { deps, fetchCalls } = makeDeps({ fetchResponses: [proxyResponse()] });
+      const err = await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'agent_not_answering');
+      expect(err.message).toBe('HTTP 502');
+      expect(tlsFailureMessage(err.code, err.message)).toBe(NOT_ANSWERING_MESSAGE);
+      expect(fetchCalls.some((c) => c.url.endsWith('/tls/enroll'))).toBe(false);
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining(`HTTP 502: ${PROXY_502_PAGE}`));
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining('http://myhost.lan:9090'));
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('reports a header-less 502 on the enroll request as not the agent', async () => {
+    const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { deps, storeCert } = makeDeps({ fetchResponses: [challengeResponse(), proxyResponse()] });
+      const err = await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'agent_not_answering');
+      expect(tlsFailureMessage(err.code, err.message)).toBe(NOT_ANSWERING_MESSAGE);
+      expect(storeCert).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it.each([502, 503, 504])('treats a header-less %i on the restart request like a lost connection, so the HTTPS poll decides and stores the cert', async (status) => {
+    const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { deps, checkHealth, stored } = makeDeps({
+        fetchResponses: [challengeResponse(), enrollResponse(), proxyResponse(status)],
+        caCertPem: OLD_CERT_PEM,
+        healthResults: [false, true],
+      });
+      const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
+      expect(result.certPem).toBe(CERT_PEM);
+      expect(checkHealth).toHaveBeenCalledTimes(2);
+      expect(stored).toEqual([['myhost', CERT_PEM]]);
+      expect(consoleError).toHaveBeenCalledWith(expect.stringContaining(`the TLS restart request at https://myhost.lan:9090: HTTP ${status}: ${PROXY_502_PAGE}`));
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('still fails with the poll error after a header-less 502 on restart when the agent never serves the cert, and stores nothing', async () => {
+    const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { deps, stored } = makeDeps({
+        fetchResponses: [challengeResponse(), enrollResponse(), proxyResponse()],
+        caCertPem: OLD_CERT_PEM,
+        healthResults: [false, false, false, false, false, false, false, false],
+      });
+      const err = await expectFailure(provisionHostTls('myhost', 'https://myhost.lan:9090', deps), 'poll_timeout');
+      expect(err.message).toContain('within the retry window (unreachable)');
+      expect(stored).toEqual([]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it.each([403, 500])('keeps a header-less %i on the restart request as not the agent, without polling', async (status) => {
+    const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { deps, checkHealth } = makeDeps({
+        fetchResponses: [challengeResponse(), enrollResponse(), proxyResponse(status)],
+        caCertPem: OLD_CERT_PEM,
+      });
+      const err = await expectFailure(provisionHostTls('myhost', 'https://myhost.lan:9090', deps), 'agent_not_answering');
+      expect(err.message).toBe(`HTTP ${status}`);
+      expect(checkHealth).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('does not let a header-bearing 502 on the restart request pass as a lost connection', async () => {
+    const { deps, checkHealth } = makeDeps({
+      fetchResponses: [challengeResponse(), enrollResponse(), agentResponse(PROXY_502_PAGE, { status: 502, headers: { 'Content-Type': 'text/html' } })],
+      caCertPem: OLD_CERT_PEM,
+    });
+    await expectFailure(provisionHostTls('myhost', 'https://myhost.lan:9090', deps), 'unexpected_agent_response');
+    expect(checkHealth).not.toHaveBeenCalled();
+  });
+
+  it('reads a header-less 404 on the restart request as not the agent instead of a missing Docker capability', async () => {
+    const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const { deps } = makeDeps({
+        fetchResponses: [challengeResponse(), enrollResponse(), proxyResponse(404)],
+        caCertPem: CERT_PEM,
+      });
+      const err = await expectFailure(provisionHostTls('myhost', 'https://myhost.lan:9090', deps), 'agent_not_answering');
+      expect(err.message).toBe('HTTP 404');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  describe('a redirect', () => {
+    const REDIRECT_MESSAGE =
+      'The agent URL redirected the request instead of answering it. Check that the URL stored for this host uses the right scheme (http or https) and the agent port, and that no proxy redirects it, then retry.';
+    const redirect = (status = 301, headers: Record<string, string> = { Location: 'https://proxy.lan/agent' }) => new Response(null, { status, headers });
+    const cases: Array<[string, Array<Response | Error>, string]> = [
+      ['enrollment challenge', [redirect()], 'http://myhost.lan:9090'],
+      ['enrollment', [challengeResponse(), redirect()], 'http://myhost.lan:9090'],
+      ['restart', [challengeResponse(), enrollResponse(), redirect()], 'https://myhost.lan:9090'],
+    ];
+
+    it.each(cases)('fails the %s request with unexpected_redirect and the pinned copy, logging status and Location', async (step, fetchResponses, agentUrl) => {
+      const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const { deps, checkHealth, stored } = makeDeps({ fetchResponses, caCertPem: OLD_CERT_PEM });
+        const err = await expectFailure(provisionHostTls('myhost', agentUrl, deps), 'unexpected_redirect');
+        expect(tlsFailureMessage(err.code, err.message)).toBe(REDIRECT_MESSAGE);
+        expect(err.message).toBe(`TLS ${step} failed: the agent URL redirected the request (HTTP 301).`);
+        expect(consoleError).toHaveBeenCalledWith(`[hosts] The TLS ${step} request at ${agentUrl} was redirected: HTTP 301 to https://proxy.lan/agent`);
+        expect(checkHealth).not.toHaveBeenCalled();
+        expect(stored).toEqual([]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it.each([302, 307, 308])('reads a %i the same way', async (status) => {
+      const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const { deps } = makeDeps({ fetchResponses: [redirect(status)] });
+        await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'unexpected_redirect');
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it('reads a redirect that carries the agent header as a redirect too, and does not treat a restart redirect as a gateway error', async () => {
+      const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const { deps } = makeDeps({
+          fetchResponses: [challengeResponse(), enrollResponse(), agentResponse(null, { status: 302, headers: { Location: '/x' } })],
+          caCertPem: OLD_CERT_PEM,
+        });
+        await expectFailure(provisionHostTls('myhost', 'https://myhost.lan:9090', deps), 'unexpected_redirect');
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it('logs a missing Location as such, and a long one cut to a single bounded line', async () => {
+      const consoleError = spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', makeDeps({ fetchResponses: [redirect(301, {})] }).deps), 'unexpected_redirect');
+        await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', makeDeps({ fetchResponses: [redirect(301, { Location: `http://x/${'a'.repeat(1000)}` })] }).deps), 'unexpected_redirect');
+        const lines = consoleError.mock.calls.map((call) => String(call[0]));
+        expect(lines[0]).toEndWith('HTTP 301 to no Location');
+        expect(lines[1]?.length).toBeLessThan(500);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+  });
+
+  it('still accepts a header-less 200 on the challenge, enroll and restart requests', async () => {
+    const plain = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const { deps, fetchCalls, stored } = makeDeps({
+      fetchResponses: [plain({ nonce: TEST_NONCE, expiresAt: Date.now() + 60_000 }), plain({ certPem: CERT_PEM }), plain({ status: 'restarting' })],
+      caCertPem: OLD_CERT_PEM,
+    });
+
+    const result = await provisionHostTls('myhost', 'https://myhost.lan:9090', deps);
+
+    expect(result.certPem).toBe(CERT_PEM);
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      'https://myhost.lan:9090/tls/challenge',
+      'https://myhost.lan:9090/tls/enroll',
+      'https://myhost.lan:9090/containers/hlm-agent/restart',
+    ]);
+    expect(stored).toEqual([['myhost', CERT_PEM]]);
+  });
+
+  it('keeps unexpected_agent_response for an unrecognised body that carries the header', async () => {
+    const { deps } = makeDeps({
+      fetchResponses: [challengeResponse(), agentResponse(PROXY_502_PAGE, { status: 502, headers: { 'Content-Type': 'text/html' } })],
+    });
+    const err = await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'unexpected_agent_response');
+    expect(err.message).toContain(PROXY_502_PAGE);
+  });
+
+  it('does not take the not-answering code from an agent body that claims it', async () => {
+    const { deps } = makeDeps({
+      fetchResponses: [challengeResponse(), jsonResponse({ error: 'boom', code: 'agent_not_answering' }, 502)],
+    });
+    await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'unexpected_agent_response');
+  });
+
+  it('leaves a network error to its own failure code', async () => {
+    const { deps } = makeDeps({ fetchResponses: [new Error('boom')], caCertPem: CERT_PEM });
+    await expectFailure(provisionHostTls('myhost', 'http://myhost.lan:9090', deps), 'agent_unreachable');
   });
 });
 

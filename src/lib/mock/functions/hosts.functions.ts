@@ -4,6 +4,8 @@ import type {
   UpdateAgentResult,
   AgentInventoryEntry,
 } from '@/data/hosts/functions';
+import type { AgentUpdateStatus } from '@/lib/hosts/agent-inventory';
+import { agentInventoryUpdates } from '@/lib/mock/live-updates';
 
 /**
  * Build a plausible managed host from partial enrollment input. Pass `id` to
@@ -78,7 +80,15 @@ export async function updateHost(data: {
   agentUrl: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
 }): Promise<HostListItem> {
-  return buildHost(data, data.hostId);
+  const existing = mockHosts.find((h) => h.id === data.hostId);
+  if (!existing) return buildHost(data, data.hostId);
+  return {
+    ...existing,
+    name: data.name,
+    agentUrl: data.agentUrl,
+    capabilities: data.capabilities ?? existing.capabilities,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 /** Intentionally stateless: never mutates mockHosts, but mirrors the server's expectStatus guard so demo mode behaves like production. */
@@ -128,20 +138,20 @@ export async function listAgentsInventory(): Promise<AgentInventoryEntry[]> {
       ...mockHosts[0],
       status: 'online',
       version: mockHosts[0].agentVersion,
-      versionSource: 'live',
       agentImageDigest: 'sha256:' + 'a'.repeat(64),
       agentOutOfDate: false,
-      lastError: null,
+      failure: null,
+      update: mockAgentUpdates.get(mockHosts[0].id) ?? null,
       checkedAt: new Date().toISOString(),
     },
     {
       ...mockHosts[1],
       status: 'offline',
       version: mockHosts[1].agentVersion,
-      versionSource: 'stored',
       agentImageDigest: 'sha256:' + 'a'.repeat(64),
       agentOutOfDate: false,
-      lastError: 'Health check timed out after 5000ms',
+      failure: { code: 'offline', message: 'Health check timed out after 5000ms' },
+      update: mockAgentUpdates.get(mockHosts[1].id) ?? null,
       checkedAt: new Date().toISOString(),
     },
   ];
@@ -160,16 +170,35 @@ export async function checkHostHealth(_data: {
   };
 }
 
+export const MOCK_AGENT_UPDATE_MS = 2500;
+
+const mockAgentUpdates = new Map<number, AgentUpdateStatus>();
+
+export function resetMockAgentUpdates(): void {
+  mockAgentUpdates.clear();
+}
+
+async function publishAgentInventory(): Promise<void> {
+  agentInventoryUpdates.emit({ entries: await listAgentsInventory(), sweptAt: new Date().toISOString() });
+}
+
 export async function updateAgent(data: {
   hostId: number;
 }): Promise<UpdateAgentResult> {
-  return {
-    hostId: data.hostId,
-    healthy: true,
-    version: '0.1.0',
-    dockerVersion: '24.0.7',
-    agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
-    agentImageTag: 'latest',
-  };
+  const at = new Date().toISOString();
+  if (mockAgentUpdates.get(data.hostId)?.state === 'running') {
+    return { hostId: data.hostId, at, healthy: false, code: 'update_already_running', message: '' };
+  }
+  mockAgentUpdates.set(data.hostId, { state: 'running', at });
+  void publishAgentInventory();
+  setTimeout(() => {
+    mockAgentUpdates.set(data.hostId, {
+      state: 'done',
+      at: new Date().toISOString(),
+      result: { healthy: true, outcome: 'updated', version: '0.1.0' },
+    });
+    void publishAgentInventory();
+  }, MOCK_AGENT_UPDATE_MS);
+  return { hostId: data.hostId, at, healthy: true, outcome: 'started' };
 }
 

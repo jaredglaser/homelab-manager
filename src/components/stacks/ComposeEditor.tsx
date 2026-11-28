@@ -80,6 +80,7 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
           </span>
         )}
         <Button
+          requires="write"
           size="sm"
           onClick={() => saveMutation.mutate(getValues('compose'))}
           disabled={!isDirty || saveMutation.isPending}

@@ -1,7 +1,6 @@
 import { Play, RefreshCw, Square, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { DeployAction } from '@/lib/deploy/types';
 
 /** A deploy_history row the server still counts as active for this stack+host. */
@@ -43,32 +42,25 @@ export default function StackActionBar({
   const blocked = isDeploying || activeDeploy !== null;
   return (
     <div className="flex items-center gap-2">
-      <Button size="sm" disabled={blocked} onClick={onDeploy}>
+      <Button requires="write" size="sm" disabled={blocked} onClick={onDeploy}>
         {isDeploying ? <Spinner className="size-3.5 text-inherit" /> : <Play size={14} />}
         Deploy
       </Button>
 
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={blocked}
-              onClick={onUpdate}
-            />
-          }
-        >
-          <RefreshCw size={14} />
-          Update images
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
-          Pulls newer images for every service and recreates containers whose image changed.
-          Also applies any undeployed compose changes.
-        </TooltipContent>
-      </Tooltip>
+      <Button
+        requires="write"
+        tooltip="Pulls newer images for every service and recreates containers whose image changed. Also applies any undeployed compose changes."
+        variant="secondary"
+        size="sm"
+        disabled={blocked}
+        onClick={onUpdate}
+      >
+        <RefreshCw size={14} />
+        Update images
+      </Button>
 
       <Button
+        requires="write"
         variant="outline"
         size="sm"
         disabled={blocked}
@@ -88,6 +80,7 @@ export default function StackActionBar({
 
       <div className="ml-auto">
         <Button
+          requires="write"
           variant="outline"
           size="sm"
           disabled={blocked}

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { SettingsRepository } from '../settings-repository';
+import { SettingsRepository, USER_SETTINGS_CHANNEL, UserSettingsRepository, parseUserSettingsNotifyPayload } from '../settings-repository';
 
 function createMockPool(rows: Record<string, unknown>[] = []) {
   const queryResults: Record<string, unknown>[][] = [];
@@ -79,5 +79,47 @@ describe('SettingsRepository', () => {
       expect(queries[1].sql).toContain('pg_notify');
       expect(queries[1].params).toEqual(['docker/memoryDisplayMode']);
     });
+  });
+});
+
+describe('UserSettingsRepository', () => {
+  function recordingPool(rows: Record<string, unknown>[] = []) {
+    const calls: { sql: string; params: unknown[] }[] = [];
+    return {
+      calls,
+      pool: {
+        query: (sql: string, params: unknown[] = []) => {
+          calls.push({ sql, params });
+          return Promise.resolve({ rows });
+        },
+      } as never,
+    };
+  }
+
+  it('reads only the given user\'s rows', async () => {
+    const { calls, pool } = recordingPool([{ key: 'general/use12HourTime', value: 'false' }]);
+    const all = await new UserSettingsRepository(pool).getAll(7);
+    expect(Object.fromEntries(all)).toEqual({ 'general/use12HourTime': 'false' });
+    expect(calls[0].sql).toContain('WHERE user_id = $1');
+    expect(calls[0].params).toEqual([7]);
+  });
+
+  it('upserts one user\'s value and notifies with that user and key', async () => {
+    const { calls, pool } = recordingPool();
+    await new UserSettingsRepository(pool).set(0, 'docker/decimals/cpu', 'true');
+    expect(calls[0].sql).toContain('ON CONFLICT (user_id, key)');
+    expect(calls[0].params).toEqual([0, 'docker/decimals/cpu', 'true']);
+    expect(calls[1].params).toEqual([USER_SETTINGS_CHANNEL, '0:docker/decimals/cpu']);
+  });
+
+  it.each([
+    ['12:general/lightPalette', { scope: 12, key: 'general/lightPalette' }],
+    ['0:zfs/decimals/diskSpeed', { scope: 0, key: 'zfs/decimals/diskSpeed' }],
+    ['general/lightPalette', null],
+    [':general/lightPalette', null],
+    ['12:', null],
+    ['x:general/lightPalette', null],
+  ])('parses the notify payload %s', (payload, expected) => {
+    expect(parseUserSettingsNotifyPayload(payload)).toEqual(expected);
   });
 });

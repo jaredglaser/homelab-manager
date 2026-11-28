@@ -1,6 +1,6 @@
 import { enforceAuthConfig } from '@/lib/config/auth-config';
 import { statsPollService } from '@/lib/database/subscription-service';
-import { settingsBroadcastService } from '@/lib/settings/settings-broadcast-service';
+import { settingsBroadcastService, userSettingsBroadcastService } from '@/lib/settings/settings-broadcast-service';
 import { stackStatusBroadcastService } from '@/lib/stacks/stack-status-broadcast-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployWatchdog } from '@/lib/deploy/deploy-watchdog';
@@ -43,6 +43,16 @@ async function startDeployRecovery(): Promise<void> {
     manifestReader,
     stackRepoWriter: createStackRepoWriter(),
   });
+}
+
+async function startAgentUpdateRecovery(): Promise<void> {
+  const { databaseConnectionManager: dbm } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { HostRepository } = await import('@/lib/database/repositories/host-repository');
+  const { recoverInterruptedAgentUpdates } = await import('@/data/hosts/handlers');
+
+  const dbClient = await dbm.getClient(loadDatabaseConfig());
+  await recoverInterruptedAgentUpdates(new HostRepository(dbClient.getPool()), new Date(performance.timeOrigin));
 }
 
 async function startStatsRollupBackfill(): Promise<void> {
@@ -120,7 +130,7 @@ async function startImageUpdateRefresher(): Promise<void> {
 
 /**
  * Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy
- * recovery, the stats rollup backfill, and the git token hash backfill.
+ * recovery, agent update recovery, the stats rollup backfill, and the git token hash backfill.
  */
 export function initServer(): void {
   if (initialized) return;
@@ -139,6 +149,7 @@ export function initServer(): void {
       imageUpdateRefresher?.stop();
       await statsPollService.stop();
       await settingsBroadcastService.stop();
+      await userSettingsBroadcastService.stop();
       await stackStatusBroadcastService.stop();
       await databaseConnectionManager.closeAll();
 
@@ -155,6 +166,10 @@ export function initServer(): void {
 
   startDeployRecovery().catch((err) => {
     console.error('[Server] Deploy recovery / watchdog startup failed:', err);
+  });
+
+  startAgentUpdateRecovery().catch((err) => {
+    console.error('[Server] Agent update recovery failed:', err);
   });
 
   startStatsRollupBackfill().catch((err) => {

@@ -39,13 +39,17 @@ import {
   assertSchema,
   assertServiceKeyBackfill,
   assertAgentTlsCertificates,
+  assertNullInvariantRepair,
+  assertReadInvariantConstraints,
   assertImageUpdateCheckExpansion,
+  assertLegacyRestartDeploy,
   assertServiceKeyUnification,
   assertTierColumnCoverage,
   assertWeightedRollup,
   captureRowCounts,
 } from './assertions';
 import { Checks } from './checks';
+import { LEGACY_RESTART_DEPLOY, NULL_INVARIANT_ROWS } from './fixture';
 import { createPool, recreateDatabase, waitForDatabase } from './db';
 import { seed } from './seed';
 
@@ -89,6 +93,7 @@ async function runFresh(): Promise<void> {
     checks.sameSet('every migration file was applied', applied, migrationFiles(REPO_ROOT));
 
     await assertSchema(pool, checks);
+    await assertReadInvariantConstraints(pool, checks);
     await assertAggregateRegistry(pool, checks);
     await assertTierColumnCoverage(pool, checks);
     await assertAgentTlsCertificates(pool, checks);
@@ -145,6 +150,13 @@ async function runUpgrade(): Promise<void> {
     assertRowCountsPreserved(before, after, checks);
 
     await assertSchema(pool, checks);
+    await assertReadInvariantConstraints(pool, checks);
+    if (before[LEGACY_RESTART_DEPLOY.countLabel] !== undefined) {
+      await assertLegacyRestartDeploy(pool, checks);
+    }
+    if (before[NULL_INVARIANT_ROWS.countLabel] !== undefined) {
+      await assertNullInvariantRepair(pool, checks);
+    }
     await assertIdleContainerIdentity(pool, checks);
 
     // Both of the above read state the backfill changes: it adds the retention policies that

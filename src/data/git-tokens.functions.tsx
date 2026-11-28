@@ -2,7 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { authMiddleware } from '@/middleware/auth-middleware';
-import { requireRole } from '@/lib/auth/require-role';
+import { roleMiddleware } from '@/lib/auth/role-middleware';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadMasterKeyring } from '@/lib/crypto/master-key';
@@ -12,11 +12,9 @@ import { hashGitToken } from '@/lib/git/git-token-auth';
 
 /** Creates a git token. The raw token is returned once and never stored in plaintext. */
 export const createGitToken = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator')])
   .validator(z.object({ label: z.string().min(1).max(100) }))
   .handler(async ({ data, context }): Promise<{ token: string }> => {
-    requireRole('admin', 'operator')(context.user);
-
     const rawToken = randomBytes(32).toString('hex');
 
     const keyring = await loadMasterKeyring();
@@ -41,10 +39,8 @@ export const createGitToken = createServerFn()
  * Does not return encrypted values.
  */
 export const listGitTokens = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator')])
   .handler(async ({ context }) => {
-    requireRole('admin', 'operator')(context.user);
-
     const dbConfig = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(dbConfig);
     const repo = new GitTokenRepository(dbClient.getPool());
@@ -65,11 +61,9 @@ export const listGitTokens = createServerFn()
  * Revoke a git token by ID. Admins may revoke any token. Operators may revoke only their own.
  */
 export const revokeGitToken = createServerFn()
-  .middleware([authMiddleware])
+  .middleware([authMiddleware, roleMiddleware('admin', 'operator')])
   .validator(z.object({ tokenId: z.number() }))
   .handler(async ({ data, context }): Promise<void> => {
-    requireRole('admin', 'operator')(context.user);
-
     const dbConfig = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(dbConfig);
     const repo = new GitTokenRepository(dbClient.getPool());

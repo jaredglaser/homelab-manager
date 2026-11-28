@@ -1,4 +1,4 @@
-// Bun fetch pinned 1.4.2 ignores a node:https Agent dispatcher but honors its native tls option.
+// Bun fetch pinned 1.4.4 ignores a node:https Agent dispatcher but honors its native tls option.
 export interface AgentTlsContext {
   /** PEM of the pinned per-host certificate. http/ws URLs ignore it. An https/wss URL without it refuses to connect. */
   caCertPem?: string | null;
@@ -99,9 +99,82 @@ export function isMissingPinError(err: unknown): boolean {
   return err instanceof AgentTlsPinMissingError;
 }
 
+const CERTIFICATE_REJECTION_CODES: ReadonlySet<string> = new Set([
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'CERT_HAS_EXPIRED',
+  'CERT_NOT_YET_VALID',
+  'CERT_REVOKED',
+  'CERT_UNTRUSTED',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+
+/** True when TLS verification refused the certificate the agent presented, read off the error's code and never its message. */
+export function isCertificateRejectionError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && CERTIFICATE_REJECTION_CODES.has(code);
+}
+
 /** The plain-HTTP sibling of a TLS agent URL, which is the address an agent without a certificate serves. */
 export function toPlainHttpUrl(parsed: URL): string {
   const http = new URL(parsed.toString());
   http.protocol = 'http:';
   return http.toString().replace(/\/$/, '');
+}
+
+// A proxy's error page can stand in for the agent's reply, and the whole body would reach the operator's row.
+const MAX_AGENT_FAILURE_DETAIL_CHARS = 300;
+export const MAX_AGENT_FAILURE_BODY_BYTES = 8192;
+
+export interface BoundedBodyRead {
+  text: string;
+  /** Set when the read ended on a stream error or on timeoutMs, so text is only what arrived before it. */
+  failure?: 'error' | 'timeout';
+}
+
+/** timeoutMs bounds the whole read: a peer that sends headers and then holds the body open must not hold the caller for the request's own budget. */
+export async function readBoundedBodyResult(response: Response, maxBytes: number, timeoutMs?: number): Promise<BoundedBodyRead> {
+  const reader = response.body?.getReader();
+  if (!reader) return { text: '' };
+  const decoder = new TextDecoder();
+  // AbortSignal.timeout, not setTimeout: tests that fire setTimeout immediately would otherwise expire every read.
+  const deadline = timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
+  const expired = deadline && new Promise<'timeout'>((resolve) => deadline.addEventListener('abort', () => resolve('timeout'), { once: true }));
+  let text = '';
+  let total = 0;
+  let failure: BoundedBodyRead['failure'];
+  try {
+    while (total < maxBytes) {
+      const next = expired ? await Promise.race([reader.read(), expired]) : await reader.read();
+      if (next === 'timeout') {
+        failure = 'timeout';
+        break;
+      }
+      if (next.done) break;
+      total += next.value.byteLength;
+      text += decoder.decode(next.value, { stream: true });
+    }
+  } catch (err) {
+    failure = 'error';
+    console.error(`[agent-http] Reading the body of HTTP ${response.status} from ${response.url || 'an agent URL'} failed after ${total} bytes: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+  if (failure === 'timeout') {
+    console.error(`[agent-http] Reading the body of HTTP ${response.status} from ${response.url || 'an agent URL'} timed out after ${timeoutMs} ms with ${total} bytes read`);
+  }
+  return failure ? { text, failure } : { text };
+}
+
+export async function readBoundedBody(response: Response, maxBytes: number, timeoutMs?: number): Promise<string> {
+  return (await readBoundedBodyResult(response, maxBytes, timeoutMs)).text;
+}
+
+// Control characters include newlines, so a plain-text body cannot start a forged log line.
+export function singleLine(text: string): string {
+  const flat = text.replace(/\p{Cc}+/gu, ' ').trim();
+  return flat.length > MAX_AGENT_FAILURE_DETAIL_CHARS ? `${flat.slice(0, MAX_AGENT_FAILURE_DETAIL_CHARS)}...` : flat;
 }

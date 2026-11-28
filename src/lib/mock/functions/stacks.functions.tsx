@@ -12,6 +12,8 @@ import type {
 import type { ImageChangelog, ImageRelease, ImageUpdateSummary } from '@/types/image-updates';
 import type { ManualCheckResult } from '@/lib/image-updates/manual-check';
 import { constraintFromTag, normalizeVersion } from '@/lib/image-updates/version';
+import { boundComposeLogs } from '@/lib/deploy/bounded-log-buffer';
+import { truncateDeployMessage } from '@/lib/stacks/deploy-outcome-toast';
 import { generateStackStatusEntry } from '@/lib/mock/generators/stacks';
 import { stackStatusUpdates } from '@/lib/mock/live-updates';
 
@@ -328,11 +330,43 @@ export async function getStackDetail(opts: {
   };
 }
 
+const NOISY_DEPLOY_ERROR = 'Error response from daemon: pull access denied for plex, repository does not exist';
+
+/** E2e hook: `window.__mockNoisyDeployLines = N` makes the next deploy action fail after N lines of output, bounded and summarized as the server does. */
+function recordNoisyDeploy(opts: { data: UIDeployRequest }, lineCount: number): { deployId: number; status: DeployStatus; logs: string } {
+  const deployId = MOCK_DEPLOY_HISTORY.reduce((highest, record) => Math.max(highest, record.id), 0) + 1;
+  const output = Array.from({ length: lineCount }, (_, i) => `plex Pulling fs layer ${String(i).padStart(6, '0')} ${'#'.repeat(80)}`);
+  const raw = `${output.join('\n')}\n${NOISY_DEPLOY_ERROR}`;
+  const logs = boundComposeLogs(raw);
+  MOCK_DEPLOY_HISTORY.unshift({
+    id: deployId,
+    stack: opts.data.stack,
+    host: opts.data.host,
+    commitSha: 'c0ffee1',
+    envHash: 'noisy1',
+    status: 'failed',
+    trigger: 'ui',
+    action: opts.data.action,
+    forceRecreate: false,
+    logs,
+    createdAt: new Date().toISOString(),
+  });
+  stackStatusUpdates.emit({
+    type: 'deploy_changed',
+    stack: opts.data.stack,
+    host: opts.data.host,
+    outcome: { deployId, status: 'failed', action: opts.data.action, trigger: 'ui', message: truncateDeployMessage(raw, 'failed') },
+  });
+  return { deployId, status: 'failed', logs };
+}
+
 export async function triggerDeploy(opts: {
   data: UIDeployRequest;
 }): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   // Simulate a short delay
   await new Promise((resolve) => setTimeout(resolve, 500));
+  const noisyLines = (globalThis as { __mockNoisyDeployLines?: number }).__mockNoisyDeployLines;
+  if (opts.data.action === 'deploy' && noisyLines !== undefined && noisyLines > 0) return recordNoisyDeploy(opts, noisyLines);
   const deployId = MOCK_DEPLOY_HISTORY.length + 1;
   stackStatusUpdates.emit({
     type: 'deploy_changed',

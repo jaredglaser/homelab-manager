@@ -1,6 +1,7 @@
 import { createSseStream, type SseEmitter } from '../lib/sse-stream';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 import { routeErrorBody } from '../lib/error-body';
+import type { AgentRouteErrorBody } from '../types';
 
 async function readLines(
   stream: ReadableStream<Uint8Array>,
@@ -132,7 +133,7 @@ export async function handleZfsPools(
         {
           ...routeErrorBody('zfs_pool_list_failed'),
           detail: stderr.trim(),
-        },
+        } satisfies AgentRouteErrorBody,
         { status: 500 },
       );
     }
@@ -163,7 +164,7 @@ export async function handleZfsPools(
       {
         ...routeErrorBody('zfs_pool_list_failed'),
         detail: err instanceof Error ? err.message : String(err),
-      },
+      } satisfies AgentRouteErrorBody,
       { status: 500 },
     );
   }

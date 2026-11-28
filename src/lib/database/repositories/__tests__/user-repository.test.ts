@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { UserRepository } from '@/lib/database/repositories/user-repository';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
 
@@ -154,6 +154,16 @@ describe('UserRepository', () => {
       mock.pushResult([baseDbRow]);
       const result = await repo.findById(1);
       expect(result).toEqual(baseUserRow);
+    });
+  });
+
+  describe('role', () => {
+    it('refuses a role outside the CHECK constraint', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{ ...baseDbRow, role: 'owner' }]);
+
+      await expect(repo.findById(1)).rejects.toThrow('Unrecognized users.role value');
+      errorSpy.mockRestore();
     });
   });
 });

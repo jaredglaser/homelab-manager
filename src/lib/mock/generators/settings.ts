@@ -1,5 +1,6 @@
 import { SETTINGS_KEYS, DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
+import { BROWSER_LAYOUT_KEYS, browserLayoutStorageKey } from '@/hooks/browserLayout';
 
 const homeassistant = DOCKER_ENTITIES.find(e => e.serviceKey === 'homeassistant')!;
 
@@ -26,6 +27,18 @@ export function loadDemoSettings(): Record<string, string> {
   return generateDefaultSettings();
 }
 
+/** Opens the Home Assistant container row on a browser's first demo visit, so the demo lands on a chart. */
+export function seedDemoLayout(): void {
+  const key = browserLayoutStorageKey(BROWSER_LAYOUT_KEYS.dockerExpandedContainers);
+  try {
+    if (localStorage.getItem(key) === null) {
+      localStorage.setItem(key, JSON.stringify([`${homeassistant.host}/${homeassistant.containerId}`]));
+    }
+  } catch {
+    /* storage blocked: the demo starts collapsed */
+  }
+}
+
 /**
  * Generate default settings matching the canonical settings keys.
  * Values mirror reasonable defaults for a demo environment.
@@ -40,28 +53,14 @@ export function generateDefaultSettings(): Record<string, string> {
 
     [SETTINGS_KEYS.docker.memoryDisplayMode]: 'percent',
     [SETTINGS_KEYS.docker.chartWindowSeconds]: '60',
-    [SETTINGS_KEYS.docker.expandedHosts]: '[]',
-    [SETTINGS_KEYS.docker.expandedContainers]: JSON.stringify([`${homeassistant.host}/${homeassistant.containerId}`]),
-    [SETTINGS_KEYS.docker.containerShells]: '{}',
     [SETTINGS_KEYS.docker.decimals.cpu]: '1',
     [SETTINGS_KEYS.docker.decimals.memory]: '1',
     [SETTINGS_KEYS.docker.decimals.diskSpeed]: '1',
     [SETTINGS_KEYS.docker.decimals.networkSpeed]: '1',
 
-    [SETTINGS_KEYS.stacks.expandedStacks]: '[]',
-
-    [SETTINGS_KEYS.zfs.expandedHosts]: '[]',
-    [SETTINGS_KEYS.zfs.expandedPools]: '[]',
-    [SETTINGS_KEYS.zfs.expandedVdevs]: '[]',
     [SETTINGS_KEYS.zfs.decimals.diskSpeed]: '1',
 
     [SETTINGS_KEYS.proxmox.updateInterval]: '1000',
-    [SETTINGS_KEYS.proxmox.expandedHosts]: '[]',
-    [SETTINGS_KEYS.proxmox.expandedSections]: '[]',
-
-    [SETTINGS_KEYS.retention.rawDataHours]: '24',
-    [SETTINGS_KEYS.retention.minuteAggDays]: '7',
-    [SETTINGS_KEYS.retention.hourAggDays]: '30',
 
     [SETTINGS_KEYS.developer.dockerDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.dbFlushDebugLogging]: 'false',

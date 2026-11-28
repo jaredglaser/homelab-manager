@@ -1,4 +1,4 @@
-import { ws } from 'msw';
+import { ws } from 'msw/ws';
 
 import {
   generateDockerInventorySnapshot,
@@ -8,7 +8,8 @@ import {
 } from '@/lib/mock/generators/docker';
 import { generateStackStatusSnapshot } from '@/lib/mock/generators/stacks';
 import { loadDemoSettings } from '@/lib/mock/generators/settings';
-import { settingsUpdates, stackStatusUpdates } from '@/lib/mock/live-updates';
+import { isUserSettingsKey } from '@/lib/constants/settings-keys';
+import { agentInventoryUpdates, settingsUpdates, stackStatusUpdates, userSettingsUpdates } from '@/lib/mock/live-updates';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
@@ -75,6 +76,10 @@ export interface MuxMockClient {
 }
 
 // Event payloads follow the channel wire schemas in src/lib/channels.
+function demoSettingsWhere(keep: (key: string) => boolean): Record<string, string> {
+  return Object.fromEntries(Object.entries(loadDemoSettings()).filter(([key]) => keep(key)));
+}
+
 export function createConnectionHandler({ client }: { client: MuxMockClient }): void {
   const topicCleanups = new Map<string, () => void>();
   const stopTopic = (topic: string) => {
@@ -95,10 +100,20 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
       topicCleanups.set(topic, settingsUpdates.on((message) => {
         client.send(eventFrame(topic, 'data', message));
       }));
-      client.send(eventFrame(topic, 'data', { type: 'init', settings: loadDemoSettings() }));
+      client.send(eventFrame(topic, 'data', { type: 'init', settings: demoSettingsWhere((key) => !isUserSettingsKey(key)) }));
+      return;
+    }
+    if (topic === 'user-settings') {
+      topicCleanups.set(topic, userSettingsUpdates.on((message) => {
+        client.send(eventFrame(topic, 'data', message));
+      }));
+      client.send(eventFrame(topic, 'data', { type: 'init', settings: demoSettingsWhere(isUserSettingsKey) }));
       return;
     }
     if (topic === 'agent-inventory') {
+      topicCleanups.set(topic, agentInventoryUpdates.on((message) => {
+        client.send(eventFrame(topic, 'data', message));
+      }));
       void import('@/lib/mock/functions/hosts.functions').then(({ listAgentsInventory }) =>
         listAgentsInventory().then((entries) => {
           client.send(eventFrame(topic, 'data', { entries, sweptAt: new Date().toISOString() }));
@@ -115,7 +130,7 @@ export function createConnectionHandler({ client }: { client: MuxMockClient }): 
     }
     if (parseStatsTopic(topic) !== null) {
       // Deltas only, no snapshot on subscribe: the REST preload owns history
-      // (gotcha 17), so the first rows arrive on the first poll tick.
+      // (AGENTS.md#ws-rows-after-cursor), so the first rows arrive on the first poll tick.
       let tick = 0;
       const feedTimer = setInterval(() => {
         const frame = statsTickFrame(topic, tick++, new Date());

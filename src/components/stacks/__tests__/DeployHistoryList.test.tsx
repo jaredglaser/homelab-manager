@@ -1,4 +1,7 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDeployRecord } from '@/types/stacks';
@@ -51,6 +54,10 @@ function createWrapper() {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   };
 }
+
+beforeEach(() => {
+  seedSession('admin');
+});
 
 describe('DeployHistoryList', () => {
   it('renders loading skeletons when isLoading is true', () => {
@@ -108,6 +115,61 @@ describe('DeployHistoryList', () => {
   it('does not show Rollback buttons when stackName/host are not provided', () => {
     render(<DeployHistoryList records={mockRecords} isLoading={false} />, { wrapper: createWrapper() });
     expect(screen.queryByText('Rollback')).toBeNull();
+  });
+
+  describe('roles', () => {
+    const pendingRecord: StackDeployRecord = { ...mockRecords[1], id: 9, status: 'pending', logs: null };
+
+    function renderWithActions(handlers: { onApprove: () => void; onReject: () => void }) {
+      render(
+        <DeployHistoryList
+          records={[mockRecords[0], pendingRecord]}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+          _triggerDeploy={triggerDeployStub}
+          {...handlers}
+        />,
+        { wrapper: createWrapper() },
+      );
+    }
+
+    it('shows a viewer Approve, Reject and Rollback disabled with the role reason, and clicking them calls nothing', async () => {
+      seedSession('viewer');
+      mockTriggerDeploy.mockClear();
+      const handlers = { onApprove: mock(() => undefined), onReject: mock(() => undefined) };
+      renderWithActions(handlers);
+      const user = setupUser();
+      expect(screen.queryByText('Deploy output here')).toBeNull();
+      for (const name of ['Approve', 'Reject', 'Rollback']) {
+        const button = screen.getByRole('button', { name });
+        expect(button.getAttribute('aria-disabled')).toBe('true');
+        expect(roleReasonOf(button)).toBe(VIEWER_DENIED_COPY);
+        fireEvent.click(button);
+      }
+      expect(screen.queryByText('Deploy output here')).toBeNull();
+      fireEvent.keyDown(screen.getByRole('button', { name: 'Rollback' }), { key: 'Enter' });
+      await user.hover(screen.getByRole('button', { name: 'Rollback' }));
+      expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+      fireEvent.click(document.querySelector('[data-slot="tooltip-content"]')!);
+      expect(screen.queryByText('Rollback plex?')).toBeNull();
+      expect(screen.queryByText('Deploy output here')).toBeNull();
+      expect(handlers.onApprove).not.toHaveBeenCalled();
+      expect(handlers.onReject).not.toHaveBeenCalled();
+      expect(mockTriggerDeploy).not.toHaveBeenCalled();
+    });
+
+    it.each(['admin', 'operator'] as const)('lets an %s approve, reject and roll back', (role) => {
+      seedSession(role);
+      const handlers = { onApprove: mock(() => undefined), onReject: mock(() => undefined) };
+      renderWithActions(handlers);
+      fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+      expect(handlers.onApprove).toHaveBeenCalledWith(9);
+      expect(handlers.onReject).toHaveBeenCalledWith(9);
+      fireEvent.click(screen.getByRole('button', { name: 'Rollback' }));
+      expect(screen.getByText('Rollback plex?')).toBeDefined();
+    });
   });
 
   it('opens RollbackDialog when Rollback button is clicked', () => {

@@ -23,7 +23,7 @@ export default defineConfig({
     {
       name: 'app',
       testMatch: /.*\.e2e\.ts$/,
-      testIgnore: /.*\.(demo|mobile)\.e2e\.ts$/,
+      testIgnore: /.*\.(demo|mobile|authhttp|authhttps)\.e2e\.ts$/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${APP_PORT}` },
     },
     {

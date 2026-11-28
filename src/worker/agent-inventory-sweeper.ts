@@ -1,11 +1,10 @@
 import { abortableSleep, isAbortError } from '@/lib/utils/abortable-sleep';
 import { AGENT_INVENTORY_NOTIFY_CHANNEL } from '@/lib/hosts/agent-inventory';
-import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
 
 export const AGENT_INVENTORY_SWEEP_INTERVAL_MS = 60_000;
 
 export interface AgentInventorySweeperDeps {
-  sweep: () => Promise<AgentInventoryEntry[]>;
+  sweep: () => Promise<void>;
   notifySweep: (at: Date) => Promise<void>;
   intervalMs?: number;
 }

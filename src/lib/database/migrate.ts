@@ -55,8 +55,8 @@ async function applyPendingMigrations(client: PoolClient): Promise<void> {
 
   for (const migrationFile of migrationFiles) {
     // Check if migration has already been run
-    const result = await client.query(
-      'SELECT 1 FROM migrations WHERE name = $1',
+    const result = await client.query<{ name: string }>(
+      'SELECT name FROM migrations WHERE name = $1',
       [migrationFile]
     );
 
@@ -70,6 +70,11 @@ async function applyPendingMigrations(client: PoolClient): Promise<void> {
     const migrationPath = join(MIGRATIONS_DIR, migrationFile);
     const sql = readFileSync(migrationPath, 'utf-8');
 
+    // node-pg delivers RAISE NOTICE only to a client listener, and the server log hides it at the default log_min_messages.
+    const onNotice = (notice: { message?: string }): void => {
+      console.info(`[Migrations] ${migrationFile}: ${notice.message ?? ''}`);
+    };
+    client.on('notice', onNotice);
     try {
       await client.query('BEGIN');
       await client.query(sql);
@@ -83,6 +88,8 @@ async function applyPendingMigrations(client: PoolClient): Promise<void> {
       await client.query('ROLLBACK');
       console.error(`[Migrations] ✗ Failed to apply ${migrationFile}:`, err);
       throw err;
+    } finally {
+      client.off('notice', onNotice);
     }
   }
 

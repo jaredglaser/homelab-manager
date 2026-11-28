@@ -1,8 +1,8 @@
 # Must match .bun-version; scripts/__tests__/bun-version.test.ts fails CI on drift.
-ARG BUN_VERSION=1.4.2
+ARG BUN_VERSION=1.4.4
 
 # Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
-FROM docker:29.9.2-cli AS toolchain
+FROM docker:29.10.0-cli AS toolchain
 
 # Application stage
 FROM oven/bun:${BUN_VERSION} AS base
@@ -32,6 +32,12 @@ COPY tsconfig.json ./tsconfig.json
 # back to package.json locally, which is not rebuilt on release.
 ARG AGENT_VERSION
 ENV AGENT_VERSION=${AGENT_VERSION}
+
+# Stamped by CI with a hash of the build inputs, so the manager can tell an
+# image that changed from one that was only rebuilt. Empty for local builds.
+ARG AGENT_SOURCE_HASH
+ENV AGENT_SOURCE_HASH=${AGENT_SOURCE_HASH}
+LABEL io.github.jaredglaser.homelab-manager.agent-source=${AGENT_SOURCE_HASH}
 
 ENV AGENT_PORT=9090
 ENV STACKS_DIR=/opt/homelab-manager/stacks

@@ -120,6 +120,7 @@ export class StackStatusBroadcastService {
   private subscribers = new Set<StackBroadcastCallback>();
   private listenerClient: PoolClient | null = null;
   private stopped = true;
+  private listenGeneration = 0;
   private reconnecting = false;
   private reconnectFailures = 0;
   /** Instance-scoped so reconnect iterations preserve it and take the snapshot-reload branch. */
@@ -209,12 +210,13 @@ export class StackStatusBroadcastService {
 
   private async startListening(): Promise<void> {
     this.stopped = false;
+    const generation = ++this.listenGeneration;
 
-    while (!this.stopped) {
+    while (!this.stopped && generation === this.listenGeneration) {
       try {
         const poolClient = await this.getPoolClient();
 
-        if (this.stopped) {
+        if (this.stopped || generation !== this.listenGeneration) {
           try { poolClient.release(); } catch { /* best-effort */ }
           return;
         }
@@ -280,6 +282,7 @@ export class StackStatusBroadcastService {
         this.isFirstConnect = false;
         return;
       } catch (error) {
+        if (generation !== this.listenGeneration) return;
         const delay = backoffDelayMs(this.reconnectFailures, { baseMs: BACKOFF_BASE_MS, capMs: BACKOFF_CAP_MS });
         console.error(`[StackStatusBroadcastService] Failed to start listener, retrying in ${delay}ms:`, error);
         this.isFirstConnect = false;

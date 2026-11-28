@@ -39,6 +39,8 @@ const zContainerStateWeb = z.enum([
   'unknown',
 ]);
 
+export const CONTAINER_STATE_VALUES = zContainerStateWeb.options;
+
 /** Duplicated from the agent protocol's `zContainerPort` to keep agent zod out of the client bundle. */
 const zContainerPortWeb = z.object({
   containerPort: z.number(),

@@ -1,6 +1,7 @@
 import { RefreshCw, Trash2, Server, Pencil, KeyRound, ShieldCheck } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import type { RoleRequirement } from '@/hooks/useAuth'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { Spinner } from '@/components/ui/spinner';
@@ -63,28 +64,24 @@ interface HostActionProps {
   disabled: boolean
   onClick: () => void
   className?: string
+  requires: RoleRequirement
   children: React.ReactNode
 }
 
-function HostAction({ label, ariaLabel, disabled, onClick, className, children }: HostActionProps) {
+function HostAction({ label, ariaLabel, disabled, onClick, className, requires, children }: HostActionProps) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={className ?? 'text-foreground'}
-            onClick={onClick}
-            disabled={disabled}
-            aria-label={ariaLabel}
-          />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+    <Button
+      requires={requires}
+      tooltip={label}
+      variant="ghost"
+      size="icon-sm"
+      className={className ?? 'text-foreground'}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={ariaLabel}
+    >
+      {children}
+    </Button>
   )
 }
 
@@ -117,17 +114,17 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <HostAction label="Check health" ariaLabel="check health" disabled={busy} onClick={onHealthCheck}>
+        <HostAction label="Check health" ariaLabel="check health" disabled={busy} onClick={onHealthCheck} requires="write">
           {isChecking ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
         </HostAction>
-        <HostAction label="Edit host" ariaLabel="edit host" disabled={busy} onClick={onEdit}>
+        <HostAction label="Edit host" ariaLabel="edit host" disabled={busy} onClick={onEdit} requires="admin">
           <Pencil size={14} />
         </HostAction>
-        <HostAction label="Agent keypair" ariaLabel="agent keypair" disabled={busy} onClick={onKeypair}>
+        <HostAction label="Agent keypair" ariaLabel="agent keypair" disabled={busy} onClick={onKeypair} requires="admin">
           <KeyRound size={14} />
         </HostAction>
         {host.status !== 'pending' && host.agentUrl !== '' && (
-          <HostAction label="Rotate TLS" ariaLabel="rotate TLS" disabled={busy} onClick={onRotateTls}>
+          <HostAction label="Rotate TLS" ariaLabel="rotate TLS" disabled={busy} onClick={onRotateTls} requires="admin">
             {isRotatingTls ? <Spinner className="size-3.5" /> : <ShieldCheck size={14} />}
           </HostAction>
         )}
@@ -137,6 +134,7 @@ export default function HostRow({ host, expectedImageTag, isChecking, isRemoving
           disabled={busy}
           onClick={onRemove}
           className="text-destructive"
+          requires="admin"
         >
           <Trash2 size={14} />
         </HostAction>

@@ -1,5 +1,8 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import type { ComponentProps } from 'react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import { mockModule } from '@/lib/test/mock-module';
@@ -19,7 +22,8 @@ mock.module('@/components/docker/ContainerLogViewer', () => ({
 }));
 
 mock.module('@/components/docker/ContainerModal', () => ({
-  default: () => null,
+  default: ({ open, initialTab }: { open: boolean; initialTab: string }) =>
+    open ? <div data-testid="container-modal">{initialTab}</div> : null,
 }));
 
 mock.module('@/components/docker/ContainerActionButtons', () => ({
@@ -85,7 +89,54 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPan
   );
 }
 
+beforeEach(() => {
+  seedSession('admin');
+});
+
 describe('ContainerDetailPanel', () => {
+  it('disables the Icon control for a viewer with the role reason, and a click opens no picker', async () => {
+    seedSession('viewer');
+    renderPanel();
+    const user = setupUser();
+    const icon = screen.getByRole('button', { name: 'Icon' });
+    expect(icon.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(icon);
+    await user.hover(icon);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('disables Terminal for a viewer with the role reason, and a click opens no terminal', async () => {
+    seedSession('viewer');
+    renderPanel();
+    const user = setupUser();
+    const terminal = screen.getByRole('button', { name: 'Terminal' });
+    expect(terminal.getAttribute('aria-disabled')).toBe('true');
+    expect(roleReasonOf(terminal)).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(terminal);
+    await user.hover(terminal);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(screen.queryByTestId('container-modal')).toBeNull();
+  });
+
+  it.each(['admin', 'operator'] as const)('opens the terminal for an %s', async (role) => {
+    seedSession(role);
+    renderPanel();
+    const terminal = screen.getByRole('button', { name: 'Terminal' });
+    expect(terminal.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(terminal);
+    expect((await screen.findByTestId('container-modal')).textContent).toBe('terminal');
+  });
+
+  it.each(['admin', 'operator'] as const)('opens the icon picker for an %s', async (role) => {
+    seedSession(role);
+    renderPanel();
+    const icon = screen.getByRole('button', { name: 'Icon' });
+    expect(icon.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(icon);
+    expect(await screen.findByRole('dialog')).toBeDefined();
+  });
+
   it('renders a combined metrics chart', () => {
     renderPanel();
     // New design uses a single combined chart with 6 stackable series

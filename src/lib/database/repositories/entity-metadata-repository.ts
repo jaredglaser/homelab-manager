@@ -70,26 +70,26 @@ export class EntityMetadataRepository {
   }
 
   async getSourceIcons(): Promise<Map<string, string>> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<EntityValueRow>(
       `SELECT entity, value
        FROM entity_metadata
        WHERE source = 'docker' AND key = 'icon'`
     );
     const icons = new Map<string, string>();
-    for (const row of result.rows as EntityValueRow[]) {
+    for (const row of result.rows) {
       icons.set(row.entity, row.value);
     }
     return icons;
   }
 
   async getEntityIcon(entityId: string): Promise<string | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ValueRow>(
       `SELECT value FROM entity_metadata
        WHERE source = 'docker' AND entity = $1 AND key = 'icon'
        LIMIT 1`,
       [entityId]
     );
-    return (result.rows[0] as ValueRow | undefined)?.value ?? null;
+    return result.rows[0]?.value ?? null;
   }
 
   async getEntityMetadata(
@@ -97,7 +97,7 @@ export class EntityMetadataRepository {
   ): Promise<Map<string, Map<string, string>>> {
     if (entities.length === 0) return new Map();
 
-    const result = await this.pool.query(
+    const result = await this.pool.query<EntityKeyValueRow>(
       `SELECT entity, key, value
        FROM entity_metadata
        WHERE source = 'docker' AND entity = ANY($1)`,
@@ -105,7 +105,7 @@ export class EntityMetadataRepository {
     );
 
     const metadata = new Map<string, Map<string, string>>();
-    for (const row of result.rows as EntityKeyValueRow[]) {
+    for (const row of result.rows) {
       if (!metadata.has(row.entity)) {
         metadata.set(row.entity, new Map());
       }
@@ -116,13 +116,13 @@ export class EntityMetadataRepository {
 
   /** Look up the service_key value for a single entity. Returns null if not set. */
   async getServiceKeyForEntity(entity: string): Promise<string | null> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ValueRow>(
       `SELECT value FROM entity_metadata
        WHERE source = 'docker' AND entity = $1 AND key = 'service_key'
        LIMIT 1`,
       [entity]
     );
-    return (result.rows[0] as ValueRow | undefined)?.value ?? null;
+    return result.rows[0]?.value ?? null;
   }
 
   /**
@@ -134,7 +134,7 @@ export class EntityMetadataRepository {
     entity: string,
     host: string,
   ): Promise<string[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ContainerIdRow>(
       `SELECT SPLIT_PART(sibling.entity, '/', 2) AS container_id
        FROM entity_metadata me
        JOIN entity_metadata sibling
@@ -145,7 +145,7 @@ export class EntityMetadataRepository {
        WHERE me.source = 'docker' AND me.entity = $1 AND me.key = 'service_key'`,
       [entity, host]
     );
-    return (result.rows as ContainerIdRow[]).map(r => r.container_id);
+    return result.rows.map(r => r.container_id);
   }
 
   /**
@@ -156,14 +156,14 @@ export class EntityMetadataRepository {
     host: string,
     serviceKey: string,
   ): Promise<string[]> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ContainerIdRow>(
       `SELECT SPLIT_PART(entity, '/', 2) AS container_id
        FROM entity_metadata
        WHERE source = 'docker' AND key = 'service_key' AND value = $2
          AND SPLIT_PART(entity, '/', 1) = $1`,
       [host, serviceKey]
     );
-    return (result.rows as ContainerIdRow[]).map(r => r.container_id);
+    return result.rows.map(r => r.container_id);
   }
 
   /**
@@ -214,7 +214,7 @@ export class EntityMetadataRepository {
    * for easy lookup during hierarchy building.
    */
   async getDockerContainerMetadata(): Promise<Map<string, { serviceKeyEntity: string; iconSlug: string | null }>> {
-    const result = await this.pool.query(
+    const result = await this.pool.query<ContainerMetadataRow>(
       `SELECT
          sk.entity                                                             AS container_entity,
          SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value                     AS service_key_entity,
@@ -232,10 +232,10 @@ export class EntityMetadataRepository {
     );
 
     const meta = new Map<string, { serviceKeyEntity: string; iconSlug: string | null }>();
-    for (const row of result.rows as ContainerMetadataRow[]) {
+    for (const row of result.rows) {
       meta.set(row.container_entity, {
         serviceKeyEntity: row.service_key_entity,
-        iconSlug: row.icon_slug ?? null,
+        iconSlug: row.icon_slug,
       });
     }
     return meta;

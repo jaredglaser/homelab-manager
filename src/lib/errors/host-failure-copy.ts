@@ -1,3 +1,4 @@
+import type { AgentNotAnsweringCode } from '@/lib/clients/agent-identity';
 import type { AgentHealthFailureReason } from '@/lib/services/agent-health-service';
 
 /**
@@ -13,14 +14,36 @@ export type HostFailureCode =
   | 'agent_unreachable'
   | 'unexpected_redirect'
   | 'agent_reported_error'
+  | AgentNotAnsweringCode
   | 'update_interrupted'
   | 'restart_unconfirmed'
   | 'version_unconfirmed'
-  | 'agent_did_not_restart';
+  | 'image_unconfirmed'
+  | 'agent_did_not_restart'
+  | 'update_already_running';
+
+/** The codes a host row can carry. The CHECK in migration 045 lists the same members, so a new one needs a migration. */
+export const HOST_PROBE_FAILURE_CODES = [
+  'offline',
+  'unreachable',
+  'awaiting-enrollment',
+  'agent-unhealthy',
+  'certificate-rejected',
+  'health_check_failed',
+] as const satisfies readonly (AgentHealthFailureReason | 'health_check_failed')[];
+
+/** The probe's detail is raw error text, so it is cut before it is stored and broadcast to every viewer. */
+export const MAX_FAILURE_DETAIL_LENGTH = 512;
+
+export type HostProbeFailureCode = (typeof HOST_PROBE_FAILURE_CODES)[number];
+
+export function probeFailureCode(outcome: { reason?: HostProbeFailureCode }): HostProbeFailureCode {
+  return outcome.reason ?? 'health_check_failed';
+}
 
 export interface HostFailureCopy {
-  /** What went wrong, in the operator's terms. */
-  headline: string;
+  /** What went wrong, in the operator's terms. A function takes the raw detail, for copy that names it in the headline. */
+  headline: string | ((detail?: string) => string);
   /** The next action, named concretely. */
   fix: string;
   /** True when the underlying detail carries the diagnosis, so it is worth showing. */
@@ -46,6 +69,16 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
     headline: 'The agent is serving plain HTTP because it holds no certificate yet.',
     fix: 'Enroll a certificate for this host, then check again.',
     includeDetail: false,
+  },
+  'agent-unhealthy': {
+    headline: 'The agent answered but reports that it is unhealthy, because it can reach neither Docker nor ZFS.',
+    fix: 'Check that the Docker socket or daemon on the agent host is running and mounted into the agent container, then check again.',
+    includeDetail: false,
+  },
+  'certificate-rejected': {
+    headline: "The manager rejected the agent's TLS certificate: it does not match the pinned one, has expired, or does not cover the host name in the URL.",
+    fix: 'If the URL uses an address the certificate does not cover, change it to a host name the certificate does cover. Otherwise follow the agent TLS recovery steps in the self-hosting guide to enroll a fresh certificate, then check again.',
+    includeDetail: true,
   },
   health_check_failed: {
     headline: 'The host health check did not pass.',
@@ -82,6 +115,11 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
     fix: 'Correct the cause on the agent host, then retry the update.',
     includeDetail: true,
   },
+  agent_not_answering: {
+    headline: (detail) => (detail ? `Something other than the agent answered (${detail}).` : 'Something other than the agent answered.'),
+    fix: 'Check that the agent URL points at the agent and that any proxy in front of it is running, then try again.',
+    includeDetail: false,
+  },
   update_interrupted: {
     headline: 'The agent is still running its previous image, so the update did not complete.',
     fix: 'Retry the update, and restart the agent container on the host if it repeats.',
@@ -97,17 +135,44 @@ const HOST_FAILURE_COPY: Record<HostFailureCode, HostFailureCopy> = {
     fix: 'Check the agent version on the host, then retry the update if it did not change.',
     includeDetail: false,
   },
+  image_unconfirmed: {
+    headline: 'The agent reports the same version as before and does not report which image it runs, so the update could not be confirmed.',
+    fix: 'Check which image the agent container runs on the host, and update it by hand there if it is still the old one.',
+    includeDetail: false,
+  },
   agent_did_not_restart: {
     headline: 'The agent did not come back after the update.',
     fix: 'Check that the agent container is running on the host, then retry the update.',
     includeDetail: true,
   },
+  update_already_running: {
+    headline: 'An update is already running for this host.',
+    fix: 'Wait for it to finish.',
+    includeDetail: false,
+  },
 };
 
+function shownDetail(copy: HostFailureCopy, detail?: string): string | null {
+  return copy.includeDetail && detail ? detail : null;
+}
+
+export function isHostFailureCode(value: unknown): value is HostFailureCode {
+  return typeof value === 'string' && Object.hasOwn(HOST_FAILURE_COPY, value);
+}
+
+export function hostFailureDetail(code: HostFailureCode, detail?: string): string | null {
+  return shownDetail(HOST_FAILURE_COPY[code], detail);
+}
+
 /** The sentence the operator reads. Never names a control: the surface owns which button it offers. */
-export function hostFailureMessage(code: HostFailureCode, detail?: string): string {
-  const copy = HOST_FAILURE_COPY[code];
-  const parts = [copy.headline, copy.fix];
-  if (copy.includeDetail && detail) parts.push(detail);
+export function composeFailureMessage(copy: HostFailureCopy, detail?: string): string {
+  const headline = typeof copy.headline === 'function' ? copy.headline(detail) : copy.headline;
+  const parts = [headline, copy.fix];
+  const shown = shownDetail(copy, detail);
+  if (shown) parts.push(shown);
   return parts.join(' ');
+}
+
+export function hostFailureMessage(code: HostFailureCode, detail?: string): string {
+  return composeFailureMessage(HOST_FAILURE_COPY[code], detail);
 }

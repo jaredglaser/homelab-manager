@@ -10,9 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as DeniedRouteImport } from './routes/denied'
 import { Route as DockerRouteImport } from './routes/docker'
+import { Route as HostsRouteImport } from './routes/hosts'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProxmoxRouteImport } from './routes/proxmox'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -33,11 +33,6 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AgentsRoute = AgentsRouteImport.update({
-  id: '/agents',
-  path: '/agents',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DeniedRoute = DeniedRouteImport.update({
   id: '/denied',
   path: '/denied',
@@ -46,6 +41,11 @@ const DeniedRoute = DeniedRouteImport.update({
 const DockerRoute = DockerRouteImport.update({
   id: '/docker',
   path: '/docker',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HostsRoute = HostsRouteImport.update({
+  id: '/hosts',
+  path: '/hosts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -121,9 +121,9 @@ const StacksHostHostNameRoute = StacksHostHostNameRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/agents': typeof AgentsRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
+  '/hosts': typeof HostsRoute
   '/login': typeof LoginRoute
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
@@ -141,9 +141,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/agents': typeof AgentsRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
+  '/hosts': typeof HostsRoute
   '/login': typeof LoginRoute
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
@@ -161,9 +161,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/agents': typeof AgentsRoute
   '/denied': typeof DeniedRoute
   '/docker': typeof DockerRouteWithChildren
+  '/hosts': typeof HostsRoute
   '/login': typeof LoginRoute
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
@@ -183,9 +183,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/agents'
     | '/denied'
     | '/docker'
+    | '/hosts'
     | '/login'
     | '/proxmox'
     | '/settings'
@@ -203,9 +203,9 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/agents'
     | '/denied'
     | '/docker'
+    | '/hosts'
     | '/login'
     | '/proxmox'
     | '/settings'
@@ -222,9 +222,9 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/agents'
     | '/denied'
     | '/docker'
+    | '/hosts'
     | '/login'
     | '/proxmox'
     | '/settings'
@@ -243,9 +243,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AgentsRoute: typeof AgentsRoute
   DeniedRoute: typeof DeniedRoute
   DockerRoute: typeof DockerRouteWithChildren
+  HostsRoute: typeof HostsRoute
   LoginRoute: typeof LoginRoute
   ProxmoxRoute: typeof ProxmoxRoute
   SettingsRoute: typeof SettingsRoute
@@ -267,13 +267,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/agents': {
-      id: '/agents'
-      path: '/agents'
-      fullPath: '/agents'
-      preLoaderRoute: typeof AgentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/denied': {
       id: '/denied'
       path: '/denied'
@@ -286,6 +279,13 @@ declare module '@tanstack/react-router' {
       path: '/docker'
       fullPath: '/docker'
       preLoaderRoute: typeof DockerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hosts': {
+      id: '/hosts'
+      path: '/hosts'
+      fullPath: '/hosts'
+      preLoaderRoute: typeof HostsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -417,9 +417,9 @@ const StacksRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AgentsRoute: AgentsRoute,
   DeniedRoute: DeniedRoute,
   DockerRoute: DockerRouteWithChildren,
+  HostsRoute: HostsRoute,
   LoginRoute: LoginRoute,
   ProxmoxRoute: ProxmoxRoute,
   SettingsRoute: SettingsRoute,

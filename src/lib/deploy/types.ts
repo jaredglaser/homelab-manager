@@ -38,7 +38,8 @@ export type DeployChangeOutcome = z.infer<typeof zDeployChangeOutcome>;
  * supported, used by async teardown to delete the stack entry from the git
  * manifest once the agent reports teardown complete.
  */
-export type DeployPostSuccess = 'removeFromManifest';
+export const DEPLOY_POST_SUCCESS_VALUES = ['removeFromManifest'] as const;
+export type DeployPostSuccess = (typeof DEPLOY_POST_SUCCESS_VALUES)[number];
 
 interface BaseDeployRequest {
   stack: string;
@@ -123,4 +124,6 @@ export interface AgentUpdatePayload {
 export interface AgentDeployResponse {
   success: boolean;
   logs: string;
+  /** Null when the agent killed the process and it never reported an exit. */
+  exitCode?: number | null;
 }

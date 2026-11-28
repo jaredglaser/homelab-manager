@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { mockSetTimeout, type TimerMock } from '@/lib/test/mock-timers';
 import type { DatabaseClient } from '@/lib/clients/database-client';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost, HostHealthVerdict } from '@/lib/database/repositories/host-repository';
 import { mockModule } from '@/lib/test/mock-module';
 
 const mockHostFindAll = mock((): Promise<ManagedHost[]> => Promise.resolve([]));
@@ -11,14 +11,14 @@ const mockHostCreate = mock(() =>
 const mockHostUpdate = mock(() =>
   Promise.resolve({ id: 1, name: 'localhost', agentUrl: 'http://localhost:9090', status: 'pending' as const }),
 );
-const mockHostUpdateStatus = mock(() => Promise.resolve());
+const mockHostUpdateHealth = mock<(id: number, verdict: HostHealthVerdict, probedUrl: string) => Promise<void>>(() => Promise.resolve());
 
 mockModule<typeof import('@/lib/database/repositories/host-repository')>('@/lib/database/repositories/host-repository', (real) => ({ ...real, 
   HostRepository: class {
     findAll = mockHostFindAll;
     create = mockHostCreate;
     update = mockHostUpdate;
-    updateStatus = mockHostUpdateStatus;
+    updateHealth = mockHostUpdateHealth;
   },
 }));
 
@@ -63,9 +63,11 @@ function mockHost(overrides: Partial<ManagedHost> & Pick<ManagedHost, 'id' | 'na
     agentImageTag: null,
     agentImageDigest: null,
     agentOutOfDate: false,
+    failure: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     lastSweptAt: null,
+    agentUpdate: null,
     ...overrides,
   };
 }
@@ -80,7 +82,7 @@ describe('seedDevAgent', () => {
     mockHostFindAll.mockClear();
     mockHostCreate.mockClear();
     mockHostUpdate.mockClear();
-    mockHostUpdateStatus.mockClear();
+    mockHostUpdateHealth.mockClear();
     mockKeypairCreateForHost.mockClear();
     mockKeypairGetPublicJwk.mockClear();
     mockExistsSync.mockClear();
@@ -121,7 +123,7 @@ describe('seedDevAgent', () => {
     expect(mockHostCreate).toHaveBeenCalledTimes(1);
     expect(mockKeypairCreateForHost).toHaveBeenCalledTimes(1);
     expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
-    expect(mockHostUpdateStatus).toHaveBeenCalledWith(1, 'healthy');
+    expect(mockHostUpdateHealth).toHaveBeenCalledWith(1, { status: 'healthy', failure: null }, 'http://localhost:9090');
   });
 
   it('updates agent URL when existing host has a stale URL', async () => {
@@ -177,8 +179,8 @@ describe('seedDevAgent', () => {
     const { seedDevAgent } = await import('../dev-seed');
     await seedDevAgent(makeMockDb());
 
-    const statusCalls = mockHostUpdateStatus.mock.calls as unknown as Array<[number, string]>;
-    expect(statusCalls.some(([, s]) => s === 'healthy')).toBe(false);
+    const statusCalls = mockHostUpdateHealth.mock.calls as unknown as Array<[number, HostHealthVerdict]>;
+    expect(statusCalls.some(([, verdict]) => verdict.status === 'healthy')).toBe(false);
     expect(consoleInfoSpy).toHaveBeenCalledWith(expect.stringContaining('health check failed'));
   });
 
@@ -188,7 +190,7 @@ describe('seedDevAgent', () => {
     const { seedDevAgent } = await import('../dev-seed');
     await seedDevAgent(makeMockDb());
 
-    const statusCalls = mockHostUpdateStatus.mock.calls as unknown as Array<[number, string]>;
-    expect(statusCalls.some(([, s]) => s === 'healthy')).toBe(false);
+    const statusCalls = mockHostUpdateHealth.mock.calls as unknown as Array<[number, HostHealthVerdict]>;
+    expect(statusCalls.some(([, verdict]) => verdict.status === 'healthy')).toBe(false);
   });
 });

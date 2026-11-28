@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+import { SETTINGS_KEYS, USER_SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { mockModule } from '@/lib/test/mock-module';
 
 const { renderHook, act, waitFor } = await import('@testing-library/react');
@@ -8,9 +8,11 @@ type ReactNode = import('react').ReactNode;
 
     // Mock the settings functions
     const mockUpdateSetting = mock(() => Promise.resolve());
+    const mockUpdateUserSetting = mock(() => Promise.resolve());
 
     mockModule<typeof import('@/data/settings/functions')>('@/data/settings/functions', (real) => ({ ...real, 
         updateSetting: mockUpdateSetting,
+        updateUserSetting: mockUpdateUserSetting,
     }));
 
     const mockToastError = mock(() => {});
@@ -25,7 +27,8 @@ type ReactNode = import('react').ReactNode;
 
     // Import after mocking
     const { useSettings } = await import('../useSettings');
-    const { rawSettingsAtom } = await import('../settingsAtom');
+    const { useOptimisticSetting } = await import('@/hooks/useOptimisticSetting');
+    const { rawSettingsAtom } = await import('@/hooks/settingsAtom');
     const { createStore, Provider } = await import('jotai');
 
     function createWrapper(initialRaw: Record<string, string> = {}) {
@@ -43,6 +46,8 @@ type ReactNode = import('react').ReactNode;
     beforeEach(() => {
         mockUpdateSetting.mockClear();
         mockUpdateSetting.mockImplementation(() => Promise.resolve());
+        mockUpdateUserSetting.mockClear();
+        mockUpdateUserSetting.mockImplementation(() => Promise.resolve());
         mockToastError.mockClear();
     });
 
@@ -94,7 +99,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setUseAbbreviatedUnits(true);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.general.useAbbreviatedUnits, value: 'true' },
             });
         });
@@ -122,7 +127,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setShowSparklines(false);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.general.showSparklines, value: 'false' },
             });
         });
@@ -150,7 +155,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setMemoryDisplayMode('percentage');
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.docker.memoryDisplayMode, value: 'percentage' },
             });
         });
@@ -178,7 +183,7 @@ type ReactNode = import('react').ReactNode;
 
             act(() => { result.current.setLightPalette('forest-mist'); });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.general.lightPalette, value: 'forest-mist' },
             });
         });
@@ -229,7 +234,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setDockerDecimal('networkSpeed', true);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.docker.decimals.networkSpeed, value: 'true' },
             });
         });
@@ -341,32 +346,6 @@ type ReactNode = import('react').ReactNode;
 
             expect(result.current.isProxmoxHostExpanded('pve1')).toBe(true);
         });
-
-        it('should persist proxmox host expansion to database', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleProxmoxHostExpanded('pve1');
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.proxmox.expandedHosts, value: '["pve1"]' },
-            });
-        });
-
-        it('should parse proxmox collapsed hosts from JSON', () => {
-            const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.proxmox.expandedHosts]: '["pve1", "pve2"]',
-            });
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Nodes in the set are collapsed; anything else defaults to expanded.
-            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(false);
-            expect(result.current.isProxmoxHostExpanded('pve2')).toBe(false);
-            expect(result.current.isProxmoxHostExpanded('pve3')).toBe(true);
-        });
     });
 
     describe('proxmox section expansion', () => {
@@ -392,19 +371,6 @@ type ReactNode = import('react').ReactNode;
             });
 
             expect(result.current.isProxmoxSectionExpanded('pve1-vm')).toBe(true);
-        });
-
-        it('should persist proxmox section expansion to database', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleProxmoxSectionExpanded('pve1-storage');
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.proxmox.expandedSections, value: '["pve1-storage"]' },
-            });
         });
     });
 
@@ -435,13 +401,13 @@ type ReactNode = import('react').ReactNode;
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
+            expect(result.current.isZfsHostExpanded('zfs-host-1', 2)).toBe(false);
+
             act(() => {
                 result.current.toggleZfsHostExpanded('zfs-host-1');
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.zfs.expandedHosts, value: '["zfs-host-1"]' },
-            });
+            expect(result.current.isZfsHostExpanded('zfs-host-1', 2)).toBe(true);
         });
     });
 
@@ -469,7 +435,7 @@ type ReactNode = import('react').ReactNode;
                 result.current.setChartWindowSeconds(120);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.docker.chartWindowSeconds, value: '120' },
             });
         });
@@ -486,21 +452,6 @@ type ReactNode = import('react').ReactNode;
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.proxmox.updateInterval, value: '10000' },
-            });
-        });
-    });
-
-    describe('setRetention', () => {
-        it('should update retention settings', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.setRetention('rawDataHours', 48);
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.retention.rawDataHours, value: '48' },
             });
         });
     });
@@ -624,47 +575,13 @@ type ReactNode = import('react').ReactNode;
                 result.current.setStreamDebugLogging(true);
             });
 
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.developer.streamDebugLogging, value: 'true' },
             });
         });
     });
 
     describe('parsing settings from raw atom', () => {
-        it('should parse collapsed hosts from JSON', () => {
-            const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.docker.expandedHosts]: '["host-1", "host-2"]',
-            });
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Hosts in the set are collapsed (inverted semantics)
-            expect(result.current.isHostExpanded('host-1', 3)).toBe(false);
-            expect(result.current.isHostExpanded('host-2', 3)).toBe(false);
-            expect(result.current.isHostExpanded('host-3', 3)).toBe(true);
-        });
-
-        it('should parse expanded containers from JSON', () => {
-            const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.docker.expandedContainers]: '["container-1"]',
-            });
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isContainerExpanded('container-1')).toBe(true);
-        });
-
-        it('should handle invalid JSON gracefully', () => {
-            const { wrapper } = createWrapper({
-                [SETTINGS_KEYS.docker.expandedHosts]: 'not-valid-json',
-            });
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Should default to empty set (all expanded)
-            expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
-        });
-
         it('should handle invalid memory display mode', () => {
             const { wrapper } = createWrapper({
                 [SETTINGS_KEYS.docker.memoryDisplayMode]: 'invalid',
@@ -712,20 +629,6 @@ type ReactNode = import('react').ReactNode;
 
             expect(result.current.isStackExpanded('server1/my-stack')).toBe(false);
         });
-
-        it('should persist stack expansion to database', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            act(() => {
-                result.current.toggleStackExpanded('server1/my-stack');
-            });
-
-            expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: SETTINGS_KEYS.stacks.expandedStacks, value: '["server1/my-stack"]' },
-            });
-        });
-
         it('should not affect other stacks when toggling one', () => {
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -739,9 +642,32 @@ type ReactNode = import('react').ReactNode;
         });
     });
 
+    describe('persist routing', () => {
+        it.each([...USER_SETTINGS_KEYS])('saves %s to the signed-in user, not the shared server settings', (key) => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useOptimisticSetting(), { wrapper });
+            act(() => result.current(key, () => 'v'));
+            expect(mockUpdateUserSetting).toHaveBeenCalledWith({ data: { key, value: 'v' } });
+            expect(mockUpdateSetting).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            SETTINGS_KEYS.general.updateIntervalMs,
+            SETTINGS_KEYS.proxmox.updateInterval,
+            SETTINGS_KEYS.developer.dockerDebugLogging,
+            SETTINGS_KEYS.developer.dbFlushDebugLogging,
+        ])('saves %s to the shared server settings', (key) => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useOptimisticSetting(), { wrapper });
+            act(() => result.current(key, () => 'v'));
+            expect(mockUpdateSetting).toHaveBeenCalledWith({ data: { key, value: 'v' } });
+            expect(mockUpdateUserSetting).not.toHaveBeenCalled();
+        });
+    });
+
     describe('rollback on persist failure', () => {
         it('should roll back a simple setting on failure', async () => {
-            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
+            mockUpdateUserSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
 
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -763,32 +689,8 @@ type ReactNode = import('react').ReactNode;
             // Toast should be shown
             expect(mockToastError).toHaveBeenCalledWith('Failed to save setting');
         });
-
-        it('should roll back a toggle setting on failure', async () => {
-            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
-
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.isContainerExpanded('c1')).toBe(false);
-
-            act(() => {
-                result.current.toggleContainerExpanded('c1');
-            });
-
-            // Optimistically expanded
-            expect(result.current.isContainerExpanded('c1')).toBe(true);
-
-            // Wait for rollback
-            await waitFor(() => {
-                expect(result.current.isContainerExpanded('c1')).toBe(false);
-            });
-
-            expect(mockToastError).toHaveBeenCalled();
-        });
-
         it('should roll back to existing value when key was already set', async () => {
-            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
+            mockUpdateUserSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
 
             const { wrapper } = createWrapper({
                 [SETTINGS_KEYS.general.showSparklines]: 'false',
@@ -811,7 +713,7 @@ type ReactNode = import('react').ReactNode;
         });
 
         it('should not roll back when persist succeeds', async () => {
-            mockUpdateSetting.mockImplementation(() => Promise.resolve());
+            mockUpdateUserSetting.mockImplementation(() => Promise.resolve());
 
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -822,9 +724,9 @@ type ReactNode = import('react').ReactNode;
 
             expect(result.current.general.showSparklines).toBe(false);
 
-            expect(mockUpdateSetting).toHaveBeenCalledTimes(1);
+            expect(mockUpdateUserSetting).toHaveBeenCalledTimes(1);
             await act(async () => {
-                await mockUpdateSetting.mock.results[0]?.value;
+                await mockUpdateUserSetting.mock.results[0]?.value;
             });
 
             // Still false - no rollback

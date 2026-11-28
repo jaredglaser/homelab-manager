@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { setupUser } from '@/lib/test/user-event';
 import DeleteStackDialog from '../DeleteStackDialog';
 
 const defaultProps = {
@@ -63,16 +64,33 @@ describe('DeleteStackDialog', () => {
     expect(onConfirm).toHaveBeenCalledWith(true);
   });
 
-  it('Delete Stack button is disabled while isLoading', () => {
-    render(<DeleteStackDialog {...defaultProps} isLoading={true} />);
-    const radio = screen.getByDisplayValue('unmanage');
-    fireEvent.click(radio);
-    const btn = screen.getByRole('button', { name: 'Delete Stack' });
-    expect(btn.hasAttribute('disabled')).toBe(true);
+  it('disables the mode radios and Delete Stack while the delete is in flight, after a mode was selected', () => {
+    const view = render(<DeleteStackDialog {...defaultProps} />);
+    fireEvent.click(screen.getByDisplayValue('teardown'));
+    expect(screen.getByRole('button', { name: 'Delete Stack' }).hasAttribute('disabled')).toBe(false);
+    for (const radio of screen.getAllByRole('radio')) expect(radio.hasAttribute('data-disabled')).toBe(false);
+
+    view.rerender(<DeleteStackDialog {...defaultProps} isLoading={true} />);
+
+    expect(screen.getByRole('button', { name: 'Delete Stack' }).hasAttribute('disabled')).toBe(true);
+    const radios = screen.getAllByRole('radio');
+    expect(radios).toHaveLength(2);
+    for (const radio of radios) expect(radio.hasAttribute('data-disabled')).toBe(true);
   });
 
   it('does not render when open is false', () => {
     render(<DeleteStackDialog {...defaultProps} open={false} />);
     expect(screen.queryByText('Delete my-stack?')).toBeNull();
+  });
+
+  it('stays open on Escape while the delete is in flight', async () => {
+    const user = setupUser();
+    const onClose = mock(() => undefined);
+    render(<DeleteStackDialog {...defaultProps} isLoading={true} onClose={onClose} />);
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(0);
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Delete Stack' }).hasAttribute('disabled')).toBe(true);
   });
 });

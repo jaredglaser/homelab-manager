@@ -1,19 +1,21 @@
-import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost, HostHealthVerdict, HostRepository, SettledAgentUpdate } from '@/lib/database/repositories/host-repository';
 import { toHostListItem, getAgentImage } from '@/lib/hosts/host-utils';
 import { MissingAgentKeypairError, missingAgentKeypairError } from '@/lib/errors/agent-messages';
 import { TlsProvisionFailure } from '@/lib/services/agent-provisioning-service';
-import type { TlsFailureCode } from '@homelab-manager/agent/types';
-import type { HostFailureCode } from '@/lib/errors/host-failure-copy';
+import { isAgentUpdateFailureCode, zAgentRouteErrorBodyFromAnyAgent, type TlsFailureCode } from '@homelab-manager/agent/types';
+import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failure-copy';
+import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
-import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
-import { agentFetch } from '@/lib/clients/agent-http';
+import { resolveAgentImageRelease, type AgentImageRelease } from '@/lib/hosts/agent-image-digest';
+import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
+import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agent-identity';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
-import { buildAgentInventoryEntry, buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
-import type { AgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import { buildStoredAgentInventoryEntry } from '@/lib/hosts/agent-inventory';
+import { AGENT_UPDATE_STALE_AFTER_MS, type AgentInventoryEntry, type AgentUpdateResult } from '@/lib/hosts/agent-inventory';
 import type { JWK } from 'jose';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
-export type { AgentInventoryEntry, AgentInventoryStatus, AgentVersionSource } from '@/lib/hosts/agent-inventory';
+export type { AgentInventoryEntry, AgentInventoryStatus } from '@/lib/hosts/agent-inventory';
 
 export interface KeypairsDep {
   createForHost: (hostName: string) => Promise<{ publicJwk: JWK }>;
@@ -29,7 +31,7 @@ export interface AddHostResult {
   provisioningError?: string;
 }
 
-export type HostOperationResult =
+export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode> =
   | {
       hostId: number;
       healthy: true;
@@ -38,12 +40,41 @@ export type HostOperationResult =
       agentImage?: string | null;
       agentImageTag?: string | null;
     }
-  | { hostId: number; healthy: false; code: HostFailureCode; message: string };
+  | { hostId: number; healthy: false; code: Code; message: string };
 
 export type HealthCheckResult = HostOperationResult;
-export type UpdateAgentResult = HostOperationResult;
+/** The update itself reports on the host row. `at` orders this answer against the row's own `at`. */
+export type UpdateAgentResult = { hostId: number; at: string } & (
+  | { healthy: true; outcome: 'started' }
+  | { healthy: false; code: 'update_already_running'; message: string }
+);
 
+function readUpdateRefusal(response: Response, body: string): { code: UpdateFailureCode; message: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = undefined;
+  }
+  const refusal = zAgentRouteErrorBodyFromAnyAgent.safeParse(parsed);
+  if (refusal.success) {
+    const { code, error } = refusal.data;
+    return { code: isAgentUpdateFailureCode(code) ? code : 'agent_reported_error', message: singleLine(error) };
+  }
+  const isText = response.headers.get('content-type')?.toLowerCase().startsWith('text/plain') ?? false;
+  const text = isText ? singleLine(body) : '';
+  return { code: 'agent_reported_error', message: text ? `It said: ${text}` : '' };
+}
+
+/** A peer that never finishes answering the trigger must not hang the update. */
+const UPDATE_TRIGGER_TIMEOUT_MS = 30_000;
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
+// A restarted agent resolves its image lazily and can lose the startup race with socket-proxy.
+const IMAGE_DIGEST_RETRY_DELAYS_MS = [1000, 1000, 1000] as const;
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function digestPinnedImageRef(imageRef: string, digest: string): string {
   return `${imageRef.slice(0, imageRef.lastIndexOf(':'))}@${digest}`;
@@ -55,10 +86,12 @@ export interface HostRepo {
   create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
   findByName(name: string): Promise<ManagedHost | null>;
   delete(id: number): Promise<void>;
-  updateStatus(id: number, status: HostStatus): Promise<void>;
+  updateHealth(id: number, verdict: HostHealthVerdict, probedUrl: string): Promise<void>;
   updateLastSweptAt(id: number, at: Date): Promise<void>;
   updateAgentInfo(id: number, fields: { version?: string; image?: string | null; imageTag?: string | null; imageDigest?: string | null; outOfDate?: boolean }): Promise<void>;
   update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  claimAgentUpdate(id: number, startedAt: Date, runningBefore: Date): Promise<boolean>;
+  settleAgentUpdate(id: number, startedAt: Date, settled: SettledAgentUpdate, at: Date): Promise<void>;
 }
 
 export interface HostHandlerDeps {
@@ -81,10 +114,14 @@ export async function handleCheckHostHealth(
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   const healthResult = await deps.checkHealth(host.agentUrl, host.name);
-  const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
-  await deps.repo.updateStatus(host.id, newStatus);
 
-  if (healthResult.healthy && (healthResult.version || healthResult.infoSupported)) {
+  await deps.repo.updateHealth(host.id, probeVerdict(host, healthResult), host.agentUrl);
+
+  if (!healthResult.healthy) {
+    return { hostId: host.id, healthy: false, code: probeFailureCode(healthResult), message: healthResult.error };
+  }
+
+  if (healthResult.version || healthResult.infoSupported) {
     // Only an agent that answered /info may clear its image; a 404 leaves the stored value.
     await deps.repo.updateAgentInfo(host.id, {
       version: healthResult.version,
@@ -94,21 +131,14 @@ export async function handleCheckHostHealth(
     });
   }
 
-  return healthResult.healthy
-    ? {
-        hostId: host.id,
-        healthy: true,
-        version: healthResult.version,
-        dockerVersion: healthResult.dockerVersion,
-        agentImage: healthResult.agentImage,
-        agentImageTag: healthResult.agentImageTag,
-      }
-    : {
-        hostId: host.id,
-        healthy: false,
-        code: healthResult.reason ?? 'health_check_failed',
-        message: healthResult.error,
-      };
+  return {
+    hostId: host.id,
+    healthy: true,
+    version: healthResult.version,
+    dockerVersion: healthResult.dockerVersion,
+    agentImage: healthResult.agentImage,
+    agentImageTag: healthResult.agentImageTag,
+  };
 }
 
 export async function handleRemoveHost(
@@ -134,8 +164,32 @@ export async function handleRemoveHost(
   return { success: true };
 }
 
+type CheckHealthDep = (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+
+/** A failed probe leaves a pending host pending: never verified is not the same as an agent that went down. */
+function probeVerdict(host: ManagedHost, outcome: HealthCheckOutcome): HostHealthVerdict {
+  if (outcome.healthy) return { status: 'healthy', failure: null };
+  const failure = { code: probeFailureCode(outcome), detail: outcome.error };
+  return host.status === 'pending' ? { status: 'pending', failure } : { status: 'unhealthy', failure };
+}
+
+/** A repair changes what the stored cause describes, so the host is probed again at once rather than showing the old explanation until the next sweep. */
+async function reprobeAfterRepair(
+  deps: HostHandlerDeps & { checkHealth: CheckHealthDep },
+  hostId: number,
+): Promise<void> {
+  try {
+    const host = await deps.repo.findById(hostId);
+    if (!host) return;
+    const outcome = await deps.checkHealth(host.agentUrl, host.name);
+    await deps.repo.updateHealth(host.id, probeVerdict(host, outcome), host.agentUrl);
+  } catch (err) {
+    console.error(`[hosts] Health re-check after repairing host ${hostId} failed:`, err instanceof Error ? err.message : err);
+  }
+}
+
 export async function handleUpdateHost(
-  deps: HostHandlerDeps,
+  deps: HostHandlerDeps & { checkHealth: CheckHealthDep },
   data: { hostId: number; name?: string; agentUrl?: string },
 ): Promise<HostListItem> {
   const host = await deps.repo.findById(data.hostId);
@@ -154,6 +208,7 @@ export async function handleUpdateHost(
   if (data.agentUrl !== undefined) fields.agentUrl = data.agentUrl;
 
   const updated = await deps.repo.update(data.hostId, fields);
+  if (fields.agentUrl !== undefined && fields.agentUrl !== host.agentUrl) await reprobeAfterRepair(deps, host.id);
   return toHostListItem(updated);
 }
 
@@ -261,6 +316,7 @@ export type RotateHostTlsResult =
 
 export async function handleRotateHostTls(
   deps: HostHandlerDeps & {
+    checkHealth: CheckHealthDep;
     provisionTls: (
       hostName: string,
       agentUrl: string,
@@ -284,6 +340,7 @@ export async function handleRotateHostTls(
     throw err;
   }
   await deps.repo.update(host.id, { agentUrl: provisioned.agentUrl });
+  await reprobeAfterRepair(deps, host.id);
   return {
     ok: true,
     hostId: host.id,
@@ -293,69 +350,108 @@ export async function handleRotateHostTls(
   };
 }
 
+export type UpdateAgentDeps = HostHandlerDeps & {
+  getSigner: (hostname: string) => Promise<() => Promise<string>>;
+  checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
+  resolveAgentImageRelease?: (imageRef: string) => Promise<AgentImageRelease | null>;
+  /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
+  getCaCert?: (hostname: string) => Promise<string | null>;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => Date;
+  /** Recovery runs on the first live-page connection, so a claim must not wait for it to clear an update this process never ran. */
+  processStartedAt?: Date;
+  runDetached?: (task: () => Promise<void>) => void;
+};
+
+const SETTLE_RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
+
+async function settleUpdate(
+  deps: UpdateAgentDeps,
+  host: ManagedHost,
+  startedAt: Date,
+  settled: SettledAgentUpdate,
+  at: Date,
+): Promise<void> {
+  const sleep = deps.sleep ?? sleepMs;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await deps.repo.settleAgentUpdate(host.id, startedAt, settled, at);
+      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : err;
+      if (attempt >= SETTLE_RETRY_DELAYS_MS.length) {
+        console.error(`[hosts] Could not record the end of the agent update on ${host.name}, the row reads as stopped after ${AGENT_UPDATE_STALE_AFTER_MS / 60_000} minutes:`, message);
+        return;
+      }
+      console.error(`[hosts] Recording the end of the agent update on ${host.name} failed, retrying:`, message);
+      await sleep(SETTLE_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
+
 // Scoped to this host's agentUrl. Never touches any other host.
-export async function handleUpdateAgent(
-  deps: HostHandlerDeps & {
-    getSigner: (hostname: string) => Promise<() => Promise<string>>;
-    checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
-    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
-    /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
-    getCaCert?: (hostname: string) => Promise<string | null>;
-  },
-  data: { hostId: number },
-): Promise<HostOperationResult> {
+export async function handleUpdateAgent(deps: UpdateAgentDeps, data: { hostId: number }): Promise<UpdateAgentResult> {
+  const now = deps.now ?? (() => new Date());
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
+  const startedAt = now();
+  const processStartedAt = deps.processStartedAt ?? new Date(performance.timeOrigin);
+  const runningBefore = new Date(Math.max(startedAt.getTime() - AGENT_UPDATE_STALE_AFTER_MS, processStartedAt.getTime()));
+  if (!(await deps.repo.claimAgentUpdate(host.id, startedAt, runningBefore))) {
+    return { hostId: host.id, at: startedAt.toISOString(), healthy: false, code: 'update_already_running', message: '' };
+  }
+
+  const runDetached = deps.runDetached ?? ((task) => void task());
+  runDetached(async () => {
+    let settled: SettledAgentUpdate;
+    try {
+      settled = { state: 'done', result: await runAgentUpdate(deps, host) };
+    } catch (err) {
+      console.error(`[hosts] The agent update on ${host.name} crashed:`, err);
+      settled = { state: 'errored' };
+    }
+    await settleUpdate(deps, host, startedAt, settled, now());
+  });
+  return { hostId: host.id, at: startedAt.toISOString(), healthy: true, outcome: 'started' };
+}
+
+async function runAgentUpdate(deps: UpdateAgentDeps, host: ManagedHost): Promise<AgentUpdateResult> {
   const preCheck = await deps.checkHealth(host.agentUrl, host.name);
   if (!preCheck.healthy) {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: preCheck.reason ?? 'health_check_failed',
-      message: preCheck.error,
-    };
+    return { healthy: false, code: probeFailureCode(preCheck), message: preCheck.error };
   }
-  const currentVersion = preCheck.version;
-  // A missing pre-update version only implies an upgrade when /info 404s. Any
-  // other cause would make a later version read look like a change that never happened.
-  const preInfoUnsupported = preCheck.infoSupported === false;
 
-  const resolveDigest = deps.resolveAgentImageDigest ?? resolveAgentImageDigest;
+  const resolveRelease = deps.resolveAgentImageRelease ?? resolveAgentImageRelease;
   const imageRef = getAgentImage();
-  const digest = await resolveDigest(imageRef);
-  if (!digest) {
+  const release = await resolveRelease(imageRef);
+  if (!release) {
     return {
-      hostId: host.id,
       healthy: false,
       code: 'image_digest_unresolved',
       message: 'Could not resolve the agent image digest from the registry',
     };
   }
+  // The agent decides by digest alone, so without this a rebuild of unchanged source swaps the container for nothing.
+  if (release.sourceHash && preCheck.agentSourceHash === release.sourceHash) {
+    await deps.repo.updateAgentInfo(host.id, { outOfDate: false });
+    return { healthy: true, outcome: 'already_current' };
+  }
+  const digest = release.digest;
   const targetImage = digestPinnedImageRef(imageRef, digest);
 
   let signer: () => Promise<string>;
   try {
     signer = await deps.getSigner(host.name);
   } catch {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'keypair_unavailable',
-      message: 'Could not retrieve agent keypair',
-    };
+    return { healthy: false, code: 'keypair_unavailable', message: 'Could not retrieve agent keypair' };
   }
 
   let jwt: string;
   try {
     jwt = await signer();
   } catch {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'token_signing_failed',
-      message: 'Could not sign the agent request token',
-    };
+    return { healthy: false, code: 'token_signing_failed', message: 'Could not sign the agent request token' };
   }
 
   let triggerResponse: Response;
@@ -366,49 +462,49 @@ export async function handleUpdateAgent(
       headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetImage }),
       redirect: 'manual',
+      signal: AbortSignal.timeout(UPDATE_TRIGGER_TIMEOUT_MS),
     }, { caCertPem: deps.getCaCert ? await deps.getCaCert(host.name) : null });
   } catch (err) {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'agent_unreachable',
-      message: err instanceof Error ? err.message : String(err),
-    };
+    return { healthy: false, code: 'agent_unreachable', message: err instanceof Error ? err.message : String(err) };
   }
 
   if (triggerResponse.type === 'opaqueredirect' || (triggerResponse.status >= 300 && triggerResponse.status < 400)) {
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'unexpected_redirect',
-      message: 'Agent URL returned an unexpected redirect',
-    };
+    return { healthy: false, code: 'unexpected_redirect', message: 'Agent URL returned an unexpected redirect' };
   }
 
   if (triggerResponse.status === 200) {
-    // The agent checked its own image and found nothing newer.
-    return { hostId: host.id, healthy: true };
+    await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
+    return { healthy: true, outcome: 'already_current' };
   }
 
   if (triggerResponse.status !== 202) {
-    const body = await triggerResponse.text().catch(() => '');
-    // The agent answers with JSON like {"error":"..."}; surface the message,
-    // not the raw body.
-    let message = body || `Unexpected status ${triggerResponse.status} from agent update endpoint`;
-    try {
-      const parsed = JSON.parse(body) as { error?: unknown };
-      if (typeof parsed?.error === 'string') message = parsed.error;
-    } catch {
-      // Body was not JSON; keep the raw text.
+    const notAnswering = await readNotAnsweringFailure(triggerResponse);
+    if (notAnswering) {
+      console.error(`[hosts] ${notAnsweringLogLine(notAnswering, `the update request for ${host.name}`)}`);
+      return { healthy: false, code: notAnswering.code, message: notAnswering.detail };
     }
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'agent_reported_error',
-      message,
-    };
+    const body = await readBoundedBody(triggerResponse, MAX_AGENT_FAILURE_BODY_BYTES);
+    const { code, message } = readUpdateRefusal(triggerResponse, body);
+    console.error(`[hosts] Agent update refused for ${host.name}: HTTP ${triggerResponse.status} ${code}: ${message}`);
+    return { healthy: false, code, message };
   }
 
+  return confirmAgentUpdate(deps, host, {
+    currentVersion: preCheck.version,
+    // A missing pre-update version only implies an upgrade when /info 404s. Any
+    // other cause would make a later version read look like a change that never happened.
+    preInfoUnsupported: preCheck.infoSupported === false,
+    digest,
+  });
+}
+
+async function confirmAgentUpdate(
+  deps: UpdateAgentDeps,
+  host: ManagedHost,
+  before: { currentVersion: string | undefined; preInfoUnsupported: boolean; digest: string },
+): Promise<AgentUpdateResult> {
+  const sleep = deps.sleep ?? sleepMs;
+  const { currentVersion, preInfoUnsupported, digest } = before;
   let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
   let newVersion: string | undefined;
   // The helper pulls the new image before stopping the old agent, so on an /info-less host a
@@ -416,7 +512,7 @@ export async function handleUpdateAgent(
   let sawRestart = false;
 
   for (const delay of HEALTH_CHECK_DELAYS_MS) {
-    await new Promise((resolve) => setTimeout(resolve, delay));
+    await sleep(delay);
     lastResult = await deps.checkHealth(host.agentUrl, host.name);
     if (!lastResult.healthy) {
       sawRestart = true;
@@ -439,24 +535,33 @@ export async function handleUpdateAgent(
   if (!newVersion) {
     if (lastResult.healthy && currentVersion !== undefined && lastResult.version === currentVersion) {
       // An image rebuilt without a version bump keeps the version string, so the digest is what proves the swap happened.
-      if (typeof lastResult.agentImageDigest === 'string') {
-        if (lastResult.agentImageDigest !== digest) {
+      let runningDigest = lastResult.agentImageDigest;
+      for (const delay of IMAGE_DIGEST_RETRY_DELAYS_MS) {
+        if (typeof runningDigest === 'string') break;
+        await sleep(delay);
+        const reread = await deps.checkHealth(host.agentUrl, host.name);
+        if (reread.healthy && reread.version === currentVersion) runningDigest = reread.agentImageDigest;
+      }
+      if (typeof runningDigest === 'string') {
+        if (runningDigest !== digest) {
           return {
-            hostId: host.id,
             healthy: false,
             code: 'update_interrupted',
             message: 'The agent is still running its previous image, so the update was interrupted before it completed',
           };
         }
-        await deps.repo.updateStatus(host.id, 'healthy');
+        await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
         await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
-        return { hostId: host.id, healthy: true };
+        return { healthy: true, outcome: 'updated' };
       }
-      return { hostId: host.id, healthy: true };
+      return {
+        healthy: false,
+        code: 'image_unconfirmed',
+        message: 'The agent reports the same version as before and does not report its image, so the update could not be confirmed',
+      };
     }
     if (lastResult.healthy && preInfoUnsupported && !sawRestart) {
       return {
-        hostId: host.id,
         healthy: false,
         code: 'restart_unconfirmed',
         message: 'The agent stayed reachable throughout the update window, so its restart could not be confirmed',
@@ -464,37 +569,39 @@ export async function handleUpdateAgent(
     }
     if (lastResult.healthy) {
       return {
-        hostId: host.id,
         healthy: false,
         code: 'version_unconfirmed',
         message: 'Agent is reachable but its version could not be read, so the update could not be confirmed',
       };
     }
-    return {
-      hostId: host.id,
-      healthy: false,
-      code: 'agent_did_not_restart',
-      message: 'Agent did not restart after update',
-    };
+    return { healthy: false, code: 'agent_did_not_restart', message: 'Agent did not restart after update' };
   }
 
-  await deps.repo.updateStatus(host.id, 'healthy');
+  await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
   await deps.repo.updateAgentInfo(host.id, { version: newVersion, imageDigest: digest, outOfDate: false });
-  return { hostId: host.id, healthy: true, version: newVersion };
+  return { healthy: true, outcome: 'updated', version: newVersion };
+}
+
+/** Startup step: an update that started before this process cannot finish in it, so its result is never recorded. */
+export async function recoverInterruptedAgentUpdates(
+  repo: Pick<HostRepository, 'interruptAgentUpdates'>,
+  processStartedAt: Date,
+  now: Date = new Date(),
+): Promise<void> {
+  const ids = await repo.interruptAgentUpdates(processStartedAt, now);
+  if (ids.length > 0) console.info(`[Server] Marked ${ids.length} agent update(s) interrupted by the restart`);
 }
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {
   checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
-  resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+  resolveAgentImageRelease?: (imageRef: string) => Promise<AgentImageRelease | null>;
 }
 
-function agentOutOfDateFor(outcome: HealthCheckOutcome | undefined, expected: string | null): boolean {
-  return !!(
-    outcome?.healthy &&
-    outcome.agentImageDigest &&
-    expected &&
-    outcome.agentImageDigest !== expected
-  );
+// CI republishes the agent on every merge, so a digest alone flags rebuilds of unchanged source. The digest is the fallback for unstamped images.
+function agentOutOfDateFor(outcome: HealthCheckOutcome, expected: AgentImageRelease | null): boolean {
+  if (!outcome.healthy || !expected) return false;
+  if (expected.sourceHash && outcome.agentSourceHash) return outcome.agentSourceHash !== expected.sourceHash;
+  return !!outcome.agentImageDigest && outcome.agentImageDigest !== expected.digest;
 }
 
 /**
@@ -502,23 +609,25 @@ function agentOutOfDateFor(outcome: HealthCheckOutcome | undefined, expected: st
  * healthy/unhealthy plus reported agent info exactly like
  * handleCheckHostHealth, except a pending host stays pending on failure
  * (pending means enrollment was never confirmed, which is not the same as an
- * agent that went down). Persistence is best-effort per host: one failing
- * write is logged and never crashes the sweep or drops the host from the
- * result. Runs in the worker on an interval, never on the request path.
+ * agent that went down) while still recording why. Persistence is best-effort per host: one failing
+ * write is logged and never crashes the sweep or skips the other hosts.
+ * Runs in the worker on an interval, never on the request path.
  */
 export async function handleSweepAgentInventory(
   deps: AgentsInventoryDeps,
   now: Date = new Date(),
-): Promise<AgentInventoryEntry[]> {
+): Promise<void> {
   const hosts = await deps.repo.findAll();
   // Absent resolver means no comparison this sweep: every host stays unflagged instead of guessing.
   // Resolved concurrently with the probes so a slow registry call cannot delay host health updates.
-  const [expectedAgentDigest, probeOutcomes] = await Promise.all([
-    deps.resolveAgentImageDigest
-      ? deps.resolveAgentImageDigest(getAgentImage()).catch(() => null)
+  const [expectedAgentRelease, probeOutcomes] = await Promise.all([
+    deps.resolveAgentImageRelease
+      ? deps.resolveAgentImageRelease(getAgentImage()).catch(() => null)
       : Promise.resolve(null),
     Promise.all(
-      hosts.map(async (host): Promise<HealthCheckOutcome> => {
+      hosts.map(async (host): Promise<HealthCheckOutcome | undefined> => {
+        // A wizard host has no URL until its Verify step, and probing '' would record a bogus cause.
+        if (host.agentUrl === '') return undefined;
         try {
           return await deps.checkHealth(host.agentUrl, host.name);
         } catch (err) {
@@ -531,20 +640,16 @@ export async function handleSweepAgentInventory(
       }),
     ),
   ]);
-  const outcomes = probeOutcomes;
-
+  // A failed label read keeps the stored verdict. Digests would flag every rebuild, and a stale hash would hide a real update.
+  const labelUnread = expectedAgentRelease !== null && expectedAgentRelease.sourceHash === undefined;
   await Promise.all(
     hosts.map(async (host, i) => {
-      const outcome = outcomes[i];
+      const outcome = probeOutcomes[i];
       if (!outcome) return;
       try {
-        // Stamp the probe time for every host we probed, including a pending one
-        // whose status is left alone below: checkedAt answers "when did the sweep
-        // last look at this agent", not "when did its status last change".
+        // checkedAt answers "when did the sweep last look at this agent", not "when did its status last change".
         await deps.repo.updateLastSweptAt(host.id, now);
-        if (host.status === 'pending' && !outcome.healthy) return;
-        await deps.repo.updateStatus(host.id, outcome.healthy ? 'healthy' : 'unhealthy');
-        const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentDigest);
+        await deps.repo.updateHealth(host.id, probeVerdict(host, outcome), host.agentUrl);
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
           await deps.repo.updateAgentInfo(host.id, {
             version: outcome.version,
@@ -553,7 +658,7 @@ export async function handleSweepAgentInventory(
                   image: outcome.agentImage ?? null,
                   imageTag: outcome.agentImageTag ?? null,
                   imageDigest: outcome.agentImageDigest ?? null,
-                  outOfDate: agentOutOfDate,
+                  ...(labelUnread ? {} : { outOfDate: agentOutOfDateFor(outcome, expectedAgentRelease) }),
                 }
               : {}),
           });
@@ -566,8 +671,6 @@ export async function handleSweepAgentInventory(
       }
     }),
   );
-
-  return hosts.map((host, i) => buildAgentInventoryEntry(host, outcomes[i], now, agentOutOfDateFor(outcomes[i], expectedAgentDigest)));
 }
 
 /**
@@ -578,5 +681,5 @@ export async function handleListAgentsInventorySnapshot(
   deps: HostHandlerDeps,
 ): Promise<AgentInventoryEntry[]> {
   const hosts = await deps.repo.findAll();
-  return hosts.map(buildStoredAgentInventoryEntry);
+  return hosts.map((host) => buildStoredAgentInventoryEntry(host));
 }

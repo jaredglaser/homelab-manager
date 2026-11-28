@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDriftItem, StackDriftResolutionResult } from '@/types/stacks';
 
@@ -17,6 +17,7 @@ mockModule<typeof import('@/data/stacks/functions')>('@/data/stacks/functions', 
 import { deployToastGate } from '@/lib/stacks/deploy-outcome-toast';
 import StackDriftActions from '../StackDriftActions';
 import { mockModule } from '@/lib/test/mock-module';
+import { setupUser } from '@/lib/test/user-event';
 
 const ghostItem: StackDriftItem = {
   kind: 'ghost',
@@ -70,7 +71,7 @@ describe('StackDriftActions', () => {
     resolveResult = resolutionResult({ deployId, deployStatus: 'succeeded' });
     deployToastGate.claim(deployId);
 
-    await renderActions();
+    renderActions();
     await triggerResolution();
 
     expect(mockShowToast).not.toHaveBeenCalledWith('Deploy of server1/donetick succeeded', 'success');
@@ -80,7 +81,7 @@ describe('StackDriftActions', () => {
     const deployId = Date.now() + 1;
     resolveResult = resolutionResult({ deployId, deployStatus: 'succeeded' });
 
-    await renderActions();
+    renderActions();
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith('Deploy of server1/donetick succeeded', 'success');
@@ -92,7 +93,7 @@ describe('StackDriftActions', () => {
   it('toasts without claiming the gate when the resolution ran no deploy', async () => {
     resolveResult = resolutionResult({ deployId: null, deployStatus: null });
 
-    await renderActions({ ...ghostItem, host: 'server2' });
+    renderActions({ ...ghostItem, host: 'server2' });
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith('Resolved drift for server2/donetick', 'success');
@@ -102,7 +103,7 @@ describe('StackDriftActions', () => {
     const deployId = Date.now() + 2;
     resolveResult = resolutionResult({ deployId, deployStatus: 'in_progress' });
 
-    await renderActions();
+    renderActions();
     await triggerResolution();
 
     expect(mockShowToast).toHaveBeenCalledWith(
@@ -111,5 +112,28 @@ describe('StackDriftActions', () => {
     );
     // The later terminal stream frame must still be able to toast.
     expect(deployToastGate.shouldToast(deployId)).toBe(true);
+  });
+
+  it('stays open on Escape while the resolution is in flight and closes once it succeeds', async () => {
+    const user = setupUser();
+    let settle: (result: StackDriftResolutionResult) => void = () => undefined;
+    mockResolveDrift.mockImplementationOnce(
+      () => new Promise<StackDriftResolutionResult>((resolve) => { settle = resolve; }),
+    );
+
+    renderActions();
+    fireEvent.click(screen.getByRole('button', { name: 'Redeploy from repo' }));
+    const confirmButtons = await screen.findAllByRole('button', { name: 'Redeploy from repo' });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]);
+    await waitFor(() => expect(mockResolveDrift).toHaveBeenCalledTimes(1));
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryAllByRole('dialog')).toHaveLength(1);
+    const dialogButtons = within(screen.getByRole('dialog')).getAllByRole('button');
+    expect(dialogButtons).toHaveLength(2);
+    expect(dialogButtons.every((button) => button.hasAttribute('disabled'))).toBe(true);
+
+    act(() => settle(resolutionResult({})));
+    await waitFor(() => expect(screen.queryAllByRole('dialog')).toHaveLength(0));
   });
 });

@@ -14,9 +14,6 @@ export const SETTINGS_KEYS = {
   docker: {
     memoryDisplayMode: 'docker/memoryDisplayMode',
     chartWindowSeconds: 'docker/chartWindowSeconds',
-    expandedHosts: 'docker/expandedHosts',
-    expandedContainers: 'docker/expandedContainers',
-    containerShells: 'docker/containerShells',
     decimals: {
       cpu: 'docker/decimals/cpu',
       memory: 'docker/decimals/memory',
@@ -24,34 +21,43 @@ export const SETTINGS_KEYS = {
       networkSpeed: 'docker/decimals/networkSpeed',
     },
   },
-  stacks: {
-    expandedStacks: 'stacks/expandedStacks',
-  },
   zfs: {
-    expandedHosts: 'zfs/expandedHosts',
-    expandedPools: 'zfs/expandedPools',
-    expandedVdevs: 'zfs/expandedVdevs',
     decimals: {
       diskSpeed: 'zfs/decimals/diskSpeed',
     },
   },
   proxmox: {
     updateInterval: 'proxmox/updateInterval',
-    expandedHosts: 'proxmox/expandedHosts',
-    expandedSections: 'proxmox/expandedSections',
-  },
-  retention: {
-    rawDataHours: 'retention/rawDataHours',
-    minuteAggDays: 'retention/minuteAggDays',
-    hourAggDays: 'retention/hourAggDays',
   },
   developer: {
     dockerDebugLogging: 'developer/dockerDebugLogging',
     dbFlushDebugLogging: 'developer/dbFlushDebugLogging',
-    // Key literal is persisted in the DB settings table and localStorage. Renaming it would reset the user's toggle.
+    // Key literal is persisted in the user_settings table and localStorage. Renaming it would reset the user's toggle.
     streamDebugLogging: 'developer/sseDebugLogging',
   },
 } as const;
+
+/** Stored per user in `user_settings`. Every other key is a shared server setting in `settings`. */
+export const USER_SETTINGS_KEYS = [
+  SETTINGS_KEYS.general.use12HourTime,
+  SETTINGS_KEYS.general.showSparklines,
+  SETTINGS_KEYS.general.useAbbreviatedUnits,
+  SETTINGS_KEYS.general.lightPalette,
+  SETTINGS_KEYS.docker.memoryDisplayMode,
+  SETTINGS_KEYS.docker.chartWindowSeconds,
+  SETTINGS_KEYS.docker.decimals.cpu,
+  SETTINGS_KEYS.docker.decimals.memory,
+  SETTINGS_KEYS.docker.decimals.diskSpeed,
+  SETTINGS_KEYS.docker.decimals.networkSpeed,
+  SETTINGS_KEYS.zfs.decimals.diskSpeed,
+  SETTINGS_KEYS.developer.streamDebugLogging,
+] as const;
+
+export type UserSettingsKey = (typeof USER_SETTINGS_KEYS)[number];
+
+export function isUserSettingsKey(key: string): key is UserSettingsKey {
+  return (USER_SETTINGS_KEYS as readonly string[]).includes(key);
+}
 
 /** localStorage key for persisting demo mode settings. */
 export const DEMO_SETTINGS_STORAGE_KEY = 'homelab-demo-settings';

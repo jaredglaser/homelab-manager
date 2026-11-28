@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:te
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
-import { initBareRepo, commitFiles } from '../repo';
+import { initBareRepo, commitFiles } from '@/lib/git/repo';
 import { processPostReceive } from '../post-receive-handler';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 

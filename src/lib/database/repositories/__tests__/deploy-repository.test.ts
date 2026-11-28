@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, spyOn } from 'bun:test';
 import { DeployRepository } from '../deploy-repository';
+import { resetDegradedRowEnums } from '@/lib/database/repositories/row-enum';
 import { createMockPool } from '@/lib/test/mock-pool';
 import type { DeployRequest } from '@/lib/deploy/types';
 
@@ -8,13 +9,14 @@ describe('DeployRepository', () => {
   let mock: ReturnType<typeof createMockPool>;
 
   beforeEach(() => {
+    resetDegradedRowEnums();
     mock = createMockPool();
     repo = new DeployRepository(mock.pool);
   });
 
   describe('insertDeploy', () => {
     it('inserts a deploy record and returns the id', async () => {
-      mock.pushResult([{ id: '42' }]);
+      mock.pushResult([{ id: 42 }]);
       const id = await repo.insertDeploy({
         stack: 'plex',
         host: 'homeserver',
@@ -35,7 +37,7 @@ describe('DeployRepository', () => {
     });
 
     it('persists postSuccess when set', async () => {
-      mock.pushResult([{ id: '43' }]);
+      mock.pushResult([{ id: 43 }]);
       await repo.insertDeploy({
         stack: 'plex',
         host: 'homeserver',
@@ -59,9 +61,9 @@ describe('DeployRepository', () => {
       expect(result).toBeNull();
     });
 
-    it('returns the deploy record with Number-coerced id', async () => {
+    it('returns the deploy record with the id passed through unchanged', async () => {
       mock.pushResult([{
-        id: '42',
+        id: 42,
         stack: 'plex',
         host: 'homeserver',
         commit_sha: 'abc123',
@@ -69,8 +71,11 @@ describe('DeployRepository', () => {
         env_hash: 'hash2',
         status: 'pending',
         trigger: 'git_push',
+        action: 'deploy',
+        force_recreate: false,
         logs: null,
         created_at: new Date('2026-01-01'),
+        post_success: null,
       }]);
 
       const result = await repo.getById(42);
@@ -78,6 +83,26 @@ describe('DeployRepository', () => {
       expect(result!.id).toBe(42);
       expect(result!.stack).toBe('plex');
       expect(result!.status).toBe('pending');
+    });
+
+    it('throws when the persisted status is outside the union', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{
+        id: 42,
+        stack: 'plex',
+        host: 'homeserver',
+        commit_sha: 'abc123',
+        compose_hash: 'hash1',
+        env_hash: 'hash2',
+        status: 'cancelled',
+        trigger: 'git_push',
+        action: 'deploy',
+        logs: null,
+        created_at: new Date('2026-01-01'),
+      }]);
+
+      await expect(repo.getById(42)).rejects.toThrow('Unrecognized deploy_history.status value');
+      errorSpy.mockRestore();
     });
   });
 
@@ -141,9 +166,9 @@ describe('DeployRepository', () => {
       expect(result).toBeNull();
     });
 
-    it('returns the latest successful deploy with Number-coerced id', async () => {
+    it('returns the latest successful deploy with the id passed through unchanged', async () => {
       mock.pushResult([{
-        id: '10',
+        id: 10,
         stack: 'plex',
         host: 'homeserver',
         commit_sha: 'abc123',
@@ -151,8 +176,11 @@ describe('DeployRepository', () => {
         env_hash: 'hash2',
         status: 'succeeded',
         trigger: 'git_push',
+        action: 'deploy',
+        force_recreate: false,
         logs: 'ok',
         created_at: new Date('2026-01-01'),
+        post_success: null,
       }]);
 
       const result = await repo.getLatestSuccessful('plex', 'homeserver');
@@ -188,7 +216,7 @@ describe('DeployRepository', () => {
 
     it('returns the active row as a DeployRecord', async () => {
       mock.pushResult([{
-        id: '12',
+        id: 12,
         stack: 'plex',
         host: 'homeserver',
         commit_sha: 'abc123',
@@ -197,9 +225,11 @@ describe('DeployRepository', () => {
         status: 'in_progress',
         trigger: 'ui',
         action: 'update',
+        force_recreate: false,
         logs: null,
         created_at: new Date('2026-01-01T00:00:00Z'),
         started_at: new Date('2026-01-01T00:05:00Z'),
+        post_success: null,
       }]);
       const result = await repo.getActiveDeploy('plex', 'homeserver');
       expect(result).toMatchObject({
@@ -225,7 +255,7 @@ describe('DeployRepository', () => {
     };
 
     it('returns the deploy id when no active deploy exists', async () => {
-      mock.pushResult([{ id: '42' }]);
+      mock.pushResult([{ id: 42 }]);
       const id = await repo.insertDeployIfNoActive(insertParams);
       expect(id).toBe(42);
     });
@@ -273,14 +303,16 @@ describe('DeployRepository', () => {
     it('returns deploy records for a stack ordered by created_at desc', async () => {
       mock.pushResult([
         {
-          id: '2', stack: 'plex', host: 'homeserver', commit_sha: 'def456',
+          id: 2, stack: 'plex', host: 'homeserver', commit_sha: 'def456',
           compose_hash: 'h3', env_hash: 'h4', status: 'succeeded',
-          trigger: 'ui', logs: null, created_at: new Date('2026-01-02'),
+          trigger: 'ui', action: 'update', force_recreate: false, logs: null,
+          created_at: new Date('2026-01-02'), post_success: null,
         },
         {
-          id: '1', stack: 'plex', host: 'homeserver', commit_sha: 'abc123',
+          id: 1, stack: 'plex', host: 'homeserver', commit_sha: 'abc123',
           compose_hash: 'h1', env_hash: 'h2', status: 'failed',
-          trigger: 'git_push', logs: 'error', created_at: new Date('2026-01-01'),
+          trigger: 'git_push', action: 'deploy', force_recreate: false, logs: 'error',
+          created_at: new Date('2026-01-01'), post_success: null,
         },
       ]);
 
@@ -336,7 +368,7 @@ describe('DeployRepository', () => {
   describe('queued history markers', () => {
     it('replaces any prior marker before inserting the new one', async () => {
       mock.pushResult([]);
-      mock.pushResult([{ id: '77' }]);
+      mock.pushResult([{ id: 77 }]);
       const id = await repo.recordQueuedDeploy({
         stack: 'plex',
         host: 'homeserver',
@@ -356,7 +388,7 @@ describe('DeployRepository', () => {
     });
 
     it('resolves the marker to failed and returns its id', async () => {
-      mock.pushResult([{ id: '77' }]);
+      mock.pushResult([{ id: 77 }]);
       const id = await repo.failQueuedDeploy('plex', 'homeserver', 'superseded');
 
       expect(id).toBe(77);
@@ -397,9 +429,10 @@ describe('DeployRepository', () => {
     it('returns pending deploys ordered by created_at asc', async () => {
       mock.pushResult([
         {
-          id: '5', stack: 'plex', host: 'homeserver', commit_sha: 'abc',
+          id: 5, stack: 'plex', host: 'homeserver', commit_sha: 'abc',
           compose_hash: 'h1', env_hash: 'h2', status: 'pending',
-          trigger: 'git_push', logs: null, created_at: new Date('2026-01-01'),
+          trigger: 'git_push', action: 'deploy', force_recreate: false, logs: null,
+          created_at: new Date('2026-01-01'), post_success: null,
         },
       ]);
 
@@ -420,14 +453,16 @@ describe('DeployRepository', () => {
     it('returns one record per stack with DISTINCT ON semantics', async () => {
       mock.pushResult([
         {
-          id: '10', stack: 'plex', host: 'homeserver', commit_sha: 'sha1',
+          id: 10, stack: 'plex', host: 'homeserver', commit_sha: 'sha1',
           compose_hash: 'h1', env_hash: 'h2', status: 'succeeded',
-          trigger: 'git_push', logs: null, created_at: new Date('2026-01-02'),
+          trigger: 'git_push', action: 'deploy', force_recreate: false, logs: null,
+          created_at: new Date('2026-01-02'), post_success: null,
         },
         {
-          id: '20', stack: 'traefik', host: 'homeserver', commit_sha: 'sha2',
+          id: 20, stack: 'traefik', host: 'homeserver', commit_sha: 'sha2',
           compose_hash: 'h3', env_hash: 'h4', status: 'failed',
-          trigger: 'ui', logs: 'error', created_at: new Date('2026-01-01'),
+          trigger: 'ui', action: 'update', force_recreate: false, logs: 'error',
+          created_at: new Date('2026-01-01'), post_success: null,
         },
       ]);
 
@@ -479,14 +514,26 @@ describe('DeployRepository', () => {
       })]);
     });
 
-    it('sanitizes and truncates the outcome message, taking the first line', async () => {
-      const rawMessage = 'first line of logs\nsecond line should be dropped';
+    it('takes the last non-empty line of a failed outcome message', async () => {
       await repo.notifyStackChange('plex', 'homeserver', {
         deployId: 42,
         status: 'failed',
         action: 'deploy',
         trigger: 'git_push',
-        message: rawMessage,
+        message: 'Container app Pulling\nContainer app Pulled\nError response from daemon: pull access denied\n\n',
+      });
+
+      const payload = JSON.parse(mock.queries[0].params[0] as string);
+      expect(payload.outcome.message).toBe('Error response from daemon: pull access denied');
+    });
+
+    it('takes the first line of a message on any other outcome', async () => {
+      await repo.notifyStackChange('plex', 'homeserver', {
+        deployId: 42,
+        status: 'succeeded',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'first line of logs\nsecond line should be dropped',
       });
 
       const payload = JSON.parse(mock.queries[0].params[0] as string);
@@ -510,7 +557,7 @@ describe('DeployRepository', () => {
       const longMessage = 'x'.repeat(300);
       await repo.notifyStackChange('plex', 'homeserver', {
         deployId: 42,
-        status: 'failed',
+        status: 'succeeded',
         action: 'deploy',
         trigger: 'ui',
         message: longMessage,
@@ -527,7 +574,7 @@ describe('DeployRepository', () => {
       const longMessage = 'x'.repeat(199) + '\u{1F600}' + 'y'.repeat(10);
       await repo.notifyStackChange('plex', 'homeserver', {
         deployId: 42,
-        status: 'failed',
+        status: 'succeeded',
         action: 'deploy',
         trigger: 'ui',
         message: longMessage,
@@ -564,10 +611,10 @@ describe('DeployRepository', () => {
       expect(mock.queries[0].params).toEqual(['boom']);
     });
 
-    it('returns the recovered rows with Number-coerced ids', async () => {
+    it('returns the recovered rows with ids passed through unchanged', async () => {
       mock.pushResult([
-        { id: '7', stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
-        { id: '8', stack: 'traefik', host: 'other', action: 'teardown', trigger: 'ui' },
+        { id: 7, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
+        { id: 8, stack: 'traefik', host: 'other', action: 'teardown', trigger: 'ui' },
       ]);
       const rows = await repo.recoverStuckDeploys('crashed');
       expect(rows).toEqual([
@@ -580,8 +627,8 @@ describe('DeployRepository', () => {
   describe('findSucceededPostSuccessDeploys', () => {
     it('returns rows with succeeded or no_change status and matching post_success', async () => {
       mock.pushResult([
-        { id: '1', stack: 'plex', host: 'home' },
-        { id: '2', stack: 'grafana', host: 'home' },
+        { id: 1, stack: 'plex', host: 'home' },
+        { id: 2, stack: 'grafana', host: 'home' },
       ]);
       const rows = await repo.findSucceededPostSuccessDeploys('removeFromManifest');
       expect(rows).toEqual([
@@ -616,14 +663,93 @@ describe('DeployRepository', () => {
       expect(mock.queries[0].params).toEqual([30, 'timed out']);
     });
 
-    it('returns the timed-out rows with Number-coerced ids', async () => {
+    it('returns the timed-out rows with ids passed through unchanged', async () => {
       mock.pushResult([
-        { id: '42', stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
+        { id: 42, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
       ]);
       const rows = await repo.timeoutStuckDeploys(15, 'slow');
       expect(rows).toEqual([
         { id: 42, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
       ]);
+    });
+  });
+
+  describe('persisted values outside the unions', () => {
+    const deployRow = {
+      id: 42,
+      stack: 'plex',
+      host: 'homeserver',
+      commit_sha: 'abc123',
+      compose_hash: 'hash1',
+      env_hash: 'hash2',
+      status: 'succeeded',
+      trigger: 'git_push',
+      action: 'deploy',
+      force_recreate: false,
+      logs: null,
+      created_at: new Date('2026-01-01'),
+      post_success: null,
+    };
+
+    it.each([
+      ['action', 'restart'],
+      ['trigger', 'cron'],
+      ['post_success', 'notify'],
+    ])('refuses a %s of %s on a full read', async (column, value) => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([{ ...deployRow, [column]: value }]);
+
+      await expect(repo.getById(42)).rejects.toThrow(`Unrecognized deploy_history.${column} value`);
+      errorSpy.mockRestore();
+    });
+
+    it('keeps the other rows of a stuck sweep when one row cannot be read, since the UPDATE has committed', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([
+        { id: 7, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
+        { id: 8, stack: 'old', host: 'homeserver', action: 'restart', trigger: 'ui' },
+        { id: 9, stack: 'traefik', host: 'other', action: 'teardown', trigger: 'ui' },
+      ]);
+
+      const rows = await repo.recoverStuckDeploys('crashed');
+
+      expect(rows.map((row) => row.id)).toEqual([7, 9]);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(String(errorSpy.mock.calls[0][0])).toContain('stuck deploy 8');
+      expect(String(errorSpy.mock.calls[0][0])).toContain('deploy_history.action value "restart"');
+      errorSpy.mockRestore();
+    });
+
+    it('logs every dropped stuck deploy, not just the first one with a given bad value', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([
+        { id: 8, stack: 'a', host: 'h', action: 'restart', trigger: 'ui' },
+        { id: 9, stack: 'b', host: 'h', action: 'restart', trigger: 'ui' },
+        { id: 10, stack: 'c', host: 'h', action: 'deploy', trigger: 'webhook' },
+      ]);
+
+      const rows = await repo.recoverStuckDeploys('crashed');
+
+      expect(rows).toEqual([]);
+      expect(errorSpy.mock.calls.map((call) => String(call[0]))).toEqual([
+        expect.stringContaining('stuck deploy 8'),
+        expect.stringContaining('stuck deploy 9'),
+        expect.stringContaining('deploy_history.trigger value "webhook"'),
+      ]);
+      errorSpy.mockRestore();
+    });
+
+    it('applies the same per-row tolerance to the timeout sweep', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => undefined);
+      mock.pushResult([
+        { id: 8, stack: 'old', host: 'homeserver', action: 'deploy', trigger: 'cron' },
+        { id: 9, stack: 'traefik', host: 'other', action: 'update', trigger: 'ui' },
+      ]);
+
+      const rows = await repo.timeoutStuckDeploys(30, 'slow');
+
+      expect(rows.map((row) => row.id)).toEqual([9]);
+      errorSpy.mockRestore();
     });
   });
 });

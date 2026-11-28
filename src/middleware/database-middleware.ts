@@ -19,7 +19,7 @@ let cachedConfig: DatabaseConfig | null = null;
  *
  * Usage:
  *   createServerFn()
- *     .middleware([databaseMiddleware])
+ *     .middleware([authMiddleware, roleMiddleware('admin', 'operator', 'viewer'), databaseMiddleware])
  *     .handler(async ({ context, data }) => {
  *       const repo = new StatsRepository(context.pool);
  *       ...

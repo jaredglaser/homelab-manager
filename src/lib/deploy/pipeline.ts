@@ -2,8 +2,11 @@ import type { AgentClient } from '@/lib/clients/agent-client';
 import type { DeployRepository, InsertDeployParams, QueuedDeploy } from '@/lib/database/repositories/deploy-repository';
 import type { HostRepository, ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { DeployRecord, DeployRequest, DeployStatus, SecretResolver } from '@/lib/deploy/types';
+import { boundComposeLogs } from '@/lib/deploy/bounded-log-buffer';
 import { computeHash, detectChanges } from '@/lib/deploy/change-detection';
 import { extractVariableReferences } from '@/lib/deploy/secret-resolver';
+
+const FAILURE_LOG_TAIL_CHARS = 2000;
 
 interface PipelineResult {
   status: DeployStatus;
@@ -530,12 +533,20 @@ export class DeployPipeline {
 
     // Record result outside try: a DB failure here must not be misattributed to the agent
     const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
+    const logs = boundComposeLogs(result.logs);
     try {
-      await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
+      await this.deployRepo.updateStatus(deployId, finalStatus, logs);
     } catch (err) {
       console.error(
         `Failed to record deploy ${deployId} result (actual status: ${finalStatus}) for stack "${request.stack}":`,
         err,
+      );
+    }
+
+    if (!result.success) {
+      const exitCode = result.exitCode == null ? 'unknown' : String(result.exitCode);
+      console.error(
+        `Deploy dispatch failed for stack "${request.stack}" on host "${host.name}" (deploy ${deployId}, exit code ${exitCode}): ${JSON.stringify(result.logs.slice(-FAILURE_LOG_TAIL_CHARS))}`,
       );
     }
 
@@ -605,7 +616,7 @@ export class DeployPipeline {
 
     await this.drainQueue(request.stack, host.name);
 
-    return { status: finalStatus, logs: result.logs, deployId };
+    return { status: finalStatus, logs, deployId };
   }
 }
 

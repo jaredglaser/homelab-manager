@@ -1,10 +1,12 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { roleReasonOf, seedSession } from '@/lib/test/session';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
 import type { ImageChangelog, ImageUpdateSummary } from '@/types/image-updates';
 import { mockModule } from '@/lib/test/mock-module';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 
 mock.module('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
@@ -107,6 +109,10 @@ function renderPanel(props = defaultProps) {
   return render(<StackContainersPanel {...props} />, { wrapper: createWrapper() });
 }
 
+beforeEach(() => {
+  seedSession('admin');
+});
+
 describe('StackContainersPanel', () => {
   beforeEach(() => {
     mockControlStack.mockClear();
@@ -124,6 +130,60 @@ describe('StackContainersPanel', () => {
       releases: [],
       error: null,
     }));
+  });
+
+  const STACK_CONTROLS = ['Start', 'Stop', 'Restart', 'Recreate'];
+  const SERVICE_CONTROLS = ['Start web', 'Stop web', 'Restart web', 'Start db', 'Stop db', 'Restart db'];
+
+  it('shows a viewer the stack and service Start, Stop, Restart, Recreate and Terminal disabled with the role reason, and clicking them calls nothing', async () => {
+    seedSession('viewer');
+    renderPanel();
+    for (const name of [...STACK_CONTROLS, ...SERVICE_CONTROLS]) {
+      const button = screen.getByRole('button', { name });
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(roleReasonOf(button)).toBe(VIEWER_DENIED_COPY);
+      fireEvent.click(button);
+    }
+    const terminals = screen.getAllByRole('button', { name: 'Terminal' });
+    expect(terminals).toHaveLength(2);
+    for (const terminal of terminals) {
+      expect(terminal.getAttribute('aria-disabled')).toBe('true');
+      expect(roleReasonOf(terminal)).toBe(VIEWER_DENIED_COPY);
+      fireEvent.click(terminal);
+    }
+
+    // Logs opens for a viewer, so its awaited render shows the clicks above had their turn.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Logs' })[0]);
+    await screen.findByTestId('log-viewer');
+    expect(mockControlStack).not.toHaveBeenCalled();
+    expect(screen.queryByText('Recreate plex?')).toBeNull();
+    expect(screen.queryByTestId('terminal-viewer')).toBeNull();
+    expect(mockOnRecreate).not.toHaveBeenCalled();
+  });
+
+  it.each(['admin', 'operator'] as const)('lets an %s open a service terminal', async (role) => {
+    seedSession(role);
+    renderPanel();
+    const terminal = screen.getAllByRole('button', { name: 'Terminal' })[0];
+    expect(terminal.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(terminal);
+    expect((await screen.findByTestId('terminal-viewer')).textContent).toBe('abc123');
+  });
+
+  it.each(['admin', 'operator'] as const)('lets an %s run the stack and service controls and open Recreate', async (role) => {
+    seedSession(role);
+    renderPanel();
+    for (const name of [...STACK_CONTROLS, ...SERVICE_CONTROLS]) {
+      expect(screen.getByRole('button', { name }).getAttribute('aria-disabled')).toBeNull();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(mockControlStack).toHaveBeenCalledWith({ data: { stack: 'plex', host: 'server1', action: 'stop', scope: 'stack' } }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart web' })).toHaveProperty('disabled', false));
+    fireEvent.click(screen.getByRole('button', { name: 'Restart web' }));
+    await waitFor(() => expect(mockControlStack).toHaveBeenCalledWith({ data: { stack: 'plex', host: 'server1', action: 'restart', scope: 'service', service: 'web' } }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Recreate' })).toHaveProperty('disabled', false));
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate' }));
+    expect(await screen.findByText('Recreate plex?')).toBeDefined();
   });
 
   it('renders container names and statuses', () => {
@@ -556,6 +616,41 @@ describe('StackContainersPanel', () => {
   it('renders the Check for updates button next to Recreate', () => {
     renderPanel();
     expect(screen.getByRole('button', { name: 'Check for updates' })).toBeDefined();
+  });
+
+  it('shows a viewer Check for updates and the dialog Re-check disabled with the role reason, and nothing runs the check', async () => {
+    seedSession('viewer');
+    renderPanel();
+    const check = screen.getByRole('button', { name: 'Check for updates' });
+    expect(check.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(check.getAttribute('aria-describedby') ?? '')?.textContent).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(check);
+
+    // Opening the dialog is an awaited render, so a check the click above started would have run by now.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Image versions' })[0]);
+    const recheck = await screen.findByRole('button', { name: 'Re-check' });
+    expect(mockCheckImageUpdates).not.toHaveBeenCalled();
+    expect(recheck.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(recheck);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Re-check' })).toBeNull());
+    expect(mockCheckImageUpdates).not.toHaveBeenCalled();
+  });
+
+  it('lets an operator run Check for updates and the dialog Re-check', async () => {
+    seedSession('operator');
+    renderPanel();
+    const check = screen.getByRole('button', { name: 'Check for updates' });
+    expect(check.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(check);
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Image versions' })[0]);
+    const recheck = await screen.findByRole('button', { name: 'Re-check' });
+    expect(recheck.getAttribute('aria-disabled')).toBeNull();
+    fireEvent.click(recheck);
+    await waitFor(() => expect(mockCheckImageUpdates).toHaveBeenCalledTimes(2));
   });
 
   it('disables the Check for updates button when the stack has no containers', () => {

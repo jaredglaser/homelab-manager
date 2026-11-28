@@ -10,6 +10,7 @@ import {
   portCandidatesFromInspect,
   portCandidatesFromList,
   resolveImageDigest,
+  AGENT_INIT_ROLE,
 } from '../docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../docker-events-broadcaster';
 import { waitForCondition } from '../test/wait-for-condition';
@@ -690,6 +691,42 @@ describe('_handleDockerEventForTesting', () => {
 
     const destroys = received.filter((e) => e.op === 'destroy');
     expect(destroys.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('agent stack init container', () => {
+  const initLabels = { 'hlm.managed': 'true', 'hlm.role': AGENT_INIT_ROLE };
+
+  test('init snapshot leaves out the exited stacks-dir init', async () => {
+    const docker = makeDocker([
+      makeContainer('c1', 'hlm-agent', 'running', 'agent', { 'hlm.role': 'agent' }),
+      makeContainer('c2', 'agent-stacks-dir-init-1', 'exited', 'agent', initLabels),
+    ]);
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    unsub();
+
+    const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+    expect(init.containers.map((c) => c.Id)).toEqual(['c1']);
+    expect(docker.getContainer).not.toHaveBeenCalledWith('c2');
+  });
+
+  test('lifecycle events for the init are not broadcast', async () => {
+    const docker = makeDocker([makeContainer('c2', 'agent-stacks-dir-init-1', 'exited', 'agent', initLabels)]);
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+
+    for (const Action of ['create', 'start', 'die', 'destroy']) {
+      await _handleDockerEventForTesting(docker as any, {
+        Type: 'container',
+        Action,
+        Actor: { ID: 'c2', Attributes: { name: 'agent-stacks-dir-init-1', ...initLabels } },
+      });
+    }
+    unsub();
+
+    expect(received.map((e) => e.op)).toEqual(['init']);
   });
 });
 

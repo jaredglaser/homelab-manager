@@ -133,10 +133,16 @@ describe('formatDeployOutcome', () => {
     });
   });
 
-  test('truncates the message to the first line and 200 chars', () => {
-    const raw = 'x'.repeat(250) + '\nsecond line';
+  test('shows the last non-empty line of a failed run, cut to 200 chars', () => {
+    const raw = 'Container app Pulling\n' + 'x'.repeat(250) + '\n\n  \n';
     const result = formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui', message: raw });
-    expect(result?.message).toBe(`Deploy of alpha/plex failed: ${'x'.repeat(200)}`);
+    expect(result?.message).toBe(`Deploy of alpha/plex failed: ...${'x'.repeat(197)}`);
+  });
+
+  test('shows the real error at the end of a compose pull log', () => {
+    const raw = ' Container app Pulling\n Container app Pulled\nError response from daemon: pull access denied for foo/bar';
+    const result = formatDeployOutcome({ host: 'alpha', stack: 'plex', action: 'deploy', status: 'failed', trigger: 'ui', message: raw });
+    expect(result?.message).toBe('Deploy of alpha/plex failed: Error response from daemon: pull access denied for foo/bar');
   });
 });
 
@@ -151,6 +157,52 @@ describe('truncateDeployMessage', () => {
 
   test('stops at a bare carriage return (compose progress output uses \\r without \\n)', () => {
     expect(truncateDeployMessage('pulling 50%\rpulling 100%\rdone')).toBe('pulling 50%');
+  });
+
+  test('takes the last non-empty line when the status is failed', () => {
+    expect(truncateDeployMessage('first line\nsecond line\n\n  \nlast line\n', 'failed')).toBe('last line');
+  });
+
+  test('takes the last non-empty line of a failed run split on carriage returns and CRLF', () => {
+    expect(truncateDeployMessage('pulling 50%\rpulling 100%\r\ndone\r\n', 'failed')).toBe('done');
+  });
+
+  test('keeps the end of a long last line behind an ellipsis, where the daemon puts the cause', () => {
+    const raw = `Error response from daemon: ${'driver failed programming external connectivity, '.repeat(6)}Bind for 0.0.0.0:80 failed: port is already allocated`;
+    const result = truncateDeployMessage(raw, 'failed');
+    expect(result).toHaveLength(200);
+    expect(result.startsWith('...')).toBe(true);
+    expect(result.endsWith('Bind for 0.0.0.0:80 failed: port is already allocated')).toBe(true);
+  });
+
+  test('keeps the head of a long first line for an outcome that is not failed', () => {
+    expect(truncateDeployMessage(`${'a'.repeat(150)}${'b'.repeat(150)}`, 'succeeded')).toBe(`${'a'.repeat(150)}${'b'.repeat(50)}`);
+  });
+
+  test('does not start a failed tail on half a surrogate pair', () => {
+    const raw = `${'x'.repeat(50)}\u{1F600}${'y'.repeat(196)}`;
+    const result = truncateDeployMessage(raw, 'failed');
+    expect(result).toBe(`...${'y'.repeat(196)}`.slice(0, 200));
+    expect(result).not.toMatch(/[\udc00-\udfff]/);
+  });
+
+  test.each([['a null', '\u0000'], ['a bell', '\u0007'], ['an ANSI reset', '\u001b[0m'], ['an ANSI colour and reset', '\u001b[31m\u001b[0m']])(
+    'skips a last line that is only %s',
+    (_name, junk) => {
+      expect(truncateDeployMessage(`Error response from daemon: denied\n${junk}\n${junk}`, 'failed')).toBe('Error response from daemon: denied');
+    },
+  );
+
+  test('strips an ANSI colour from the chosen line of a failed run', () => {
+    expect(truncateDeployMessage('\u001b[31mError: denied\u001b[0m', 'failed')).toBe('Error: denied');
+  });
+
+  test('gives an empty string for a failed message with only blank lines', () => {
+    expect(truncateDeployMessage('\n  \n', 'failed')).toBe('');
+  });
+
+  test.each(['succeeded', 'no_change', 'queued'] as const)('keeps the first line for a %s outcome', (status) => {
+    expect(truncateDeployMessage('first line\nlast line', status)).toBe('first line');
   });
 
   test('stops at the first line of CRLF-delimited text', () => {

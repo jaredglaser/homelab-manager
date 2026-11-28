@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { generateProxmoxSnapshot, generateProxmoxHistory } from '../proxmox';
-import { PROXMOX_ENTITIES } from '../../entities';
+import { PROXMOX_ENTITIES } from '@/lib/mock/entities';
 
 describe('generateProxmoxSnapshot', () => {
   const time = new Date('2025-06-15T12:00:00Z');

@@ -14,7 +14,7 @@ let cachedKeyring: MasterKeyring | null = null;
  *
  * Usage:
  *   createServerFn()
- *     .middleware([stackSecretsMiddleware])
+ *     .middleware([authMiddleware, roleMiddleware('admin', 'operator'), stackSecretsMiddleware])
  *     .handler(async ({ context, data }) => {
  *       const { StackSecretsRepository } = await import('...');
  *       const repo = new StackSecretsRepository(context.pool, context.keyring);

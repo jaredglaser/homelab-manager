@@ -1,4 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { findOpenTooltip, roleReasonOf, seedSession } from '@/lib/test/session';
+import { setupUser } from '@/lib/test/user-event';
+import { VIEWER_DENIED_COPY } from '@/hooks/useAuth';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { mockModule } from '@/lib/test/mock-module';
@@ -60,6 +63,10 @@ beforeEach(() => {
   mockStatusMap = new Map();
 });
 
+beforeEach(() => {
+  seedSession('admin');
+});
+
 describe('StacksOverview', () => {
   it('renders loading state', () => {
     mockListContext = { stacks: [], hosts: [], isLoading: true };
@@ -82,6 +89,28 @@ describe('StacksOverview', () => {
     render(<StacksOverview />, { wrapper: createWrapper() });
     expect(screen.getByText('server-1')).toBeDefined();
     expect(screen.getByRole('button', { name: /New stack/i })).toBeDefined();
+  });
+
+  it.each([false, true])('shows a viewer New stack disabled with the role reason, and a click opens nothing (stacks exist: %p)', async (hasStacks) => {
+    seedSession('viewer');
+    mockCanWrite = false;
+    if (hasStacks) mockListContext = { stacks: [{ host: 'server-1', name: 'app-web' }], hosts: ['server-1'], isLoading: false };
+    render(<StacksOverview />, { wrapper: createWrapper() });
+    const newStack = screen.getByRole('button', { name: /New stack/i });
+    expect(newStack.getAttribute('aria-disabled')).toBe('true');
+    expect(roleReasonOf(newStack)).toBe(VIEWER_DENIED_COPY);
+    fireEvent.click(newStack);
+    await setupUser().hover(newStack);
+    expect(await findOpenTooltip()).toBe(VIEWER_DENIED_COPY);
+    expect(screen.queryByLabelText('Stack Name')).toBeNull();
+    expect(mockCreateStack).not.toHaveBeenCalled();
+  });
+
+  it('lets an operator open New stack', () => {
+    seedSession('operator');
+    render(<StacksOverview />, { wrapper: createWrapper() });
+    fireEvent.click(screen.getByRole('button', { name: /New stack/i }));
+    expect(screen.getByLabelText('Stack Name')).toBeDefined();
   });
 
   it('clicking New stack opens the create dialog', () => {

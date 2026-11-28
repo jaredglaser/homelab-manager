@@ -18,20 +18,43 @@ export interface DeployOutcomeToast {
 
 const MAX_MESSAGE_LENGTH = 200;
 
-/** Takes the first line, strips control characters, and truncates to 200 chars without splitting a UTF-16 surrogate pair. */
-export function truncateDeployMessage(message: string): string {
-  const firstLine = message.split(/\r\n?|\n/)[0] ?? '';
-  const stripped = Array.from(firstLine)
+const ANSI_ESCAPE = new RegExp(`${String.fromCharCode(0x1b)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
+
+function stripControlCharacters(line: string): string {
+  return Array.from(line)
     .filter((ch) => {
       const code = ch.codePointAt(0) ?? 0;
       return code > 0x1f && code !== 0x7f;
     })
     .join('');
-  if (stripped.length <= MAX_MESSAGE_LENGTH) return stripped;
+}
+
+/**
+ * Summarises a deploy message on one line of at most 200 chars. A failed run shows the last line that has text
+ * once ANSI escapes and control characters are gone, keeping its end (daemon errors put the cause last) behind
+ * "...". Any other outcome shows the first line, keeping its start. Neither cut splits a UTF-16 surrogate pair.
+ */
+export function truncateDeployMessage(message: string, status?: DeployStatus): string {
+  const lines = message.split(/\r\n?|\n/);
+  if (status !== 'failed') return headOf(stripControlCharacters(lines[0] ?? ''));
+  const cleaned = lines.map((line) => stripControlCharacters(line.replace(ANSI_ESCAPE, '')));
+  return tailOf(cleaned.filter((line) => line.trim() !== '').at(-1) ?? '');
+}
+
+function headOf(text: string): string {
+  if (text.length <= MAX_MESSAGE_LENGTH) return text;
   let end = MAX_MESSAGE_LENGTH;
-  const boundary = stripped.charCodeAt(end - 1);
+  const boundary = text.charCodeAt(end - 1);
   if (boundary >= 0xd800 && boundary <= 0xdbff) end -= 1;
-  return stripped.slice(0, end);
+  return text.slice(0, end);
+}
+
+function tailOf(text: string): string {
+  if (text.length <= MAX_MESSAGE_LENGTH) return text;
+  let start = text.length - (MAX_MESSAGE_LENGTH - 3);
+  const boundary = text.charCodeAt(start);
+  if (boundary >= 0xdc00 && boundary <= 0xdfff) start += 1;
+  return `...${text.slice(start)}`;
 }
 
 function deployNoun(action: DeployAction, trigger: DeployTrigger): string {
@@ -69,7 +92,7 @@ export function formatDeployOutcome(evt: DeployOutcomeEvent): DeployOutcomeToast
     return { message: `${base} succeeded`, severity: 'success' };
   }
 
-  const detail = evt.message ? `: ${truncateDeployMessage(evt.message)}` : '';
+  const detail = evt.message ? `: ${truncateDeployMessage(evt.message, evt.status)}` : '';
   return { message: `${base} failed${detail}`, severity: 'error' };
 }
 

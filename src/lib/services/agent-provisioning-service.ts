@@ -1,4 +1,5 @@
-import { agentFetch, isTlsUrl, toPlainHttpUrl, MISSING_PIN_RECOVERY_HINT } from '@/lib/clients/agent-http';
+import { agentFetch, isTlsUrl, singleLine, toPlainHttpUrl, MISSING_PIN_RECOVERY_HINT } from '@/lib/clients/agent-http';
+import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agent-identity';
 import { enrollmentPayload } from '@/lib/crypto/agent-jwt';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
@@ -204,6 +205,8 @@ async function fetchChallenge(
     );
   }
   if (!response.ok) {
+    throwIfRedirected(response, baseUrl, 'enrollment challenge');
+    await throwIfNotAnswering(response, baseUrl, 'enrollment challenge');
     const detail = await readErrorDetail(response);
     throw new TlsProvisionFailure(
       detail.code ?? 'unexpected_agent_response',
@@ -256,6 +259,8 @@ async function enrollCert(
     );
   }
   if (!response.ok) {
+    throwIfRedirected(response, baseUrl, 'enrollment');
+    await throwIfNotAnswering(response, baseUrl, 'enrollment');
     const detail = await readErrorDetail(response);
     // The agent names the failure now, so the manager no longer guesses from the status code: a 500
     // used to read as a rejected request, and a 4xx as a refusal, whatever had actually gone wrong.
@@ -308,6 +313,9 @@ async function requestRestart(
     );
   }
   if (!response.ok) {
+    throwIfRedirected(response, baseUrl, 'restart');
+    // A proxy's gateway error stands where the dying agent's dropped connection would, so the HTTPS poll below decides.
+    if (await throwIfNotAnswering(response, baseUrl, 'restart', GATEWAY_STATUSES)) return;
     const detail = await readErrorDetail(response);
     if (response.status === 403 && detail.code === 'restricted_plain_http') {
       // First-boot restricted gate rejects the restart by design. Agents new enough self-restart on their own.
@@ -358,7 +366,7 @@ export function isTransientEnrollmentFailure(err: unknown): boolean {
  * The OpenSSL codes Bun reports when the pinned certificate does not verify for the host: the served
  * certificate is not the pinned one, or its SANs do not cover the address stored for the host. The
  * first is a re-enrolled agent, the second an address the certificate no longer covers. Measured on
- * Bun 1.4.2.
+ * Bun 1.4.4.
  */
 const UNVERIFIABLE_SERVED_CERT_CODES = new Set([
   'DEPTH_ZERO_SELF_SIGNED_CERT',
@@ -396,6 +404,23 @@ async function wrapFailure(code: TlsFailureCode, reason: string, fn: () => Promi
       `TLS provisioning failed: ${reason} (${err instanceof Error ? err.message : err}).`,
     );
   }
+}
+
+const GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+
+function throwIfRedirected(response: Response, baseUrl: string, step: string): void {
+  if (response.type !== 'opaqueredirect' && (response.status < 300 || response.status >= 400)) return;
+  console.error(`[hosts] The TLS ${step} request at ${baseUrl} was redirected: HTTP ${response.status} to ${singleLine(response.headers.get('location') ?? 'no Location')}`);
+  throw new TlsProvisionFailure('unexpected_redirect', `TLS ${step} failed: the agent URL redirected the request (HTTP ${response.status}).`);
+}
+
+/** Returns true when something other than the agent answered with a status in `tolerated`, so the caller carries on. */
+async function throwIfNotAnswering(response: Response, baseUrl: string, step: string, tolerated?: ReadonlySet<number>): Promise<boolean> {
+  const failure = await readNotAnsweringFailure(response);
+  if (!failure) return false;
+  console.error(`[hosts] ${notAnsweringLogLine(failure, `the TLS ${step} request at ${baseUrl}`)}`);
+  if (tolerated?.has(failure.status)) return true;
+  throw new TlsProvisionFailure(failure.code, failure.detail);
 }
 
 interface AgentErrorDetail {

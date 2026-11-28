@@ -3,7 +3,6 @@ import { QueryClientProvider } from '@tanstack/react-query'
 
 import {
   ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
-  PRELOAD_STALE_TIME,
   dockerPreloadQueryKey, dockerStatsWindowSeconds,
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
 } from '@/lib/constants/preload-queries'
@@ -35,9 +34,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // With auth enabled, only preload once the session is confirmed. If there's
     // no session, a redirect to /login is already in flight.
     if (authEnabled && !user) return;
-    queryClient.ensureQueryData({ queryKey: dockerPreloadQueryKey(dockerWindowSeconds), queryFn: () => preloadDockerStats(dockerWindowSeconds), staleTime: PRELOAD_STALE_TIME }).catch((err) => console.error('Failed to preload Docker stats:', err))
-    queryClient.ensureQueryData({ queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats, staleTime: PRELOAD_STALE_TIME }).catch((err) => console.error('Failed to preload ZFS stats:', err))
-    queryClient.ensureQueryData({ queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats, staleTime: PRELOAD_STALE_TIME }).catch((err) => console.error('Failed to preload Proxmox stats:', err))
+    queryClient.query({ queryKey: dockerPreloadQueryKey(dockerWindowSeconds), queryFn: () => preloadDockerStats(dockerWindowSeconds), staleTime: 'static' }).catch((err) => console.error('Failed to preload Docker stats:', err))
+    queryClient.query({ queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats, staleTime: 'static' }).catch((err) => console.error('Failed to preload ZFS stats:', err))
+    queryClient.query({ queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats, staleTime: 'static' }).catch((err) => console.error('Failed to preload Proxmox stats:', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, dockerWindowSeconds])
 

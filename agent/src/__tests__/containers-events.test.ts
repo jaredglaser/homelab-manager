@@ -81,7 +81,7 @@ describe('handleContainerEvents: response headers', () => {
     const docker = makeDocker([]);
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
     ac.abort();
 
     expect(response.status).toBe(200);
@@ -101,7 +101,7 @@ describe('handleContainerEvents: init snapshot', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
@@ -121,7 +121,7 @@ describe('handleContainerEvents: init snapshot', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
@@ -136,7 +136,7 @@ describe('handleContainerEvents: init snapshot', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
@@ -159,7 +159,7 @@ describe('handleContainerEvents: init snapshot', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
@@ -174,7 +174,7 @@ describe('handleContainerEvents: init snapshot', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
@@ -188,7 +188,7 @@ describe('handleContainerEvents: init snapshot', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
@@ -212,7 +212,7 @@ describe('handleContainerEvents: start event produces upsert', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     await dataListenerAttached;
 
@@ -262,7 +262,7 @@ describe('handleContainerEvents: die event produces upsert with exited state', (
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     await dataListenerAttached;
 
@@ -299,7 +299,7 @@ describe('handleContainerEvents: destroy event', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     await dataListenerAttached;
 
@@ -364,9 +364,9 @@ describe('handleContainerEvents: multiple subscribers', () => {
     const req1 = new Request('http://localhost/containers/events', { signal: ac1.signal });
     const req2 = new Request('http://localhost/containers/events', { signal: ac2.signal });
 
-    await handleContainerEvents(docker as any, req1);
+    handleContainerEvents(docker as any, req1);
     await dataListenerAttached;
-    await handleContainerEvents(docker as any, req2);
+    handleContainerEvents(docker as any, req2);
 
     ac1.abort();
     ac2.abort();
@@ -390,8 +390,8 @@ describe('handleContainerEvents: multiple subscribers', () => {
     const req1 = new Request('http://localhost/containers/events', { signal: ac1.signal });
     const req2 = new Request('http://localhost/containers/events', { signal: ac2.signal });
 
-    const resp1 = await handleContainerEvents(docker as any, req1);
-    const resp2 = await handleContainerEvents(docker as any, req2);
+    const resp1 = handleContainerEvents(docker as any, req1);
+    const resp2 = handleContainerEvents(docker as any, req2);
 
     await dataListenerAttached;
 
@@ -424,7 +424,7 @@ describe('handleContainerEvents: request abort cleanup', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     await dataListenerAttached;
     ac.abort();
@@ -445,7 +445,7 @@ describe('handleContainerEvents: request abort cleanup', () => {
     const ac = new AbortController();
     ac.abort();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const reader = response.body!.getReader();
     let done = false;
@@ -472,7 +472,7 @@ describe('handleContainerEvents: request abort cleanup', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
     const reader = response.body!.getReader();
 
     await waitForCondition(() => listHolder.resolve !== null);
@@ -500,7 +500,7 @@ describe('handleContainerEvents: error resilience', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
     expect(response.status).toBe(200);
 
     await dataListenerAttached;
@@ -517,7 +517,7 @@ describe('handleContainerEvents: error resilience', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     expect(response.status).toBe(200);
     await readUntil(response, (s) => s.includes('"op":"init"'));
@@ -539,7 +539,7 @@ describe('handleContainerEvents: ports and mounts pass-through', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
@@ -556,7 +556,7 @@ describe('handleContainerEvents: ports and mounts pass-through', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
@@ -590,7 +590,7 @@ describe('handleContainerEvents: ports and mounts pass-through', () => {
 
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     await dataListenerAttached;
 
@@ -660,7 +660,7 @@ describe('handleContainerEvents: idle heartbeat', () => {
     const docker = makeDocker([]);
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
+    const response = handleContainerEvents(docker as any, request);
 
     expect(ticks).toHaveLength(1);
     expect(ticks[0].ms).toBe(5000);
