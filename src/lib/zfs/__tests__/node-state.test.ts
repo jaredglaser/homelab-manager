@@ -3,6 +3,7 @@ import {
   AGENT_ZFS_MOVED_MESSAGE,
   SETUP_SCRIPT_INTRO,
   ZFS_NODE_PENDING_MESSAGE,
+  agentNeedsZfsNode,
   connectedMessage,
   formatNoticeTime,
   hostKeyConfirmMessage,
@@ -77,5 +78,15 @@ describe('ZFS node copy', () => {
     expect(notice('no_ed25519_key')).toBe(
       'pve1 has no ed25519 SSH host key, which the app needs. Run ssh-keygen -A on the node as root, then run the setup script again.',
     );
+  });
+
+  test('w8 clears once a ZFS node has the agent host name or the host of its URL', () => {
+    const agent = { name: 'nas', agentUrl: 'https://[fd00::7]:9090', capabilities: { docker: true, zfs: true } };
+    expect(agentNeedsZfsNode(agent, [])).toBe(true);
+    expect(agentNeedsZfsNode(agent, [{ name: 'NAS', address: 'x' }])).toBe(false);
+    expect(agentNeedsZfsNode(agent, [{ name: 'pve', address: '[FD00::7]' }])).toBe(false);
+    expect(agentNeedsZfsNode(agent, [{ name: 'pve', address: 'fd00::8' }])).toBe(true);
+    expect(agentNeedsZfsNode({ ...agent, capabilities: { docker: true } }, [])).toBe(false);
+    expect(agentNeedsZfsNode({ ...agent, agentUrl: '' }, [{ name: 'other', address: '' }])).toBe(true);
   });
 });

@@ -6,12 +6,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Stepper } from '@/components/ui/stepper'
 import { getAgentImage } from '@/lib/hosts/host-utils'
 import { generateAgentStackCompose, generateAgentStackEnv } from '@/lib/templates/agent-stack-compose'
-import CapabilitiesStep from '@/components/settings/wizard-steps/CapabilitiesStep'
+import HostNameStep from '@/components/settings/wizard-steps/HostNameStep'
 import ComposeFileStep from '@/components/settings/wizard-steps/ComposeFileStep'
 import ConfigurationStep from '@/components/settings/wizard-steps/ConfigurationStep'
 import VerifyConnectionStep from '@/components/settings/wizard-steps/VerifyConnectionStep'
 
-const WIZARD_STEPS = ['Capabilities', 'Compose File', 'Configuration', 'Verify Connection'] as const
+const WIZARD_STEPS = ['Host', 'Compose File', 'Configuration', 'Verify Connection'] as const
 
 export interface PendingHostState {
   id: number
@@ -44,7 +44,6 @@ export default function AddHostWizard({
   onDiscard,
 }: AddHostWizardProps) {
   const [activeStep, setActiveStep] = useState(0)
-  const [docker, setDocker] = useState(true)
   const [name, setName] = useState('')
   const [agentHost, setAgentHost] = useState('')
   const [agentPort, setAgentPort] = useState('9090')
@@ -57,8 +56,8 @@ export default function AddHostWizard({
     hostName: name.trim(),
     agentTrustedPubkey: pendingHost ? JSON.stringify(pendingHost.publicJwk) : '',
     agentImage: getAgentImage(),
-    capabilities: { docker },
-  }), [name, docker, pendingHost])
+    capabilities: { docker: true },
+  }), [name, pendingHost])
 
   const composeYaml = useMemo(() => {
     if (!pendingHost) return null
@@ -81,7 +80,7 @@ export default function AddHostWizard({
   function handleNext() {
     const targetStep = visibleSteps[activeStep + 1]
     if (targetStep === 'Compose File') {
-      onCreateHost(name.trim(), { docker })
+      onCreateHost(name.trim(), { docker: true })
     }
     setActiveStep((prev) => Math.min(prev + 1, visibleSteps.length - 1))
   }
@@ -98,13 +97,12 @@ export default function AddHostWizard({
   function handleReset() {
     onDiscard()
     setActiveStep(0)
-    setDocker(true)
     setName('')
     setAgentHost('')
     setAgentPort('9090')
   }
 
-  const canProceedFromCapabilities = docker && name.trim().length > 0
+  const canProceedFromHostName = name.trim().length > 0
 
   // First contact is always plain HTTP: the scheme is not an operator choice, so the URL is composed here.
   // Bracketed IPv6 literals are accepted and stay bracketed in the URL so new URL() parses the host.
@@ -124,13 +122,8 @@ export default function AddHostWizard({
       <Stepper steps={visibleSteps} activeStep={activeStep} />
 
       <div className="min-h-[200px]">
-        {currentStepName === 'Capabilities' && (
-          <CapabilitiesStep
-            name={name}
-            docker={docker}
-            onNameChange={setName}
-            onDockerChange={setDocker}
-          />
+        {currentStepName === 'Host' && (
+          <HostNameStep name={name} onNameChange={setName} />
         )}
 
         {currentStepName === 'Compose File' && (
@@ -191,7 +184,7 @@ export default function AddHostWizard({
               onClick={handleNext}
               disabled={
                 isCreating
-                || (currentStepName === 'Capabilities' && !canProceedFromCapabilities)
+                || (currentStepName === 'Host' && !canProceedFromHostName)
                 || (currentStepName === 'Compose File' && !pendingHost)
               }
             >

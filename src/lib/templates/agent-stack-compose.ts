@@ -112,15 +112,12 @@ const AGENT_GID = 'agent';
 
 // Docker creates a missing bind-mount source as root, and the agent runs unprivileged.
 function buildStacksDirInit(): Record<string, unknown> {
-  const uid = AGENT_UID;
-  const gid = AGENT_GID;
-  const owner = `${uid}:${gid}`;
+  const owner = `${AGENT_UID}:${AGENT_GID}`;
   // Same uid, gid and supplementary groups as the agent service, so the test matches what the agent can do.
-  const groups = '--clear-groups';
   // $$ is compose's escape for a literal $, so these reach sh as $1.
   // Never recursive on ".": deployed stacks keep their own data there under other owners.
   // Exits 0 even when chown fails: blocking the agent would also hide its own not-writable warning.
-  const script = `can_use() { setpriv --reuid=${uid} --regid=${gid} ${groups} test -r "$$1" -a -w "$$1" -a -x "$$1"; }
+  const script = `can_use() { setpriv --reuid=${AGENT_UID} --regid=${AGENT_GID} --clear-groups test -r "$$1" -a -w "$$1" -a -x "$$1"; }
 warn() { echo "Could not give the agent (${owner}) read and write access to $$1. Fix its ownership on the host." >&2; }
 
 if ! can_use .; then

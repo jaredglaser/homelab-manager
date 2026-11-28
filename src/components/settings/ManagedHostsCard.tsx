@@ -121,7 +121,7 @@ export function AgentChannelNotice(props: Readonly<AgentChannelNoticeProps>) {
           <p>
             No usable image tag from {unreported.map((host) => host.name).join(', ')}. Their agent predates
             image reporting, or it has no <code className="font-mono">AGENT_IMAGE</code> set and no Docker socket
-            to inspect itself through, which is the case for a ZFS-only host enrolled before this existed. Add{' '}
+            to inspect itself through. Add{' '}
             <code className="font-mono">AGENT_IMAGE: $&#123;AGENT_IMAGE&#125;</code> to the agent service in that
             host&apos;s compose file, then run <code className="font-mono">docker compose up -d</code>.
           </p>

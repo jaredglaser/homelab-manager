@@ -86,3 +86,20 @@ export function zfsNodeNotice(
 export function formatNoticeTime(ms: number, use12HourTime: boolean): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: use12HourTime });
 }
+
+/** w8 shows for an agent left with the old ZFS flag until a ZFS node has the agent's name or its URL's host. */
+export function agentNeedsZfsNode(
+  agent: { name: string; agentUrl: string; capabilities: { zfs?: boolean } },
+  nodes: readonly Pick<ZfsNodeSummary, 'name' | 'address'>[],
+): boolean {
+  if (!agent.capabilities.zfs) return false;
+  let agentHost: string | null = null;
+  try {
+    agentHost = new URL(agent.agentUrl).hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  } catch {
+    agentHost = null;
+  }
+  return !nodes.some((node) =>
+    node.name.toLowerCase() === agent.name.toLowerCase()
+    || (agentHost !== null && node.address.replace(/^\[(.*)\]$/, '$1').toLowerCase() === agentHost));
+}

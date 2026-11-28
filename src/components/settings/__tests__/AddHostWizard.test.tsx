@@ -53,26 +53,21 @@ beforeEach(() => {
 
 describe('AddHostWizard', () => {
   describe('initial render', () => {
-    it('renders the Capabilities step by default', () => {
+    it('renders the Host step by default', () => {
       render(<AddHostWizard {...makeProps()} />)
-      expect(screen.getByTestId('step-capabilities')).toBeDefined()
+      expect(screen.getByTestId('step-host-name')).toBeDefined()
     })
 
-    it('shows the Host Name field on the Capabilities step', () => {
+    it('shows the Host Name field on the Host step', () => {
       render(<AddHostWizard {...makeProps()} />)
       expect(screen.getByLabelText('Host Name')).toBeDefined()
     })
 
-    it('offers Docker and no ZFS checkbox, since ZFS nodes are added on the Hosts page', () => {
+    it('offers no capability checkboxes, and points ZFS to the Hosts page', () => {
       render(<AddHostWizard {...makeProps()} />)
-      expect(screen.getByLabelText('Docker capability')).toBeDefined()
+      expect(screen.queryByLabelText('Docker capability')).toBeNull()
       expect(screen.queryByLabelText('ZFS capability')).toBeNull()
-    })
-
-    it('Docker is checked by default', () => {
-      render(<AddHostWizard {...makeProps()} />)
-      const dockerCheckbox = screen.getByLabelText('Docker capability')
-      expect(dockerCheckbox.getAttribute('aria-checked')).toBe('true')
+      expect(screen.getByText("The agent manages Docker on this host. To read a machine's ZFS pools, add it under ZFS nodes on the Hosts page.")).toBeDefined()
     })
 
     it('Next is disabled until a host name is entered', async () => {
@@ -85,7 +80,7 @@ describe('AddHostWizard', () => {
 
     it('shows stepper with correct steps', () => {
       render(<AddHostWizard {...makeProps()} />)
-      expect(screen.getByText('Capabilities')).toBeDefined()
+      expect(screen.getByText('Host')).toBeDefined()
       expect(screen.getByText('Compose File')).toBeDefined()
       expect(screen.getByText('Configuration')).toBeDefined()
       expect(screen.getByText('Verify Connection')).toBeDefined()
@@ -93,7 +88,7 @@ describe('AddHostWizard', () => {
   })
 
   describe('step navigation', () => {
-    it('advances from Capabilities to Compose File when Next is clicked', async () => {
+    it('advances from Host to Compose File when Next is clicked', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user)
@@ -101,7 +96,7 @@ describe('AddHostWizard', () => {
       expect(screen.getByTestId('step-compose')).toBeDefined()
     })
 
-    it('advances from Capabilities to Compose File when Next is activated from the keyboard', async () => {
+    it('advances from Host to Compose File when Next is activated from the keyboard', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user)
@@ -126,29 +121,29 @@ describe('AddHostWizard', () => {
       expect(screen.getByRole('button', { name: 'Back' })).toBeDefined()
     })
 
-    it('goes back to Capabilities when Back is clicked from Compose step', async () => {
+    it('goes back to Host when Back is clicked from Compose step', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Back' }))
-      expect(screen.getByTestId('step-capabilities')).toBeDefined()
+      expect(screen.getByTestId('step-host-name')).toBeDefined()
     })
 
-    it('goes back to Capabilities when Back is activated from the keyboard', async () => {
+    it('goes back to Host when Back is activated from the keyboard', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user)
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await activateWithKey(user, screen.getByRole('button', { name: 'Back' }), '{Enter}')
-      expect(screen.getByTestId('step-capabilities')).toBeDefined()
+      expect(screen.getByTestId('step-host-name')).toBeDefined()
     })
 
     it('advances to Configuration from Compose File', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user)
-      // Capabilities → Compose
+      // Host → Compose
       await user.click(screen.getByRole('button', { name: 'Next' }))
       // Compose → Configuration
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -159,7 +154,7 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user)
-      // Capabilities → Compose → Configuration → Verify
+      // Host → Compose → Configuration → Verify
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -181,7 +176,7 @@ describe('AddHostWizard', () => {
     async function navigateToVerify(user: TestUser, name = 'dev-machine') {
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user, name)
-      // Capabilities → Compose → Configuration → Verify
+      // Host → Compose → Configuration → Verify
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
       await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -497,7 +492,7 @@ describe('AddHostWizard', () => {
   })
 
   describe('Reset', () => {
-    it('resets back to Capabilities step', async () => {
+    it('resets back to the Host step', async () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await enterHostName(user)
@@ -506,7 +501,7 @@ describe('AddHostWizard', () => {
       expect(screen.getByTestId('step-compose')).toBeDefined()
       // Reset
       await user.click(screen.getByRole('button', { name: 'Reset' }))
-      expect(screen.getByTestId('step-capabilities')).toBeDefined()
+      expect(screen.getByTestId('step-host-name')).toBeDefined()
     })
 
     it('discards the pending host on reset', async () => {
@@ -535,15 +530,6 @@ describe('AddHostWizard', () => {
       await enterHostName(user, 'dev-machine')
       await user.click(screen.getByRole('button', { name: 'Reset' }))
       expect((screen.getByLabelText('Host Name') as HTMLInputElement).value).toBe('')
-    })
-
-    it('resets Docker back to checked', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await user.click(screen.getByLabelText('Docker capability'))
-      expect(screen.getByLabelText('Docker capability').getAttribute('aria-checked')).toBe('false')
-      await user.click(screen.getByRole('button', { name: 'Reset' }))
-      expect(screen.getByLabelText('Docker capability').getAttribute('aria-checked')).toBe('true')
     })
 
     it('clears the agent host and restores the default port', async () => {
@@ -588,15 +574,6 @@ describe('AddHostWizard', () => {
       const user = setupUser()
       render(<AddHostWizard {...makeProps()} />)
       await user.type(screen.getByLabelText('Host Name'), '   ')
-      expect(nextButton().hasAttribute('disabled')).toBe(true)
-    })
-
-    it('keeps Next disabled when Docker is not selected', async () => {
-      const user = setupUser()
-      render(<AddHostWizard {...makeProps()} />)
-      await enterHostName(user)
-      expect(nextButton().hasAttribute('disabled')).toBe(false)
-      await user.click(screen.getByLabelText('Docker capability'))
       expect(nextButton().hasAttribute('disabled')).toBe(true)
     })
 

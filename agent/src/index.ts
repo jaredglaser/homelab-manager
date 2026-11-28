@@ -142,7 +142,7 @@ if (DOCKER_HOST) {
 const resolveAgentImage = createAgentImageResolver(docker, AGENT_CONTAINER_NAME, process.env.AGENT_IMAGE);
 
 if (!docker) {
-  console.error('Docker is not configured. Set DOCKER_HOST to the Docker socket proxy the agent reads.');
+  console.error('Docker is not configured. Set DOCKER_HOST to the Docker socket proxy the agent reads. ZFS is no longer read through the agent: add the machine as a ZFS node on the Hosts page.');
   process.exit(1);
 }
 
