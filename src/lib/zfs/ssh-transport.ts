@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import type { ClientChannel, ConnectConfig } from 'ssh2';
 
+/** Schedules `fn` after `ms` and returns its cancel. Tests pass one they control. */
+export type ZfsTimer = (fn: () => void, ms: number) => () => void;
+
+export const realZfsTimer: ZfsTimer = (fn, ms) => {
+  const timer = setTimeout(fn, ms);
+  return () => clearTimeout(timer);
+};
+
 export interface ZfsSshTarget {
   host: string;
   port: number;
@@ -121,7 +129,7 @@ function channelSession(channel: ClientChannel): ZfsSshStream {
 }
 
 /** The ssh2 transport. Only the ed25519 host key is negotiated, so the fingerprint matches the one the setup script prints. */
-export function createSsh2Transport(): ZfsSshTransport {
+export function createSsh2Transport(timer: ZfsTimer = realZfsTimer): ZfsSshTransport {
   return {
     async connect(target, { acceptHostKey, timeoutMs, signal }) {
       const { Client } = await import('ssh2');
@@ -182,7 +190,7 @@ export function createSsh2Transport(): ZfsSshTransport {
                 const stream = channelSession(channel);
                 let stdout = '';
                 let failed = false;
-                const timer = execTimeoutMs === null ? undefined : setTimeout(() => {
+                const cancelTimeout = execTimeoutMs === null ? () => {} : timer(() => {
                   failed = true;
                   stream.close();
                   rejectExec(new ZfsSshError('timeout', `${command} did not finish within ${execTimeoutMs}ms`));
@@ -192,36 +200,35 @@ export function createSsh2Transport(): ZfsSshTransport {
                   stdout += chunk;
                   if (stdout.length > MAX_EXEC_OUTPUT_BYTES) {
                     failed = true;
-                    clearTimeout(timer);
+                    cancelTimeout();
                     stream.close();
                     rejectExec(new ZfsSshError('error', `${command} printed more than ${MAX_EXEC_OUTPUT_BYTES} bytes`));
                   }
                 });
                 stream.onClose((code, stderr) => {
-                  clearTimeout(timer);
+                  cancelTimeout();
                   if (!failed) resolveExec({ code, stdout, stderr });
                 });
               });
             }),
             isResponsive: (probeTimeoutMs) => new Promise<boolean>((resolveProbe) => {
-              const timer = setTimeout(() => resolveProbe(false), probeTimeoutMs);
+              const cancelProbe = timer(() => resolveProbe(false), probeTimeoutMs);
+              const answer = (alive: boolean) => {
+                cancelProbe();
+                resolveProbe(alive);
+              };
               try {
                 client.exec(LIVENESS_COMMAND, (err, channel) => {
                   if (err) {
-                    clearTimeout(timer);
-                    resolveProbe(false);
+                    answer(false);
                     return;
                   }
                   const probe = channelSession(channel);
                   probe.onData(() => {});
-                  probe.onClose(() => {
-                    clearTimeout(timer);
-                    resolveProbe(true);
-                  });
+                  probe.onClose(() => answer(true));
                 });
               } catch {
-                clearTimeout(timer);
-                resolveProbe(false);
+                answer(false);
               }
             }),
             stream: (command) => new Promise<ZfsSshStream>((resolveStream, rejectStream) => {
@@ -264,6 +271,6 @@ export function createSsh2Transport(): ZfsSshTransport {
 export function printableNodeText(text: string, maxLength = 500): string {
   return text
     .replaceAll(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '')
-    .replaceAll(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '?')
+    .replaceAll(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/g, '?')
     .slice(0, maxLength);
 }

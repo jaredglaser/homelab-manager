@@ -4,7 +4,7 @@ import { ZfsNodeNameTakenError } from '@/lib/database/repositories/zfs-node-repo
 import type { ZfsNodeFailure, ZfsNodeSummary } from '@/lib/zfs/node-state';
 import { ZFS_DISPATCH_PATH } from '@/lib/zfs/node-setup-script';
 import { ZfsSshError } from '@/lib/zfs/ssh-transport';
-import { EMPTY_STATUS, FakeZfsTransport } from '@/lib/test/fake-zfs-ssh';
+import { EMPTY_STATUS, FakeZfsTransport, immediateTimer } from '@/lib/test/fake-zfs-ssh';
 import {
   handleConfirmZfsNodeHostKey,
   handleCreateZfsNode,
@@ -86,7 +86,7 @@ class MemoryRepo implements ZfsNodeRepo {
 
 function deps(transport = new FakeZfsTransport()) {
   const repo = new MemoryRepo();
-  return { repo, transport, probeQuietMs: 5, generateKeyPair: () => ({ privateKey: 'PRIVATE KEY TEXT', publicKey: PUBLIC_KEY }) };
+  return { repo, transport, probeTimer: immediateTimer, generateKeyPair: () => ({ privateKey: 'PRIVATE KEY TEXT', publicKey: PUBLIC_KEY }) };
 }
 
 async function addNode(d: ReturnType<typeof deps>) {

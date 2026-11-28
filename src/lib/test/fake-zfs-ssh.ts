@@ -7,6 +7,7 @@ import {
   type ZfsSshStream,
   type ZfsSshTarget,
   type ZfsSshTransport,
+  type ZfsTimer,
 } from '@/lib/zfs/ssh-transport';
 
 export const EMPTY_STATUS = '{"output_version":{"command":"zpool status","vers_major":0,"vers_minor":1},"pools":{}}';
@@ -201,5 +202,36 @@ export class ManualTicker {
     if (!waiter) throw new Error('ManualTicker: nothing is waiting');
     this.waiter = null;
     waiter();
+  }
+}
+
+/** A ZfsTimer that fires on the next microtask unless cancelled first. */
+export const immediateTimer: ZfsTimer = (fn) => {
+  let cancelled = false;
+  queueMicrotask(() => {
+    if (!cancelled) fn();
+  });
+  return () => {
+    cancelled = true;
+  };
+};
+
+/** A ZfsTimer whose timers fire only when the test calls `fireAll`. */
+export class ManualTimer {
+  private readonly pending = new Set<() => void>();
+
+  readonly timer: ZfsTimer = (fn) => {
+    this.pending.add(fn);
+    return () => this.pending.delete(fn);
+  };
+
+  get count(): number {
+    return this.pending.size;
+  }
+
+  fireAll(): void {
+    const due = [...this.pending];
+    this.pending.clear();
+    for (const fn of due) fn();
   }
 }

@@ -3,7 +3,18 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { Server, utils, type ServerChannel } from 'ssh2';
 import { ZFS_INFLUXDB_COMMAND, ZFS_STATUS_COMMAND } from '../node-setup-script';
-import { ZfsSshError, classifyConnectError, createSsh2Transport, hostKeyFingerprint, type ZfsSshSession } from '../ssh-transport';
+import {
+  LIVENESS_COMMAND,
+  MAX_EXEC_OUTPUT_BYTES,
+  ZfsSshError,
+  classifyConnectError,
+  createSsh2Transport,
+  hostKeyFingerprint,
+  printableNodeText,
+  type ZfsSshSession,
+} from '../ssh-transport';
+import { ManualTimer } from '@/lib/test/fake-zfs-ssh';
+import { waitForCondition } from '@/lib/test/wait-for-condition';
 
 const hostKey = utils.generateKeyPairSync('ed25519');
 const clientKey = utils.generateKeyPairSync('ed25519');
@@ -37,6 +48,23 @@ function handleExec(command: string, channel: ServerChannel): void {
     return;
   }
   if (command === 'hang') return;
+  if (command === 'flood') {
+    const block = 'y'.repeat(64 * 1024);
+    const pump = () => {
+      while (channel.writable && channel.write(block)) {
+        if (!openChannels.has(channel)) return;
+      }
+      if (openChannels.has(channel)) channel.once('drain', pump);
+    };
+    pump();
+    return;
+  }
+  if (command === LIVENESS_COMMAND) {
+    channel.stderr.write('This key may only run the homelab-manager ZFS reads.\n');
+    channel.exit(126);
+    channel.end();
+    return;
+  }
   channel.stderr.write('refused\n');
   channel.exit(126);
   channel.end();
@@ -119,11 +147,47 @@ describe('ssh2 transport', () => {
     session.close();
   });
 
-  test('times out a command that never finishes', async () => {
-    const session = await transport.connect(target(), trustPinned);
-    const error = await failure(session.exec('hang', 50));
-    expect(error.kind).toBe('timeout');
+  test('times out a command that never finishes, and waits for one with no timeout', async () => {
+    const timer = new ManualTimer();
+    const session = await createSsh2Transport(timer.timer).connect(target(), trustPinned);
+    const hung = failure(session.exec('hang', 10_000));
+    await waitForCondition(() => timer.count === 1);
+    timer.fireAll();
+    expect((await hung).kind).toBe('timeout');
+
+    let settled = false;
+    void session.exec('hang', null).finally(() => {
+      settled = true;
+    });
+    expect(await session.isResponsive(5000)).toBe(true);
+    expect(timer.count).toBe(0);
+    expect(settled).toBe(false);
     session.close();
+  });
+
+  test('stops reading a command that prints past the output cap', async () => {
+    const session = await transport.connect(target(), trustPinned);
+    const error = await failure(session.exec('flood', null));
+    expect(error.kind).toBe('error');
+    expect(error.message).toContain(`more than ${MAX_EXEC_OUTPUT_BYTES} bytes`);
+    session.close();
+  });
+
+  test('answers the liveness check on a live session, and not on a closed one', async () => {
+    const timer = new ManualTimer();
+    const session = await createSsh2Transport(timer.timer).connect(target(), trustPinned);
+    expect(await session.isResponsive(5000)).toBe(true);
+    const closed = new Promise<void>((resolve) => session.onClose(resolve));
+    session.close();
+    await closed;
+    const answer = session.isResponsive(5000);
+    if (timer.count > 0) timer.fireAll();
+    expect(await answer).toBe(false);
+  });
+
+  test('strips terminal escapes and control characters from node text', () => {
+    expect(printableNodeText('a\u001b[31mred\u001b[0m\r\nb\u0007', 100)).toBe('ared??b?');
+    expect(printableNodeText('x'.repeat(10), 4)).toBe('xxxx');
   });
 
   test('tells the caller when the connection drops', async () => {

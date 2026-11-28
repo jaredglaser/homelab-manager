@@ -3,7 +3,7 @@ import { ZfsNodeNameTakenError } from '@/lib/database/repositories/zfs-node-repo
 import type { ZfsNodeFailure, ZfsNodeSummary } from '@/lib/zfs/node-state';
 import { buildSetupScript } from '@/lib/zfs/node-setup-script';
 import { scanHostKey, verifyNode } from '@/lib/zfs/node-probe';
-import type { ZfsSshTarget, ZfsSshTransport } from '@/lib/zfs/ssh-transport';
+import type { ZfsSshTarget, ZfsSshTransport, ZfsTimer } from '@/lib/zfs/ssh-transport';
 
 export interface ZfsNodeRepo {
   list(): Promise<ZfsNodeSummary[]>;
@@ -23,8 +23,7 @@ export interface ZfsNodeHandlerDeps {
   transport: ZfsSshTransport;
   /** Returns an OpenSSH private key and its `ssh-ed25519 <base64>` public key. */
   generateKeyPair: () => { privateKey: string; publicKey: string };
-  /** How long the verify step waits on a quiet zpool_influxdb before taking its answer as complete. */
-  probeQuietMs?: number;
+  probeTimer?: ZfsTimer;
 }
 
 export type CreateZfsNodeResult =
@@ -81,7 +80,7 @@ export async function handleScanZfsNodeHostKey(deps: ZfsNodeHandlerDeps, data: {
 
 async function verify(deps: ZfsNodeHandlerDeps, node: ZfsNodeConnection): Promise<VerifyZfsNodeResult> {
   if (node.hostKeyFingerprint === null) return { ok: false, failure: 'not_confirmed', fingerprint: null };
-  const result = await verifyNode(deps.transport, target(node), node.hostKeyFingerprint, deps.probeQuietMs);
+  const result = await verifyNode(deps.transport, target(node), node.hostKeyFingerprint, deps.probeTimer);
   if (result.ok) {
     await deps.repo.recordVerified(node.id);
     return result;
