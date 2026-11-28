@@ -358,6 +358,8 @@ describe('removeProxmoxConnection', () => {
 
     expect(await remove({ id: 1 })).toEqual({ removed: true });
     expect(db.rows.size).toBe(0);
+    expect(db.statements.join('\n')).not.toContain('proxmox_stats');
+    expect(db.statements.join('\n')).toContain('DELETE FROM proxmox_collector_state');
     expect(db.notifies.at(-1)).toEqual(['proxmox_connections_change', '1']);
     expect(await remove({ id: 1 })).toEqual({ removed: false });
   });

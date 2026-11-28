@@ -14,13 +14,6 @@ x-postgres-env: &postgres-env
   POSTGRES_SSL: ${POSTGRES_SSL:-false}
   POSTGRES_SSL_REJECT_UNAUTHORIZED: ${POSTGRES_SSL_REJECT_UNAUTHORIZED:-true}
 
-x-proxmox-env: &proxmox-env
-  PROXMOX_HOST: ${PROXMOX_HOST:-}
-  PROXMOX_PORT: ${PROXMOX_PORT:-8006}
-  PROXMOX_TOKEN_ID: ${PROXMOX_TOKEN_ID:-}
-  PROXMOX_TOKEN_SECRET: ${PROXMOX_TOKEN_SECRET:-}
-  PROXMOX_ALLOW_SELF_SIGNED: ${PROXMOX_ALLOW_SELF_SIGNED:-true}
-
 # Auth is required by default. Either configure OIDC or set AUTH_DISABLED=true
 # for a trusted network. These keys must be listed here: Compose only forwards
 # .env values into a container when the service's environment block names them.
@@ -61,13 +54,12 @@ services:
     image: ghcr.io/jaredglaser/homelab-manager-worker:${HLM_IMAGE_TAG:-latest}
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *proxmox-env]
+      <<: *postgres-env
       MASTER_KEY: ${MASTER_KEY:-}
       MASTER_KEY_FILE: ${MASTER_KEY_FILE:-}
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED:-true}
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED:-false}
-      WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED:-false}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS:-1000}
       WORKER_LOCALHOST_AGENT: ${WORKER_LOCALHOST_AGENT:-}
     extra_hosts:

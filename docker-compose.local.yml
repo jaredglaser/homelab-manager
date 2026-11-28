@@ -45,13 +45,6 @@ x-zfs-env: &zfs-env
   ZFS_HOST_KEY_PATH_3: ${ZFS_HOST_KEY_PATH_3:-}
   ZFS_HOST_KEY_PASSPHRASE_3: ${ZFS_HOST_KEY_PASSPHRASE_3:-}
 
-x-proxmox-env: &proxmox-env
-  PROXMOX_HOST: ${PROXMOX_HOST:-}
-  PROXMOX_PORT: ${PROXMOX_PORT:-8006}
-  PROXMOX_TOKEN_ID: ${PROXMOX_TOKEN_ID:-}
-  PROXMOX_TOKEN_SECRET: ${PROXMOX_TOKEN_SECRET:-}
-  PROXMOX_ALLOW_SELF_SIGNED: ${PROXMOX_ALLOW_SELF_SIGNED:-true}
-
 x-worker-dev: &worker-dev
   build:
     context: .
@@ -103,11 +96,10 @@ services:
       - node_modules:/app/node_modules
       - ./data:/app/data
     environment:
-      <<: [*postgres-env, *zfs-env, *proxmox-env]
+      <<: [*postgres-env, *zfs-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
-      WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
       # Dev agents serve plain HTTP by default (TLS is optional in development).
       WORKER_ALLOW_INSECURE_AGENTS: "true"
