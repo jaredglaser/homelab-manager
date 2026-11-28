@@ -1,5 +1,5 @@
 import {
-  isLegacyZfsLineFrame,
+  readLegacyZfsLineFrame,
   zZfsStatsFrame,
   type ZfsCapacity,
   type ZfsDevice,
@@ -48,9 +48,10 @@ function nodeRow(
   };
 }
 
-/** One row per node, its entity the path of encoded names from the pool down, so a parent is its entity minus the last segment. */
+/** One row per node. A frame with no pools gets one `host` row, so the host's newest sample still moves on. */
 export function zfsFrameToRows(frame: ZfsStatsFrame, host: string): NewZFSStat[] {
   const time = new Date(frame.time);
+  if (frame.pools.length === 0) return [nodeRow({ time, host, pool: '' }, '', 'host', 0, null, null)];
   const rows: NewZFSStat[] = [];
 
   for (const pool of frame.pools) {
@@ -80,10 +81,13 @@ export function zfsFrameToRows(frame: ZfsStatsFrame, host: string): NewZFSStat[]
   return rows;
 }
 
-/** The row that tells the ZFS page this host's agent still sends the old text-line frames. */
+/** Stamped with the agent's own clock, like samples, so it orders against the samples of an agent updated later. */
 export function agentOutdatedRow(host: string, time: Date): NewZFSStat {
   return nodeRow({ time, host, pool: '' }, '', 'agent_outdated', 0, null, null);
 }
+
+/** An old agent sends a frame per line, several a second, and the page needs one marker inside its 90 s window. */
+const AGENT_OUTDATED_INTERVAL_MS = 10_000;
 
 export class ZFSCollector extends BaseCollector {
   readonly name: string;
@@ -122,20 +126,26 @@ export class ZFSCollector extends BaseCollector {
 
     this.debugLog(`[${this.name}] Connected, reading ZFS stats SSE stream`);
 
-    // Reset only on a frame this worker can read: an old agent connects fine, and
-    // resetting on connect would reconnect to it (and respawn its zpool) every second.
+    // Reset only on a frame this worker can read, so an agent sending frames off the contract
+    // backs off instead of being reconnected (and its zpool respawned) every second.
     let confirmed = false;
+    let lastOutdatedAt: number | null = null;
     try {
       for await (const raw of stream) {
         if (this.signal.aborted) break;
 
         const parsed = zZfsStatsFrame.safeParse(raw);
         if (!parsed.success) {
-          if (isLegacyZfsLineFrame(raw)) {
-            await this.repository.insertZFSStats([agentOutdatedRow(this.host.name, new Date())]);
-            throw new AgentZfsFrameError('the agent sends ZFS stats in the format older agents used, update it');
+          const legacy = readLegacyZfsLineFrame(raw);
+          if (!legacy) throw new AgentZfsFrameError(`the agent sent a ZFS stats frame off the contract: ${parsed.error.message}`);
+          // Kept open rather than thrown into backoff: each reconnect would flash the stale-data alert next to the notice.
+          const nowMs = Date.now();
+          if (lastOutdatedAt === null || nowMs - lastOutdatedAt >= AGENT_OUTDATED_INTERVAL_MS) {
+            if (lastOutdatedAt === null) console.error(`[${this.name}] The agent sends ZFS stats in the format older agents used. Update it.`);
+            lastOutdatedAt = nowMs;
+            await this.repository.insertZFSStats([agentOutdatedRow(this.host.name, new Date(legacy.timestamp ?? nowMs))]);
           }
-          throw new AgentZfsFrameError(`the agent sent a ZFS stats frame off the contract: ${parsed.error.message}`);
+          continue;
         }
 
         if (!confirmed) {
@@ -144,7 +154,6 @@ export class ZFSCollector extends BaseCollector {
         }
 
         const rows = zfsFrameToRows(parsed.data, this.host.name);
-        if (rows.length === 0) continue;
         const t0Write = performance.now();
         await this.repository.insertZFSStats(rows);
         this.dbDebugLog(`[${this.name}] Wrote ${rows.length} ZFS rows in ${(performance.now() - t0Write).toFixed(1)}ms`);

@@ -29,6 +29,10 @@ function makeMap(rows: ZFSStatsRow[]): Map<string, ZFSStatsRow> {
   return map;
 }
 
+function segment(label: string): string | null | undefined {
+  return screen.getByText(label).parentElement?.textContent;
+}
+
 describe('ZFSStatusSummary', () => {
   it('shows "0 pools" when map is empty', () => {
     render(<ZFSStatusSummary latestByEntity={new Map()} />);
@@ -121,6 +125,19 @@ describe('ZFSStatusSummary', () => {
         ])}
       />,
     );
-    expect(screen.getAllByText('1')).toHaveLength(3);
+    expect(segment('pools')).toBe('1 pools');
+    expect(segment('disks')).toBe('1 disks');
+  });
+
+  it('shows no pools once the host reports a sample with none', () => {
+    render(
+      <ZFSStatusSummary
+        latestByEntity={makeMap([
+          makeRow({ host: 'h1', entity_type: 'pool', entity: 'tank', time: 1000 }),
+          makeRow({ host: 'h1', entity_type: 'host', entity: '', pool: '', time: 2000 }),
+        ])}
+      />,
+    );
+    expect(segment('pools')).toBe('0 pools');
   });
 });

@@ -151,6 +151,17 @@ describe('buildZFSHostHierarchy', () => {
     ]);
   });
 
+  it('shows the host with no pools once its last pool is exported', () => {
+    const hierarchy = buildZFSHostHierarchy([
+      row('pve1', 'tank', 'pool', { time: 1000 }),
+      row('pve1', 'tank/sda', 'disk', { time: 1000 }),
+      row('pve1', '', 'host', { pool: '', time: 2000 }),
+    ]);
+
+    expect(hierarchy.get('pve1')).toMatchObject({ agentOutdated: false, aggregated: { poolCount: 0 } });
+    expect(hierarchy.get('pve1')!.pools.size).toBe(0);
+  });
+
   it('marks a host whose agent is too old, with no pools', () => {
     const hierarchy = buildZFSHostHierarchy([
       row('old-agent', 'tank', 'pool', { time: 500 }),

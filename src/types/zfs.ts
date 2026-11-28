@@ -1,7 +1,10 @@
 import type { ZfsGroupKind } from '@homelab-manager/agent/types/protocol';
 
-/** `agent_outdated` is a host-level marker row with no pool, written while the host's agent is too old to send pool trees. */
-export const ZFS_ENTITY_TYPE_VALUES = ['pool', 'group', 'vdev', 'disk', 'agent_outdated'] as const;
+/**
+ * `host` and `agent_outdated` are host-level rows with no pool: `host` stands for a sample with no pools
+ * imported, and `agent_outdated` is written while the host's agent is too old to send pool trees.
+ */
+export const ZFS_ENTITY_TYPE_VALUES = ['pool', 'group', 'vdev', 'disk', 'host', 'agent_outdated'] as const;
 export type ZFSEntityType = (typeof ZFS_ENTITY_TYPE_VALUES)[number];
 
 /** Wide row from zfs_stats hypertable */

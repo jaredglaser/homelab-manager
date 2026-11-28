@@ -73,7 +73,7 @@ function buildPools(host: string, rows: ZFSStatsRow[]): ZFSHierarchy {
       nodes.set(row.entity, pool);
       continue;
     }
-    if (row.entity_type === 'agent_outdated') continue;
+    if (row.entity_type === 'host' || row.entity_type === 'agent_outdated') continue;
 
     const slash = row.entity.lastIndexOf('/');
     if (slash <= 0) {

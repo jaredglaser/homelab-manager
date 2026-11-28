@@ -194,25 +194,58 @@ describe('ZFSCollector', () => {
       expect(rows[1].entity).toBe('tank/%2Fvar%2Flib%2Fzfs%2Fa.img');
     });
 
-    it('writes each sample with every pool, and nothing for a sample with none', async () => {
+    it('writes each sample with every pool, and one host row for a sample with none', async () => {
       const backup: ZfsPool = { ...TANK, name: 'backup', children: [] };
       const inserted = await collectFrames([frame([TANK, backup], 1), frame([], 2), frame([backup], 3)]);
 
-      expect(inserted.map((rows) => [...new Set(rows.map((r) => r.pool))])).toEqual([['tank', 'backup'], ['backup']]);
+      expect(inserted.map((rows) => [...new Set(rows.map((r) => r.pool))])).toEqual([['tank', 'backup'], [''], ['backup']]);
+      expect(inserted[1]).toEqual([expect.objectContaining({ time: new Date(2), host: 'test-zfs', pool: '', entity: '', entityType: 'host', readOpsPerSec: null })]);
     });
 
-    it('marks the host and takes the error path when the agent sends the old text-line frames', async () => {
-      const db = createMockDb();
-      const collector = new ZFSCollector(
-        db.db, defaultConfig, sampleHost, async () => 'test-token', abortController,
-        fixedStream([{ line: 'tank  1.81T  2.19T  10  20  100K  200K', timestamp: 1 }, frame([TANK])]),
-      );
-      db.patchRepository(collector);
+    describe('an agent that still sends the old text-line frames', () => {
+      const legacy = (timestamp?: number) => ({ line: 'tank  1.81T  2.19T  10  20  100K  200K', ...(timestamp === undefined ? {} : { timestamp }) });
 
-      await expect((collector as any).collect()).rejects.toBeInstanceOf(AgentZfsFrameError);
+      it('marks the host with the agent clock at most every 10 s and keeps reading instead of reconnecting', async () => {
+        const workerNow = 1_800_000_000_000;
+        const clock = spyOn(Date, 'now').mockReturnValue(workerNow);
+        const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+        const db = createMockDb();
+        const agentBehind = 1_700_000_000_000;
+        const frames = (async function* () {
+          yield legacy(agentBehind);
+          clock.mockReturnValue(workerNow + 9_999);
+          yield legacy(agentBehind + 9_999);
+          clock.mockReturnValue(workerNow + 10_000);
+          yield legacy(agentBehind + 10_000);
+          yield frame([TANK], agentBehind + 20_000);
+        })();
+        const collector = new ZFSCollector(
+          db.db, defaultConfig, sampleHost, async () => 'test-token', abortController,
+          (async () => frames) as unknown as StreamConnector,
+        );
+        db.patchRepository(collector);
 
-      expect(db.insertedRows).toHaveLength(1);
-      expect(db.insertedRows[0]).toEqual([expect.objectContaining({ host: 'test-zfs', pool: '', entity: '', entityType: 'agent_outdated', capacityAllocBytes: null })]);
+        await (collector as any).collect();
+        const errorCalls = errorSpy.mock.calls.length;
+        clock.mockRestore();
+        errorSpy.mockRestore();
+
+        expect(db.insertedRows.map((rows) => rows[0].entityType)).toEqual(['agent_outdated', 'agent_outdated', 'pool']);
+        expect(db.insertedRows[0]).toEqual([expect.objectContaining({ host: 'test-zfs', pool: '', entity: '', time: new Date(agentBehind), capacityAllocBytes: null })]);
+        expect(db.insertedRows[1][0].time).toEqual(new Date(agentBehind + 10_000));
+        expect(errorCalls).toBe(1);
+      });
+
+      it('falls back to the worker clock for a frame without a timestamp', async () => {
+        const clock = spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+        const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+        const [[marker]] = await collectFrames([legacy()]);
+        clock.mockRestore();
+        errorSpy.mockRestore();
+
+        expect(marker).toMatchObject({ entityType: 'agent_outdated', time: new Date(1_800_000_000_000) });
+      });
     });
 
     it.each([
@@ -297,13 +330,13 @@ describe('ZFSCollector', () => {
       mock.restore();
     });
 
-    it('backs off further on each reconnect to an agent too old to read, instead of reconnecting every second', async () => {
+    it('backs off further on each reconnect to an agent that sends frames off the contract', async () => {
       let callCount = 0;
       const streamConnector: StreamConnector = async () => {
         callCount++;
         if (callCount === 3) abortController.abort(new DOMException('Shutdown', 'AbortError'));
         return (async function* () {
-          yield { line: 'tank  1.81T  2.19T  10  20  100K  200K', timestamp: 1 };
+          yield { v: 2, time: 1, pools: [] };
         })();
       };
 
@@ -315,7 +348,7 @@ describe('ZFSCollector', () => {
       await collector.run();
 
       expect(timers.delays).toEqual([1000, 2000]);
-      expect(mockDb.insertedRows.flat().map((r) => r.entityType)).toEqual(['agent_outdated', 'agent_outdated']);
+      expect(mockDb.insertedRows).toEqual([]);
     });
 
     it('resets the backoff once a readable frame arrives', async () => {

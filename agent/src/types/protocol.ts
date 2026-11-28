@@ -154,7 +154,7 @@ export type ComposeFrameEvent =
   | { event: 'line'; data: ComposeLineFrame }
   | { event: 'result'; data: ComposeResultFrame };
 
-/** A byte count as decimal digits: pool sizes can pass 2^53, which a JSON number cannot carry exactly. */
+/** Decimal digits, bound to the bigint columns as text. Under `-p` zpool prints at most 15 digits a column, so 10^15 bytes or more arrive cut short. */
 const zZfsByteCount = z.string().regex(/^\d+$/);
 const zZfsRate = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
@@ -177,7 +177,7 @@ export const ZFS_GROUP_KINDS = ['special', 'dedup', 'logs', 'cache', 'spares'] a
 export const zZfsGroupKind = z.enum(ZFS_GROUP_KINDS);
 export type ZfsGroupKind = z.infer<typeof zZfsGroupKind>;
 
-/** `capacity` is null where zpool reports none (leaf devices, spares). `io` is null for spares, which zpool iostat never reports. */
+/** `capacity` and `io` are null where zpool reports none: no capacity for a leaf device, neither for a spare. */
 export const zZfsDisk = z.object({
   kind: z.literal('disk'),
   name: z.string().min(1),
@@ -215,7 +215,6 @@ export const zZfsPool = z.object({
 });
 export type ZfsPool = z.infer<typeof zZfsPool>;
 
-/** One `data:` frame per `zpool iostat` sample on GET /zfs/stats/stream, carrying every imported pool. */
 export const zZfsStatsFrame = z.object({
   v: z.literal(1),
   /** Epoch ms when the sample was read. */
@@ -224,7 +223,8 @@ export const zZfsStatsFrame = z.object({
 });
 export type ZfsStatsFrame = z.infer<typeof zZfsStatsFrame>;
 
-/** The `{ line, timestamp }` frame agents sent before `zZfsStatsFrame`. Recognized only to tell the operator to update the agent. */
-export function isLegacyZfsLineFrame(frame: unknown): boolean {
-  return z.object({ line: z.string() }).safeParse(frame).success;
+/** Reads the `{ line, timestamp }` frame agents sent before `zZfsStatsFrame`, only to tell the operator to update the agent. Null for anything else. */
+export function readLegacyZfsLineFrame(frame: unknown): { timestamp: number | null } | null {
+  const parsed = z.object({ line: z.string(), timestamp: z.number().int().positive().optional() }).safeParse(frame);
+  return parsed.success ? { timestamp: parsed.data.timestamp ?? null } : null;
 }
