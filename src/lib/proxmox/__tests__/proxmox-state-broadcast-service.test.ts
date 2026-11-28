@@ -70,6 +70,25 @@ describe('ProxmoxStateBroadcastService', () => {
     await service.stop();
   });
 
+  it('reloads when a connection is saved or removed, so the page leaves "not set up" without the worker', async () => {
+    const { client, handlers } = controllablePoolClient();
+    let stored: ProxmoxStateSnapshot = { connections: [] };
+    const service = new ProxmoxStateBroadcastService({
+      getPoolClient: () => Promise.resolve(client),
+      loadSnapshot: () => Promise.resolve(stored),
+    });
+
+    const received: ProxmoxStateSnapshot[] = [];
+    service.subscribe((s) => received.push(s));
+    await waitForCondition(() => received.length === 1);
+    stored = snapshot('collecting');
+    handlers.notify!({ channel: 'proxmox_connections_change' });
+    await waitForCondition(() => received.length === 2);
+
+    expect(received[1]).toEqual(snapshot('collecting'));
+    await service.stop();
+  });
+
   it('ignores notifications on other channels', async () => {
     const { client, handlers } = controllablePoolClient();
     let loads = 0;
@@ -274,7 +293,7 @@ describe('ProxmoxStateBroadcastService with its default database wiring', () => 
 
       expect(received).toEqual([snapshot('unreachable')]);
       expect(repoPools).toEqual([pool]);
-      expect(query.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['LISTEN proxmox_state_change']);
+      expect(query.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['LISTEN proxmox_state_change', 'LISTEN proxmox_connections_change']);
     } finally {
       await service.stop();
     }

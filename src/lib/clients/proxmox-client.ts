@@ -3,6 +3,7 @@ import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
 import { isCertificateRejectionError } from '@/lib/clients/agent-http';
 import {
   zProxmoxClusterStatus,
+  zProxmoxVersionEnvelope,
   zProxmoxListEnvelope,
   zProxmoxResource,
   type ProxmoxClusterStatus,
@@ -11,6 +12,12 @@ import {
 } from '@/types/proxmox';
 
 export type ProxmoxFailureKind = 'unreachable' | 'token_rejected' | 'certificate_refused';
+
+export interface ProxmoxProbe {
+  clusterName: string;
+  release: string;
+  nodeCount: number;
+}
 
 const MAX_REASON_CHARS = 300;
 const DROPPED_ENTRY_LOG_INTERVAL_MS = 60_000;
@@ -45,10 +52,10 @@ function isWholeClusterEntry(raw: unknown): boolean {
   return type === 'node' || type === 'cluster';
 }
 
-function classifyFetchFailure(path: string, err: unknown): ProxmoxRequestError {
+function classifyFetchFailure(path: string, err: unknown, redact: (text: string) => string): ProxmoxRequestError {
   if (err instanceof ProxmoxRequestError) return err;
   const cause = (err as { cause?: unknown } | null)?.cause;
-  const detail = err instanceof Error ? err.message : String(err);
+  const detail = redact(err instanceof Error ? err.message : String(err));
   if (isCertificateRejectionError(err) || isCertificateRejectionError(cause)) {
     return new ProxmoxRequestError('certificate_refused', path, detail);
   }
@@ -76,12 +83,16 @@ const REQUEST_TIMEOUT_MS = 15_000;
 export class ProxmoxClient {
   private baseUrl: string;
   private authHeader: string;
+  private readonly tokenSecret: string;
+  private readonly host: string;
   private fetchOptions: CrossRuntimeRequestInit;
   private readonly dispatcherReady: Promise<void>;
 
   constructor(config: ProxmoxConfig) {
     this.baseUrl = `https://${config.host}:${config.port}/api2/json`;
     this.authHeader = `PVEAPIToken=${config.tokenId}=${config.tokenSecret}`;
+    this.tokenSecret = config.tokenSecret;
+    this.host = config.host;
     this.fetchOptions = {};
     this.dispatcherReady = config.allowSelfSignedCerts
       ? this.initSelfSignedCerts()
@@ -108,8 +119,12 @@ export class ProxmoxClient {
 
   private readonly droppedLoggedAt = new Map<string, number>();
 
-  private async getList<T>(path: string, entry: z.ZodType<T>): Promise<T[]> {
-    let body: unknown;
+  // A runtime that rejects a header value can quote it, and these messages reach the logs and the state table.
+  private redact(text: string): string {
+    return this.tokenSecret ? text.replaceAll(this.tokenSecret, '[redacted]') : text;
+  }
+
+  private async request(path: string, signal?: AbortSignal): Promise<unknown> {
     try {
       await this.dispatcherReady;
       const response = await fetch(`${this.baseUrl}${path}`, {
@@ -117,19 +132,23 @@ export class ProxmoxClient {
         headers: {
           Authorization: this.authHeader,
         },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');
         const kind = response.status === 401 || response.status === 403 ? 'token_rejected' : 'unreachable';
-        throw new ProxmoxRequestError(kind, path, `HTTP ${response.status} ${response.statusText} ${text}`.trim());
+        throw new ProxmoxRequestError(kind, path, this.redact(`HTTP ${response.status} ${response.statusText} ${text}`.trim()));
       }
 
-      body = await response.json();
+      return await response.json();
     } catch (err) {
-      throw classifyFetchFailure(path, err);
+      throw classifyFetchFailure(path, err, (text) => this.redact(text));
     }
+  }
+
+  private async getList<T>(path: string, entry: z.ZodType<T>, signal?: AbortSignal): Promise<T[]> {
+    const body = await this.request(path, signal);
 
     const envelope = zProxmoxListEnvelope.safeParse(body);
     if (!envelope.success) {
@@ -165,12 +184,30 @@ export class ProxmoxClient {
     console.error(`[ProxmoxClient] ${path}: skipped ${dropped} entr${dropped === 1 ? 'y' : 'ies'} off the expected shape, first at ${firstDrop}`);
   }
 
-  async getClusterStatus(): Promise<ProxmoxClusterStatus[]> {
-    return this.getList('/cluster/status', zProxmoxClusterStatus);
+  async getClusterStatus(signal?: AbortSignal): Promise<ProxmoxClusterStatus[]> {
+    return this.getList('/cluster/status', zProxmoxClusterStatus, signal);
   }
 
-  async getClusterResources(): Promise<ProxmoxResource[]> {
-    return this.getList('/cluster/resources', zProxmoxResource);
+  async getClusterResources(signal?: AbortSignal): Promise<ProxmoxResource[]> {
+    return this.getList('/cluster/resources', zProxmoxResource, signal);
+  }
+
+  async getVersion(): Promise<{ version: string; release: string }> {
+    const path = '/version';
+    const envelope = zProxmoxVersionEnvelope.safeParse(await this.request(path));
+    if (!envelope.success) {
+      throw new ProxmoxRequestError('unreachable', path, `unexpected response shape: ${firstIssue(envelope.error)}`);
+    }
+    const { version, release } = envelope.data.data;
+    return { version, release: release ?? version };
+  }
+
+  /** What Test connection reports. A standalone node has no cluster entry, so it goes by its node's name. */
+  async probe(): Promise<ProxmoxProbe> {
+    const [status, version] = await Promise.all([this.getClusterStatus(), this.getVersion()]);
+    const nodes = status.filter((e) => e.type === 'node');
+    const clusterName = status.find((e) => e.type === 'cluster')?.name || nodes[0]?.name || this.host;
+    return { clusterName, release: version.release, nodeCount: nodes.length };
   }
 
   /**
@@ -178,10 +215,10 @@ export class ProxmoxClient {
    * guest, and storage entry in one response, so a poll cycle is always 2
    * requests regardless of node count.
    */
-  async getClusterSnapshot(): Promise<ProxmoxClusterSnapshot> {
+  async getClusterSnapshot(signal?: AbortSignal): Promise<ProxmoxClusterSnapshot> {
     const [clusterStatusEntries, resources] = await Promise.all([
-      this.getClusterStatus(),
-      this.getClusterResources(),
+      this.getClusterStatus(signal),
+      this.getClusterResources(signal),
     ]);
 
     const clusterEntry = clusterStatusEntries.find((e) => e.type === 'cluster');
@@ -195,29 +232,3 @@ export class ProxmoxClient {
     };
   }
 }
-
-/**
- * Proxmox connection manager singleton
- * Caches client instances by host
- */
-export class ProxmoxConnectionManager {
-  private clients = new Map<string, ProxmoxClient>();
-
-  getClient(config: ProxmoxConfig): ProxmoxClient {
-    const key = `${config.host}:${config.port}`;
-
-    let client = this.clients.get(key);
-    if (!client) {
-      client = new ProxmoxClient(config);
-      this.clients.set(key, client);
-    }
-
-    return client;
-  }
-
-  clearAll(): void {
-    this.clients.clear();
-  }
-}
-
-export const proxmoxConnectionManager = new ProxmoxConnectionManager();

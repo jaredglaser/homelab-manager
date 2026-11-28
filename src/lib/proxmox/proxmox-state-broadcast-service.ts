@@ -2,6 +2,10 @@ import type { PoolClient } from 'pg';
 import type { ProxmoxCollectorStateView } from '@/types/proxmox';
 import { backoffDelayMs } from '@/lib/utils/backoff';
 import { PROXMOX_STATE_NOTIFY_CHANNEL } from '@/lib/database/repositories/proxmox-state-repository';
+import { PROXMOX_CONNECTIONS_NOTIFY_CHANNEL } from '@/lib/database/repositories/proxmox-connection-repository';
+
+// A connection saved while the worker is down must still replace "not set up" on the page.
+const CHANNELS = [PROXMOX_STATE_NOTIFY_CHANNEL, PROXMOX_CONNECTIONS_NOTIFY_CHANNEL];
 
 export interface ProxmoxStateSnapshot {
   connections: ProxmoxCollectorStateView[];
@@ -119,7 +123,7 @@ export class ProxmoxStateBroadcastService {
 
         currentClient.on('notification', (msg) => {
           if (this.listenerClient !== currentClient) return;
-          if (msg.channel === PROXMOX_STATE_NOTIFY_CHANNEL) {
+          if (CHANNELS.includes(msg.channel)) {
             this.handleNotify();
           }
         });
@@ -143,7 +147,7 @@ export class ProxmoxStateBroadcastService {
           }
         });
 
-        await currentClient.query(`LISTEN ${PROXMOX_STATE_NOTIFY_CHANNEL}`);
+        for (const channel of CHANNELS) await currentClient.query(`LISTEN ${channel}`);
         this.reconnectFailures = 0;
         this.deliver(() => this.subscribers);
         return;

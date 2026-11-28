@@ -1,6 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
-import { proxmoxConnectionManager, ProxmoxRequestError } from '@/lib/clients/proxmox-client';
-import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
+import { ProxmoxClient, ProxmoxRequestError } from '@/lib/clients/proxmox-client';
+import type { ProxmoxConfig, ProxmoxConnection } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
 import type { ProxmoxCollectorStateKind } from '@/types/proxmox';
@@ -12,14 +12,17 @@ const DEFAULT_POLL_INTERVAL_MS = 10_000;
 // While collecting, only state changes are written, so this bounds how stale last_success_at can be after a worker restart.
 const LAST_SUCCESS_REFRESH_MS = 60_000;
 
-/** Resolves a ProxmoxClient for a host config; narrowed so tests can inject a fake without spying on the singleton. */
-type ProxmoxClientProvider = Pick<typeof proxmoxConnectionManager, 'getClient'>;
+export interface ProxmoxClientProvider {
+  getClient(config: ProxmoxConfig): ProxmoxClient;
+}
+
+const newClientPerCollector: ProxmoxClientProvider = { getClient: (config) => new ProxmoxClient(config) };
 
 export type ProxmoxStateStore = Pick<ProxmoxStateRepository, 'record'>;
 
-/** The connection id the worker records state under, equal to the `host` its stats rows carry. */
-export function proxmoxConnectionId(config: Pick<ProxmoxConfig, 'host'>): string {
-  return config.host;
+/** The key the worker records state under. Stats rows carry the address as their `host` instead. */
+export function proxmoxConnectionId(connection: Pick<ProxmoxConnection, 'id'>): string {
+  return String(connection.id);
 }
 
 /** Polls the Proxmox REST API and inserts cluster snapshot rows into proxmox_stats; pollInterval is settable at runtime. */
@@ -27,7 +30,7 @@ export class ProxmoxCollector extends BaseCollector {
   readonly name: string;
   private _pollIntervalMs: number;
   private _sleepAbortController: AbortController | null = null;
-  private readonly proxmoxConfig: ProxmoxConfig;
+  private readonly proxmoxConfig: ProxmoxConnection;
   private readonly clientProvider: ProxmoxClientProvider;
   private readonly rateTracker = new ProxmoxRateTracker();
   private readonly injectedStateStore: ProxmoxStateStore | undefined;
@@ -38,10 +41,10 @@ export class ProxmoxCollector extends BaseCollector {
   constructor(
     db: DatabaseClient,
     config: WorkerConfig,
-    proxmoxConfig: ProxmoxConfig,
+    proxmoxConfig: ProxmoxConnection,
     initialPollIntervalMs: number,
     abortController?: AbortController,
-    clientProvider: ProxmoxClientProvider = proxmoxConnectionManager,
+    clientProvider: ProxmoxClientProvider = newClientPerCollector,
     stateStore?: ProxmoxStateStore,
   ) {
     super(db, config, abortController);
@@ -74,7 +77,7 @@ export class ProxmoxCollector extends BaseCollector {
 
       let snapshot;
       try {
-        snapshot = await client.getClusterSnapshot();
+        snapshot = await client.getClusterSnapshot(this.signal);
       } catch (err) {
         if (this.signal.aborted) return;
         const failure = err instanceof ProxmoxRequestError

@@ -17,7 +17,6 @@ function makeWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
   const base: WorkerConfig = {
     docker: { enabled: true },
     zfs: { enabled: true },
-    proxmox: { enabled: false },
     collection: { interval: 1000 },
     // Most tests exercise collection itself; plaintext http agents are the
     // historical fixture shape, so insecure collection is allowed by default.

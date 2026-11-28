@@ -1,15 +1,3 @@
-import type { DatabaseClient } from '@/lib/clients/database-client';
-import { isProxmoxConfigured, loadProxmoxConfig } from '@/lib/config/proxmox-config';
-import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ProxmoxStateRepository } from '@/lib/database/repositories/proxmox-state-repository';
-import type { BaseCollector } from './collectors/base-collector';
-import { ProxmoxCollector, proxmoxConnectionId } from './collectors/proxmox-collector';
-
-export interface CollectorFactoryResult {
-  collectors: BaseCollector[];
-  runners: Promise<void>[];
-}
-
 /**
  * Rewrite localhost agent URLs so the worker container can reach agents
  * on the same Docker network. Uses WORKER_LOCALHOST_AGENT env var as the
@@ -20,65 +8,4 @@ export function resolveAgentUrl(url: string): string {
   const dockerHost = process.env.WORKER_LOCALHOST_AGENT;
   if (!dockerHost) return url;
   return url.replace(/:\/\/(\[?::1\]?|localhost|127\.0\.0\.1):/, `://${dockerHost}:`);
-}
-
-/**
- * Create and register enabled collectors based on the provided worker configuration.
- *
- * @param proxmoxPollIntervalMs - Optional poll interval in milliseconds for the Proxmox collector; when omitted a default of 10000 ms is used
- * @returns An object with `collectors` - the created collector instances, and `runners` - an array of each collector's run promise
- */
-export function createCollectors(
-  db: DatabaseClient,
-  workerConfig: WorkerConfig,
-  shutdownController: AbortController,
-  stack: AsyncDisposableStack,
-  proxmoxPollIntervalMs?: number,
-): CollectorFactoryResult {
-  const collectors: BaseCollector[] = [];
-  const runners: Promise<void>[] = [];
-
-  if (workerConfig.proxmox.enabled) {
-    if (!isProxmoxConfigured()) {
-      console.info('[Worker] Proxmox enabled but not configured');
-    } else {
-      const proxmoxConfig = loadProxmoxConfig();
-      console.info(`[Worker] Starting Proxmox collector for ${proxmoxConfig.host}`);
-      const collector = stack.use(
-        new ProxmoxCollector(db, workerConfig, proxmoxConfig, proxmoxPollIntervalMs ?? 10_000, shutdownController)
-      );
-      collectors.push(collector);
-      runners.push(collector.run());
-    }
-  } else {
-    console.info('[Worker] Proxmox collector disabled');
-  }
-
-  return { collectors, runners };
-}
-
-/** Without a row here at startup the page reads "not set up" until the first poll ends, which can take 15 s. */
-export async function recordProxmoxStartupState(
-  store: Pick<ProxmoxStateRepository, 'record' | 'recordCollectingIfUnknown' | 'removeAllExcept'>,
-  workerConfig: WorkerConfig,
-): Promise<void> {
-  if (!isProxmoxConfigured()) {
-    await store.removeAllExcept([]);
-    return;
-  }
-  const config = loadProxmoxConfig();
-  const connectionId = proxmoxConnectionId(config);
-  await store.removeAllExcept([connectionId]);
-  if (workerConfig.proxmox.enabled) {
-    await store.recordCollectingIfUnknown({ connectionId, host: config.host, port: config.port });
-    return;
-  }
-  await store.record({
-    connectionId,
-    host: config.host,
-    port: config.port,
-    state: 'collector_off',
-    reason: null,
-    lastSuccessAt: null,
-  });
 }

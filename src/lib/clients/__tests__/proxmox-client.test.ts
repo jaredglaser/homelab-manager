@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
-import { ProxmoxClient, ProxmoxConnectionManager, ProxmoxRequestError } from '../proxmox-client';
+import { ProxmoxClient, ProxmoxRequestError } from '../proxmox-client';
 import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
 
 const originalConsoleError = console.error;
@@ -338,30 +338,56 @@ describe('ProxmoxClient', () => {
       expect(callInit.tls).toBeUndefined();
     });
   });
-});
 
-describe('ProxmoxConnectionManager', () => {
-  it('should cache clients by host:port', () => {
-    const manager = new ProxmoxConnectionManager();
-    const config = createConfig();
+  describe('probe', () => {
+    function answer(status: unknown[], version: unknown) {
+      fetchSpy.mockImplementation(async (url: string | URL | Request) => {
+        const body = String(url).endsWith('/version') ? { data: version } : { data: status };
+        return new Response(JSON.stringify(body), { status: 200 });
+      });
+    }
 
-    const client1 = manager.getClient(config);
-    const client2 = manager.getClient(config);
-    expect(client1).toBe(client2);
+    it('reports the cluster name, the release and the node count', async () => {
+      answer([
+        { type: 'cluster', id: 'cluster', name: 'homelab', version: 3, quorate: 1, nodes: 2 },
+        { type: 'node', id: 'node/pve1', name: 'pve1', online: 1 },
+        { type: 'node', id: 'node/pve2', name: 'pve2', online: 1 },
+      ], { version: '9.0.3', release: '9.0' });
+
+      expect(await new ProxmoxClient(createConfig()).probe()).toEqual({ clusterName: 'homelab', release: '9.0', nodeCount: 2 });
+    });
+
+    it('names a standalone node after itself, and falls back to the version when no release is given', async () => {
+      answer([{ type: 'node', id: 'node/pve1', name: 'pve1', online: 1 }], { version: '8.2.4' });
+
+      expect(await new ProxmoxClient(createConfig()).probe()).toEqual({ clusterName: 'pve1', release: '8.2.4', nodeCount: 1 });
+    });
+
+    it('sorts a rejected token into token_rejected', async () => {
+      fetchSpy.mockImplementation(async () => new Response('authentication failure', { status: 401, statusText: 'Unauthorized' }));
+
+      const err = await new ProxmoxClient(createConfig()).probe().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ProxmoxRequestError);
+      expect((err as ProxmoxRequestError).kind).toBe('token_rejected');
+    });
+
+    it('treats a version answer off the expected shape as unreachable', async () => {
+      answer([], { nope: true });
+
+      const err = await new ProxmoxClient(createConfig()).getVersion().catch((e: unknown) => e);
+      expect((err as ProxmoxRequestError).kind).toBe('unreachable');
+    });
   });
 
-  it('should create different clients for different configs', () => {
-    const manager = new ProxmoxConnectionManager();
-    const client1 = manager.getClient(createConfig({ host: 'host1' }));
-    const client2 = manager.getClient(createConfig({ host: 'host2' }));
-    expect(client1).not.toBe(client2);
-  });
+  it('keeps the token secret out of a failure message that quotes it', async () => {
+    const secret = 'sécret=with=equals';
+    fetchSpy.mockImplementation(async () => {
+      throw new TypeError(`Header has invalid value: PVEAPIToken=root@pam!test=${secret}`);
+    });
 
-  it('should clear all cached clients', () => {
-    const manager = new ProxmoxConnectionManager();
-    const client1 = manager.getClient(createConfig());
-    manager.clearAll();
-    const client2 = manager.getClient(createConfig());
-    expect(client1).not.toBe(client2);
+    const err = await new ProxmoxClient(createConfig({ tokenSecret: secret })).getClusterStatus().catch((e: unknown) => e) as ProxmoxRequestError;
+    expect(err.message).not.toContain(secret);
+    expect(err.detail).not.toContain(secret);
+    expect(err.message).toContain('[redacted]');
   });
 });
