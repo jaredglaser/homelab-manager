@@ -430,7 +430,8 @@ describe('ZfsNodeCollector', () => {
 
       expect(pool(h.samples[1])?.entity).toBe('tank');
       expect(logged).toHaveLength(1);
-      expect(String(logged[0][0])).not.toMatch(/[\u001b\r]/);
+      expect(String(logged[0][0])).not.toContain('\u001b');
+      expect(String(logged[0][0])).not.toContain('\r');
     } finally {
       errors.mockRestore();
     }
