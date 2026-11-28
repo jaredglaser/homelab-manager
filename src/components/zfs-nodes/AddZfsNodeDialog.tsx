@@ -131,7 +131,7 @@ export function AddZfsNodeDialog({ open, onClose, onChanged, resumeNode = null }
   const portNumber = Number(port)
   const formValid = name.trim() !== '' && address.trim() !== '' && Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535
 
-  function submitForm(event: React.FormEvent) {
+  function submitForm(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy || !formValid) return
     setFormError(null)
