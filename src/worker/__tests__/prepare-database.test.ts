@@ -11,8 +11,8 @@ describe('prepareDatabase', () => {
     let finishMigrations!: () => void;
     const migrating = new Promise<void>((resolve) => { finishMigrations = resolve; });
     const shutdown = new AbortController();
-    const backfill = async (_db: DatabaseClient, options?: { waitForLock?: { signal: AbortSignal } }) => {
-      order.push(`backfill waits on the shutdown signal: ${options?.waitForLock?.signal === shutdown.signal}`);
+    const backfill = async (_db: DatabaseClient, options?: { waitForLock?: boolean; signal?: AbortSignal }) => {
+      order.push(`backfill waits on the shutdown signal: ${options?.waitForLock === true && options.signal === shutdown.signal}`);
     };
 
     const prepared = prepareDatabase(db, shutdown.signal, async () => { order.push('record startup state'); }, {

@@ -57,6 +57,17 @@ function createFakeDb(client: FakeClient): DatabaseClient {
   } as unknown as DatabaseClient;
 }
 
+const WAITING_MESSAGE = '[StatsBackfill] Another process is running the backfill, waiting for it to finish';
+
+function abortWhen(client: FakeClient, shutdown: AbortController, matches: (text: string) => boolean): void {
+  const query = client.query.bind(client);
+  client.query = async (text: string, values?: unknown[]) => {
+    const result = await query(text, values);
+    if (matches(text)) shutdown.abort(new DOMException('Shutdown', 'AbortError'));
+    return result;
+  };
+}
+
 function texts(client: FakeClient): string[] {
   return client.calls.map((call) => call.text);
 }
@@ -250,10 +261,11 @@ describe('runStatsRollupBackfill', () => {
         return query(text, values);
       };
 
-      await runStatsRollupBackfill(createFakeDb(client), { waitForLock: { signal: new AbortController().signal } });
+      await runStatsRollupBackfill(createFakeDb(client), { waitForLock: true, signal: new AbortController().signal });
 
       expect(attempts).toBe(3);
       expect(sleeps).toEqual([LOCK_RETRY_MS, LOCK_RETRY_MS]);
+      expect(infoSpy.mock.calls.filter((call: unknown[]) => call[0] === WAITING_MESSAGE)).toHaveLength(1);
       expect(refreshCalls(client, 'zfs_stats_1m').length).toBeGreaterThan(0);
       expect(texts(client).at(-1)).toBe('SELECT pg_advisory_unlock($1)');
     });
@@ -267,12 +279,55 @@ describe('runStatsRollupBackfill', () => {
         return 0 as unknown as ReturnType<typeof setTimeout>;
       }) as unknown as typeof setTimeout);
 
-      await runStatsRollupBackfill(createFakeDb(client), { waitForLock: { signal: shutdown.signal } });
+      await runStatsRollupBackfill(createFakeDb(client), { waitForLock: true, signal: shutdown.signal });
 
       expect(texts(client).filter((text) => text.includes('advisory'))).toEqual(['SELECT pg_try_advisory_lock($1) AS acquired']);
       expect(refreshCalls(client, 'zfs_stats_1m')).toEqual([]);
       expect(client.releaseCount).toBe(1);
-      expect(infoSpy).toHaveBeenCalledWith('[StatsBackfill] Shutting down before another process released the lock, skipping');
+      expect(infoSpy).toHaveBeenCalledWith('[StatsBackfill] Shutting down before the lock was taken, skipping');
+    });
+  });
+
+  describe('shutdown after the lock is taken', () => {
+    test('stops between refresh windows, leaves retention unapplied, and unlocks', async () => {
+      const shutdown = new AbortController();
+      const client = createFakeClient();
+      abortWhen(client, shutdown, (text) => text.startsWith("CALL refresh_continuous_aggregate('docker_stats_1m'"));
+
+      await runStatsRollupBackfill(createFakeDb(client), { signal: shutdown.signal });
+
+      const all = texts(client);
+      expect(refreshCalls(client, 'docker_stats_1m')).toHaveLength(1);
+      expect(refreshCalls(client, 'docker_stats_1h')).toEqual([]);
+      expect(all.filter((text) => text.includes('add_retention_policy'))).toEqual([]);
+      expect(all.at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+      expect(client.releaseCount).toBe(1);
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    test('starts no further source once one has finished', async () => {
+      const shutdown = new AbortController();
+      const client = createFakeClient();
+      abortWhen(client, shutdown, (text) => text === "SELECT add_retention_policy('docker_stats', INTERVAL '24 hours', if_not_exists => TRUE)");
+
+      await runStatsRollupBackfill(createFakeDb(client), { signal: shutdown.signal });
+
+      const all = texts(client);
+      expect(all.filter((text) => text.includes('to_regclass'))).toHaveLength(1);
+      expect(all.filter((text) => text.includes('zfs_stats'))).toEqual([]);
+      expect(all.at(-1)).toBe('SELECT pg_advisory_unlock($1)');
+      expect(client.releaseCount).toBe(1);
+    });
+
+    test('takes no connection when shutdown came first', async () => {
+      const shutdown = new AbortController();
+      shutdown.abort(new DOMException('Shutdown', 'AbortError'));
+      let connects = 0;
+      const db = { getPool: () => ({ connect: async () => { connects += 1; return createFakeClient(); } }) } as unknown as DatabaseClient;
+
+      await runStatsRollupBackfill(db, { waitForLock: true, signal: shutdown.signal });
+
+      expect(connects).toBe(0);
     });
   });
 

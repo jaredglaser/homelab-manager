@@ -36,6 +36,13 @@ function handleSettingChange(getCollectors: () => BaseCollector[], key: string, 
   }
 }
 
+async function closeConnections(): Promise<void> {
+  console.info('[Worker] Closing connections...');
+  proxmoxConnectionManager.clearAll();
+  await databaseConnectionManager.closeAll();
+  console.info('[Worker] Shutdown complete');
+}
+
 /**
  * Start and run the background worker that coordinates collectors, database migrations, settings updates, and graceful shutdown.
  *
@@ -77,6 +84,10 @@ async function main() {
         console.error('[Worker] Failed to record the Proxmox collector state:', err instanceof Error ? err.message : err);
       }
     });
+    if (shutdownController.signal.aborted) {
+      await closeConnections();
+      return;
+    }
 
     // Auto-seed localhost agent in dev mode (gated by DEV_AGENT_TOKEN env var)
     const { seedDevAgent } = await import('./dev-seed');
@@ -241,11 +252,7 @@ async function main() {
     }
     // AsyncDisposableStack disposes here - cleans up
 
-    console.info('[Worker] Closing connections...');
-    proxmoxConnectionManager.clearAll();
-    await databaseConnectionManager.closeAll();
-
-    console.info('[Worker] Shutdown complete');
+    await closeConnections();
   } catch (err) {
     console.error('[Worker] Fatal error:', err);
     process.exit(1);

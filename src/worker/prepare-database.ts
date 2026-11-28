@@ -20,7 +20,7 @@ export async function prepareDatabase(
 ): Promise<{ backfill: Promise<void> }> {
   await (deps.migrate ?? runMigrations)(db);
   await beforeBackfill();
-  const backfill = (deps.backfill ?? runStatsRollupBackfill)(db, { waitForLock: { signal: shutdown } }).catch((err: unknown) => {
+  const backfill = (deps.backfill ?? runStatsRollupBackfill)(db, { waitForLock: true, signal: shutdown }).catch((err: unknown) => {
     console.error('[Worker] Stats rollup backfill failed:', err);
   });
   return { backfill };

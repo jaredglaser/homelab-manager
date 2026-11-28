@@ -32,34 +32,41 @@ interface RefreshWindow {
 }
 
 /**
- * `waitForLock` retries the lock until another process's run ends instead of skipping, for a caller
- * whose migrations may have rebuilt an aggregate after that run read it. Aborting its signal gives up
- * the wait, so the caller's shutdown is never held by a checked-out connection.
- *
  * Materializes the `_1m` and `_1h` continuous aggregates over all existing history, then
  * puts the raw and `_1m` retention policies in place. Migration 007 removed retention
  * entirely, so an upgraded deployment holds months of raw rows that a retention policy
  * would drop before they were ever rolled up.
+ *
+ * `waitForLock` retries the lock until another process's run ends instead of skipping, for a caller
+ * whose migrations may have rebuilt an aggregate after that run read it. Aborting `signal` stops the
+ * wait and the run between refresh windows, leaving retention unapplied for every unfinished source,
+ * because the pool cannot close while this run holds its connection.
  */
 export async function runStatsRollupBackfill(
   db: DatabaseClient,
-  options: { waitForLock?: { signal: AbortSignal } } = {},
+  options: { waitForLock?: boolean; signal?: AbortSignal } = {},
 ): Promise<void> {
+  if (options.signal?.aborted) return;
+  const signal = options.signal ?? new AbortController().signal;
   const client = await db.getPool().connect();
   try {
     const acquired = options.waitForLock
-      ? await waitForLock(client, options.waitForLock.signal)
+      ? await waitForLock(client, signal)
       : await tryAcquireLock(client);
     if (!acquired) {
       console.info(options.waitForLock
-        ? '[StatsBackfill] Shutting down before another process released the lock, skipping'
+        ? '[StatsBackfill] Shutting down before the lock was taken, skipping'
         : '[StatsBackfill] Another process holds the lock, skipping');
       return;
     }
 
     try {
       for (const table of SOURCE_TABLES) {
-        await backfillSource(client, table);
+        if (signal.aborted) {
+          console.info(`[StatsBackfill] Shutting down, ${table} and later sources are left for the next start`);
+          break;
+        }
+        await backfillSource(client, table, signal);
       }
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [STATS_BACKFILL_ADVISORY_LOCK_KEY]);
@@ -72,8 +79,13 @@ export async function runStatsRollupBackfill(
 export const LOCK_RETRY_MS = 2000;
 
 async function waitForLock(client: PoolClient, signal: AbortSignal): Promise<boolean> {
+  let logged = false;
   while (!signal.aborted) {
     if (await tryAcquireLock(client)) return true;
+    if (!logged) {
+      console.info('[StatsBackfill] Another process is running the backfill, waiting for it to finish');
+      logged = true;
+    }
     try {
       await abortableSleep(LOCK_RETRY_MS, signal);
     } catch (err) {
@@ -91,7 +103,7 @@ async function tryAcquireLock(client: PoolClient): Promise<boolean> {
   return result.rows[0]?.acquired === true;
 }
 
-async function backfillSource(client: PoolClient, table: string): Promise<void> {
+async function backfillSource(client: PoolClient, table: string, signal: AbortSignal): Promise<void> {
   try {
     if (!(await rollupsExist(client, table))) {
       console.info(`[StatsBackfill] ${table} rollups do not exist yet, skipping`);
@@ -104,13 +116,17 @@ async function backfillSource(client: PoolClient, table: string): Promise<void> 
     } else {
       // _1h reads _1m, so the minute tier has to finish first.
       for (const tier of TIERS) {
-        await refreshTier(client, `${table}${tier.suffix}`, minTimeMs, tier);
+        await refreshTier(client, `${table}${tier.suffix}`, minTimeMs, tier, signal);
       }
     }
 
     await addRetentionPolicies(client, table);
     console.info(`[StatsBackfill] ${table} done`);
   } catch (err) {
+    if (signal.aborted && isAbortError(err)) {
+      console.info(`[StatsBackfill] Shutting down, ${table} is left with retention unapplied for the next start`);
+      return;
+    }
     console.error(`[StatsBackfill] ${table} failed, retention left unapplied:`, err);
   }
 }
@@ -136,6 +152,7 @@ async function refreshTier(
   view: string,
   minTimeMs: number,
   tier: Tier,
+  signal: AbortSignal,
 ): Promise<void> {
   const windows = refreshWindows(minTimeMs, Date.now(), tier);
   if (windows.length === 0) {
@@ -148,6 +165,7 @@ async function refreshTier(
   );
 
   for (const [index, window] of windows.entries()) {
+    if (signal.aborted) throw new DOMException('Shutdown', 'AbortError');
     const start = timestampLiteral(window.startMs);
     const end = window.endMs === null ? 'now()' : timestampLiteral(window.endMs);
     console.info(`[StatsBackfill] ${view} window ${index + 1}/${windows.length}: ${start} -> ${end}`);
