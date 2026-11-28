@@ -28,7 +28,6 @@ function getMockInfoCalls(): unknown[] {
 function createWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
   return {
     docker: { enabled: false },
-    zfs: { enabled: false },
     proxmox: { enabled: false },
     collection: { interval: 1000 },
     agents: { allowInsecurePlaintext: true },
@@ -39,12 +38,6 @@ function createWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
 // Store original env to restore
 const originalEnv = { ...process.env };
 
-function clearZFSEnv() {
-  Object.keys(process.env).forEach((key) => {
-    if (key.startsWith('ZFS_HOST')) delete process.env[key];
-  });
-}
-
 function clearProxmoxEnv() {
   Object.keys(process.env).forEach((key) => {
     if (key.startsWith('PROXMOX_')) delete process.env[key];
@@ -52,7 +45,6 @@ function clearProxmoxEnv() {
 }
 
 function restoreEnv() {
-  clearZFSEnv();
   clearProxmoxEnv();
   Object.assign(process.env, originalEnv);
 }
@@ -100,7 +92,6 @@ describe('createCollectors', () => {
     console.error = mock(() => {});
     // Prevent collectors from actually running (and making real network calls)
     runSpy = spyOn(BaseCollector.prototype, 'run').mockResolvedValue(undefined);
-    clearZFSEnv();
     clearProxmoxEnv();
   });
 
@@ -117,7 +108,7 @@ describe('createCollectors', () => {
     const controller = new AbortController();
     await using stack = new AsyncDisposableStack();
 
-    const config = createWorkerConfig({ docker: { enabled: false }, zfs: { enabled: false }, proxmox: { enabled: false } });
+    const config = createWorkerConfig({ docker: { enabled: false }, proxmox: { enabled: false } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
     expect(collectors).toHaveLength(0);
@@ -131,7 +122,7 @@ describe('createCollectors', () => {
     const controller = new AbortController();
     await using stack = new AsyncDisposableStack();
 
-    const config = createWorkerConfig({ docker: { enabled: true }, zfs: { enabled: true } });
+    const config = createWorkerConfig({ docker: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
     // Docker and ZFS collectors are only created via createCollectorsForManagedHosts

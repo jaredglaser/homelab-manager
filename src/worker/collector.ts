@@ -51,7 +51,6 @@ async function main() {
     console.info('[Worker] Configuration loaded:', {
       database: `${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
       docker: workerConfig.docker.enabled,
-      zfs: workerConfig.zfs.enabled,
       proxmox: workerConfig.proxmox.enabled,
       collectionInterval: `${workerConfig.collection.interval}ms`,
     });
@@ -156,9 +155,7 @@ async function main() {
       await hostsListener.start();
       await hostManager.reconcile();
 
-      const zfsNodes = workerConfig.zfs.enabled
-        ? await startZfsNodeCollection(db, dbConfig, keyring, shutdownController.signal, stack)
-        : null;
+      const zfsNodes = await startZfsNodeCollection(db, dbConfig, keyring, shutdownController.signal, stack);
 
       // Worker stays alive even with zero collectors initially: a host added
       // through the wizard later will spin up its collectors via the listener.
@@ -183,7 +180,7 @@ async function main() {
             SETTINGS_KEYS.proxmox.updateInterval,
           ],
           (key, value) => handleSettingChange(
-            () => [...staticCollectors, ...hostManager.collectors(), ...(zfsNodes?.collectors() ?? [])],
+            () => [...staticCollectors, ...hostManager.collectors(), ...zfsNodes.collectors()],
             key,
             value,
           ),
@@ -235,7 +232,7 @@ async function main() {
         }
         shutdownController.signal.addEventListener('abort', () => resolve(), { once: true });
       });
-      await Promise.allSettled([...staticRunners, ...hostManager.runners(), ...(zfsNodes?.runners() ?? []), sweeperRunner]);
+      await Promise.allSettled([...staticRunners, ...hostManager.runners(), ...zfsNodes.runners(), sweeperRunner]);
     }
     // AsyncDisposableStack disposes here - cleans up
 

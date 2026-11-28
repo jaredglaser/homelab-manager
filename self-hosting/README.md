@@ -220,7 +220,7 @@ Docker monitoring works through agent sidecars. Deploy the agent container on ea
 
 The worker reads each ZFS node over SSH, with a key the app generates for that node. It runs two read-only commands and nothing else: `zpool_influxdb --execd --no-histograms` once a second for the counters, and `zpool status -j --json-int` every 5 seconds for the layout, device groups, cache and spares. Both ship with OpenZFS 2.3 and 2.4 (Proxmox VE 9.0 to 9.3). The Docker agent no longer reads ZFS.
 
-Set `WORKER_ZFS_ENABLED=true` on the worker. The worker and the dashboard both need to reach each node's SSH port: the worker collects, and the dashboard runs the connect and verify steps.
+The worker and the dashboard both need to reach each node's SSH port: the worker collects, and the dashboard runs the connect and verify steps.
 
 **Add a node:** on the **Hosts** page, under **ZFS nodes**, select **Add ZFS node** and enter a name, the node's address and its SSH port. The worker address is optional: when given, the node accepts the key only from that address (`from=` in `authorized_keys`).
 
@@ -296,7 +296,6 @@ The worker always runs and applies database migrations on startup; individual co
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `WORKER_DOCKER_ENABLED` | `true` | Enable Docker stats collection. Default `true` in the compose file. The app itself treats unset as disabled. |
-| `WORKER_ZFS_ENABLED` | `false` | Enable collection from the ZFS nodes on the Hosts page |
 | `WORKER_PROXMOX_ENABLED` | `false` | Enable Proxmox stats collection |
 | `WORKER_COLLECTION_INTERVAL_MS` | `1000` | Collection interval in milliseconds |
 | `WORKER_LOCALHOST_AGENT` | - | Docker-internal hostname to substitute for `localhost` agent URLs (e.g. `hlm-agent`). Set this when the worker and an agent container run on the same Docker host; without it, `localhost` agent URLs resolve to the worker container itself rather than the agent container. |
@@ -409,8 +408,8 @@ OIDC_REDIRECT_URI=https://homelab.example.com/api/auth/callback
 # Docker: no env vars needed; register hosts with the Docker capability
 # in Settings → Managed Hosts after deploying an agent sidecar.
 
-# ZFS: set WORKER_ZFS_ENABLED=true, then add each node on the Hosts page
-# under ZFS nodes and run the setup script it shows on the node.
+# ZFS: no env vars needed; add each node on the Hosts page under ZFS nodes
+# and run the setup script it shows on the node.
 
 # Proxmox VE
 PROXMOX_HOST=192.168.1.100
@@ -419,7 +418,6 @@ PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 # Worker
 # WORKER_DOCKER_ENABLED=true
-# WORKER_ZFS_ENABLED=false
 WORKER_PROXMOX_ENABLED=true
 # WORKER_COLLECTION_INTERVAL_MS=1000
 # WORKER_LOCALHOST_AGENT=hlm-agent
@@ -485,7 +483,7 @@ If the manager's per-host certificate record is lost (for example, a database re
 If provisioning reports that the agent did not serve the new certificate over HTTPS within the retry window, and the agent has no Docker capability (its logs say `Docker capability: disabled`) or runs an agent version too old to restart itself, restart it manually with `docker restart hlm-agent` and re-run provisioning.
 
 **ZFS node shows no pools**
-- Check that `WORKER_ZFS_ENABLED=true` is set on the worker, and that the node's notice on the Hosts page does not name a problem.
+- Check that the node's host key is confirmed and that its notice on the Hosts page does not name a problem.
 - "refused the app's key": run the setup script on the node again. Running it again is safe and replaces the key line.
 - "missing zpool_influxdb": update `zfsutils-linux`. The dispatcher looks for it at `/bin/zpool_influxdb` and `/usr/lib/zfs-linux/zpool_influxdb`.
 - "stopped answering ZFS reads": a pool may be suspended or a disk hanging. Check `zpool status` on the node. The worker retries with a growing delay.
