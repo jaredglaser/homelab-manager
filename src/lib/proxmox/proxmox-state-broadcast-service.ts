@@ -51,7 +51,8 @@ export class ProxmoxStateBroadcastService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly getPoolClient: () => Promise<PoolClient>;
   private readonly loadSnapshot: () => Promise<ProxmoxStateSnapshot>;
-  private deliveries: Promise<void> = Promise.resolve();
+  private loadSeq = 0;
+  private deliveredSeq = 0;
 
   constructor(deps: ProxmoxStateBroadcastServiceDeps = {}) {
     this.getPoolClient = deps.getPoolClient ?? defaultGetPoolClient;
@@ -75,25 +76,29 @@ export class ProxmoxStateBroadcastService {
     };
   }
 
-  /** Loads run one at a time, so an older snapshot is never delivered after a newer one. */
+  /**
+   * Loads run independently, so one that never settles (a half-open connection) blocks nothing,
+   * and a result older than the last one delivered is dropped.
+   */
   private deliver(targets: () => Iterable<StateSnapshotCallback>): void {
-    this.deliveries = this.deliveries.then(async () => {
-      let snapshot: ProxmoxStateSnapshot;
-      try {
-        snapshot = await this.loadSnapshot();
-      } catch (err) {
-        console.error('[ProxmoxStateBroadcastService] Failed to load snapshot:', err);
-        return;
-      }
-      for (const cb of [...targets()]) {
-        if (!this.subscribers.has(cb)) continue;
-        try {
-          cb(snapshot);
-        } catch (err) {
-          console.error('[ProxmoxStateBroadcastService] Subscriber callback failed:', err);
+    const seq = ++this.loadSeq;
+    void this.loadSnapshot().then(
+      (snapshot) => {
+        if (seq < this.deliveredSeq) return;
+        this.deliveredSeq = seq;
+        for (const cb of [...targets()]) {
+          if (!this.subscribers.has(cb)) continue;
+          try {
+            cb(snapshot);
+          } catch (err) {
+            console.error('[ProxmoxStateBroadcastService] Subscriber callback failed:', err);
+          }
         }
-      }
-    });
+      },
+      (err: unknown) => {
+        console.error('[ProxmoxStateBroadcastService] Failed to load snapshot:', err);
+      },
+    );
   }
 
   private async startListening(): Promise<void> {

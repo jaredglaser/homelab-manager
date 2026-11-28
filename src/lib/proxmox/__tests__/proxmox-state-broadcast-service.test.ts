@@ -143,7 +143,7 @@ describe('ProxmoxStateBroadcastService', () => {
     await service.stop();
   });
 
-  it('never delivers an older snapshot after a newer one', async () => {
+  it('drops an older snapshot that settles after a newer one was delivered', async () => {
     const { client, handlers } = controllablePoolClient();
     const pending: ((s: ProxmoxStateSnapshot) => void)[] = [];
     const service = new ProxmoxStateBroadcastService({
@@ -155,14 +155,38 @@ describe('ProxmoxStateBroadcastService', () => {
     service.subscribe((s) => received.push(s));
     await waitForCondition(() => pending.length === 1 && handlers.notify !== undefined);
     handlers.notify!({ channel: 'proxmox_state_change' });
-
-    expect(pending).toHaveLength(1);
-    pending[0](snapshot('collecting'));
     await waitForCondition(() => pending.length === 2);
+
     pending[1](snapshot('unreachable'));
+    await waitForCondition(() => received.length === 1);
+    pending[0](snapshot('collecting'));
+    handlers.notify!({ channel: 'proxmox_state_change' });
+    await waitForCondition(() => pending.length === 3);
+    pending[2](snapshot('token_rejected'));
     await waitForCondition(() => received.length === 2);
 
-    expect(states(received)).toEqual(['collecting', 'unreachable']);
+    expect(states(received)).toEqual(['unreachable', 'token_rejected']);
+    await service.stop();
+  });
+
+  it('keeps delivering to new subscribers and on NOTIFY when one load never settles', async () => {
+    const { client, handlers } = controllablePoolClient();
+    let calls = 0;
+    const service = new ProxmoxStateBroadcastService({
+      getPoolClient: () => Promise.resolve(client),
+      loadSnapshot: () => (++calls === 1 ? new Promise<ProxmoxStateSnapshot>(() => undefined) : Promise.resolve(snapshot('unreachable'))),
+    });
+
+    const first: ProxmoxStateSnapshot[] = [];
+    const second: ProxmoxStateSnapshot[] = [];
+    service.subscribe((s) => first.push(s));
+    await waitForCondition(() => calls === 1 && handlers.notify !== undefined);
+    service.subscribe((s) => second.push(s));
+    await waitForCondition(() => second.length === 1);
+    handlers.notify!({ channel: 'proxmox_state_change' });
+    await waitForCondition(() => first.length === 1 && second.length === 2);
+
+    expect(states(first)).toEqual(['unreachable']);
     await service.stop();
   });
 
