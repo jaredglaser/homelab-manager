@@ -34,8 +34,6 @@ interface ConnectionSecretRow extends ConnectionRow {
   token_secret_jwe: string;
 }
 
-const SUMMARY_COLUMNS = 'id, name, address, port, token_id, allow_self_signed';
-
 export class ProxmoxAddressTakenError extends Error {
   constructor(readonly address: string) {
     super(`A Proxmox connection to ${address} already exists`);
@@ -75,7 +73,7 @@ export class ProxmoxConnectionRepository {
   }
 
   async list(): Promise<ProxmoxConnectionSummary[]> {
-    const result = await this.pool.query<ConnectionRow>(`SELECT ${SUMMARY_COLUMNS} FROM proxmox_connections ORDER BY id`);
+    const result = await this.pool.query<ConnectionRow>(`SELECT id, name, address, port, token_id, allow_self_signed FROM proxmox_connections ORDER BY id`);
     return result.rows.map(toSummary);
   }
 
@@ -86,7 +84,7 @@ export class ProxmoxConnectionRepository {
       const result = await this.pool.query<ConnectionRow>(
         `INSERT INTO proxmox_connections (name, address, port, token_id, token_secret_jwe, allow_self_signed)
          VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING ${SUMMARY_COLUMNS}`,
+         RETURNING id, name, address, port, token_id, allow_self_signed`,
         [input.name, input.address, input.port, input.tokenId, secretJwe, input.allowSelfSignedCerts],
       );
       row = result.rows.at(0);
@@ -109,7 +107,7 @@ export class ProxmoxConnectionRepository {
                 token_secret_jwe = COALESCE($6, token_secret_jwe),
                 allow_self_signed = $7, updated_at = now()
           WHERE id = $1
-          RETURNING ${SUMMARY_COLUMNS}`,
+          RETURNING id, name, address, port, token_id, allow_self_signed`,
         [id, input.name, input.address, input.port, input.tokenId, secretJwe, input.allowSelfSignedCerts],
       );
       row = result.rows.at(0);
@@ -125,11 +123,11 @@ export class ProxmoxConnectionRepository {
   async remove(id: number): Promise<ProxmoxConnectionSummary | null> {
     const result = await this.pool.query<ConnectionRow>(
       `WITH gone AS (
-         DELETE FROM proxmox_connections WHERE id = $1 RETURNING ${SUMMARY_COLUMNS}
+         DELETE FROM proxmox_connections WHERE id = $1 RETURNING id, name, address, port, token_id, allow_self_signed
        ), state AS (
-         DELETE FROM proxmox_collector_state WHERE connection_id = $1::text
+         DELETE FROM proxmox_collector_state WHERE connection_id IN (SELECT id::text FROM gone)
        )
-       SELECT ${SUMMARY_COLUMNS} FROM gone`,
+       SELECT id, name, address, port, token_id, allow_self_signed FROM gone`,
       [id],
     );
     const row = result.rows.at(0);
@@ -160,7 +158,7 @@ export class ProxmoxConnectionRepository {
 
   async getConnection(id: number): Promise<ProxmoxConnection | null> {
     const result = await this.pool.query<ConnectionSecretRow>(
-      `SELECT ${SUMMARY_COLUMNS}, token_secret_jwe FROM proxmox_connections WHERE id = $1`,
+      `SELECT id, name, address, port, token_id, allow_self_signed, token_secret_jwe FROM proxmox_connections WHERE id = $1`,
       [id],
     );
     const row = result.rows.at(0);
@@ -169,7 +167,7 @@ export class ProxmoxConnectionRepository {
 
   async listForWorker(): Promise<ProxmoxConnectionForWorker[]> {
     const result = await this.pool.query<ConnectionSecretRow>(
-      `SELECT ${SUMMARY_COLUMNS}, token_secret_jwe FROM proxmox_connections ORDER BY id`,
+      `SELECT id, name, address, port, token_id, allow_self_signed, token_secret_jwe FROM proxmox_connections ORDER BY id`,
     );
     return await Promise.all(result.rows.map(async (row): Promise<ProxmoxConnectionForWorker> => {
       try {
