@@ -6,7 +6,7 @@ import { isAgentUpdateFailureCode, zAgentRouteErrorBodyFromAnyAgent, type TlsFai
 import { probeFailureCode, type HostFailureCode } from '@/lib/errors/host-failure-copy';
 import type { UpdateFailureCode } from '@/lib/errors/agent-route-failure-copy';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
-import { resolveAgentImageDigest } from '@/lib/hosts/agent-image-digest';
+import { resolveAgentImageRelease, type AgentImageRelease } from '@/lib/hosts/agent-image-digest';
 import { agentFetch, MAX_AGENT_FAILURE_BODY_BYTES, readBoundedBody, singleLine } from '@/lib/clients/agent-http';
 import { notAnsweringLogLine, readNotAnsweringFailure } from '@/lib/clients/agent-identity';
 import { certificateFingerprint } from '@/lib/crypto/cert-fingerprint';
@@ -43,7 +43,10 @@ export type HostOperationResult<Code extends UpdateFailureCode = HostFailureCode
   | { hostId: number; healthy: false; code: Code; message: string };
 
 export type HealthCheckResult = HostOperationResult;
-export type UpdateAgentResult = HostOperationResult<UpdateFailureCode>;
+export type UpdateAgentResult =
+  | { hostId: number; healthy: true; outcome: 'updated'; version?: string }
+  | { hostId: number; healthy: true; outcome: 'already_current' }
+  | { hostId: number; healthy: false; code: UpdateFailureCode; message: string };
 
 function readUpdateRefusal(response: Response, body: string): { code: UpdateFailureCode; message: string } {
   let parsed: unknown;
@@ -65,6 +68,12 @@ function readUpdateRefusal(response: Response, body: string): { code: UpdateFail
 /** A peer that never finishes answering the trigger must not hang the update. */
 const UPDATE_TRIGGER_TIMEOUT_MS = 30_000;
 const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
+// A restarted agent resolves its image lazily and can lose the startup race with socket-proxy.
+const IMAGE_DIGEST_RETRY_DELAYS_MS = [1000, 1000, 1000] as const;
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function digestPinnedImageRef(imageRef: string, digest: string): string {
   return `${imageRef.slice(0, imageRef.lastIndexOf(':'))}@${digest}`;
@@ -343,12 +352,14 @@ export async function handleUpdateAgent(
   deps: HostHandlerDeps & {
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
     checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
-    resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+    resolveAgentImageRelease?: (imageRef: string) => Promise<AgentImageRelease | null>;
     /** Pinned TLS certificate lookup. Without it, https agent URLs refuse to connect. */
     getCaCert?: (hostname: string) => Promise<string | null>;
+    sleep?: (ms: number) => Promise<void>;
   },
   data: { hostId: number },
 ): Promise<UpdateAgentResult> {
+  const sleep = deps.sleep ?? sleepMs;
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -366,10 +377,10 @@ export async function handleUpdateAgent(
   // other cause would make a later version read look like a change that never happened.
   const preInfoUnsupported = preCheck.infoSupported === false;
 
-  const resolveDigest = deps.resolveAgentImageDigest ?? resolveAgentImageDigest;
+  const resolveRelease = deps.resolveAgentImageRelease ?? resolveAgentImageRelease;
   const imageRef = getAgentImage();
-  const digest = await resolveDigest(imageRef);
-  if (!digest) {
+  const release = await resolveRelease(imageRef);
+  if (!release) {
     return {
       hostId: host.id,
       healthy: false,
@@ -377,6 +388,12 @@ export async function handleUpdateAgent(
       message: 'Could not resolve the agent image digest from the registry',
     };
   }
+  // The agent decides by digest alone, so without this a rebuild of unchanged source swaps the container for nothing.
+  if (release.sourceHash && preCheck.agentSourceHash === release.sourceHash) {
+    await deps.repo.updateAgentInfo(host.id, { outOfDate: false });
+    return { hostId: host.id, healthy: true, outcome: 'already_current' };
+  }
+  const digest = release.digest;
   const targetImage = digestPinnedImageRef(imageRef, digest);
 
   let signer: () => Promise<string>;
@@ -432,8 +449,8 @@ export async function handleUpdateAgent(
   }
 
   if (triggerResponse.status === 200) {
-    // The agent checked its own image and found nothing newer.
-    return { hostId: host.id, healthy: true };
+    await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
+    return { hostId: host.id, healthy: true, outcome: 'already_current' };
   }
 
   if (triggerResponse.status !== 202) {
@@ -455,7 +472,7 @@ export async function handleUpdateAgent(
   let sawRestart = false;
 
   for (const delay of HEALTH_CHECK_DELAYS_MS) {
-    await new Promise((resolve) => setTimeout(resolve, delay));
+    await sleep(delay);
     lastResult = await deps.checkHealth(host.agentUrl, host.name);
     if (!lastResult.healthy) {
       sawRestart = true;
@@ -478,8 +495,15 @@ export async function handleUpdateAgent(
   if (!newVersion) {
     if (lastResult.healthy && currentVersion !== undefined && lastResult.version === currentVersion) {
       // An image rebuilt without a version bump keeps the version string, so the digest is what proves the swap happened.
-      if (typeof lastResult.agentImageDigest === 'string') {
-        if (lastResult.agentImageDigest !== digest) {
+      let runningDigest = lastResult.agentImageDigest;
+      for (const delay of IMAGE_DIGEST_RETRY_DELAYS_MS) {
+        if (typeof runningDigest === 'string') break;
+        await sleep(delay);
+        const reread = await deps.checkHealth(host.agentUrl, host.name);
+        if (reread.healthy && reread.version === currentVersion) runningDigest = reread.agentImageDigest;
+      }
+      if (typeof runningDigest === 'string') {
+        if (runningDigest !== digest) {
           return {
             hostId: host.id,
             healthy: false,
@@ -489,9 +513,14 @@ export async function handleUpdateAgent(
         }
         await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
         await deps.repo.updateAgentInfo(host.id, { imageDigest: digest, outOfDate: false });
-        return { hostId: host.id, healthy: true };
+        return { hostId: host.id, healthy: true, outcome: 'updated' };
       }
-      return { hostId: host.id, healthy: true };
+      return {
+        hostId: host.id,
+        healthy: false,
+        code: 'image_unconfirmed',
+        message: 'The agent reports the same version as before and does not report its image, so the update could not be confirmed',
+      };
     }
     if (lastResult.healthy && preInfoUnsupported && !sawRestart) {
       return {
@@ -519,21 +548,19 @@ export async function handleUpdateAgent(
 
   await deps.repo.updateHealth(host.id, { status: 'healthy', failure: null }, host.agentUrl);
   await deps.repo.updateAgentInfo(host.id, { version: newVersion, imageDigest: digest, outOfDate: false });
-  return { hostId: host.id, healthy: true, version: newVersion };
+  return { hostId: host.id, healthy: true, outcome: 'updated', version: newVersion };
 }
 
 export interface AgentsInventoryDeps extends HostHandlerDeps {
   checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
-  resolveAgentImageDigest?: (imageRef: string) => Promise<string | null>;
+  resolveAgentImageRelease?: (imageRef: string) => Promise<AgentImageRelease | null>;
 }
 
-function agentOutOfDateFor(outcome: HealthCheckOutcome, expected: string | null): boolean {
-  return !!(
-    outcome.healthy &&
-    outcome.agentImageDigest &&
-    expected &&
-    outcome.agentImageDigest !== expected
-  );
+// CI republishes the agent on every merge, so a digest alone flags rebuilds of unchanged source. The digest is the fallback for unstamped images.
+function agentOutOfDateFor(outcome: HealthCheckOutcome, expected: AgentImageRelease | null): boolean {
+  if (!outcome.healthy || !expected) return false;
+  if (expected.sourceHash && outcome.agentSourceHash) return outcome.agentSourceHash !== expected.sourceHash;
+  return !!outcome.agentImageDigest && outcome.agentImageDigest !== expected.digest;
 }
 
 /**
@@ -552,9 +579,9 @@ export async function handleSweepAgentInventory(
   const hosts = await deps.repo.findAll();
   // Absent resolver means no comparison this sweep: every host stays unflagged instead of guessing.
   // Resolved concurrently with the probes so a slow registry call cannot delay host health updates.
-  const [expectedAgentDigest, probeOutcomes] = await Promise.all([
-    deps.resolveAgentImageDigest
-      ? deps.resolveAgentImageDigest(getAgentImage()).catch(() => null)
+  const [expectedAgentRelease, probeOutcomes] = await Promise.all([
+    deps.resolveAgentImageRelease
+      ? deps.resolveAgentImageRelease(getAgentImage()).catch(() => null)
       : Promise.resolve(null),
     Promise.all(
       hosts.map(async (host): Promise<HealthCheckOutcome | undefined> => {
@@ -572,6 +599,8 @@ export async function handleSweepAgentInventory(
       }),
     ),
   ]);
+  // A failed label read keeps the stored verdict. Digests would flag every rebuild, and a stale hash would hide a real update.
+  const labelUnread = expectedAgentRelease !== null && expectedAgentRelease.sourceHash === undefined;
   await Promise.all(
     hosts.map(async (host, i) => {
       const outcome = probeOutcomes[i];
@@ -580,7 +609,6 @@ export async function handleSweepAgentInventory(
         // checkedAt answers "when did the sweep last look at this agent", not "when did its status last change".
         await deps.repo.updateLastSweptAt(host.id, now);
         await deps.repo.updateHealth(host.id, probeVerdict(host, outcome), host.agentUrl);
-        const agentOutOfDate = agentOutOfDateFor(outcome, expectedAgentDigest);
         if (outcome.healthy && (outcome.version || outcome.infoSupported)) {
           await deps.repo.updateAgentInfo(host.id, {
             version: outcome.version,
@@ -589,7 +617,7 @@ export async function handleSweepAgentInventory(
                   image: outcome.agentImage ?? null,
                   imageTag: outcome.agentImageTag ?? null,
                   imageDigest: outcome.agentImageDigest ?? null,
-                  outOfDate: agentOutOfDate,
+                  ...(labelUnread ? {} : { outOfDate: agentOutOfDateFor(outcome, expectedAgentRelease) }),
                 }
               : {}),
           });

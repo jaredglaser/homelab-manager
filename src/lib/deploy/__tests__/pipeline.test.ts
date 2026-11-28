@@ -177,7 +177,7 @@ describe('DeployPipeline', () => {
         postSuccess: null,
       };
       // We need the hashes to match -- compute from the same content
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       previousDeploy.composeHash = computeHash(testRequest.composeContent);
       previousDeploy.envHash = computeHash(testRequest.envContent);
 
@@ -221,7 +221,7 @@ describe('DeployPipeline', () => {
         startedAt: null,
         postSuccess: null,
       };
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       previousDeploy.composeHash = computeHash(testRequest.composeContent);
       previousDeploy.envHash = computeHash(testRequest.envContent);
 
@@ -261,7 +261,7 @@ describe('DeployPipeline', () => {
         startedAt: null,
         postSuccess: null,
       };
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       previousDeploy.composeHash = computeHash(testRequest.composeContent);
       previousDeploy.envHash = computeHash(testRequest.envContent);
 
@@ -304,7 +304,7 @@ describe('DeployPipeline', () => {
         startedAt: null,
         postSuccess: null,
       };
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       previousDeploy.composeHash = computeHash(testRequest.composeContent);
       previousDeploy.envHash = computeHash(testRequest.envContent);
 
@@ -1027,7 +1027,7 @@ describe('DeployPipeline', () => {
       };
       // getLatestSuccessful would reveal a matching previous deploy, but detectChanges
       // should never be called for manual_rollback triggers
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       deployRepo = createMockDeployRepo({
         getLatestSuccessful: mock().mockResolvedValue({
           id: 99,
@@ -1075,7 +1075,7 @@ describe('DeployPipeline', () => {
     };
 
     it('skips change detection and always executes, even when a matching previous deploy exists', async () => {
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       deployRepo = createMockDeployRepo({
         getLatestSuccessful: mock().mockResolvedValue({
           id: 99,
@@ -1112,7 +1112,7 @@ describe('DeployPipeline', () => {
     });
 
     it('records composeHash/envHash computed exactly like the deploy path', async () => {
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       const result = await pipeline.execute(testUpdateRequest);
       expect(result.status).toBe('in_progress');
 
@@ -1137,7 +1137,7 @@ describe('DeployPipeline', () => {
         runDetached: detachCollector(),
       });
 
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       const result = await pipeline.execute(requestWithVars);
       expect(result.status).toBe('in_progress');
 
@@ -1501,7 +1501,7 @@ describe('DeployPipeline', () => {
 
     it('invokes removeStackFromManifest on the no_change path', async () => {
       // Previous deploy hashes match the request, so deploy becomes no_change.
-      const { computeHash } = await import('../change-detection');
+      const { computeHash } = await import('@/lib/deploy/change-detection');
       const composeContent = 'version: "3"\nservices:\n  plex:\n    image: plexinc/pms-docker';
       deployRepo = createMockDeployRepo({
         getLatestSuccessful: mock().mockResolvedValue({
